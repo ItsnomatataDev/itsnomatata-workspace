@@ -4,7 +4,6 @@ import Sidebar from "../../../components/dashboard/components/Siderbar";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import { useCampaigns } from "../../../lib/hooks/useCampaigns";
 
-
 export default function CampaignsPage() {
   const auth = useAuth();
   const [busy, setBusy] = useState(false);
