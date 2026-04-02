@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   CheckSquare,
   ClipboardList,
@@ -10,19 +10,34 @@ import {
   Sparkles,
   ArrowRight,
   BriefcaseBusiness,
+  CheckCircle2,
+  TimerReset,
 } from "lucide-react";
 import { useAuth } from "../app/providers/AuthProvider";
 import Sidebar from "../components/dashboard/components/Siderbar";
+import TimeTrackerCard from "../components/dashboard/components/TimeTrackerCard";
 import { useDashboard } from "../lib/hooks/useDashboard";
+
+function formatDuration(totalSeconds: number) {
+  const safe = Math.max(0, totalSeconds || 0);
+  const hours = Math.floor(safe / 3600);
+  const minutes = Math.floor((safe % 3600) / 60);
+  const seconds = safe % 60;
+
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
+}
 
 function StatCard({
   title,
   value,
   icon: Icon,
+  subtitle,
 }: {
   title: string;
   value: string | number;
   icon: React.ComponentType<{ size?: number }>;
+  subtitle?: string;
 }) {
   return (
     <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
@@ -32,7 +47,12 @@ function StatCard({
           <Icon size={18} />
         </div>
       </div>
+
       <p className="mt-4 text-3xl font-bold text-white">{value}</p>
+
+      {subtitle ? (
+        <p className="mt-2 text-xs text-white/40">{subtitle}</p>
+      ) : null}
     </div>
   );
 }
@@ -77,6 +97,7 @@ export default function DashboardPage() {
     activeTimer,
     startTimer,
     stopTimer,
+    busy,
   } = useDashboard({
     userId: user?.id,
     organizationId: profile?.organization_id ?? null,
@@ -86,6 +107,35 @@ export default function DashboardPage() {
     longitude: coords?.longitude ?? null,
     enabled: !!user?.id && !!profile?.organization_id,
   });
+
+  const [liveSeconds, setLiveSeconds] = useState(0);
+
+  useEffect(() => {
+    if (!activeTimer?.started_at) {
+      setLiveSeconds(0);
+      return;
+    }
+
+    const tick = () => {
+      const startedAtMs = new Date(activeTimer.started_at).getTime();
+      const nowMs = Date.now();
+      const diff = Math.max(0, Math.floor((nowMs - startedAtMs) / 1000));
+      setLiveSeconds(diff);
+    };
+
+    tick();
+    const interval = window.setInterval(tick, 1000);
+
+    return () => window.clearInterval(interval);
+  }, [activeTimer]);
+
+  const completedTodaySeconds = useMemo(() => {
+    return stats?.todaySeconds ?? 0;
+  }, [stats]);
+
+  const totalTodayDisplaySeconds = useMemo(() => {
+    return completedTodaySeconds + liveSeconds;
+  }, [completedTodaySeconds, liveSeconds]);
 
   if (authLoading) {
     return (
@@ -119,6 +169,9 @@ export default function DashboardPage() {
     );
   }
 
+  const isAdminView =
+    profile.primary_role === "admin" || profile.primary_role === "manager";
+
   return (
     <div className="min-h-screen bg-black text-white">
       <div className="flex min-h-screen">
@@ -143,7 +196,8 @@ export default function DashboardPage() {
                 Welcome back, {profile.full_name || "User"}
               </h1>
               <p className="mt-2 text-sm text-white/50">
-                Real-time role dashboard powered by your workspace data.
+                Real-time workspace dashboard for tasks, approvals, time
+                tracking, announcements and operations.
               </p>
             </div>
 
@@ -190,8 +244,9 @@ export default function DashboardPage() {
                 />
                 <StatCard
                   title="Tracked Today"
-                  value={`${stats?.todayMinutes ?? 0}m`}
+                  value={formatDuration(totalTodayDisplaySeconds)}
                   icon={Clock3}
+                  subtitle="Hours : Minutes : Seconds"
                 />
                 <StatCard
                   title="My Projects"
@@ -203,7 +258,13 @@ export default function DashboardPage() {
               <section className="mt-6 grid gap-6 xl:grid-cols-3">
                 <div className="rounded-2xl border border-white/10 bg-white/5 p-5 xl:col-span-2">
                   <div className="flex items-center justify-between">
-                    <h2 className="text-lg font-semibold">My Tasks</h2>
+                    <div>
+                      <h2 className="text-lg font-semibold">My Tasks</h2>
+                      <p className="mt-1 text-sm text-white/50">
+                        Track work directly against real tasks
+                      </p>
+                    </div>
+
                     <span className="text-sm text-white/50">
                       {profile.primary_role}
                     </span>
@@ -218,7 +279,7 @@ export default function DashboardPage() {
                       tasks.map((task) => (
                         <div
                           key={task.id}
-                          className="flex items-center justify-between rounded-xl border border-white/10 bg-black/40 px-4 py-3"
+                          className="flex flex-col gap-3 rounded-xl border border-white/10 bg-black/40 px-4 py-4 md:flex-row md:items-center md:justify-between"
                         >
                           <div>
                             <p className="font-medium text-white">
@@ -228,18 +289,29 @@ export default function DashboardPage() {
                               {task.status.replaceAll("_", " ")} ·{" "}
                               {task.priority}
                             </p>
+                            {task.due_date ? (
+                              <p className="mt-2 text-xs text-white/35">
+                                Due:{" "}
+                                {new Date(task.due_date).toLocaleDateString()}
+                              </p>
+                            ) : null}
                           </div>
-                          <button
-                            onClick={() =>
-                              void startTimer(
-                                task.id,
-                                `Working on ${task.title}`,
-                              )
-                            }
-                            className="rounded-xl bg-orange-500 px-3 py-2 text-sm font-semibold text-black"
-                          >
-                            Track time
-                          </button>
+
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              disabled={busy || !!activeTimer}
+                              onClick={() =>
+                                void startTimer(
+                                  task.id,
+                                  `Working on ${task.title}`,
+                                )
+                              }
+                              className="rounded-xl bg-orange-500 px-3 py-2 text-sm font-semibold text-black disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              Track time
+                            </button>
+                          </div>
                         </div>
                       ))
                     )}
@@ -247,40 +319,56 @@ export default function DashboardPage() {
                 </div>
 
                 <div className="space-y-6">
+                  <TimeTrackerCard
+                    activeTimeEntry={activeTimer}
+                    todaySeconds={stats?.todaySeconds ?? 0}
+                    busy={busy}
+                    onStart={() => void startTimer(null, "General work")}
+                    onStop={() => void stopTimer()}
+                  />
+
                   <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
                     <div className="flex items-center gap-3">
                       <div className="rounded-xl bg-orange-500/15 p-2 text-orange-500">
-                        <Clock3 size={18} />
+                        <TimerReset size={18} />
                       </div>
                       <div>
-                        <h2 className="text-lg font-semibold">Time Tracking</h2>
+                        <h2 className="text-lg font-semibold">
+                          Active Session
+                        </h2>
                         <p className="text-sm text-white/50">
-                          Role: {profile.primary_role}
+                          Current timer state
                         </p>
                       </div>
                     </div>
 
-                    <p className="mt-5 text-3xl font-bold text-white">
-                      {stats?.todayMinutes ?? 0} min
-                    </p>
-                    <p className="mt-1 text-sm text-white/50">Tracked today</p>
+                    <div className="mt-4 space-y-2">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-white/50">Status</span>
+                        <span className="font-medium text-white">
+                          {activeTimer ? "Running" : "Stopped"}
+                        </span>
+                      </div>
 
-                    <div className="mt-5">
-                      {activeTimer ? (
-                        <button
-                          onClick={() => void stopTimer()}
-                          className="rounded-xl bg-white px-4 py-3 font-semibold text-black"
-                        >
-                          Stop Timer
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => void startTimer(null, "General work")}
-                          className="rounded-xl bg-orange-500 px-4 py-3 font-semibold text-black"
-                        >
-                          Start Timer
-                        </button>
-                      )}
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-white/50">Current session</span>
+                        <span className="font-medium text-orange-400">
+                          {formatDuration(liveSeconds)}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-white/50">Today total</span>
+                        <span className="font-medium text-white">
+                          {formatDuration(totalTodayDisplaySeconds)}
+                        </span>
+                      </div>
+
+                      {activeTimer?.description ? (
+                        <div className="rounded-xl border border-white/10 bg-black/30 px-3 py-3 text-sm text-white/70">
+                          {activeTimer.description}
+                        </div>
+                      ) : null}
                     </div>
                   </div>
 
@@ -331,8 +419,7 @@ export default function DashboardPage() {
                   <div className="mt-4 space-y-3">
                     {announcements.length === 0 ? (
                       <p className="text-sm text-white/50">
-                        No internal announcements yet. Connect your external
-                        news feed through n8n next.
+                        No internal announcements yet.
                       </p>
                     ) : (
                       announcements.map((item) => (
@@ -393,11 +480,65 @@ export default function DashboardPage() {
                     </div>
                   </div>
 
-                  <button className="mt-5 inline-flex items-center gap-2 text-sm font-medium text-orange-500">
+                  <button
+                    type="button"
+                    className="mt-5 inline-flex items-center gap-2 text-sm font-medium text-orange-500"
+                  >
                     Open assistant <ArrowRight size={16} />
                   </button>
                 </div>
               </section>
+
+              {isAdminView ? (
+                <section className="mt-6 grid gap-6 xl:grid-cols-3">
+                  <div className="rounded-2xl border border-white/10 bg-white/5 p-5 xl:col-span-2">
+                    <div className="flex items-center gap-3">
+                      <div className="rounded-xl bg-orange-500/15 p-2 text-orange-500">
+                        <Clock3 size={18} />
+                      </div>
+                      <div>
+                        <h2 className="text-lg font-semibold">
+                          Team Time Visibility
+                        </h2>
+                        <p className="text-sm text-white/50">
+                          This section is ready for admin timesheets and team
+                          activity records.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 rounded-xl border border-dashed border-white/10 bg-black/20 p-4 text-sm text-white/50">
+                      Next step: load organization time entries here so admin
+                      can see who worked on what, for how long, and against
+                      which task — similar to Trello activity plus timesheets.
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+                    <div className="flex items-center gap-3">
+                      <div className="rounded-xl bg-orange-500/15 p-2 text-orange-500">
+                        <CheckCircle2 size={18} />
+                      </div>
+                      <div>
+                        <h2 className="text-lg font-semibold">Admin Summary</h2>
+                        <p className="text-sm text-white/50">Oversight panel</p>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 space-y-3 text-sm text-white/70">
+                      <div className="rounded-xl border border-white/10 bg-black/30 px-4 py-3">
+                        Monitor team time records
+                      </div>
+                      <div className="rounded-xl border border-white/10 bg-black/30 px-4 py-3">
+                        Review task-linked work logs
+                      </div>
+                      <div className="rounded-xl border border-white/10 bg-black/30 px-4 py-3">
+                        Prepare downloadable employee timesheets
+                      </div>
+                    </div>
+                  </div>
+                </section>
+              ) : null}
             </>
           )}
         </main>

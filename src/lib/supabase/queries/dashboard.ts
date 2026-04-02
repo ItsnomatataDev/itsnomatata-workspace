@@ -7,7 +7,7 @@ export interface DashboardStats {
   myCompletedTasks: number;
   unreadNotifications: number;
   pendingApprovals: number;
-  todayMinutes: number;
+  todaySeconds: number;
 }
 
 export interface AnnouncementItem {
@@ -33,6 +33,15 @@ const startOfTodayIso = () => {
   const now = new Date();
   const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   return start.toISOString();
+};
+
+const diffInSeconds = (start: string, end?: string | null) => {
+  const startMs = new Date(start).getTime();
+  const endMs = end ? new Date(end).getTime() : Date.now();
+
+  if (Number.isNaN(startMs) || Number.isNaN(endMs)) return 0;
+
+  return Math.max(0, Math.floor((endMs - startMs) / 1000));
 };
 
 export const getDashboardStats = async (
@@ -82,7 +91,7 @@ export const getDashboardStats = async (
       .eq("approval_status", "pending"),
     supabase
       .from("time_entries")
-      .select("duration_minutes, started_at, ended_at")
+      .select("duration_seconds, started_at, ended_at")
       .eq("user_id", userId)
       .gte("started_at", startOfTodayIso()),
   ]);
@@ -95,14 +104,13 @@ export const getDashboardStats = async (
   if (approvalsRes.error) throw approvalsRes.error;
   if (timeEntriesRes.error) throw timeEntriesRes.error;
 
-  const todayMinutes = (timeEntriesRes.data ?? []).reduce((sum, item) => {
-    if (typeof item.duration_minutes === "number")
-      return sum + item.duration_minutes;
+  const todaySeconds = (timeEntriesRes.data ?? []).reduce((sum, item) => {
+    if (typeof item.duration_seconds === "number" && item.ended_at) {
+      return sum + Math.max(0, item.duration_seconds);
+    }
 
-    if (item.started_at && !item.ended_at) {
-      const started = new Date(item.started_at).getTime();
-      const now = Date.now();
-      return sum + Math.max(Math.floor((now - started) / 60000), 0);
+    if (item.started_at) {
+      return sum + diffInSeconds(item.started_at, item.ended_at);
     }
 
     return sum;
@@ -115,7 +123,7 @@ export const getDashboardStats = async (
     myCompletedTasks: completedRes.count ?? 0,
     unreadNotifications: notificationsRes.count ?? 0,
     pendingApprovals: approvalsRes.count ?? 0,
-    todayMinutes,
+    todaySeconds,
   };
 };
 

@@ -1,5 +1,8 @@
 import { useState } from "react";
-import type { TaskPriority, TaskStatus } from "../../../lib/supabase/queries/tasks";
+import type {
+  TaskPriority,
+  TaskStatus,
+} from "../../../lib/supabase/queries/tasks";
 
 export interface TaskFormValues {
   title: string;
@@ -8,6 +11,7 @@ export interface TaskFormValues {
   priority: TaskPriority;
   due_date: string;
   department: string;
+  assigned_to: string;
 }
 
 export default function TaskForm({
@@ -24,6 +28,7 @@ export default function TaskForm({
     priority: "medium",
     due_date: "",
     department: "",
+    assigned_to: "",
   });
 
   const update = (field: keyof TaskFormValues, value: string) => {
@@ -40,6 +45,7 @@ export default function TaskForm({
       priority: "medium",
       due_date: "",
       department: "",
+      assigned_to: "",
     });
   };
 
@@ -66,7 +72,7 @@ export default function TaskForm({
           onChange={(e) => update("description", e.target.value)}
           className="w-full rounded-xl border border-white/10 bg-black px-4 py-3 text-white outline-none focus:border-orange-500"
           rows={4}
-          placeholder="Task details..."
+          placeholder="Task brief, post caption notes, design instructions..."
         />
       </div>
 
@@ -82,7 +88,9 @@ export default function TaskForm({
             <option value="todo">To Do</option>
             <option value="in_progress">In Progress</option>
             <option value="review">Review</option>
+            <option value="approved">Approved</option>
             <option value="done">Done</option>
+            <option value="blocked">Blocked</option>
           </select>
         </div>
 
@@ -126,9 +134,9 @@ export default function TaskForm({
       <button
         type="submit"
         disabled={busy}
-        className="rounded-xl bg-orange-500 px-4 py-3 font-semibold text-black"
+        className="rounded-xl bg-orange-500 px-4 py-3 font-semibold text-black disabled:opacity-60"
       >
-        {busy ? "Saving..." : "Create Task"}
+        {busy ? "Saving..." : "Create Card"}
       </button>
     </form>
   );

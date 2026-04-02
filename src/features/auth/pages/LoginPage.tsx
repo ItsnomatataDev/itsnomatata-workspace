@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { loginUser, signInWithGoogle } from "../../../lib/supabase/auth";
+import { signInUser, signInWithGoogle } from "../../../lib/supabase/auth";
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -10,14 +10,24 @@ export default function LoginPage() {
   const [busy, setBusy] = useState(false);
   const [googleBusy, setGoogleBusy] = useState(false);
   const [error, setError] = useState("");
+  const [warning, setWarning] = useState("");
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    setWarning("");
 
     try {
       setBusy(true);
-      await loginUser({ email, password });
+
+      const result = await signInUser({ email, password });
+
+      if (result?.workspace?.organizationFound === false) {
+        setWarning(
+          'Login succeeded, but the organization with slug "its-nomatata" was not found. Ask admin to create it in Supabase.',
+        );
+      }
+
       navigate("/dashboard", { replace: true });
     } catch (err) {
       console.error("LOGIN ERROR:", err);
@@ -29,6 +39,7 @@ export default function LoginPage() {
 
   const handleGoogleLogin = async () => {
     setError("");
+    setWarning("");
 
     try {
       setGoogleBusy(true);
@@ -46,7 +57,7 @@ export default function LoginPage() {
         <div className="hidden lg:flex flex-col justify-between border-r border-orange-500/20 bg-linear-to-br from-black via-black to-orange-950/20 p-10">
           <div>
             <div className="inline-flex items-center rounded-full border border-orange-500/40 px-4 py-2 text-sm text-orange-400">
-              ITs Nomatata Workspace
+              ITsNomatata Workspace
             </div>
             <h1 className="mt-8 max-w-md text-5xl font-bold leading-tight">
               Welcome back to your workspace.
@@ -70,6 +81,12 @@ export default function LoginPage() {
             {error ? (
               <div className="mb-4 rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
                 {error}
+              </div>
+            ) : null}
+
+            {warning ? (
+              <div className="mb-4 rounded-2xl border border-yellow-500/30 bg-yellow-500/10 px-4 py-3 text-sm text-yellow-300">
+                {warning}
               </div>
             ) : null}
 

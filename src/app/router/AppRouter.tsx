@@ -20,7 +20,13 @@ import ITIssuesPage from "../../features/it-workspace/pages/ITIssuesPage";
 import ITSystemMonitorPage from "../../features/it-workspace/pages/ITSystemMonitorPage";
 import AutomationFlowsPage from "../../features/automation-flows/pages/AutomationFlowsPage";
 import AutomationRunsPage from "../../features/automation-flows/pages/AutomationRunsPage";
-
+import AdminDashboardPage from "../../features/admin/pages/AdminDashboardPage";
+import LeavePage from "../../features/leave/pages/LeavePage";
+import AdminLeavePage from "../../features/admin/pages/AdminLeavePage";
+import AdminRosterPage from "../../features/admin/pages/AdminRosterPage";
+import AdminEmployeesPage from "../../features/admin/pages/AdminEmployeesPage";
+import AdminEmployeeDetailsPage from "../../features/admin/pages/AdminEmployeeDetailsPage";
+import NotificationsPage from "../../features/notifications/pages/NotificationsPage";
 const AppRouter = () => {
   return (
     <BrowserRouter>
@@ -64,6 +70,16 @@ const AppRouter = () => {
             </ProtectedRoute>
           }
         />
+        <Route
+          path="/admin/employees/:userId"
+          element={
+            <ProtectedRoute>
+              <RoleRoute roles={["admin"]}>
+                <AdminEmployeeDetailsPage />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
 
         <Route
           path="/tasks"
@@ -79,6 +95,24 @@ const AppRouter = () => {
           element={
             <ProtectedRoute>
               <TimePage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/leave"
+          element={
+            <ProtectedRoute>
+              <LeavePage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/leave"
+          element={
+            <ProtectedRoute>
+              <RoleRoute roles={["admin"]}>
+                <AdminLeavePage />
+              </RoleRoute>
             </ProtectedRoute>
           }
         />
@@ -121,6 +155,16 @@ const AppRouter = () => {
             </ProtectedRoute>
           }
         />
+        <Route
+          path="/admin/dashboard"
+          element={
+            <ProtectedRoute>
+              <RoleRoute roles={["admin"]}>
+                <AdminDashboardPage />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
 
         <Route
           path="/content-library"
@@ -148,6 +192,16 @@ const AppRouter = () => {
             <ProtectedRoute>
               <RoleRoute roles={["it"]}>
                 <ITProjectsPage />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/employees"
+          element={
+            <ProtectedRoute>
+              <RoleRoute roles={["admin"]}>
+                <AdminEmployeesPage />
               </RoleRoute>
             </ProtectedRoute>
           }
@@ -193,6 +247,24 @@ const AppRouter = () => {
               <RoleRoute roles={["it"]}>
                 <ITSystemMonitorPage />
               </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/roster"
+          element={
+            <ProtectedRoute>
+              <RoleRoute roles={["admin"]}>
+                <AdminRosterPage />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/notifications"
+          element={
+            <ProtectedRoute>
+              <NotificationsPage />
             </ProtectedRoute>
           }
         />

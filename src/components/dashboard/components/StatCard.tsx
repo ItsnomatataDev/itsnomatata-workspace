@@ -10,7 +10,7 @@ export default function StatCard({
   icon: LucideIcon;
 }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+    <div className="rounded-2xl border border-white/10 bg-white/10 p-5">
       <div className="flex items-center justify-between">
         <p className="text-sm text-white/60">{title}</p>
         <div className="rounded-xl bg-orange-500/15 p-2 text-orange-500">

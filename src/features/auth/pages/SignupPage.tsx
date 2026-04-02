@@ -1,11 +1,22 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { signInWithGoogle, signUpUser } from "../../../lib/supabase/auth";
+import {
+  signInWithGoogle,
+  signUpUser,
+  type AppRole,
+} from "../../../lib/supabase/auth";
+
+type SignupFormState = {
+  fullName: string;
+  email: string;
+  password: string;
+  role: AppRole;
+};
 
 export default function SignupPage() {
   const navigate = useNavigate();
 
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<SignupFormState>({
     fullName: "",
     email: "",
     password: "",
@@ -16,14 +27,24 @@ export default function SignupPage() {
   const [googleBusy, setGoogleBusy] = useState(false);
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+  const [warning, setWarning] = useState("");
+
+  const updateForm = <K extends keyof SignupFormState>(
+    key: K,
+    value: SignupFormState[K],
+  ) => {
+    setForm((prev) => ({ ...prev, [key]: value }));
+  };
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     setSuccessMessage("");
-    setBusy(true);
+    setWarning("");
 
     try {
+      setBusy(true);
+
       const result = await signUpUser({
         email: form.email,
         password: form.password,
@@ -31,12 +52,18 @@ export default function SignupPage() {
         role: form.role,
       });
 
+      if (result?.workspace?.organizationFound === false) {
+        setWarning(
+          'Account created, but organization "its-nomatata" was not found. Ask admin to create it in Supabase.',
+        );
+      }
+
       if (result.session) {
         setSuccessMessage("Account created successfully. Redirecting...");
         navigate("/dashboard", { replace: true });
       } else {
         setSuccessMessage(
-          "Account created successfully. Please check your email to confirm your account, then log in.",
+          "Account created. Please check your email to confirm your account, then log in.",
         );
       }
     } catch (err) {
@@ -50,6 +77,7 @@ export default function SignupPage() {
   const handleGoogleSignup = async () => {
     setError("");
     setSuccessMessage("");
+    setWarning("");
 
     try {
       setGoogleBusy(true);
@@ -88,25 +116,29 @@ export default function SignupPage() {
               </p>
             </div>
 
-            {error ? (
+            {error && (
               <div className="mb-4 rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
                 {error}
               </div>
-            ) : null}
+            )}
 
-            {successMessage ? (
+            {warning && (
+              <div className="mb-4 rounded-2xl border border-yellow-500/30 bg-yellow-500/10 px-4 py-3 text-sm text-yellow-300">
+                {warning}
+              </div>
+            )}
+
+            {successMessage && (
               <div className="mb-4 rounded-2xl border border-green-500/30 bg-green-500/10 px-4 py-3 text-sm text-green-300">
                 {successMessage}
               </div>
-            ) : null}
+            )}
 
             <form onSubmit={handleSignup} className="space-y-4">
               <input
                 type="text"
                 value={form.fullName}
-                onChange={(e) =>
-                  setForm((prev) => ({ ...prev, fullName: e.target.value }))
-                }
+                onChange={(e) => updateForm("fullName", e.target.value)}
                 placeholder="Full Name"
                 className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 text-white outline-none focus:border-orange-500"
                 required
@@ -115,9 +147,7 @@ export default function SignupPage() {
               <input
                 type="email"
                 value={form.email}
-                onChange={(e) =>
-                  setForm((prev) => ({ ...prev, email: e.target.value }))
-                }
+                onChange={(e) => updateForm("email", e.target.value)}
                 placeholder="Email"
                 className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 text-white outline-none focus:border-orange-500"
                 required
@@ -125,25 +155,22 @@ export default function SignupPage() {
 
               <select
                 value={form.role}
-                onChange={(e) =>
-                  setForm((prev) => ({ ...prev, role: e.target.value }))
-                }
+                onChange={(e) => updateForm("role", e.target.value as AppRole)}
                 className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 text-white outline-none focus:border-orange-500"
+                required
               >
+                <option value="admin">Admin</option>
+                <option value="manager">Manager</option>
                 <option value="social_media">Social Media</option>
                 <option value="media_team">Media Team</option>
                 <option value="seo_specialist">SEO Specialist</option>
-                <option value="admin">Admin</option>
                 <option value="it">IT</option>
-                <option value="manager">Manager</option>
               </select>
 
               <input
                 type="password"
                 value={form.password}
-                onChange={(e) =>
-                  setForm((prev) => ({ ...prev, password: e.target.value }))
-                }
+                onChange={(e) => updateForm("password", e.target.value)}
                 placeholder="Password"
                 className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 text-white outline-none focus:border-orange-500"
                 required

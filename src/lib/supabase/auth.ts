@@ -1,175 +1,193 @@
 import { supabase } from "./client";
 
-interface SignUpUserParams {
+const ORGANIZATION_SLUG = "its-nomatata";
+
+export type AppRole =
+  | "admin"
+  | "manager"
+  | "it"
+  | "social_media"
+  | "media_team"
+  | "seo_specialist";
+
+type SignUpUserParams = {
   email: string;
   password: string;
   fullName: string;
-  role: string;
-}
+  role: AppRole;
+};
 
-interface LoginUserParams {
+type SignInUserParams = {
   email: string;
   password: string;
+};
+
+type OrganizationRow = {
+  id: string;
+  name: string;
+  slug: string;
+};
+
+let authRequestInFlight = false;
+
+function normalizeEmail(email: string) {
+  return email.trim().toLowerCase();
 }
 
-const ORGANIZATION_SLUG = "its-nomatata";
-const DEFAULT_ROLE = "social_media";
-
-async function getOrganizationIdBySlug() {
+async function getOrganizationBySlug(
+  slug: string,
+): Promise<OrganizationRow | null> {
   const { data, error } = await supabase
     .from("organizations")
-    .select("id")
-    .eq("slug", ORGANIZATION_SLUG)
+    .select("id, name, slug")
+    .eq("slug", slug)
     .maybeSingle();
 
-  if (error) {
-    throw new Error(`Failed to fetch organization: ${error.message}`);
-  }
-
-  if (!data) {
-    throw new Error(`Organization with slug "${ORGANIZATION_SLUG}" not found.`);
-  }
-
-  return data.id as string;
+  if (error) throw error;
+  return (data ?? null) as OrganizationRow | null;
 }
 
-async function ensureProfileAndMembership({
-  userId,
-  email,
-  fullName,
-  role,
-}: {
-  userId: string;
-  email: string;
-  fullName: string;
-  role?: string | null;
-}) {
-  const organizationId = await getOrganizationIdBySlug();
-  const safeRole = role || DEFAULT_ROLE;
+export async function signUpUser(params: SignUpUserParams) {
+  if (authRequestInFlight) {
+    throw new Error("An authentication request is already in progress.");
+  }
 
-  const { error: profileError } = await supabase.from("profiles").upsert(
-    {
-      id: userId,
+  authRequestInFlight = true;
+
+  try {
+    const email = normalizeEmail(params.email);
+
+    const organization = await getOrganizationBySlug(ORGANIZATION_SLUG);
+
+    const { data, error } = await supabase.auth.signUp({
       email,
-      full_name: fullName,
-      primary_role: safeRole,
-      organization_id: organizationId,
-    },
-    { onConflict: "id" },
-  );
-
-  if (profileError) {
-    throw new Error(`Profile setup failed: ${profileError.message}`);
-  }
-
-  const { error: membershipError } = await supabase
-    .from("organization_members")
-    .upsert(
-      {
-        organization_id: organizationId,
-        user_id: userId,
-        role: safeRole,
-        status: "active",
+      password: params.password,
+      options: {
+        data: {
+          full_name: params.fullName,
+          role: params.role,
+          organization_slug: ORGANIZATION_SLUG,
+          organization_id: organization?.id ?? null,
+        },
       },
-      { onConflict: "organization_id,user_id,role" },
-    );
+    });
 
-  if (membershipError) {
-    throw new Error(`Membership setup failed: ${membershipError.message}`);
+    if (error) {
+      if (error.message.toLowerCase().includes("email rate limit exceeded")) {
+        throw new Error(
+          "Too many auth emails were requested. Wait a few minutes, then try again. For development, you can disable email confirmation in Supabase.",
+        );
+      }
+
+      throw error;
+    }
+
+    return {
+      ...data,
+      workspace: {
+        organizationFound: Boolean(organization),
+        organization,
+      },
+    };
+  } finally {
+    authRequestInFlight = false;
   }
 }
 
-export const signUpUser = async ({
-  email,
-  password,
-  fullName,
-  role,
-}: SignUpUserParams) => {
-  const safeRole = role || DEFAULT_ROLE;
+export async function signInUser(params: SignInUserParams) {
+  if (authRequestInFlight) {
+    throw new Error("An authentication request is already in progress.");
+  }
 
-  const { data, error } = await supabase.auth.signUp({
-    email,
-    password,
-    options: {
-      data: {
-        full_name: fullName,
-        primary_role: safeRole,
+  authRequestInFlight = true;
+
+  try {
+    const email = normalizeEmail(params.email);
+
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password: params.password,
+    });
+
+    if (error) throw error;
+
+    if (!data.user) {
+      throw new Error("Login failed. No user was returned.");
+    }
+
+    const organization = await getOrganizationBySlug(ORGANIZATION_SLUG);
+
+    return {
+      ...data,
+      workspace: {
+        organizationFound: Boolean(organization),
+        organization,
       },
-    },
-  });
+    };
+  } finally {
+    authRequestInFlight = false;
+  }
+}
 
-  if (error) {
-    throw new Error(error.message);
+export async function signInWithGoogle() {
+  if (authRequestInFlight) {
+    throw new Error("An authentication request is already in progress.");
   }
 
-  const user = data.user;
-  if (!user) {
-    throw new Error("User was not returned after signup.");
+  authRequestInFlight = true;
+
+  try {
+    const organization = await getOrganizationBySlug(ORGANIZATION_SLUG);
+
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        queryParams: {
+          prompt: "select_account",
+        },
+        redirectTo: `${window.location.origin}/dashboard`,
+      },
+    });
+
+    if (error) throw error;
+
+    return {
+      ...data,
+      workspace: {
+        organizationFound: Boolean(organization),
+        organization,
+      },
+    };
+  } finally {
+    authRequestInFlight = false;
   }
+}
 
-  await ensureProfileAndMembership({
-    userId: user.id,
-    email,
-    fullName,
-    role: safeRole,
-  });
-
-  return {
-    user,
-    session: data.session,
-  };
-};
-
-export const loginUser = async ({ email, password }: LoginUserParams) => {
-  const { data, error } = await supabase.auth.signInWithPassword({
-    email,
-    password,
-  });
-
-  if (error) throw new Error(error.message);
-
-  if (!data.user) {
-    throw new Error("Login failed. No user returned.");
-  }
-
-  const fullName =
-    data.user.user_metadata?.full_name ||
-    data.user.user_metadata?.name ||
-    data.user.email?.split("@")[0] ||
-    "User";
-
-  const { data: existingProfile, error: profileCheckError } = await supabase
-    .from("profiles")
-    .select("*")
-    .eq("id", data.user.id)
-    .maybeSingle();
-
-  if (profileCheckError) {
-    throw new Error(`Failed to check profile: ${profileCheckError.message}`);
-  }
-
-  await ensureProfileAndMembership({
-    userId: data.user.id,
-    email: data.user.email || email,
-    fullName,
-    role: existingProfile?.primary_role || DEFAULT_ROLE,
-  });
-
-  return data.user;
-};
-
-export const signInWithGoogle = async () => {
-  const { error } = await supabase.auth.signInWithOAuth({
-    provider: "google",
-    options: {
-      redirectTo: `${window.location.origin}/dashboard`,
-    },
-  });
-
-  if (error) throw new Error(error.message);
-};
-
-export const logoutUser = async () => {
+export async function signOutUser() {
   const { error } = await supabase.auth.signOut();
-  if (error) throw new Error(error.message);
-};
+  if (error) throw error;
+}
+
+export async function logoutUser() {
+  return signOutUser();
+}
+
+export async function loginUser(params: SignInUserParams) {
+  return signInUser(params);
+}
+
+export async function getCurrentSession() {
+  const { data, error } = await supabase.auth.getSession();
+  if (error) throw error;
+  return data.session;
+}
+
+export async function getCurrentUser() {
+  const { data, error } = await supabase.auth.getUser();
+  if (error) throw error;
+  return data.user;
+}
+
+export async function getWorkspaceOrganization() {
+  return getOrganizationBySlug(ORGANIZATION_SLUG);
+}

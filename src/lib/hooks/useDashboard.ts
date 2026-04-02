@@ -8,7 +8,7 @@ type DashboardStats = {
   doneTasks: number;
   unreadNotifications: number;
   pendingApprovals: number;
-  todayMinutes: number;
+  todaySeconds: number;
   myProjects: number;
   completedProjects: number;
 };
@@ -43,6 +43,17 @@ type RoleNewsItem = {
   source?: string;
 };
 
+type ActiveTimer = {
+  id: string;
+  organization_id?: string | null;
+  user_id: string;
+  task_id?: string | null;
+  description?: string | null;
+  started_at: string;
+  ended_at?: string | null;
+  duration_seconds?: number | null;
+} | null;
+
 const startOfToday = () => {
   const now = new Date();
   return new Date(
@@ -50,6 +61,15 @@ const startOfToday = () => {
     now.getMonth(),
     now.getDate(),
   ).toISOString();
+};
+
+const diffInSeconds = (start: string, end?: string | null) => {
+  const startMs = new Date(start).getTime();
+  const endMs = end ? new Date(end).getTime() : Date.now();
+
+  if (Number.isNaN(startMs) || Number.isNaN(endMs)) return 0;
+
+  return Math.max(0, Math.floor((endMs - startMs) / 1000));
 };
 
 export function useDashboard(params: {
@@ -76,8 +96,9 @@ export function useDashboard(params: {
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [weather, setWeather] = useState<WeatherData | null>(null);
   const [roleNews, setRoleNews] = useState<RoleNewsItem[]>([]);
-  const [activeTimer, setActiveTimer] = useState<any>(null);
+  const [activeTimer, setActiveTimer] = useState<ActiveTimer>(null);
   const [loading, setLoading] = useState(Boolean(enabled));
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
   const roleNewsTopic = useMemo(() => {
@@ -126,45 +147,46 @@ export function useDashboard(params: {
     }
   }, [latitude, longitude, cityLabel]);
 
-const loadRoleNews = useCallback(async () => {
-  if (!role) {
-    setRoleNews([]);
-    return;
-  }
+  const loadRoleNews = useCallback(async () => {
+    if (!role) {
+      setRoleNews([]);
+      return;
+    }
 
-  const apiKey = import.meta.env.VITE_GNEWS_API_KEY;
+    const apiKey = import.meta.env.VITE_GNEWS_API_KEY;
 
-  if (!apiKey) {
-    console.error("Missing GNews API key");
-    setRoleNews([]);
-    return;
-  }
+    if (!apiKey) {
+      console.error("Missing GNews API key");
+      setRoleNews([]);
+      return;
+    }
 
-  try {
-    const url = `https://gnews.io/api/v4/search?q=${encodeURIComponent(
-      roleNewsTopic,
-    )}&lang=en&max=5&token=${apiKey}`;
+    try {
+      const url = `https://gnews.io/api/v4/search?q=${encodeURIComponent(
+        roleNewsTopic,
+      )}&lang=en&max=5&token=${apiKey}`;
 
-    const res = await fetch(url);
+      const res = await fetch(url);
 
-    if (!res.ok) throw new Error("News request failed");
+      if (!res.ok) throw new Error("News request failed");
 
-    const json = await res.json();
+      const json = await res.json();
 
-    const articles = (json.articles || []).map((item: any) => ({
-      title: item.title,
-      description: item.description,
-      url: item.url,
-      publishedAt: item.publishedAt,
-      source: item.source?.name,
-    }));
+      const articles = (json.articles || []).map((item: any) => ({
+        title: item.title,
+        description: item.description,
+        url: item.url,
+        publishedAt: item.publishedAt,
+        source: item.source?.name,
+      }));
 
-    setRoleNews(articles);
-  } catch (err) {
-    console.error("ROLE NEWS LOAD ERROR:", err);
-    setRoleNews([]);
-  }
-}, [role, roleNewsTopic]);
+      setRoleNews(articles);
+    } catch (err) {
+      console.error("ROLE NEWS LOAD ERROR:", err);
+      setRoleNews([]);
+    }
+  }, [role, roleNewsTopic]);
+
   const load = useCallback(async () => {
     if (!enabled) {
       setLoading(false);
@@ -207,46 +229,55 @@ const loadRoleNews = useCallback(async () => {
           .select("id", { head: true, count: "exact" })
           .eq("assigned_to", userId)
           .in("status", ["todo", "backlog", "blocked"]),
+
         supabase
           .from("tasks")
           .select("id", { head: true, count: "exact" })
           .eq("assigned_to", userId)
           .eq("status", "in_progress"),
+
         supabase
           .from("tasks")
           .select("id", { head: true, count: "exact" })
           .eq("assigned_to", userId)
           .eq("status", "review"),
+
         supabase
           .from("tasks")
           .select("id", { head: true, count: "exact" })
           .eq("assigned_to", userId)
           .eq("status", "done"),
+
         supabase
           .from("notifications")
           .select("id", { head: true, count: "exact" })
           .eq("user_id", userId)
           .eq("is_read", false),
+
         supabase
           .from("approvals")
           .select("id", { head: true, count: "exact" })
           .eq("assigned_approver", userId)
           .eq("approval_status", "pending"),
+
         supabase
           .from("project_members")
           .select("id", { head: true, count: "exact" })
           .eq("user_id", userId),
+
         supabase
           .from("projects")
           .select("id", { head: true, count: "exact" })
           .eq("organization_id", organizationId)
           .eq("status", "completed"),
+
         supabase
           .from("tasks")
           .select("id,title,status,priority,due_date")
           .eq("assigned_to", userId)
           .order("updated_at", { ascending: false })
           .limit(6),
+
         supabase
           .from("announcements")
           .select("id,title,content,created_at,target_roles")
@@ -259,14 +290,18 @@ const loadRoleNews = useCallback(async () => {
           )
           .order("created_at", { ascending: false })
           .limit(5),
+
         supabase
           .from("time_entries")
-          .select("started_at,ended_at")
+          .select("id,started_at,ended_at,duration_seconds,description,task_id")
           .eq("user_id", userId)
           .gte("started_at", startOfToday()),
+
         supabase
           .from("time_entries")
-          .select("*")
+          .select(
+            "id,organization_id,user_id,task_id,description,started_at,ended_at,duration_seconds",
+          )
           .eq("user_id", userId)
           .is("ended_at", null)
           .order("started_at", { ascending: false })
@@ -293,31 +328,16 @@ const loadRoleNews = useCallback(async () => {
         throw errors[0];
       }
 
-      const todayMinutes = (timeEntriesRes.data ?? []).reduce((sum, item) => {
-        if (item.ended_at) {
-          return (
-            sum +
-            Math.max(
-              0,
-              Math.floor(
-                (new Date(item.ended_at).getTime() -
-                  new Date(item.started_at).getTime()) /
-                  60000,
-              ),
-            )
-          );
-        }
+      const todaySeconds = (timeEntriesRes.data ?? []).reduce(
+        (sum, item: any) => {
+          if (typeof item.duration_seconds === "number" && item.ended_at) {
+            return sum + Math.max(0, item.duration_seconds);
+          }
 
-        return (
-          sum +
-          Math.max(
-            0,
-            Math.floor(
-              (Date.now() - new Date(item.started_at).getTime()) / 60000,
-            ),
-          )
-        );
-      }, 0);
+          return sum + diffInSeconds(item.started_at, item.ended_at);
+        },
+        0,
+      );
 
       setStats({
         openTasks: openRes.count ?? 0,
@@ -326,14 +346,14 @@ const loadRoleNews = useCallback(async () => {
         doneTasks: doneRes.count ?? 0,
         unreadNotifications: notificationsRes.count ?? 0,
         pendingApprovals: approvalsRes.count ?? 0,
-        todayMinutes,
+        todaySeconds,
         myProjects: myProjectsRes.count ?? 0,
         completedProjects: completedProjectsRes.count ?? 0,
       });
 
       setTasks((recentTasksRes.data ?? []) as DashboardTask[]);
       setAnnouncements((announcementsRes.data ?? []) as Announcement[]);
-      setActiveTimer(activeTimerRes.data ?? null);
+      setActiveTimer((activeTimerRes.data as ActiveTimer) ?? null);
 
       await Promise.all([loadWeather(), loadRoleNews()]);
     } catch (err: any) {
@@ -354,30 +374,66 @@ const loadRoleNews = useCallback(async () => {
         throw new Error("Missing organization.");
       }
 
-      const { error } = await supabase.from("time_entries").insert({
-        organization_id: organizationId,
-        user_id: userId,
-        task_id: taskId ?? null,
-        description: description ?? null,
-        started_at: new Date().toISOString(),
-      });
+      try {
+        setBusy(true);
 
-      if (error) throw error;
-      await load();
+        const { data: existingTimer, error: existingTimerError } =
+          await supabase
+            .from("time_entries")
+            .select("id")
+            .eq("user_id", userId)
+            .is("ended_at", null)
+            .maybeSingle();
+
+        if (existingTimerError) throw existingTimerError;
+
+        if (existingTimer) {
+          throw new Error("A timer is already running.");
+        }
+
+        const { error } = await supabase.from("time_entries").insert({
+          organization_id: organizationId,
+          user_id: userId,
+          task_id: taskId ?? null,
+          description: description ?? null,
+          started_at: new Date().toISOString(),
+          ended_at: null,
+          duration_seconds: 0,
+        });
+
+        if (error) throw error;
+
+        await load();
+      } finally {
+        setBusy(false);
+      }
     },
     [userId, organizationId, load],
   );
 
   const stopTimer = useCallback(async () => {
-    if (!activeTimer?.id) return;
+    if (!activeTimer?.id || !activeTimer?.started_at) return;
 
-    const { error } = await supabase
-      .from("time_entries")
-      .update({ ended_at: new Date().toISOString() })
-      .eq("id", activeTimer.id);
+    try {
+      setBusy(true);
 
-    if (error) throw error;
-    await load();
+      const endedAt = new Date().toISOString();
+      const durationSeconds = diffInSeconds(activeTimer.started_at, endedAt);
+
+      const { error } = await supabase
+        .from("time_entries")
+        .update({
+          ended_at: endedAt,
+          duration_seconds: durationSeconds,
+        })
+        .eq("id", activeTimer.id);
+
+      if (error) throw error;
+
+      await load();
+    } finally {
+      setBusy(false);
+    }
   }, [activeTimer, load]);
 
   useEffect(() => {
@@ -386,6 +442,7 @@ const loadRoleNews = useCallback(async () => {
 
   return {
     loading,
+    busy,
     error,
     stats,
     tasks,
@@ -399,3 +456,4 @@ const loadRoleNews = useCallback(async () => {
     stopTimer,
   };
 }
+ 

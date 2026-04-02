@@ -3,45 +3,42 @@ import type { TaskItem } from "../../../lib/supabase/queries/tasks";
 
 export default function TaskBoard({
   groupedTasks,
-  onMove,
   onTrack,
+  onOpen,
+  taskRuntimeMap,
+  taskInvitedCountMap,
 }: {
   groupedTasks: Record<string, TaskItem[]>;
-  onMove: (taskId: string, status: TaskItem["status"]) => void;
   onTrack: (taskId: string, title: string) => void;
+  onOpen: (taskId: string) => void;
+  taskRuntimeMap: Map<string, boolean>;
+  taskInvitedCountMap: Map<string, number>;
 }) {
+  const columns = [
+    { key: "backlog", title: "Backlog" },
+    { key: "todo", title: "To Do" },
+    { key: "in_progress", title: "In Progress" },
+    { key: "review", title: "Review" },
+    { key: "approved", title: "Approved" },
+    { key: "done", title: "Done" },
+    { key: "blocked", title: "Blocked" },
+  ];
+
   return (
-    <div className="grid gap-4 xl:grid-cols-5">
-      <TaskColumn
-        title="Backlog"
-        tasks={groupedTasks.backlog ?? []}
-        onMove={onMove}
-        onTrack={onTrack}
-      />
-      <TaskColumn
-        title="To Do"
-        tasks={groupedTasks.todo ?? []}
-        onMove={onMove}
-        onTrack={onTrack}
-      />
-      <TaskColumn
-        title="In Progress"
-        tasks={groupedTasks.in_progress ?? []}
-        onMove={onMove}
-        onTrack={onTrack}
-      />
-      <TaskColumn
-        title="Review"
-        tasks={groupedTasks.review ?? []}
-        onMove={onMove}
-        onTrack={onTrack}
-      />
-      <TaskColumn
-        title="Done"
-        tasks={groupedTasks.done ?? []}
-        onMove={onMove}
-        onTrack={onTrack}
-      />
+    <div className="min-w-0 overflow-x-auto overflow-y-hidden pb-3">
+      <div className="inline-flex min-w-max gap-4">
+        {columns.map((column) => (
+          <TaskColumn
+            key={column.key}
+            title={column.title}
+            tasks={groupedTasks[column.key] ?? []}
+            onTrack={onTrack}
+            onOpen={onOpen}
+            taskRuntimeMap={taskRuntimeMap}
+            taskInvitedCountMap={taskInvitedCountMap}
+          />
+        ))}
+      </div>
     </div>
   );
 }
