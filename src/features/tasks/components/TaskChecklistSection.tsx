@@ -11,8 +11,8 @@ function getChecklistProgress(checklist: TaskChecklistWithItems) {
 }
 
 export default function TaskChecklistSection({
-  taskId,
-  currentUserId,
+  taskId: _taskId,
+  currentUserId: _currentUserId,
   checklists,
   busy,
   onCreateChecklist,
@@ -140,7 +140,7 @@ export default function TaskChecklistSection({
                             className="h-4 w-4"
                           />
                           <span
-                            className={`break-words text-sm ${
+                            className={`wrap-break-word text-sm ${
                               item.is_completed
                                 ? "text-white/45 line-through"
                                 : "text-white"

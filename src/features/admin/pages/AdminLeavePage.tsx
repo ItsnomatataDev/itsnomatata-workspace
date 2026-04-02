@@ -16,7 +16,6 @@ import {
 import {
   getApprovedLeaveCalendarEvents,
   getLeaveCalendarRules,
-  updateApprovedLeaveEventDates,
   type LeaveCalendarEventRow,
   type LeaveCalendarRuleRow,
 } from "../../leave/services/leaveCalendarService";
@@ -150,34 +149,6 @@ export default function AdminLeavePage() {
     }
   };
 
-  const handleMoveApprovedLeave = async (params: {
-    eventId: string;
-    start: Date;
-    end: Date;
-  }) => {
-    if (!organizationId) return;
-
-    try {
-      setError("");
-      setSuccessMessage("");
-
-      const startDate = params.start.toISOString().slice(0, 10);
-      const endDate = params.end.toISOString().slice(0, 10);
-
-      await updateApprovedLeaveEventDates({
-        leaveRequestId: params.eventId,
-        organizationId,
-        startDate,
-        endDate,
-      });
-
-      setSuccessMessage("Approved leave dates updated on the calendar.");
-      await loadPage();
-    } catch (err: any) {
-      console.error("MOVE APPROVED LEAVE ERROR:", err);
-      setError(err?.message || "Failed to move approved leave event.");
-    }
-  };
 
   const filteredRequests = useMemo(() => {
     if (activeFilter === "all") return requests;
@@ -319,7 +290,12 @@ export default function AdminLeavePage() {
                   approvedLeaves={approvedLeaves}
                   rules={rules}
                   canManage
-                  onMoveEvent={handleMoveApprovedLeave}
+                  onSelectEvent={(event) => {
+                    console.log("Selected event:", event);
+                  }}
+                  onSelectSlot={({ start, end }) => {
+                    console.log("Selected range:", start, end);
+                  }}
                 />
               </section>
 

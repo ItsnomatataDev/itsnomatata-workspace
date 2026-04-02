@@ -217,7 +217,7 @@ export default function ITDashboardPage() {
                 />
                 <ITStatsCard
                   title="Tracked Today"
-                  value={`${sharedDashboard.stats?.todayMinutes ?? 0}m`}
+                  value={`${(sharedDashboard.stats as any)?.todayMinutes ?? 0}m`}
                   subtitle="Shared time tracking summary"
                   icon={Clock3}
                 />

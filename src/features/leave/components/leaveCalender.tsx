@@ -20,7 +20,7 @@ const locales = {
 const localizer = dateFnsLocalizer({
   format,
   parse,
-  startOfWeek: (date) =>
+  startOfWeek: (date: Date) =>
     startOfWeek(date, {
       weekStartsOn: 1,
       locale: enUS,
@@ -130,7 +130,7 @@ export default function LeaveCalendar({
         </div>
       </div>
 
-      <div className="h-[700px] overflow-hidden rounded-2xl bg-white p-4 text-black">
+      <div className="h-175 overflow-hidden rounded-2xl bg-white p-4 text-black">
         <Calendar
           localizer={localizer}
           events={events}
