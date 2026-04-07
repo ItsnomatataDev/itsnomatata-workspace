@@ -1,16 +1,7 @@
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
+import type { User } from "@supabase/supabase-js";
 import { supabase } from "../../lib/supabase/client";
-
-type AuthContextType = {
-  user: any;
-  profile: any;
-  loading: boolean;
-  refreshProfile: () => Promise<void>;
-};
-
-const AuthContext = createContext<AuthContextType | null>(null);
-
-const ORGANIZATION_SLUG = "its-nomatata";
 
 type AppRole =
   | "admin"
@@ -19,6 +10,31 @@ type AppRole =
   | "social_media"
   | "media_team"
   | "seo_specialist";
+
+type AuthProfile = {
+  id: string;
+  email?: string | null;
+  full_name?: string | null;
+  organization_id?: string | null;
+  primary_role?: AppRole | null;
+  is_active?: boolean | null;
+  last_seen_at?: string | null;
+  organization?: Record<string, unknown> | null;
+  [key: string]: unknown;
+};
+
+export type AuthContextType = {
+  user: User | null;
+  profile: AuthProfile | null;
+  loading: boolean;
+  refreshProfile: () => Promise<void>;
+};
+
+export const AuthContext = createContext<AuthContextType | undefined>(
+  undefined,
+);
+
+const ORGANIZATION_SLUG = "its-nomatata";
 
 function isValidRole(value: unknown): value is AppRole {
   return [
@@ -31,7 +47,10 @@ function isValidRole(value: unknown): value is AppRole {
   ].includes(String(value));
 }
 
-function resolveUserRole(user: any, profile?: any): AppRole {
+function resolveUserRole(
+  user: User | null,
+  profile?: AuthProfile | null,
+): AppRole {
   const metadataRole = user?.user_metadata?.role;
   const profileRole = profile?.primary_role;
 
@@ -62,7 +81,7 @@ async function getOrganization() {
   return data;
 }
 
-async function touchUserPresence(user: any) {
+async function touchUserPresence(user: User | null) {
   if (!user?.id) return;
 
   const { error } = await supabase
@@ -77,7 +96,7 @@ async function touchUserPresence(user: any) {
   }
 }
 
-async function ensureProfile(user: any) {
+async function ensureProfile(user: User | null): Promise<AuthProfile | null> {
   if (!user?.id) return null;
 
   const organization = await getOrganization();
@@ -95,7 +114,10 @@ async function ensureProfile(user: any) {
     throw selectError;
   }
 
-  const resolvedRole = resolveUserRole(user, existing);
+  const resolvedRole = resolveUserRole(
+    user,
+    (existing as AuthProfile | null) ?? null,
+  );
 
   const payload = {
     id: user.id,
@@ -139,10 +161,13 @@ async function ensureProfile(user: any) {
     throw refreshedError;
   }
 
-  return refreshed ?? null;
+  return (refreshed as AuthProfile | null) ?? null;
 }
 
-async function ensureOrganizationMembership(user: any, profile: any) {
+async function ensureOrganizationMembership(
+  user: User | null,
+  profile: AuthProfile | null,
+) {
   if (!user?.id || !profile?.organization_id) return null;
 
   const resolvedRole = resolveUserRole(user, profile);
@@ -167,9 +192,9 @@ async function ensureOrganizationMembership(user: any, profile: any) {
   return true;
 }
 
-export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
-  const [user, setUser] = useState<any>(null);
-  const [profile, setProfile] = useState<any>(null);
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [user, setUser] = useState<User | null>(null);
+  const [profile, setProfile] = useState<AuthProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
   const fetchProfile = async (userId: string) => {
@@ -191,8 +216,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         return null;
       }
 
-      setProfile(data ?? null);
-      return data ?? null;
+      const nextProfile = (data as AuthProfile | null) ?? null;
+      setProfile(nextProfile);
+      return nextProfile;
     } catch (err) {
       console.error("PROFILE FETCH CRASH:", err);
       setProfile(null);
@@ -200,7 +226,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     }
   };
 
-  const loadAuthenticatedUser = async (sessionUser: any) => {
+  const loadAuthenticatedUser = async (sessionUser: User | null) => {
     setUser(sessionUser);
 
     if (!sessionUser) {
@@ -325,18 +351,25 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     };
   }, []);
 
-  return (
-    <AuthContext.Provider
-      value={{
-        user,
-        profile,
-        loading,
-        refreshProfile,
-      }}
-    >
-      {children}
-    </AuthContext.Provider>
+  const value = useMemo<AuthContextType>(
+    () => ({
+      user,
+      profile,
+      loading,
+      refreshProfile,
+    }),
+    [user, profile, loading],
   );
-};
 
-export const useAuth = () => useContext(AuthContext);
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
+
+export function useAuth() {
+  const context = useContext(AuthContext);
+
+  if (!context) {
+    throw new Error("useAuth must be used within an AuthProvider");
+  }
+
+  return context;
+}

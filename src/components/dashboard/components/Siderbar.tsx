@@ -17,7 +17,7 @@ import {
   CalendarDays,
   Menu,
   X,
-  Bot
+  MessageSquare,
 } from "lucide-react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { signOutUser } from "../../../lib/supabase/auth";
@@ -43,7 +43,7 @@ const commonLinks: LinkItem[] = [
   { to: "/notifications", label: "Notifications", icon: Bell },
   { to: "/time", label: "Time Tracking", icon: Clock3 },
   { to: "/leave", label: "Leave", icon: CalendarDays },
-
+  { to: "/chat", label: "Team Chat", icon: MessageSquare },
 ];
 
 function getRoleLinks(
@@ -95,7 +95,7 @@ function getRoleLinks(
       { to: "/admin/roster", label: "Duty Roster", icon: Clock3 },
       { to: "/admin/crm", label: "CRM", icon: BriefcaseBusiness },
       { to: "/admin/stock", label: "Stock", icon: ShieldCheck },
-      { to: "/admin/chat", label: "Team Chat", icon: Image },
+
       { to: "/admin/ai", label: "AI Control", icon: Sparkles },
     ],
   };

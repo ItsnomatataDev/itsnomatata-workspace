@@ -27,6 +27,7 @@ import AdminRosterPage from "../../features/admin/pages/AdminRosterPage";
 import AdminEmployeesPage from "../../features/admin/pages/AdminEmployeesPage";
 import AdminEmployeeDetailsPage from "../../features/admin/pages/AdminEmployeeDetailsPage";
 import NotificationsPage from "../../features/notifications/pages/NotificationsPage";
+import ChatPage from "../../features/chat/pages/ChatPage";
 // import AiAssistantPage from "../../features/ai-workspace/pages/AIWorkspacePage";
 // import AIWorkspacePage from "../../features/ai-workspace/pages/AIWorkspacePage"
 const AppRouter = () => {
@@ -118,7 +119,7 @@ const AppRouter = () => {
             </ProtectedRoute>
           }
         />
-
+        <Route path="/chat" element={<ChatPage />} />
         <Route
           path="/campaigns"
           element={
@@ -198,6 +199,7 @@ const AppRouter = () => {
             </ProtectedRoute>
           }
         />
+
         <Route
           path="/admin/employees"
           element={
