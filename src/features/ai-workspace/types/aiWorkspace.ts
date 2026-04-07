@@ -1,116 +1,100 @@
-export type AIWorkspaceRole =
-  | "admin"
-  | "manager"
-  | "it"
-  | "social_media"
-  | "marketing"
-  | "seo"
-  | "content"
-  | "client_success"
-  | "sales"
-  | "member"
-  | string;
+// src/features/ai-workspace/types/aiWorkspace.ts
 
-export type AIWorkspaceModule =
-  | "social-posts"
-  | "campaigns"
-  | "clients"
-  | "content-assets"
-  | "reports"
+import type {
+  AssistantActionInput,
+  AssistantAttachmentInput,
+  AssistantResponseType,
+} from "../../../lib/api/n8n";
+
+export type AIWorkspaceViewMode = "overview" | "tool" | "history" | "approvals";
+
+export type AIWorkspaceToolCategory =
+  | "chat"
   | "tasks"
-  | "it-workspace"
-  | "seo-items"
-  | "knowledge-documents"
-  | "general";
+  | "projects"
+  | "leave"
+  | "reports"
+  | "knowledge"
+  | "media"
+  | "audio"
+  | "images"
+  | "automation"
+  | "admin";
 
-export type AIActionType =
-  | "generate_caption"
-  | "draft_social_reply"
-  | "generate_campaign_plan"
-  | "generate_client_brief"
-  | "summarize_client"
-  | "generate_report"
-  | "tag_asset"
-  | "prioritize_tasks"
-  | "analyze_workflow_failure"
-  | "summarize_knowledge"
-  | "custom";
-
-export type AIActionVisibility = "all" | "restricted";
-
-export interface AIActionDefinition {
+export interface AIWorkspaceTool {
   id: string;
-  title: string;
+  label: string;
   description: string;
-  actionType: AIActionType;
-  module: AIWorkspaceModule;
-  visibility: AIActionVisibility;
+  category: AIWorkspaceToolCategory;
+  icon: string;
   allowedRoles: string[];
-  requiresApproval?: boolean;
-  entityType?: string;
-  icon?: string;
+  inputType:
+    | "none"
+    | "text"
+    | "document"
+    | "image"
+    | "audio"
+    | "mixed"
+    | "form";
+  requiresApproval: boolean;
+  featured?: boolean;
 }
 
-export interface AIActionRequestInput {
+export interface AIWorkspaceActionRequest {
+  action: AssistantActionInput;
   prompt?: string;
-  instructions?: string;
-  entityId?: string;
-  entityType?: string;
+  attachments?: AssistantAttachmentInput[];
   metadata?: Record<string, unknown>;
 }
 
-export interface AIActionRequest {
-  organizationId: string;
-  userId: string;
-  role: string;
-  module: AIWorkspaceModule;
-  actionType: AIActionType;
-  entityId?: string;
-  entityType?: string;
-  input: AIActionRequestInput;
-}
-
-export type AIRequestStatus =
-  | "queued"
-  | "processing"
-  | "completed"
-  | "failed"
-  | "approval_required"
-  | "approved"
-  | "rejected";
-
-export interface AIActionResponse {
-  requestId: string;
-  status: AIRequestStatus;
-  output?: string;
-  outputJson?: Record<string, unknown> | null;
-  approvalId?: string | null;
-  message?: string | null;
-  runId?: string | null;
-  workflowName?: string | null;
-  createdAt?: string;
-  updatedAt?: string;
-}
-
-export interface AIActivityItem {
+export interface AIWorkspaceOutput {
   id: string;
-  actionType: AIActionType;
-  module: AIWorkspaceModule;
-  status: AIRequestStatus;
-  outputSummary?: string | null;
+  title: string;
+  type: AssistantResponseType;
+  content: string;
   createdAt: string;
-  updatedAt?: string;
+  toolId?: string | null;
+  conversationId?: string | null;
+  requiresApproval?: boolean;
+  approvalId?: string | null;
+  data?: Record<string, unknown>;
+  sources?: Array<{
+    id?: string;
+    title?: string;
+    type?: string;
+    url?: string;
+    snippet?: string;
+  }>;
 }
 
-export interface AIWorkspaceSummary {
-  favorites: AIActionDefinition[];
-  recentActivity: AIActivityItem[];
-  pendingApprovalsCount: number;
+export interface AIWorkspaceApprovalItem {
+  id: string;
+  title: string;
+  description: string;
+  createdAt: string;
+  status: "pending" | "approved" | "rejected";
+  requestedBy?: string | null;
+  toolId?: string | null;
 }
 
-export interface AIActionFormValues {
-  entityId?: string;
-  entityType?: string;
-  prompt?: string;
-  instructions?: string;
+export interface AIWorkspaceHistoryItem {
+  id: string;
+  title: string;
+  description: string;
+  createdAt: string;
+  status: "success" | "failed" | "pending";
+  toolId?: string | null;
+}
+
+export interface AIWorkspaceState {
+  loading: boolean;
+  running: boolean;
+  selectedToolId: string | null;
+  tools: AIWorkspaceTool[];
+  featuredTools: AIWorkspaceTool[];
+  recentOutputs: AIWorkspaceOutput[];
+  history: AIWorkspaceHistoryItem[];
+  pendingApprovals: AIWorkspaceApprovalItem[];
+  error: string | null;
+  viewMode: AIWorkspaceViewMode;
 }

@@ -4,9 +4,28 @@ import {
   dateFnsLocalizer,
   type Event as RBCEvent,
   type SlotInfo,
+  Views,
+  type View,
 } from "react-big-calendar";
-import { format, parse, startOfWeek, getDay } from "date-fns";
+import {
+  format,
+  parse,
+  startOfWeek,
+  getDay,
+  startOfToday,
+  startOfWeek as dfStartOfWeek,
+  endOfWeek,
+  addDays,
+} from "date-fns";
 import { enUS } from "date-fns/locale";
+import {
+  CalendarDays,
+  Lock,
+  Unlock,
+  User,
+  ClipboardList,
+  X,
+} from "lucide-react";
 import "react-big-calendar/lib/css/react-big-calendar.css";
 import type {
   LeaveCalendarEventRow,
@@ -36,15 +55,13 @@ export type LeaveCalendarEvent = RBCEvent & {
 };
 
 function toStartDate(dateString: string) {
-  const date = new Date(dateString);
-  date.setHours(0, 0, 0, 0);
-  return date;
+  const [year, month, day] = dateString.split("-").map(Number);
+  return new Date(year, (month || 1) - 1, day || 1, 0, 0, 0, 0);
 }
 
 function toEndInclusive(dateString: string) {
-  const date = new Date(dateString);
-  date.setHours(23, 59, 59, 999);
-  return date;
+  const [year, month, day] = dateString.split("-").map(Number);
+  return new Date(year, (month || 1) - 1, day || 1, 23, 59, 59, 999);
 }
 
 function formatDateOnly(value: Date) {
@@ -55,18 +72,34 @@ function formatDateOnly(value: Date) {
   });
 }
 
+function formatDateRange(start: Date, end: Date) {
+  return `${formatDateOnly(start)} → ${formatDateOnly(end)}`;
+}
+
+function getLeaveLengthDays(start: Date, end: Date) {
+  const msPerDay = 1000 * 60 * 60 * 24;
+  return Math.max(
+    1,
+    Math.round((end.getTime() - start.getTime()) / msPerDay + 1),
+  );
+}
+
 export default function LeaveCalendar({
   approvedLeaves,
   rules,
   canManage = false,
   onSelectEvent,
   onSelectSlot,
+  onManageLeave,
+  onManageRule,
 }: {
   approvedLeaves: LeaveCalendarEventRow[];
   rules: LeaveCalendarRuleRow[];
   canManage?: boolean;
   onSelectEvent?: (event: LeaveCalendarEvent) => void;
   onSelectSlot?: (params: { start: Date; end: Date }) => void;
+  onManageLeave?: (event: LeaveCalendarEvent) => void;
+  onManageRule?: (event: LeaveCalendarEvent) => void;
 }) {
   const [selectedEvent, setSelectedEvent] = useState<LeaveCalendarEvent | null>(
     null,
@@ -75,6 +108,8 @@ export default function LeaveCalendar({
     start: Date;
     end: Date;
   } | null>(null);
+  const [currentView, setCurrentView] = useState<View>(Views.MONTH);
+  const [currentDate, setCurrentDate] = useState<Date>(startOfToday());
 
   const events = useMemo<LeaveCalendarEvent[]>(() => {
     const leaveEvents: LeaveCalendarEvent[] = approvedLeaves.map((item) => ({
@@ -100,7 +135,37 @@ export default function LeaveCalendar({
     return [...leaveEvents, ...ruleEvents];
   }, [approvedLeaves, rules]);
 
+  const visibleLeaveCount = useMemo(() => {
+    if (currentView === Views.DAY) {
+      return approvedLeaves.filter((leave) => {
+        const start = toStartDate(leave.start_date);
+        const end = toEndInclusive(leave.end_date);
+        return currentDate >= start && currentDate <= end;
+      }).length;
+    }
+
+    if (currentView === Views.WEEK) {
+      const weekStart = dfStartOfWeek(currentDate, {
+        weekStartsOn: 1,
+        locale: enUS,
+      });
+      const weekEnd = endOfWeek(currentDate, {
+        weekStartsOn: 1,
+        locale: enUS,
+      });
+
+      return approvedLeaves.filter((leave) => {
+        const start = toStartDate(leave.start_date);
+        const end = toEndInclusive(leave.end_date);
+        return start <= weekEnd && end >= weekStart;
+      }).length;
+    }
+
+    return approvedLeaves.length;
+  }, [approvedLeaves, currentDate, currentView]);
+
   function handleSelectEvent(event: LeaveCalendarEvent) {
+    setSelectedRange(null);
     setSelectedEvent(event);
     onSelectEvent?.(event);
   }
@@ -109,37 +174,120 @@ export default function LeaveCalendar({
     const start = slotInfo.start as Date;
     const end = slotInfo.end as Date;
 
+    setSelectedEvent(null);
     setSelectedRange({ start, end });
     onSelectSlot?.({ start, end });
   }
 
+  function goToToday() {
+    setCurrentDate(startOfToday());
+  }
+
+  function goToThisWeek() {
+    setCurrentView(Views.WEEK);
+    setCurrentDate(startOfToday());
+  }
+
+  function goToThisMonth() {
+    setCurrentView(Views.MONTH);
+    setCurrentDate(startOfToday());
+  }
+
+  function goToNext7Days() {
+    setCurrentView(Views.AGENDA);
+    setCurrentDate(startOfToday());
+  }
+
+  const selectedLeave =
+    selectedEvent?.type === "leave"
+      ? (selectedEvent.raw as LeaveCalendarEventRow)
+      : null;
+
+  const selectedRule =
+    selectedEvent?.type === "rule"
+      ? (selectedEvent.raw as LeaveCalendarRuleRow)
+      : null;
+
   return (
     <div className="overflow-hidden rounded-2xl border border-white/10 bg-white/5 p-4">
-      <div className="mb-4 flex flex-wrap items-center gap-3 text-sm text-white/80">
-        <div className="flex items-center gap-2">
-          <span className="inline-block h-3 w-3 rounded-full bg-orange-600" />
-          <span>Approved leave</span>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-3 text-sm text-white/80">
+          <div className="flex items-center gap-2">
+            <span className="inline-block h-3 w-3 rounded-full bg-orange-600" />
+            <span>Approved leave</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="inline-block h-3 w-3 rounded-full bg-red-900" />
+            <span>Closed / No leave days</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="inline-block h-3 w-3 rounded-full bg-green-900" />
+            <span>Open rule</span>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="inline-block h-3 w-3 rounded-full bg-red-900" />
-          <span>Closed / No leave days</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="inline-block h-3 w-3 rounded-full bg-green-900" />
-          <span>Open rule</span>
+
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={goToToday}
+            className="rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white hover:bg-white/10"
+          >
+            Today
+          </button>
+          <button
+            type="button"
+            onClick={goToThisWeek}
+            className="rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white hover:bg-white/10"
+          >
+            This Week
+          </button>
+          <button
+            type="button"
+            onClick={goToThisMonth}
+            className="rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white hover:bg-white/10"
+          >
+            This Month
+          </button>
+          <button
+            type="button"
+            onClick={goToNext7Days}
+            className="rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white hover:bg-white/10"
+          >
+            Next 7 Days
+          </button>
         </div>
       </div>
 
-      <div className="h-175 overflow-hidden rounded-2xl bg-white p-4 text-black">
+      <div className="mb-4 grid gap-4 md:grid-cols-3">
+        <div className="rounded-2xl border border-white/10 bg-black/30 p-4 text-white">
+          <p className="text-sm text-white/60">Current View</p>
+          <p className="mt-2 font-semibold capitalize">{currentView}</p>
+        </div>
+
+        <div className="rounded-2xl border border-white/10 bg-black/30 p-4 text-white">
+          <p className="text-sm text-white/60">Focused Date</p>
+          <p className="mt-2 font-semibold">{formatDateOnly(currentDate)}</p>
+        </div>
+
+        <div className="rounded-2xl border border-white/10 bg-black/30 p-4 text-white">
+          <p className="text-sm text-white/60">Visible Leave Entries</p>
+          <p className="mt-2 font-semibold">{visibleLeaveCount}</p>
+        </div>
+      </div>
+
+      <div className="h-[700px] overflow-hidden rounded-2xl bg-white p-4 text-black">
         <Calendar
           localizer={localizer}
           events={events}
           startAccessor="start"
           endAccessor="end"
-          defaultView="month"
-          views={["month", "week", "day", "agenda"]}
+          view={currentView}
+          date={currentDate}
+          views={[Views.MONTH, Views.WEEK, Views.DAY, Views.AGENDA]}
           popup
           selectable={canManage}
+          onView={(view) => setCurrentView(view)}
+          onNavigate={(date) => setCurrentDate(date)}
           onSelectEvent={handleSelectEvent}
           onSelectSlot={handleSelectSlot}
           eventPropGetter={(event: LeaveCalendarEvent) => {
@@ -179,129 +327,191 @@ export default function LeaveCalendar({
       </div>
 
       {selectedEvent && (
-        <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-4 text-white">
-          <div className="mb-2 text-lg font-semibold">Selected event</div>
-          <div className="space-y-1 text-sm text-white/80">
+        <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-5 text-white">
+          <div className="mb-4 flex items-center justify-between gap-3">
             <div>
-              <span className="font-medium text-white">Title:</span>{" "}
-              {selectedEvent.title}
-            </div>
-            <div>
-              <span className="font-medium text-white">Type:</span>{" "}
-              {selectedEvent.type === "leave" ? "Leave" : "Rule"}
-            </div>
-            <div>
-              <span className="font-medium text-white">Start:</span>{" "}
-              {selectedEvent.start instanceof Date
-                ? formatDateOnly(selectedEvent.start)
-                : ""}
-            </div>
-            <div>
-              <span className="font-medium text-white">End:</span>{" "}
-              {selectedEvent.end instanceof Date
-                ? formatDateOnly(selectedEvent.end)
-                : ""}
+              <div className="text-lg font-semibold">
+                {selectedEvent.type === "leave"
+                  ? "Leave Details"
+                  : "Rule Details"}
+              </div>
+              <p className="mt-1 text-sm text-white/60">
+                Click an action below to manage this selection.
+              </p>
             </div>
 
-            {selectedEvent.type === "leave" && (
-              <>
-                <div>
-                  <span className="font-medium text-white">Employee:</span>{" "}
-                  {(selectedEvent.raw as LeaveCalendarEventRow)
-                    ?.requester_name ||
-                    (selectedEvent.raw as LeaveCalendarEventRow)
-                      ?.requester_email ||
-                    "Unknown"}
-                </div>
-                <div>
-                  <span className="font-medium text-white">Reason:</span>{" "}
-                  {(selectedEvent.raw as LeaveCalendarEventRow)?.reason ||
-                    "No reason"}
-                </div>
-              </>
-            )}
-
-            {selectedEvent.type === "rule" && (
-              <>
-                <div>
-                  <span className="font-medium text-white">Rule title:</span>{" "}
-                  {(selectedEvent.raw as LeaveCalendarRuleRow)?.title}
-                </div>
-                <div>
-                  <span className="font-medium text-white">Rule type:</span>{" "}
-                  {(selectedEvent.raw as LeaveCalendarRuleRow)?.rule_type}
-                </div>
-                <div>
-                  <span className="font-medium text-white">Description:</span>{" "}
-                  {(selectedEvent.raw as LeaveCalendarRuleRow)?.description ||
-                    "No description"}
-                </div>
-              </>
-            )}
-          </div>
-
-          <div className="mt-4 flex gap-2">
             <button
               type="button"
               onClick={() => setSelectedEvent(null)}
-              className="rounded-lg bg-white/10 px-4 py-2 text-sm text-white hover:bg-white/20"
+              className="rounded-xl border border-white/10 bg-white/5 p-2 text-white hover:bg-white/10"
+            >
+              <X size={16} />
+            </button>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+              <p className="text-sm text-white/60">Title</p>
+              <p className="mt-2 font-medium text-white">
+                {selectedEvent.title}
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+              <p className="text-sm text-white/60">Dates</p>
+              <p className="mt-2 font-medium text-white">
+                {selectedEvent.start instanceof Date &&
+                selectedEvent.end instanceof Date
+                  ? formatDateRange(selectedEvent.start, selectedEvent.end)
+                  : ""}
+              </p>
+            </div>
+
+            {selectedLeave ? (
+              <>
+                <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                  <p className="flex items-center gap-2 text-sm text-white/60">
+                    <User size={14} />
+                    Employee
+                  </p>
+                  <p className="mt-2 font-medium text-white">
+                    {selectedLeave.requester_name ||
+                      selectedLeave.requester_email ||
+                      "Unknown"}
+                  </p>
+                  {selectedLeave.requester_email ? (
+                    <p className="mt-1 text-sm text-white/50">
+                      {selectedLeave.requester_email}
+                    </p>
+                  ) : null}
+                </div>
+
+                <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                  <p className="text-sm text-white/60">Leave Length</p>
+                  <p className="mt-2 font-medium text-white">
+                    {selectedEvent.start instanceof Date &&
+                    selectedEvent.end instanceof Date
+                      ? `${getLeaveLengthDays(
+                          selectedEvent.start,
+                          selectedEvent.end,
+                        )} day(s)`
+                      : "N/A"}
+                  </p>
+                </div>
+
+                <div className="rounded-2xl border border-white/10 bg-black/30 p-4 md:col-span-2">
+                  <p className="flex items-center gap-2 text-sm text-white/60">
+                    <ClipboardList size={14} />
+                    Reason
+                  </p>
+                  <p className="mt-2 text-white/85">
+                    {selectedLeave.reason || "No reason provided"}
+                  </p>
+                </div>
+              </>
+            ) : null}
+
+            {selectedRule ? (
+              <>
+                <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                  <p className="text-sm text-white/60">Rule Type</p>
+                  <p className="mt-2 font-medium capitalize text-white">
+                    {selectedRule.rule_type}
+                  </p>
+                </div>
+
+                <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                  <p className="text-sm text-white/60">Description</p>
+                  <p className="mt-2 text-white/85">
+                    {selectedRule.description || "No description"}
+                  </p>
+                </div>
+              </>
+            ) : null}
+          </div>
+
+          <div className="mt-5 flex flex-wrap gap-3">
+            <button
+              type="button"
+              onClick={() => setSelectedEvent(null)}
+              className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-white hover:bg-white/10"
             >
               Close
             </button>
 
-            {canManage && selectedEvent.type === "rule" && (
+            {canManage && selectedEvent.type === "rule" ? (
               <button
                 type="button"
-                onClick={() => onSelectEvent?.(selectedEvent)}
-                className="rounded-lg bg-orange-600 px-4 py-2 text-sm text-white hover:bg-orange-500"
+                onClick={() => {
+                  onManageRule?.(selectedEvent);
+                  onSelectEvent?.(selectedEvent);
+                }}
+                className="rounded-xl bg-orange-600 px-4 py-2 text-sm font-medium text-white hover:bg-orange-500"
               >
-                Manage rule
+                Manage Rule
               </button>
-            )}
+            ) : null}
 
-            {canManage && selectedEvent.type === "leave" && (
+            {canManage && selectedEvent.type === "leave" ? (
               <button
                 type="button"
-                onClick={() => onSelectEvent?.(selectedEvent)}
-                className="rounded-lg bg-orange-600 px-4 py-2 text-sm text-white hover:bg-orange-500"
+                onClick={() => {
+                  onManageLeave?.(selectedEvent);
+                  onSelectEvent?.(selectedEvent);
+                }}
+                className="rounded-xl bg-orange-600 px-4 py-2 text-sm font-medium text-white hover:bg-orange-500"
               >
-                Manage leave
+                Manage User Leave
               </button>
-            )}
+            ) : null}
           </div>
         </div>
       )}
 
-      {canManage && selectedRange && (
-        <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-4 text-white">
-          <div className="mb-2 text-lg font-semibold">Selected date range</div>
-          <div className="space-y-1 text-sm text-white/80">
+      {selectedRange && (
+        <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-5 text-white">
+          <div className="mb-4 flex items-center justify-between gap-3">
             <div>
-              <span className="font-medium text-white">Start:</span>{" "}
-              {formatDateOnly(selectedRange.start)}
+              <div className="text-lg font-semibold">Selected Date Range</div>
+              <p className="mt-1 text-sm text-white/60">
+                Use this range to create or manage leave rules.
+              </p>
             </div>
-            <div>
-              <span className="font-medium text-white">End:</span>{" "}
-              {formatDateOnly(selectedRange.end)}
-            </div>
-          </div>
 
-          <div className="mt-4 flex gap-2">
             <button
               type="button"
               onClick={() => setSelectedRange(null)}
-              className="rounded-lg bg-white/10 px-4 py-2 text-sm text-white hover:bg-white/20"
+              className="rounded-xl border border-white/10 bg-white/5 p-2 text-white hover:bg-white/10"
+            >
+              <X size={16} />
+            </button>
+          </div>
+
+          <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+            <p className="text-sm text-white/60">Range</p>
+            <p className="mt-2 font-medium text-white">
+              {formatDateRange(selectedRange.start, selectedRange.end)}
+            </p>
+          </div>
+
+          <div className="mt-5 flex flex-wrap gap-3">
+            <button
+              type="button"
+              onClick={() => setSelectedRange(null)}
+              className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-white hover:bg-white/10"
             >
               Clear
             </button>
 
-            <button
-              type="button"
-              onClick={() => onSelectSlot?.(selectedRange)}
-              className="rounded-lg bg-orange-600 px-4 py-2 text-sm text-white hover:bg-orange-500"
-            >
-              Use this range
-            </button>
+            {canManage ? (
+              <button
+                type="button"
+                onClick={() => onSelectSlot?.(selectedRange)}
+                className="rounded-xl bg-orange-600 px-4 py-2 text-sm font-medium text-white hover:bg-orange-500"
+              >
+                Use This Range
+              </button>
+            ) : null}
           </div>
         </div>
       )}

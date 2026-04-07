@@ -77,17 +77,17 @@ export const createTask = async (payload: CreateTaskInput) => {
   if (error) throw new Error(error.message);
   return data as TaskItem;
 };
-
 export const updateTask = async (taskId: string, payload: UpdateTaskInput) => {
-  const { data, error } = await supabase
+  const { error } = await supabase
     .from("tasks")
     .update(payload)
-    .eq("id", taskId)
-    .select("*")
-    .single();
+    .eq("id", taskId);
 
-  if (error) throw new Error(error.message);
-  return data as TaskItem;
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return true;
 };
 
 export const deleteTask = async (taskId: string) => {

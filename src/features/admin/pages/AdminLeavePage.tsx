@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CalendarDays, Plus, ShieldCheck } from "lucide-react";
+import { CalendarDays, Plus, ShieldCheck, Lock, Unlock } from "lucide-react";
 import Sidebar from "../../../components/dashboard/components/Siderbar";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import LeaveRequestTable from "../components/LeaveRequestTable";
 import CreateLeaveTypeModal from "../components/CreateLeaveTypeModal";
 import CreateLeaveRuleModal from "../../leave/components/CreateLeaveRuleModal";
 import LeaveCalendar from "../../leave/components/leaveCalender";
+import LeaveRuleList from "../../leave/components/LeaveRuleList";
 import {
   getLeaveRequests,
   getLeaveTypes,
@@ -16,9 +17,18 @@ import {
 import {
   getApprovedLeaveCalendarEvents,
   getLeaveCalendarRules,
+  updateApprovedLeaveEventDates,
+  deleteLeaveCalendarRule,
   type LeaveCalendarEventRow,
   type LeaveCalendarRuleRow,
 } from "../../leave/services/leaveCalendarService";
+
+function formatDateForDb(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
 
 export default function AdminLeavePage() {
   const auth = useAuth();
@@ -33,6 +43,7 @@ export default function AdminLeavePage() {
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
+  const [deletingRuleId, setDeletingRuleId] = useState<string | null>(null);
   const [requests, setRequests] = useState<LeaveRequestRow[]>([]);
   const [leaveTypes, setLeaveTypes] = useState<LeaveTypeRow[]>([]);
   const [approvedLeaves, setApprovedLeaves] = useState<LeaveCalendarEventRow[]>(
@@ -76,6 +87,16 @@ export default function AdminLeavePage() {
     if (!organizationId) return;
     void loadPage();
   }, [organizationId, loadPage]);
+
+  useEffect(() => {
+    if (!successMessage) return;
+
+    const timeout = window.setTimeout(() => {
+      setSuccessMessage("");
+    }, 3500);
+
+    return () => window.clearTimeout(timeout);
+  }, [successMessage]);
 
   const handleApprove = async (request: LeaveRequestRow) => {
     if (!userId || !organizationId) return;
@@ -149,6 +170,58 @@ export default function AdminLeavePage() {
     }
   };
 
+  const handleMoveApprovedLeave = async (params: {
+    eventId: string;
+    start: Date;
+    end: Date;
+  }) => {
+    if (!organizationId) return;
+
+    try {
+      setError("");
+      setSuccessMessage("");
+
+      const startDate = formatDateForDb(params.start);
+      const endDate = formatDateForDb(params.end);
+
+      await updateApprovedLeaveEventDates({
+        leaveRequestId: params.eventId,
+        organizationId,
+        startDate,
+        endDate,
+      });
+
+      setSuccessMessage("Approved leave dates updated on the calendar.");
+      await loadPage();
+    } catch (err: any) {
+      console.error("MOVE APPROVED LEAVE ERROR:", err);
+      setError(err?.message || "Failed to move approved leave event.");
+    }
+  };
+
+  const handleDeleteRule = async (ruleId: string) => {
+    const confirmed = window.confirm(
+      "Are you sure you want to delete this leave rule?",
+    );
+
+    if (!confirmed) return;
+
+    try {
+      setDeletingRuleId(ruleId);
+      setError("");
+      setSuccessMessage("");
+
+      await deleteLeaveCalendarRule(ruleId);
+
+      setSuccessMessage("Leave calendar rule deleted.");
+      await loadPage();
+    } catch (err: any) {
+      console.error("DELETE LEAVE RULE ERROR:", err);
+      setError(err?.message || "Failed to delete leave calendar rule.");
+    } finally {
+      setDeletingRuleId(null);
+    }
+  };
 
   const filteredRequests = useMemo(() => {
     if (activeFilter === "all") return requests;
@@ -163,6 +236,13 @@ export default function AdminLeavePage() {
   ).length;
   const rejectedCount = requests.filter(
     (item) => item.status === "rejected",
+  ).length;
+
+  const closedRulesCount = rules.filter(
+    (rule) => rule.rule_type === "closed",
+  ).length;
+  const openRulesCount = rules.filter(
+    (rule) => rule.rule_type === "open",
   ).length;
 
   if (authLoading) {
@@ -238,8 +318,8 @@ export default function AdminLeavePage() {
                 </div>
               ) : null}
 
-              <section className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+              <section className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-5 xl:col-span-2">
                   <div className="flex items-center justify-between">
                     <p className="text-sm text-white/60">Total Requests</p>
                     <CalendarDays size={18} className="text-orange-500" />
@@ -271,11 +351,21 @@ export default function AdminLeavePage() {
 
                 <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
                   <div className="flex items-center justify-between">
-                    <p className="text-sm text-white/60">Rejected</p>
-                    <ShieldCheck size={18} className="text-red-400" />
+                    <p className="text-sm text-white/60">Closed Rules</p>
+                    <Lock size={18} className="text-red-400" />
                   </div>
                   <p className="mt-4 text-3xl font-bold text-red-300">
-                    {rejectedCount}
+                    {closedRulesCount}
+                  </p>
+                </div>
+
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm text-white/60">Open Rules</p>
+                    <Unlock size={18} className="text-emerald-400" />
+                  </div>
+                  <p className="mt-4 text-3xl font-bold text-emerald-300">
+                    {openRulesCount}
                   </p>
                 </div>
               </section>
@@ -290,12 +380,20 @@ export default function AdminLeavePage() {
                   approvedLeaves={approvedLeaves}
                   rules={rules}
                   canManage
-                  onSelectEvent={(event) => {
-                    console.log("Selected event:", event);
-                  }}
-                  onSelectSlot={({ start, end }) => {
-                    console.log("Selected range:", start, end);
-                  }}
+                  onMoveEvent={handleMoveApprovedLeave}
+                />
+              </section>
+
+              <section className="mb-6 rounded-2xl border border-white/10 bg-white/5 p-5">
+                <div className="mb-4 flex items-center gap-3">
+                  <CalendarDays size={18} className="text-orange-500" />
+                  <h2 className="text-lg font-semibold">Leave Rules</h2>
+                </div>
+
+                <LeaveRuleList
+                  rules={rules}
+                  onDelete={(ruleId) => void handleDeleteRule(ruleId)}
+                  deletingId={deletingRuleId}
                 />
               </section>
 
@@ -329,12 +427,18 @@ export default function AdminLeavePage() {
                     </div>
                   </div>
 
-                  <LeaveRequestTable
-                    requests={filteredRequests}
-                    onApprove={handleApprove}
-                    onReject={handleReject}
-                    actionLoadingId={actionLoadingId}
-                  />
+                  {filteredRequests.length === 0 ? (
+                    <div className="rounded-2xl border border-white/10 bg-black/30 p-6 text-white/55">
+                      No leave requests found for the selected filter.
+                    </div>
+                  ) : (
+                    <LeaveRequestTable
+                      requests={filteredRequests}
+                      onApprove={handleApprove}
+                      onReject={handleReject}
+                      actionLoadingId={actionLoadingId}
+                    />
+                  )}
                 </div>
 
                 <div className="rounded-2xl border border-white/10 bg-white/5 p-5">

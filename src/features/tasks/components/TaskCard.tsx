@@ -109,9 +109,17 @@ export default function TaskCard({
 }) {
   const timing = getTaskTimingState(task);
 
+  const handleDragStart = (event: React.DragEvent<HTMLDivElement>) => {
+    event.dataTransfer.setData("text/task-id", task.id);
+    event.dataTransfer.setData("text/task-status", task.status);
+    event.dataTransfer.effectAllowed = "move";
+  };
+
   return (
     <div
-      className={`w-full overflow-hidden rounded-2xl border bg-black/50 p-4 transition hover:border-white/20 ${
+      draggable
+      onDragStart={handleDragStart}
+      className={`w-full cursor-grab overflow-hidden rounded-2xl border bg-black/50 p-4 transition hover:border-white/20 active:cursor-grabbing ${
         timing.isLate ? "border-red-500/20" : "border-white/10"
       }`}
     >
@@ -130,7 +138,7 @@ export default function TaskCard({
       </div>
 
       {task.description ? (
-        <p className="mt-3 wrap-break-word text-sm leading-6 text-white/55 line-clamp-4">
+        <p className="mt-3 line-clamp-4 wrap-break-word text-sm leading-6 text-white/55">
           {task.description}
         </p>
       ) : (

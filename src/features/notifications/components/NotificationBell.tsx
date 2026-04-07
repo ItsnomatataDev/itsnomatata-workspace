@@ -1,19 +1,38 @@
 import { useState } from "react";
 import { Bell } from "lucide-react";
-import { useNotificationContext } from "../../../app/providers/NotificationProvider";
-import NotificationList from "./NotificationList";
+import { Link } from "react-router-dom";
+import { useAuth } from "../../../app/providers/AuthProvider";
+import { useNotifications } from "../../../lib/hooks/useNotifications";
+
+function timeAgo(dateString: string) {
+  const date = new Date(dateString).getTime();
+  const now = Date.now();
+  const diffMinutes = Math.floor((now - date) / 1000 / 60);
+
+  if (diffMinutes < 1) return "Just now";
+  if (diffMinutes < 60) return `${diffMinutes} min ago`;
+
+  const diffHours = Math.floor(diffMinutes / 60);
+  if (diffHours < 24) return `${diffHours} hr ago`;
+
+  const diffDays = Math.floor(diffHours / 24);
+  return `${diffDays} day${diffDays === 1 ? "" : "s"} ago`;
+}
 
 export default function NotificationBell() {
   const [open, setOpen] = useState(false);
+  const auth = useAuth();
+  const userId = auth?.user?.id ?? null;
 
   const {
     notifications,
     unreadCount,
     loading,
-    error,
     markOneAsRead,
     markEverythingAsRead,
-  } = useNotificationContext();
+  } = useNotifications(userId);
+
+  const latest = notifications.slice(0, 6);
 
   return (
     <div className="relative">
@@ -24,18 +43,18 @@ export default function NotificationBell() {
       >
         <Bell size={18} />
         {unreadCount > 0 ? (
-          <span className="absolute -right-1 -top-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-orange-500 px-1 text-[10px] font-bold text-black">
+          <span className="absolute -right-1 -top-1 flex h-5 min-w-[20px] items-center justify-center rounded-full bg-orange-500 px-1 text-[10px] font-bold text-black">
             {unreadCount > 99 ? "99+" : unreadCount}
           </span>
         ) : null}
       </button>
 
       {open ? (
-        <div className="absolute right-0 z-50 mt-3 w-95 max-w-[90vw] overflow-hidden rounded-3xl border border-white/10 bg-zinc-950 shadow-2xl">
-          <div className="flex items-center justify-between border-b border-white/10 px-4 py-4">
+        <div className="absolute right-0 z-50 mt-3 w-[360px] overflow-hidden rounded-2xl border border-white/10 bg-zinc-950 shadow-2xl">
+          <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
             <div>
-              <h3 className="font-semibold text-white">Notifications</h3>
-              <p className="text-xs text-white/45">
+              <p className="text-sm font-semibold text-white">Notifications</p>
+              <p className="text-xs text-white/50">
                 {unreadCount} unread notification{unreadCount === 1 ? "" : "s"}
               </p>
             </div>
@@ -43,19 +62,68 @@ export default function NotificationBell() {
             <button
               type="button"
               onClick={() => void markEverythingAsRead()}
-              className="rounded-xl border border-white/10 px-3 py-2 text-xs text-white/70 hover:bg-white/5"
+              className="text-xs font-semibold text-orange-400 hover:text-orange-300"
             >
               Mark all read
             </button>
           </div>
 
-          <div className="max-h-105 overflow-y-auto p-4">
-            <NotificationList
-              notifications={notifications}
-              loading={loading}
-              error={error}
-              onRead={(notificationId) => void markOneAsRead(notificationId)}
-            />
+          <div className="max-h-[420px] overflow-y-auto">
+            {loading ? (
+              <div className="p-4 text-sm text-white/60">
+                Loading notifications...
+              </div>
+            ) : latest.length === 0 ? (
+              <div className="p-4 text-sm text-white/60">
+                No notifications yet.
+              </div>
+            ) : (
+              latest.map((item) => (
+                <Link
+                  key={item.id}
+                  to={item.action_url || "/notifications"}
+                  onClick={() => {
+                    void markOneAsRead(item.id);
+                    setOpen(false);
+                  }}
+                  className="block border-b border-white/5 px-4 py-3 hover:bg-white/5"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p
+                        className={`text-sm font-semibold ${
+                          item.is_read ? "text-white/70" : "text-white"
+                        }`}
+                      >
+                        {item.title}
+                      </p>
+                      {item.message ? (
+                        <p className="mt-1 line-clamp-2 text-xs text-white/60">
+                          {item.message}
+                        </p>
+                      ) : null}
+                      <p className="mt-2 text-[11px] text-white/40">
+                        {timeAgo(item.created_at)}
+                      </p>
+                    </div>
+
+                    {!item.is_read ? (
+                      <span className="mt-1 h-2.5 w-2.5 rounded-full bg-orange-500" />
+                    ) : null}
+                  </div>
+                </Link>
+              ))
+            )}
+          </div>
+
+          <div className="border-t border-white/10 px-4 py-3">
+            <Link
+              to="/notifications"
+              onClick={() => setOpen(false)}
+              className="text-sm font-semibold text-orange-400 hover:text-orange-300"
+            >
+              View all notifications
+            </Link>
           </div>
         </div>
       ) : null}

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   LayoutDashboard,
   Users,
@@ -14,6 +15,9 @@ import {
   Bug,
   Activity,
   CalendarDays,
+  Menu,
+  X,
+  Bot
 } from "lucide-react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { signOutUser } from "../../../lib/supabase/auth";
@@ -39,6 +43,9 @@ const commonLinks: LinkItem[] = [
   { to: "/notifications", label: "Notifications", icon: Bell },
   { to: "/time", label: "Time Tracking", icon: Clock3 },
   { to: "/leave", label: "Leave", icon: CalendarDays },
+  { to: "/ai-assistant", label: "AI Assistant", icon: Sparkles },
+  {to: "/ai-workspace",label: "AI Workspace",icon: Bot,
+  },
 ];
 
 function getRoleLinks(
@@ -106,6 +113,7 @@ export default function Sidebar({
   counts?: SidebarCounts;
 }) {
   const navigate = useNavigate();
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   const links = [...commonLinks, ...getRoleLinks(role, counts)];
 
@@ -118,8 +126,12 @@ export default function Sidebar({
     }
   };
 
-  return (
-    <aside className="sticky top-0 hidden h-screen w-72 shrink-0 border-r border-white/10 bg-black lg:flex lg:flex-col">
+  const handleNavigateMobile = () => {
+    setMobileOpen(false);
+  };
+
+  const sidebarContent = (
+    <>
       <div className="flex items-center justify-between border-b border-white/10 px-6 py-6">
         <div className="min-w-0">
           <p className="text-xs uppercase tracking-[0.3em] text-white/40">
@@ -130,8 +142,16 @@ export default function Sidebar({
           </h1>
         </div>
 
-        <div className="shrink-0">
+        <div className="flex shrink-0 items-center gap-2">
           <NotificationBell />
+          <button
+            type="button"
+            onClick={() => setMobileOpen(false)}
+            className="rounded-lg p-2 text-white/70 hover:bg-white/10 hover:text-white lg:hidden"
+            aria-label="Close menu"
+          >
+            <X size={20} />
+          </button>
         </div>
       </div>
 
@@ -143,6 +163,7 @@ export default function Sidebar({
             <NavLink
               key={link.to}
               to={link.to}
+              onClick={handleNavigateMobile}
               className={({ isActive }) =>
                 [
                   "flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition-all duration-200",
@@ -174,6 +195,47 @@ export default function Sidebar({
           Logout
         </button>
       </div>
-    </aside>
+    </>
+  );
+
+  return (
+    <>
+      <div className="sticky top-0 z-40 flex items-center justify-between border-b border-white/10 bg-black px-4 py-4 lg:hidden">
+        <button
+          type="button"
+          onClick={() => setMobileOpen(true)}
+          className="rounded-lg p-2 text-white hover:bg-white/10"
+          aria-label="Open menu"
+        >
+          <Menu size={22} />
+        </button>
+
+        <h1 className="truncate text-lg font-bold text-white">
+          ITs<span className="text-orange-500">Nomatata</span>
+        </h1>
+
+        <div className="shrink-0">
+          <NotificationBell />
+        </div>
+      </div>
+
+      {mobileOpen ? (
+        <div className="fixed inset-0 z-50 lg:hidden">
+          <button
+            type="button"
+            aria-label="Close menu overlay"
+            className="absolute inset-0 bg-black/70"
+            onClick={() => setMobileOpen(false)}
+          />
+          <aside className="absolute left-0 top-0 flex h-full w-72 max-w-[85vw] flex-col border-r border-white/10 bg-black shadow-2xl">
+            {sidebarContent}
+          </aside>
+        </div>
+      ) : null}
+
+      <aside className="sticky top-0 hidden h-screen w-72 shrink-0 border-r border-white/10 bg-black lg:flex lg:flex-col">
+        {sidebarContent}
+      </aside>
+    </>
   );
 }

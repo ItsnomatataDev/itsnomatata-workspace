@@ -79,7 +79,13 @@ export function useNotifications(userId?: string | null) {
 
         setNotifications((prev) =>
           prev.map((item) =>
-            item.id === notificationId ? { ...item, is_read: true } : item,
+            item.id === notificationId
+              ? {
+                  ...item,
+                  is_read: true,
+                  read_at: new Date().toISOString(),
+                }
+              : item,
           ),
         );
 
@@ -102,7 +108,11 @@ export function useNotifications(userId?: string | null) {
       await readAllNotifications(userId);
 
       setNotifications((prev) =>
-        prev.map((item) => ({ ...item, is_read: true })),
+        prev.map((item) => ({
+          ...item,
+          is_read: true,
+          read_at: new Date().toISOString(),
+        })),
       );
       setUnreadCount(0);
     } catch (err: any) {

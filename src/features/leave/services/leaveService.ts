@@ -1,5 +1,6 @@
 import { supabase } from "../../../lib/supabase/client";
 import { checkLeaveAvailability } from "./leaveCalendarService";
+import { sendBulkNotifications } from "../../notifications/services/notificationService";
 
 export type LeaveTypeRow = {
   id: string;
@@ -155,28 +156,26 @@ export async function createLeaveRequest(params: {
   const requesterEmail = requester?.email?.trim() || "No email";
   const leaveTypeName = leaveType?.name || "General Leave";
 
-  const notifications = admins.map((admin) => ({
-    organization_id: params.organizationId,
-    user_id: admin.id,
+  await sendBulkNotifications({
+    organizationId: params.organizationId,
+    userIds: admins.map((admin) => admin.id),
     type: "leave_request_submitted",
     title: "New Leave Request Submitted",
     message: `${requesterName} (${requesterEmail}) requested ${leaveTypeName} from ${params.startDate} to ${params.endDate}.`,
-    reference_id: leaveRequest.id,
-    reference_type: "leave_request",
-    is_read: false,
-  }));
-
-  const { error: insertNotificationError } = await supabase
-    .from("notifications")
-    .insert(notifications);
-
-  if (insertNotificationError) {
-    console.error(
-      "LEAVE REQUEST NOTIFICATION INSERT ERROR:",
-      insertNotificationError,
-    );
-    throw new Error(insertNotificationError.message);
-  }
-
+    entityType: "leave_request",
+    entityId: leaveRequest.id,
+    referenceId: leaveRequest.id,
+    referenceType: "leave_request",
+    actionUrl: "/admin/leave",
+    priority: "high",
+    metadata: {
+      leaveRequestId: leaveRequest.id,
+      requesterName,
+      requesterEmail,
+      leaveTypeName,
+      startDate: params.startDate,
+      endDate: params.endDate,
+    },
+  });
   return leaveRequest;
 }
