@@ -1,5 +1,3 @@
-// src/features/ai-assistant/components/AiResponseCard.tsx
-
 import {
   AlertTriangle,
   CheckCircle2,
