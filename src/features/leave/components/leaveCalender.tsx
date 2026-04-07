@@ -15,17 +15,9 @@ import {
   startOfToday,
   startOfWeek as dfStartOfWeek,
   endOfWeek,
-  addDays,
 } from "date-fns";
 import { enUS } from "date-fns/locale";
-import {
-  CalendarDays,
-  Lock,
-  Unlock,
-  User,
-  ClipboardList,
-  X,
-} from "lucide-react";
+import { User, ClipboardList, X } from "lucide-react";
 import "react-big-calendar/lib/css/react-big-calendar.css";
 import type {
   LeaveCalendarEventRow,
@@ -84,6 +76,25 @@ function getLeaveLengthDays(start: Date, end: Date) {
   );
 }
 
+function normalizeSlotRange(start: Date, end: Date) {
+  const normalizedStart = new Date(start);
+  const normalizedEnd = new Date(end);
+
+  normalizedStart.setHours(0, 0, 0, 0);
+  normalizedEnd.setHours(0, 0, 0, 0);
+
+  if (normalizedEnd.getTime() > normalizedStart.getTime()) {
+    normalizedEnd.setDate(normalizedEnd.getDate() - 1);
+  }
+
+  normalizedEnd.setHours(23, 59, 59, 999);
+
+  return {
+    start: normalizedStart,
+    end: normalizedEnd,
+  };
+}
+
 export default function LeaveCalendar({
   approvedLeaves,
   rules,
@@ -92,6 +103,7 @@ export default function LeaveCalendar({
   onSelectSlot,
   onManageLeave,
   onManageRule,
+  onMoveEvent,
 }: {
   approvedLeaves: LeaveCalendarEventRow[];
   rules: LeaveCalendarRuleRow[];
@@ -100,6 +112,7 @@ export default function LeaveCalendar({
   onSelectSlot?: (params: { start: Date; end: Date }) => void;
   onManageLeave?: (event: LeaveCalendarEvent) => void;
   onManageRule?: (event: LeaveCalendarEvent) => void;
+  onMoveEvent?: (params: { eventId: string; start: Date; end: Date }) => void;
 }) {
   const [selectedEvent, setSelectedEvent] = useState<LeaveCalendarEvent | null>(
     null,
@@ -110,6 +123,7 @@ export default function LeaveCalendar({
   } | null>(null);
   const [currentView, setCurrentView] = useState<View>(Views.MONTH);
   const [currentDate, setCurrentDate] = useState<Date>(startOfToday());
+  const [movingLeave, setMovingLeave] = useState(false);
 
   const events = useMemo<LeaveCalendarEvent[]>(() => {
     const leaveEvents: LeaveCalendarEvent[] = approvedLeaves.map((item) => ({
@@ -165,18 +179,18 @@ export default function LeaveCalendar({
   }, [approvedLeaves, currentDate, currentView]);
 
   function handleSelectEvent(event: LeaveCalendarEvent) {
-    setSelectedRange(null);
     setSelectedEvent(event);
     onSelectEvent?.(event);
   }
 
   function handleSelectSlot(slotInfo: SlotInfo) {
-    const start = slotInfo.start as Date;
-    const end = slotInfo.end as Date;
+    const normalized = normalizeSlotRange(
+      slotInfo.start as Date,
+      slotInfo.end as Date,
+    );
 
-    setSelectedEvent(null);
-    setSelectedRange({ start, end });
-    onSelectSlot?.({ start, end });
+    setSelectedRange(normalized);
+    onSelectSlot?.(normalized);
   }
 
   function goToToday() {
@@ -207,6 +221,23 @@ export default function LeaveCalendar({
     selectedEvent?.type === "rule"
       ? (selectedEvent.raw as LeaveCalendarRuleRow)
       : null;
+
+  async function handleApplySelectedRangeToLeave() {
+    if (!selectedLeave || !selectedRange || !onMoveEvent) return;
+
+    try {
+      setMovingLeave(true);
+      await onMoveEvent({
+        eventId: selectedLeave.id,
+        start: selectedRange.start,
+        end: selectedRange.end,
+      });
+      setSelectedRange(null);
+      setSelectedEvent(null);
+    } finally {
+      setMovingLeave(false);
+    }
+  }
 
   return (
     <div className="overflow-hidden rounded-2xl border border-white/10 bg-white/5 p-4">
@@ -430,6 +461,18 @@ export default function LeaveCalendar({
             ) : null}
           </div>
 
+          {canManage && selectedLeave && selectedRange ? (
+            <div className="mt-4 rounded-2xl border border-orange-500/20 bg-orange-500/10 p-4">
+              <p className="text-sm font-semibold text-orange-300">
+                Ready to update leave dates
+              </p>
+              <p className="mt-2 text-sm text-orange-100/90">
+                New range:{" "}
+                {formatDateRange(selectedRange.start, selectedRange.end)}
+              </p>
+            </div>
+          ) : null}
+
           <div className="mt-5 flex flex-wrap gap-3">
             <button
               type="button"
@@ -464,6 +507,17 @@ export default function LeaveCalendar({
                 Manage User Leave
               </button>
             ) : null}
+
+            {canManage && selectedLeave && selectedRange && onMoveEvent ? (
+              <button
+                type="button"
+                onClick={() => void handleApplySelectedRangeToLeave()}
+                disabled={movingLeave}
+                className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {movingLeave ? "Updating..." : "Apply Selected Range to Leave"}
+              </button>
+            ) : null}
           </div>
         </div>
       )}
@@ -474,7 +528,7 @@ export default function LeaveCalendar({
             <div>
               <div className="text-lg font-semibold">Selected Date Range</div>
               <p className="mt-1 text-sm text-white/60">
-                Use this range to create or manage leave rules.
+                Use this range to create rules or update an approved leave.
               </p>
             </div>
 
