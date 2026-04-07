@@ -27,8 +27,8 @@ import AdminRosterPage from "../../features/admin/pages/AdminRosterPage";
 import AdminEmployeesPage from "../../features/admin/pages/AdminEmployeesPage";
 import AdminEmployeeDetailsPage from "../../features/admin/pages/AdminEmployeeDetailsPage";
 import NotificationsPage from "../../features/notifications/pages/NotificationsPage";
-import AiAssistantPage from "../../features/ai-workspace/pages/AIWorkspacePage";
-import AIWorkspacePage from "../../features/ai-workspace/pages/AIWorkspacePage"
+// import AiAssistantPage from "../../features/ai-workspace/pages/AIWorkspacePage";
+// import AIWorkspacePage from "../../features/ai-workspace/pages/AIWorkspacePage"
 const AppRouter = () => {
   return (
     <BrowserRouter>
@@ -270,8 +270,8 @@ const AppRouter = () => {
             </ProtectedRoute>
           }
         />
-        <Route path="/ai-assistant" element={<AiAssistantPage />} />
-        <Route path="/ai-workspace" element={<AIWorkspacePage />} />
+        {/* <Route path="/ai-assistant" element={<AiAssistantPage />} />
+        <Route path="/ai-workspace" element={<AIWorkspacePage />} /> */}
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </BrowserRouter>

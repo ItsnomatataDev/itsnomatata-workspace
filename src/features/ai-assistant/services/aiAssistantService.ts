@@ -14,6 +14,19 @@ import type {
   AssistantResponse,
 } from "../../../lib/api/n8n";
 
+export type AIUserRole =
+  | "admin"
+  | "manager"
+  | "it"
+  | "social_media"
+  | "media_team"
+  | "seo_specialist";
+
+export type DashboardSummaryResult = {
+  summary: string;
+  suggestions: string[];
+};
+
 export interface AssistantChatMessage {
   id: string;
   role: "user" | "assistant" | "system";
@@ -89,6 +102,21 @@ function mapAssistantResponseToChatMessage(
   };
 }
 
+function normalizeRole(role: string | null | undefined): AIUserRole | undefined {
+  if (
+    role === "admin" ||
+    role === "manager" ||
+    role === "it" ||
+    role === "social_media" ||
+    role === "media_team" ||
+    role === "seo_specialist"
+  ) {
+    return role;
+  }
+
+  return undefined;
+}
+
 export function createUserChatMessage(
   content: string,
   extras?: Partial<AssistantChatMessage>,
@@ -113,6 +141,48 @@ export function createPendingAssistantMessage(
     type: "text",
     createdAt: nowIso(),
     pending: true,
+  };
+}
+
+export async function generateDashboardSummary(params: {
+  role: AIUserRole | string;
+  context?: AssistantContextInput;
+}): Promise<DashboardSummaryResult> {
+  const role = normalizeRole(params.role) ?? "manager";
+  const normalizedContext = buildAssistantContext(params.context ?? { role });
+
+  const response = await askAssistant({
+    message:
+      "Generate a concise dashboard summary for this workspace role. Include key priorities and 3 short actionable suggestions.",
+    context: normalizedContext,
+    attachments: [],
+    conversationId: null,
+    metadata: {
+      requestType: "dashboard_summary",
+      role,
+    },
+  });
+
+  const data = (response.data as Record<string, unknown> | undefined) ?? {};
+  const summaryFromData =
+    typeof data.summary === "string" ? data.summary : undefined;
+
+  const suggestionsFromData = Array.isArray(data.suggestions)
+    ? data.suggestions.filter(
+        (item): item is string => typeof item === "string" && item.trim().length > 0,
+      )
+    : [];
+
+  return {
+    summary: summaryFromData ?? response.message,
+    suggestions:
+      suggestionsFromData.length > 0
+        ? suggestionsFromData
+        : [
+            "Review pending work and overdue items.",
+            "Check approvals, announcements, and team activity.",
+            "Follow up on blockers and ownership gaps.",
+          ],
   };
 }
 

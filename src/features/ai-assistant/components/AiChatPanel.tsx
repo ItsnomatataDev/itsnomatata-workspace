@@ -1,78 +1,50 @@
-import { useMemo, useState } from "react";
-import { Sparkles, Loader2 } from "lucide-react";
-import { useAuth } from "../../../app/providers/AuthProvider";
-import { generateDashboardSummary } from "../../ai-assistant/services/aiAssistantService";
+import { useState } from "react";
+import { Bot, Loader2, SendHorizonal } from "lucide-react";
+import {
+  sendAiChatMessage,
+  type AssistantContextInput,
+} from "../services/aiAssistantService";
 
-type AIUserRole =
-  | "admin"
-  | "manager"
-  | "it"
-  | "social_media"
-  | "media_team"
-  | "seo_specialist";
-
-type DashboardSummaryResult = {
-  summary: string;
-  suggestions?: string[];
-};
-
-function isAIUserRole(value: unknown): value is AIUserRole {
-  return (
-    value === "admin" ||
-    value === "manager" ||
-    value === "it" ||
-    value === "social_media" ||
-    value === "media_team" ||
-    value === "seo_specialist"
-  );
-}
-
-export default function AIAssistantPanel() {
-  const auth = useAuth();
-  const profile = auth?.profile ?? null;
-
-  const role = useMemo<AIUserRole | undefined>(() => {
-    const rawRole = profile?.primary_role;
-    return isAIUserRole(rawRole) ? rawRole : undefined;
-  }, [profile?.primary_role]);
-
+export default function AiChatPanel({
+  context,
+}: {
+  context?: AssistantContextInput;
+}) {
+  const [message, setMessage] = useState("");
+  const [reply, setReply] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [summary, setSummary] = useState<DashboardSummaryResult | null>(null);
 
-  async function handleGenerateSummary() {
-    if (!role) {
-      setError("No valid workspace role found for AI assistant.");
-      return;
-    }
-
+  const handleSend = async () => {
     try {
       setLoading(true);
       setError("");
 
-      const result = await generateDashboardSummary({
-        role,
+      const result = await sendAiChatMessage({
+        message,
+        context,
       });
 
-      setSummary(result as DashboardSummaryResult);
+      setReply(result.reply);
+      setMessage("");
     } catch (err: any) {
-      console.error("AI ASSISTANT SUMMARY ERROR:", err);
-      setError(err?.message || "Failed to generate dashboard summary.");
+      console.error("AI CHAT ERROR:", err);
+      setError(err?.message || "Failed to send message.");
     } finally {
       setLoading(false);
     }
-  }
+  };
 
   return (
-    <section className="rounded-2xl border border-white/10 bg-white/5 p-5 text-white">
+    <div className="rounded-2xl border border-white/10 bg-white/5 p-5 text-white">
       <div className="mb-4 flex items-center gap-3">
         <div className="rounded-xl bg-orange-500/15 p-2 text-orange-400">
-          <Sparkles size={18} />
+          <Bot size={18} />
         </div>
         <div>
-          <h2 className="text-lg font-semibold">AI Assistant</h2>
+          <h2 className="text-lg font-semibold">AI Chat</h2>
           <p className="text-sm text-white/55">
-            Generate a quick dashboard summary for your current role.
+            Ask the assistant about your workspace.
           </p>
         </div>
       </div>
@@ -83,52 +55,37 @@ export default function AIAssistantPanel() {
         </div>
       ) : null}
 
-      <button
-        type="button"
-        onClick={() => void handleGenerateSummary()}
-        disabled={loading || !role}
-        className="inline-flex items-center gap-2 rounded-xl bg-orange-500 px-4 py-2 text-sm font-semibold text-black hover:bg-orange-400 disabled:cursor-not-allowed disabled:opacity-60"
-      >
-        {loading ? (
-          <Loader2 size={16} className="animate-spin" />
-        ) : (
-          <Sparkles size={16} />
-        )}
-        {loading ? "Generating..." : "Generate Summary"}
-      </button>
+      <div className="space-y-4">
+        <textarea
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+          placeholder="Ask something about your dashboard, tasks, approvals, or team..."
+          className="min-h-[120px] w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none placeholder:text-white/35"
+        />
 
-      <div className="mt-5 rounded-2xl border border-white/10 bg-black/30 p-4">
-        {!summary ? (
-          <p className="text-sm text-white/50">No summary generated yet.</p>
-        ) : (
-          <div className="space-y-4">
-            <div>
-              <p className="text-sm font-semibold text-orange-400">Summary</p>
-              <p className="mt-2 text-sm leading-6 text-white/85">
-                {summary.summary}
-              </p>
-            </div>
+        <button
+          type="button"
+          onClick={() => void handleSend()}
+          disabled={loading || !message.trim()}
+          className="inline-flex items-center gap-2 rounded-xl bg-orange-500 px-4 py-2 text-sm font-semibold text-black hover:bg-orange-400 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {loading ? (
+            <Loader2 size={16} className="animate-spin" />
+          ) : (
+            <SendHorizonal size={16} />
+          )}
+          {loading ? "Sending..." : "Send"}
+        </button>
 
-            {summary.suggestions && summary.suggestions.length > 0 ? (
-              <div>
-                <p className="text-sm font-semibold text-orange-400">
-                  Suggestions
-                </p>
-                <ul className="mt-2 space-y-2 text-sm text-white/80">
-                  {summary.suggestions.map((item, index) => (
-                    <li
-                      key={`${item}-${index}`}
-                      className="rounded-xl border border-white/10 bg-white/5 px-3 py-2"
-                    >
-                      {item}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-          </div>
-        )}
+        <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+          <p className="text-sm font-semibold text-orange-400">
+            Assistant Reply
+          </p>
+          <p className="mt-2 text-sm leading-6 text-white/80">
+            {reply || "No response yet."}
+          </p>
+        </div>
       </div>
-    </section>
+    </div>
   );
 }

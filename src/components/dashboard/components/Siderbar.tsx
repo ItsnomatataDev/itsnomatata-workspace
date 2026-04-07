@@ -43,9 +43,7 @@ const commonLinks: LinkItem[] = [
   { to: "/notifications", label: "Notifications", icon: Bell },
   { to: "/time", label: "Time Tracking", icon: Clock3 },
   { to: "/leave", label: "Leave", icon: CalendarDays },
-  { to: "/ai-assistant", label: "AI Assistant", icon: Sparkles },
-  {to: "/ai-workspace",label: "AI Workspace",icon: Bot,
-  },
+
 ];
 
 function getRoleLinks(
