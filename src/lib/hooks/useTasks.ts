@@ -1,68 +1,58 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import type {
+  TaskCommentItem,
+  TaskItem,
+  TaskStatus,
+  TaskWatcherCountItem,
+  TaskWatcherItem,
+} from "../supabase/queries/tasks";
 import {
   getTaskById,
   getTaskComments,
   getTasks,
-  getTaskWatchers,
   getTaskRuntimeInfo,
   getTaskWatcherCounts,
+  getTaskWatchers,
   searchTaskInvitableUsers,
-  type TaskCommentItem,
   type TaskInvitableUser,
-  type TaskItem,
-  type TaskRuntimeInfo,
-  type TaskStatus,
-  type TaskWatcherCountItem,
-  type TaskWatcherItem,
 } from "../supabase/queries/tasks";
 import {
-  getTaskChecklists,
-  type TaskChecklistWithItems,
-} from "../supabase/queries/taskChecklists";
-import {
-  addTaskWatcher as addTaskWatcherMutation,
-  createTask as createTaskMutation,
-  createTaskComment as createTaskCommentMutation,
-  deleteTask as deleteTaskMutation,
-  removeTaskWatcher as removeTaskWatcherMutation,
-  updateTask as updateTaskMutation,
-  type CreateTaskInput,
-  type UpdateTaskInput,
+  createTask,
+  createTaskComment,
+  addTaskWatcher,
+  removeTaskWatcher,
+  updateTask,
 } from "../supabase/mutations/tasks";
-import {
-  createTaskChecklist,
-  createTaskChecklistItem,
-  deleteTaskChecklist,
-  deleteTaskChecklistItem,
-  toggleTaskChecklistItem,
-} from "../supabase/mutations/taskChecklists";
 
-const boardStatuses: TaskStatus[] = [
-  "backlog",
-  "todo",
-  "in_progress",
-  "review",
-  "approved",
-  "done",
-  "blocked",
-];
-
-export const useTasks = ({
-  assignedTo,
-  organizationId,
-}: {
+type UseTasksParams = {
   assignedTo?: string;
-  organizationId?: string;
-}) => {
-  const [tasks, setTasks] = useState<TaskItem[]>([]);
-  const [runtimeInfo, setRuntimeInfo] = useState<TaskRuntimeInfo[]>([]);
-  const [taskWatcherCounts, setTaskWatcherCounts] = useState<
-    TaskWatcherCountItem[]
-  >([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  organizationId?: string | null;
+};
 
+type TaskChecklistItem = {
+  id: string;
+  checklist_id: string;
+  content: string;
+  is_completed: boolean;
+  completed_at?: string | null;
+  completed_by?: string | null;
+  created_at?: string;
+};
+
+type TaskChecklist = {
+  id: string;
+  task_id: string;
+  title: string;
+  created_at?: string;
+  items: TaskChecklistItem[];
+};
+
+export function useTasks(params: UseTasksParams) {
+  const { assignedTo, organizationId } = params;
+
+  const [tasks, setTasks] = useState<TaskItem[]>([]);
   const [selectedTask, setSelectedTask] = useState<TaskItem | null>(null);
+
   const [selectedTaskComments, setSelectedTaskComments] = useState<
     TaskCommentItem[]
   >([]);
@@ -70,89 +60,105 @@ export const useTasks = ({
     TaskWatcherItem[]
   >([]);
   const [selectedTaskChecklists, setSelectedTaskChecklists] = useState<
-    TaskChecklistWithItems[]
+    TaskChecklist[]
   >([]);
+
+  const [taskRuntimeMap, setTaskRuntimeMap] = useState<Map<string, boolean>>(
+    new Map(),
+  );
+  const [taskInvitedCountMap, setTaskInvitedCountMap] = useState<
+    Map<string, number>
+  >(new Map());
+
+  const [loading, setLoading] = useState(false);
   const [detailsLoading, setDetailsLoading] = useState(false);
+  const [error, setError] = useState("");
   const [detailsError, setDetailsError] = useState("");
 
-  const fetchTasks = useCallback(async () => {
+  const refetch = useCallback(async () => {
+    if (!organizationId) {
+      setTasks([]);
+      setSelectedTask(null);
+      setSelectedTaskComments([]);
+      setSelectedTaskWatchers([]);
+      setSelectedTaskChecklists([]);
+      setTaskRuntimeMap(new Map());
+      setTaskInvitedCountMap(new Map());
+      return [] as TaskItem[];
+    }
+
     try {
       setLoading(true);
       setError("");
 
-      const [taskData, runtimeData, watcherCountData] = await Promise.all([
+      const [items, runtimeInfo, watcherCounts] = await Promise.all([
         getTasks({ assignedTo, organizationId }),
-        organizationId
-          ? getTaskRuntimeInfo(organizationId)
-          : Promise.resolve([]),
-        organizationId
-          ? getTaskWatcherCounts(organizationId)
-          : Promise.resolve([]),
+        getTaskRuntimeInfo(organizationId),
+        getTaskWatcherCounts(organizationId),
       ]);
 
-      setTasks(taskData);
-      setRuntimeInfo(runtimeData);
-      setTaskWatcherCounts(watcherCountData);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load tasks");
+      setTasks(items);
+
+      const runtimeMap = new Map<string, boolean>();
+      runtimeInfo.forEach((item) => {
+        runtimeMap.set(item.task_id, item.has_running_timer);
+      });
+      setTaskRuntimeMap(runtimeMap);
+
+      const invitedMap = new Map<string, number>();
+      watcherCounts.forEach((item: TaskWatcherCountItem) => {
+        invitedMap.set(item.task_id, item.invited_count);
+      });
+      setTaskInvitedCountMap(invitedMap);
+
+      return items;
+    } catch (err: any) {
+      console.error("LOAD TASKS ERROR:", err);
+      setError(err?.message || "Failed to load tasks.");
+      return [] as TaskItem[];
     } finally {
       setLoading(false);
     }
   }, [assignedTo, organizationId]);
 
   useEffect(() => {
-    void fetchTasks();
-  }, [fetchTasks]);
+    void refetch();
+  }, [refetch]);
 
-  const createTask = async (payload: CreateTaskInput) => {
-    const created = await createTaskMutation(payload);
-    setTasks((prev) => [created, ...prev]);
-    return created;
-  };
-
-  const updateTask = async (taskId: string, payload: UpdateTaskInput) => {
-    const updated = await updateTaskMutation(taskId, payload);
-    setTasks((prev) => prev.map((t) => (t.id === taskId ? updated : t)));
-
-    if (selectedTask?.id === taskId) {
-      setSelectedTask(updated);
-    }
-
-    return updated;
-  };
-
-  const deleteTask = async (taskId: string) => {
-    await deleteTaskMutation(taskId);
-    setTasks((prev) => prev.filter((t) => t.id !== taskId));
-
-    if (selectedTask?.id === taskId) {
-      setSelectedTask(null);
-      setSelectedTaskComments([]);
-      setSelectedTaskWatchers([]);
-      setSelectedTaskChecklists([]);
-    }
-  };
+  const groupedTasks = useMemo(() => {
+    return tasks.reduce<Record<string, TaskItem[]>>((acc, task) => {
+      const key = task.status || "todo";
+      if (!acc[key]) acc[key] = [];
+      acc[key].push(task);
+      return acc;
+    }, {});
+  }, [tasks]);
 
   const openTask = useCallback(async (taskId: string) => {
     try {
       setDetailsLoading(true);
       setDetailsError("");
 
-      const [task, comments, watchers, checklists] = await Promise.all([
+      const [task, comments, watchers] = await Promise.all([
         getTaskById(taskId),
         getTaskComments(taskId),
         getTaskWatchers(taskId),
-        getTaskChecklists(taskId),
       ]);
 
-      setSelectedTask(task);
-      setSelectedTaskComments(comments);
-      setSelectedTaskWatchers(watchers);
-      setSelectedTaskChecklists(checklists);
-    } catch (err) {
-      setDetailsError(
-        err instanceof Error ? err.message : "Failed to load task details",
-      );
+      setSelectedTask(task ?? null);
+      setSelectedTaskComments(comments ?? []);
+      setSelectedTaskWatchers(watchers ?? []);
+      setSelectedTaskChecklists([]);
+
+      return task ?? null;
+    } catch (err: any) {
+      console.error("OPEN TASK ERROR:", err);
+      setDetailsError(err?.message || "Failed to open task.");
+      setSelectedTask(null);
+      setSelectedTaskComments([]);
+      setSelectedTaskWatchers([]);
+      setSelectedTaskChecklists([]);
+      return null;
     } finally {
       setDetailsLoading(false);
     }
@@ -166,211 +172,184 @@ export const useTasks = ({
     setDetailsError("");
   }, []);
 
-  const addComment = async ({
-    taskId,
-    organizationId: orgId,
-    userId,
-    comment,
-  }: {
-    taskId: string;
-    organizationId: string;
-    userId: string;
-    comment: string;
-  }) => {
-    const created = await createTaskCommentMutation({
-      task_id: taskId,
-      organization_id: orgId,
-      user_id: userId,
-      comment,
-      is_internal: true,
-    });
+  const createTaskCard = useCallback(
+    async (input: Parameters<typeof createTask>[0]) => {
+      const created = await createTask(input);
+      await refetch();
+      return created;
+    },
+    [refetch],
+  );
 
-    const comments = await getTaskComments(taskId);
-    setSelectedTaskComments(comments);
+  const addComment = useCallback(
+    async (params: {
+      taskId: string;
+      organizationId: string;
+      userId: string;
+      comment: string;
+    }) => {
+      await createTaskComment({
+        task_id: params.taskId,
+        organization_id: params.organizationId,
+        user_id: params.userId,
+        comment: params.comment,
+        is_internal: false,
+      });
 
-    return created;
-  };
+      if (selectedTask?.id === params.taskId) {
+        const comments = await getTaskComments(params.taskId);
+        setSelectedTaskComments(comments);
+      }
+    },
+    [selectedTask?.id],
+  );
 
-  const addWatcher = async (taskId: string, userId: string) => {
-    await addTaskWatcherMutation({ taskId, userId });
+  const addWatcher = useCallback(
+    async (taskId: string, userId: string) => {
+      await addTaskWatcher({
+        taskId,
+        userId,
+      });
 
-    const [watchers, watcherCountData] = await Promise.all([
-      getTaskWatchers(taskId),
-      organizationId
-        ? getTaskWatcherCounts(organizationId)
-        : Promise.resolve([]),
-    ]);
+      if (selectedTask?.id === taskId) {
+        const watchers = await getTaskWatchers(taskId);
+        setSelectedTaskWatchers(watchers);
+      }
 
-    setSelectedTaskWatchers(watchers);
-    setTaskWatcherCounts(watcherCountData);
-  };
+      await refetch();
+    },
+    [refetch, selectedTask?.id],
+  );
 
-  const removeWatcher = async (taskId: string, userId: string) => {
-    await removeTaskWatcherMutation({ taskId, userId });
+  const removeWatcherFromTask = useCallback(
+    async (taskId: string, userId: string) => {
+      await removeTaskWatcher({
+        taskId,
+        userId,
+      });
 
-    const [watchers, watcherCountData] = await Promise.all([
-      getTaskWatchers(taskId),
-      organizationId
-        ? getTaskWatcherCounts(organizationId)
-        : Promise.resolve([]),
-    ]);
+      if (selectedTask?.id === taskId) {
+        const watchers = await getTaskWatchers(taskId);
+        setSelectedTaskWatchers(watchers);
+      }
 
-    setSelectedTaskWatchers(watchers);
-    setTaskWatcherCounts(watcherCountData);
-  };
+      await refetch();
+    },
+    [refetch, selectedTask?.id],
+  );
 
-  const searchInvitableUsers = async (
-    search: string,
-  ): Promise<TaskInvitableUser[]> => {
-    if (!organizationId || !selectedTask) return [];
+  const searchInvitableUsers = useCallback(
+    async (search: string): Promise<TaskInvitableUser[]> => {
+      if (!organizationId) return [];
 
-    const excludeUserIds = selectedTaskWatchers.map((item) => item.user_id);
+      const excludeUserIds = selectedTaskWatchers.map((item) => item.user_id);
 
-    return searchTaskInvitableUsers({
-      organizationId,
-      search,
-      excludeUserIds,
-    });
-  };
+      return searchTaskInvitableUsers({
+        organizationId,
+        search,
+        excludeUserIds,
+      });
+    },
+    [organizationId, selectedTaskWatchers],
+  );
 
-  const addChecklist = async ({
-    taskId,
-    title,
-    userId,
-  }: {
-    taskId: string;
-    title: string;
-    userId: string;
-  }) => {
-    if (!organizationId) throw new Error("Missing organization id");
+  const addChecklist = useCallback(
+    async (_params: { taskId: string; title: string; userId: string }) => {
+      throw new Error("Checklist service is not wired yet.");
+    },
+    [],
+  );
 
-    await createTaskChecklist({
-      taskId,
-      organizationId,
-      title,
-      createdBy: userId,
-    });
+  const removeChecklist = useCallback(
+    async (_params: { taskId: string; checklistId: string }) => {
+      throw new Error("Checklist service is not wired yet.");
+    },
+    [],
+  );
 
-    const checklists = await getTaskChecklists(taskId);
-    setSelectedTaskChecklists(checklists);
-  };
+  const addChecklistItem = useCallback(
+    async (_params: {
+      taskId: string;
+      checklistId: string;
+      content: string;
+      userId: string;
+    }) => {
+      throw new Error("Checklist item service is not wired yet.");
+    },
+    [],
+  );
 
-  const removeChecklist = async ({
-    taskId,
-    checklistId,
-  }: {
-    taskId: string;
-    checklistId: string;
-  }) => {
-    await deleteTaskChecklist(checklistId);
-    const checklists = await getTaskChecklists(taskId);
-    setSelectedTaskChecklists(checklists);
-  };
+  const toggleChecklistItem = useCallback(
+    async (_params: {
+      taskId: string;
+      itemId: string;
+      checked: boolean;
+      userId: string;
+    }) => {
+      throw new Error("Checklist item service is not wired yet.");
+    },
+    [],
+  );
 
-  const addChecklistItem = async ({
-    taskId,
-    checklistId,
-    content,
-    userId,
-  }: {
-    taskId: string;
-    checklistId: string;
-    content: string;
-    userId: string;
-  }) => {
-    if (!organizationId) throw new Error("Missing organization id");
+  const removeChecklistItem = useCallback(
+    async (_params: { taskId: string; itemId: string }) => {
+      throw new Error("Checklist item service is not wired yet.");
+    },
+    [],
+  );
 
-    await createTaskChecklistItem({
-      checklistId,
-      taskId,
-      organizationId,
-      content,
-      createdBy: userId,
-    });
+  const moveTask = useCallback(
+    async (taskId: string, nextStatus: TaskStatus) => {
+      await updateTask(taskId, {
+        status: nextStatus,
+        completed_at: nextStatus === "done" ? new Date().toISOString() : null,
+      });
 
-    const checklists = await getTaskChecklists(taskId);
-    setSelectedTaskChecklists(checklists);
-  };
+      const refreshedItems = await refetch();
+      const updatedTask =
+        refreshedItems.find((task) => task.id === taskId) ?? null;
 
-  const toggleChecklistItem = async ({
-    taskId,
-    itemId,
-    checked,
-    userId,
-  }: {
-    taskId: string;
-    itemId: string;
-    checked: boolean;
-    userId: string;
-  }) => {
-    await toggleTaskChecklistItem({
-      itemId,
-      checked,
-      userId,
-    });
-
-    const checklists = await getTaskChecklists(taskId);
-    setSelectedTaskChecklists(checklists);
-  };
-
-  const removeChecklistItem = async ({
-    taskId,
-    itemId,
-  }: {
-    taskId: string;
-    itemId: string;
-  }) => {
-    await deleteTaskChecklistItem(itemId);
-    const checklists = await getTaskChecklists(taskId);
-    setSelectedTaskChecklists(checklists);
-  };
-
-  const taskRuntimeMap = useMemo(() => {
-    return new Map(
-      runtimeInfo.map((item) => [item.task_id, item.has_running_timer]),
-    );
-  }, [runtimeInfo]);
-
-  const taskInvitedCountMap = useMemo(() => {
-    return new Map(
-      taskWatcherCounts.map((item) => [item.task_id, item.invited_count]),
-    );
-  }, [taskWatcherCounts]);
-
-  const groupedTasks = useMemo(() => {
-    return boardStatuses.reduce<Record<string, TaskItem[]>>((acc, status) => {
-      acc[status] = tasks.filter((task) => task.status === status);
-      return acc;
-    }, {});
-  }, [tasks]);
+      setSelectedTask((prev) => (prev?.id === taskId ? updatedTask : prev));
+      return updatedTask;
+    },
+    [refetch],
+  );
 
   return {
     tasks,
     groupedTasks,
     taskRuntimeMap,
     taskInvitedCountMap,
+
     loading,
     error,
-    refetch: fetchTasks,
-    createTask,
-    updateTask,
-    deleteTask,
+
+    createTask: createTaskCard,
+    refetch,
+
     selectedTask,
     selectedTaskComments,
     selectedTaskWatchers,
     selectedTaskChecklists,
+
     detailsLoading,
     detailsError,
+
     openTask,
     closeTask,
+
     addComment,
     addWatcher,
-    removeWatcher,
+    removeWatcher: removeWatcherFromTask,
     searchInvitableUsers,
+
     addChecklist,
     removeChecklist,
     addChecklistItem,
     toggleChecklistItem,
     removeChecklistItem,
+
+    moveTask,
+    setSelectedTask,
   };
-};
+}

@@ -10,6 +10,7 @@ import { startTimeEntry } from "../../../lib/supabase/mutations/timeEntries";
 import { updateTask } from "../../../lib/supabase/mutations/tasks";
 import type { TaskItem } from "../../../lib/supabase/queries/tasks";
 import { searchTaskAssignableUsers } from "../../../lib/supabase/queries/taskAssignees";
+
 type BoardMode = "organization" | "mine";
 
 export default function TasksWorkspacePage({
@@ -82,40 +83,40 @@ export default function TasksWorkspacePage({
     );
   }, [selectedTask, user.id, profile.primary_role]);
 
-   const handleCreateTask = async (values: TaskFormValues) => {
-     try {
-       setBusy(true);
+  const handleCreateTask = async (values: TaskFormValues) => {
+    try {
+      setBusy(true);
 
-       if (!profile.organization_id) {
-         throw new Error("Your profile has no organization_id.");
-       }
+      if (!profile.organization_id) {
+        throw new Error("Your profile has no organization_id.");
+      }
 
-       const assignedTo =
-         values.assigned_to.trim() === "" ? null : values.assigned_to;
+      const assignedTo =
+        values.assigned_to.trim() === "" ? null : values.assigned_to;
 
-       await createTask({
-         organization_id: profile.organization_id,
-         assigned_to: assignedTo,
-         assigned_by: user.id,
-         created_by: user.id,
-         title: values.title,
-         description: values.description || null,
-         status: values.status,
-         priority: values.priority,
-         due_date: values.due_date
-           ? new Date(values.due_date).toISOString()
-           : null,
-         department: values.department || profile.primary_role || null,
-       });
+      await createTask({
+        organization_id: profile.organization_id,
+        assigned_to: assignedTo,
+        assigned_by: user.id,
+        created_by: user.id,
+        title: values.title,
+        description: values.description || null,
+        status: values.status,
+        priority: values.priority,
+        due_date: values.due_date
+          ? new Date(values.due_date).toISOString()
+          : null,
+        department: values.department || profile.primary_role || null,
+      });
 
-       alert("Task card created successfully");
-     } catch (err) {
-       console.error("HANDLE CREATE TASK ERROR:", err);
-       alert(err instanceof Error ? err.message : "Failed to create task");
-     } finally {
-       setBusy(false);
-     }
-   };
+      alert("Task card created successfully");
+    } catch (err) {
+      console.error("HANDLE CREATE TASK ERROR:", err);
+      alert(err instanceof Error ? err.message : "Failed to create task");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const handleTrack = async (taskId: string, title: string) => {
     try {
@@ -307,41 +308,43 @@ export default function TasksWorkspacePage({
       );
     }
   };
-      const handleMoveTask = async (
-        taskId: string,
-        nextStatus: TaskItem["status"],
-      ) => {
-        try {
-          const payload: {
-            status: TaskItem["status"];
-            completed_at?: string | null;
-          } = {
-            status: nextStatus,
-          };
 
-          if (nextStatus === "done") {
-            payload.completed_at = new Date().toISOString();
-          } else {
-            payload.completed_at = null;
-          }
-
-          await updateTask(taskId, payload);
-          await refetch();
-
-          if (selectedTask?.id === taskId) {
-            await openTask(taskId);
-          }
-        } catch (err) {
-          alert(err instanceof Error ? err.message : "Failed to move card");
-        }
+  const handleMoveTask = async (
+    taskId: string,
+    nextStatus: TaskItem["status"],
+  ) => {
+    try {
+      const payload: {
+        status: TaskItem["status"];
+        completed_at?: string | null;
+      } = {
+        status: nextStatus,
       };
 
-      const handleSearchAssignableUsers = async (search: string) => {
-        return searchTaskAssignableUsers({
-          organizationId: profile.organization_id,
-          search,
-        });
-      };
+      if (nextStatus === "done") {
+        payload.completed_at = new Date().toISOString();
+      } else {
+        payload.completed_at = null;
+      }
+
+      await updateTask(taskId, payload);
+      await refetch();
+
+      if (selectedTask?.id === taskId) {
+        await openTask(taskId);
+      }
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to move card");
+    }
+  };
+
+  const handleSearchAssignableUsers = async (search: string) => {
+    return searchTaskAssignableUsers({
+      organizationId: profile.organization_id,
+      search,
+    });
+  };
+
   return (
     <div className="min-h-screen bg-black text-white">
       <div className="flex min-h-screen">
@@ -457,7 +460,7 @@ export default function TasksWorkspacePage({
         task={selectedTask}
         comments={selectedTaskComments}
         watchers={selectedTaskWatchers}
-        checklists={selectedTaskChecklists}
+        checklists={selectedTaskChecklists as any[]}
         loading={detailsLoading}
         error={detailsError}
         busy={busy}

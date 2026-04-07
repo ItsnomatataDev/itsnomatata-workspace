@@ -1,260 +1,134 @@
-// src/features/ai-assistant/components/AiChatPanel.tsx
-
 import { useMemo, useState } from "react";
-import type {
-  AssistantAttachmentInput,
-  AssistantContextInput,
-} from "../../../lib/api/n8n";
-import AiPromptBox from "./AiPromptBox";
-import AiResponseCard from "./AiResponseCard";
-import {
-  createPendingAssistantMessage,
-  createUserChatMessage,
-  type AssistantChatMessage,
-  runAssistantAction,
-  sendAudioForTranscription,
-  sendDocumentForAnalysis,
-  sendImageForAnalysis,
-  sendMessage,
-} from "../services/aiAssistantService";
+import { Sparkles, Loader2 } from "lucide-react";
+import { useAuth } from "../../../app/providers/AuthProvider";
+import { generateDashboardSummary } from "../../ai-assistant/services/aiAssistantService";
 
-interface AiChatPanelProps {
-  context: AssistantContextInput;
-  title?: string;
-  subtitle?: string;
+type AIUserRole =
+  | "admin"
+  | "manager"
+  | "it"
+  | "social_media"
+  | "media_team"
+  | "seo_specialist";
+
+type DashboardSummaryResult = {
+  summary: string;
+  suggestions?: string[];
+};
+
+function isAIUserRole(value: unknown): value is AIUserRole {
+  return (
+    value === "admin" ||
+    value === "manager" ||
+    value === "it" ||
+    value === "social_media" ||
+    value === "media_team" ||
+    value === "seo_specialist"
+  );
 }
 
-export default function AiChatPanel({
-  context,
-  title = "Codex Assistant",
-  subtitle = "Ask questions, analyze files, and run workspace actions.",
-}: AiChatPanelProps) {
-  const [messages, setMessages] = useState<AssistantChatMessage[]>([
-    {
-      id: "welcome",
-      role: "assistant",
-      content:
-        "Hi, I’m Codex. I can help with tasks, projects, leave, reports, screenshots, audio, and uploaded documents.",
-      type: "text",
-      createdAt: new Date().toISOString(),
-    },
-  ]);
-  const [busy, setBusy] = useState(false);
-  const [conversationId, setConversationId] = useState<string | null>(null);
+export default function AIAssistantPanel() {
+  const auth = useAuth();
+  const profile = auth?.profile ?? null;
 
-  const suggestedPrompts = useMemo(
-    () => [
-      "Summarize my current tasks",
-      "Who is on leave this week?",
-      "Summarize this uploaded PDF",
-      "Analyze this screenshot",
-      "Generate a weekly report draft",
-    ],
-    [],
-  );
+  const role = useMemo<AIUserRole | undefined>(() => {
+    const rawRole = profile?.primary_role;
+    return isAIUserRole(rawRole) ? rawRole : undefined;
+  }, [profile?.primary_role]);
 
-  async function processAttachments(
-    attachments: AssistantAttachmentInput[],
-    text: string,
-  ) {
-    if (!attachments.length) {
-      const result = await sendMessage({
-        message: text || "Help me with my current workspace context.",
-        context,
-        conversationId,
-      });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [summary, setSummary] = useState<DashboardSummaryResult | null>(null);
 
-      setConversationId(result.conversationId);
-      setMessages((prev) => [...prev, result.assistantMessage]);
+  async function handleGenerateSummary() {
+    if (!role) {
+      setError("No valid workspace role found for AI assistant.");
       return;
     }
-
-    const first = attachments[0];
-
-    if (first.type === "image") {
-      const result = await sendImageForAnalysis({
-        context,
-        attachment: first,
-        prompt: text || undefined,
-        conversationId,
-      });
-
-      setConversationId(result.conversationId);
-      setMessages((prev) => [...prev, result.assistantMessage]);
-      return;
-    }
-
-    if (first.type === "audio") {
-      const result = await sendAudioForTranscription({
-        context,
-        attachment: first,
-        prompt: text || undefined,
-        conversationId,
-      });
-
-      setConversationId(result.conversationId);
-      setMessages((prev) => [...prev, result.assistantMessage]);
-      return;
-    }
-
-    const result = await sendDocumentForAnalysis({
-      context,
-      attachment: first,
-      question: text || undefined,
-      conversationId,
-    });
-
-    setConversationId(result.conversationId);
-    setMessages((prev) => [...prev, result.assistantMessage]);
-  }
-
-  async function handleSend(payload: {
-    text: string;
-    attachments: AssistantAttachmentInput[];
-    mode: "ask" | "analyze" | "create" | "action";
-  }) {
-    const userText =
-      payload.text ||
-      (payload.attachments.length > 0
-        ? `Uploaded ${payload.attachments[0].name}`
-        : "New request");
-
-    setMessages((prev) => [
-      ...prev,
-      createUserChatMessage(userText),
-      createPendingAssistantMessage(),
-    ]);
-
-    setBusy(true);
 
     try {
-      setMessages((prev) => prev.filter((msg) => !msg.pending));
+      setLoading(true);
+      setError("");
 
-      if (payload.mode === "action" && payload.text.trim()) {
-        const result = await runAssistantAction({
-          context,
-          conversationId,
-          action: {
-            actionId: "ask_codex",
-            label: payload.text,
-            payload: {
-              prompt: payload.text,
-            },
-            requiresApproval: false,
-          },
-        });
-
-        setConversationId(result.conversationId);
-        setMessages((prev) => [...prev, result.assistantMessage]);
-        return;
-      }
-
-      await processAttachments(payload.attachments, payload.text);
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Something went wrong.";
-
-      setMessages((prev) => [
-        ...prev.filter((msg) => !msg.pending),
-        {
-          id: crypto.randomUUID(),
-          role: "assistant",
-          content: message,
-          type: "error",
-          createdAt: new Date().toISOString(),
-          error: true,
-        },
-      ]);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleResponseAction(action: {
-    id: string;
-    label: string;
-    payload?: Record<string, unknown>;
-  }) {
-    setBusy(true);
-
-    try {
-      const result = await runAssistantAction({
-        context,
-        conversationId,
-        action: {
-          actionId: action.id,
-          label: action.label,
-          payload: action.payload,
-          requiresApproval: false,
-        },
+      const result = await generateDashboardSummary({
+        role,
       });
 
-      setConversationId(result.conversationId);
-      setMessages((prev) => [...prev, result.assistantMessage]);
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Failed to run action.";
-
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: crypto.randomUUID(),
-          role: "assistant",
-          content: message,
-          type: "error",
-          createdAt: new Date().toISOString(),
-          error: true,
-        },
-      ]);
+      setSummary(result as DashboardSummaryResult);
+    } catch (err: any) {
+      console.error("AI ASSISTANT SUMMARY ERROR:", err);
+      setError(err?.message || "Failed to generate dashboard summary.");
     } finally {
-      setBusy(false);
+      setLoading(false);
     }
   }
 
   return (
-    <div className="flex h-full min-h-170 flex-col rounded-3xl border border-white/10 bg-[#0f0f10]">
-      <div className="border-b border-white/10 px-6 py-5">
-        <h2 className="text-xl font-semibold text-white">{title}</h2>
-        <p className="mt-1 text-sm text-gray-400">{subtitle}</p>
-
-        <div className="mt-4 flex flex-wrap gap-2">
-          {suggestedPrompts.map((prompt) => (
-            <button
-              key={prompt}
-              type="button"
-              disabled={busy}
-              onClick={() =>
-                handleSend({ text: prompt, attachments: [], mode: "ask" })
-              }
-              className="rounded-full bg-white/5 px-3 py-1.5 text-sm text-gray-300 transition hover:bg-white/10 disabled:opacity-50"
-            >
-              {prompt}
-            </button>
-          ))}
+    <section className="rounded-2xl border border-white/10 bg-white/5 p-5 text-white">
+      <div className="mb-4 flex items-center gap-3">
+        <div className="rounded-xl bg-orange-500/15 p-2 text-orange-400">
+          <Sparkles size={18} />
+        </div>
+        <div>
+          <h2 className="text-lg font-semibold">AI Assistant</h2>
+          <p className="text-sm text-white/55">
+            Generate a quick dashboard summary for your current role.
+          </p>
         </div>
       </div>
 
-      <div className="flex-1 space-y-4 overflow-y-auto px-6 py-5">
-        {messages.map((message) =>
-          message.role === "assistant" ? (
-            <AiResponseCard
-              key={message.id}
-              message={message}
-              onActionClick={handleResponseAction}
-            />
-          ) : (
-            <div key={message.id} className="flex justify-end">
-              <div className="max-w-2xl rounded-2xl bg-orange-500 px-4 py-3 text-sm text-white shadow-sm">
-                {message.content}
-              </div>
+      {error ? (
+        <div className="mb-4 rounded-xl border border-red-500/20 bg-red-500/10 p-3 text-sm text-red-300">
+          {error}
+        </div>
+      ) : null}
+
+      <button
+        type="button"
+        onClick={() => void handleGenerateSummary()}
+        disabled={loading || !role}
+        className="inline-flex items-center gap-2 rounded-xl bg-orange-500 px-4 py-2 text-sm font-semibold text-black hover:bg-orange-400 disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        {loading ? (
+          <Loader2 size={16} className="animate-spin" />
+        ) : (
+          <Sparkles size={16} />
+        )}
+        {loading ? "Generating..." : "Generate Summary"}
+      </button>
+
+      <div className="mt-5 rounded-2xl border border-white/10 bg-black/30 p-4">
+        {!summary ? (
+          <p className="text-sm text-white/50">No summary generated yet.</p>
+        ) : (
+          <div className="space-y-4">
+            <div>
+              <p className="text-sm font-semibold text-orange-400">Summary</p>
+              <p className="mt-2 text-sm leading-6 text-white/85">
+                {summary.summary}
+              </p>
             </div>
-          ),
+
+            {summary.suggestions && summary.suggestions.length > 0 ? (
+              <div>
+                <p className="text-sm font-semibold text-orange-400">
+                  Suggestions
+                </p>
+                <ul className="mt-2 space-y-2 text-sm text-white/80">
+                  {summary.suggestions.map((item, index) => (
+                    <li
+                      key={`${item}-${index}`}
+                      className="rounded-xl border border-white/10 bg-white/5 px-3 py-2"
+                    >
+                      {item}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+          </div>
         )}
       </div>
-
-      <div className="border-t border-white/10 p-4">
-        <AiPromptBox onSend={handleSend} busy={busy} />
-      </div>
-    </div>
+    </section>
   );
 }
