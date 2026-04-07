@@ -43,14 +43,14 @@ export default function NotificationBell() {
       >
         <Bell size={18} />
         {unreadCount > 0 ? (
-          <span className="absolute -right-1 -top-1 flex h-5 min-w-[20px] items-center justify-center rounded-full bg-orange-500 px-1 text-[10px] font-bold text-black">
+          <span className="absolute -right-1 -top-1 flex h-5 min-w-5s-center justify-center rounded-full bg-orange-500 px-1 text-[10px] font-bold text-black">
             {unreadCount > 99 ? "99+" : unreadCount}
           </span>
         ) : null}
       </button>
 
       {open ? (
-        <div className="absolute right-0 z-50 mt-3 w-[360px] overflow-hidden rounded-2xl border border-white/10 bg-zinc-950 shadow-2xl">
+        <div className="absolute right-0 z-50 mt-3 w-90 overflow-hidden rounded-2xl border border-white/10 bg-zinc-950 shadow-2xl">
           <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
             <div>
               <p className="text-sm font-semibold text-white">Notifications</p>
@@ -68,7 +68,7 @@ export default function NotificationBell() {
             </button>
           </div>
 
-          <div className="max-h-[420px] overflow-y-auto">
+          <div className="max-h-105 overflow-y-auto">
             {loading ? (
               <div className="p-4 text-sm text-white/60">
                 Loading notifications...

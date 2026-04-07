@@ -16,12 +16,20 @@ export default function AiChatPanel({
   const [error, setError] = useState("");
 
   const handleSend = async () => {
+    const trimmed = message.trim();
+
+    if (!trimmed) return;
+    if (!context) {
+      setError("Missing AI assistant context.");
+      return;
+    }
+
     try {
       setLoading(true);
       setError("");
 
       const result = await sendAiChatMessage({
-        message,
+        message: trimmed,
         context,
       });
 
@@ -60,7 +68,7 @@ export default function AiChatPanel({
           value={message}
           onChange={(e) => setMessage(e.target.value)}
           placeholder="Ask something about your dashboard, tasks, approvals, or team..."
-          className="min-h-[120px] w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none placeholder:text-white/35"
+          className="min-h-30 w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none placeholder:text-white/35"
         />
 
         <button

@@ -10,9 +10,11 @@ import {
 import type {
   AssistantActionInput,
   AssistantAttachmentInput,
-  AssistantContextInput,
+  AssistantContextInput as N8nAssistantContextInput,
   AssistantResponse,
 } from "../../../lib/api/n8n";
+
+export type AssistantContextInput = N8nAssistantContextInput;
 
 export type AIUserRole =
   | "admin"
@@ -25,6 +27,12 @@ export type AIUserRole =
 export type DashboardSummaryResult = {
   summary: string;
   suggestions: string[];
+};
+
+export type AiChatResponse = {
+  reply: string;
+  conversationId: string | null;
+  assistantMessage: AssistantChatMessage;
 };
 
 export interface AssistantChatMessage {
@@ -117,6 +125,18 @@ function normalizeRole(role: string | null | undefined): AIUserRole | undefined 
   return undefined;
 }
 
+function getFallbackContext(
+  role?: AIUserRole,
+  context?: Partial<AssistantContextInput>,
+): AssistantContextInput {
+  return {
+
+  userId: context?.userId ?? "workspace-ai",
+  organizationId: context?.organizationId ?? "workspace-default",
+  role: context?.role ?? role ?? "manager",
+
+  };
+}
 export function createUserChatMessage(
   content: string,
   extras?: Partial<AssistantChatMessage>,
@@ -146,10 +166,12 @@ export function createPendingAssistantMessage(
 
 export async function generateDashboardSummary(params: {
   role: AIUserRole | string;
-  context?: AssistantContextInput;
+  context?: Partial<AssistantContextInput>;
 }): Promise<DashboardSummaryResult> {
   const role = normalizeRole(params.role) ?? "manager";
-  const normalizedContext = buildAssistantContext(params.context ?? { role });
+  const normalizedContext = buildAssistantContext(
+    getFallbackContext(role, params.context),
+  );
 
   const response = await askAssistant({
     message:
@@ -169,7 +191,8 @@ export async function generateDashboardSummary(params: {
 
   const suggestionsFromData = Array.isArray(data.suggestions)
     ? data.suggestions.filter(
-        (item): item is string => typeof item === "string" && item.trim().length > 0,
+        (item): item is string =>
+          typeof item === "string" && item.trim().length > 0,
       )
     : [];
 
@@ -203,6 +226,28 @@ export async function sendMessage(params: SendAssistantMessageParams): Promise<{
   return {
     conversationId: response.conversationId ?? null,
     assistantMessage: mapAssistantResponseToChatMessage(response),
+  };
+}
+
+export async function sendAiChatMessage(params: {
+  message: string;
+  context: AssistantContextInput;
+  conversationId?: string | null;
+  attachments?: AssistantAttachmentInput[];
+  metadata?: Record<string, unknown>;
+}): Promise<AiChatResponse> {
+  const result = await sendMessage({
+    message: params.message,
+    context: params.context,
+    conversationId: params.conversationId ?? null,
+    attachments: params.attachments ?? [],
+    metadata: params.metadata,
+  });
+
+  return {
+    reply: result.assistantMessage.content,
+    conversationId: result.conversationId,
+    assistantMessage: result.assistantMessage,
   };
 }
 
@@ -322,10 +367,6 @@ export async function requestImageGeneration(params: {
   };
 }
 
-/**
- * Placeholder hooks for persistence.
- * Wire these to your existing aiActivityLogs tables next.
- */
 export async function saveConversationMessage(
   _message: AssistantChatMessage,
   _conversationId?: string | null,
