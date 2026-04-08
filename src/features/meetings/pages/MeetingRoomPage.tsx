@@ -138,9 +138,11 @@ export default function MeetingRoomPage() {
         setMessages(messageData);
 
         await media.initializeLocalMedia();
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error(err);
-        setError(err?.message || "Failed to load meeting room.");
+        const message =
+          err instanceof Error ? err.message : "Failed to load meeting room.";
+        setError(message);
       } finally {
         setLoading(false);
       }
@@ -150,7 +152,7 @@ export default function MeetingRoomPage() {
       if (!meetingId || !user?.id) return;
       void leaveMeeting({ meetingId, userId: user.id });
     };
-  }, [meetingId, user?.id]);
+  }, [meetingId, user?.id, media]);
 
   useEffect(() => {
     if (!meetingId || !user?.id || !media.localStream || !meeting) return;
@@ -194,7 +196,7 @@ export default function MeetingRoomPage() {
           if (signal.signal_type === "offer") {
             const answer = await media.rtcService.handleOffer(
               senderId,
-              signal.payload as RTCSessionDescriptionInit,
+              signal.payload as unknown as RTCSessionDescriptionInit,
             );
 
             await sendMeetingSignal({
@@ -204,19 +206,15 @@ export default function MeetingRoomPage() {
               signalType: "answer",
               payload: answer,
             });
-          }
-
-          if (signal.signal_type === "answer") {
+          } else if (signal.signal_type === "answer") {
             await media.rtcService.handleAnswer(
               senderId,
-              signal.payload as RTCSessionDescriptionInit,
+              signal.payload as unknown as RTCSessionDescriptionInit,
             );
-          }
-
-          if (signal.signal_type === "ice-candidate") {
+          } else if (signal.signal_type === "ice-candidate") {
             await media.rtcService.addIceCandidate(
               senderId,
-              signal.payload as RTCIceCandidateInit,
+              signal.payload as unknown as RTCIceCandidateInit,
             );
           }
         } catch (err) {
@@ -231,7 +229,7 @@ export default function MeetingRoomPage() {
         signalCleanupRef.current = null;
       }
     };
-  }, [meetingId, user?.id, media.localStream, meeting]);
+  }, [meetingId, user?.id, media.localStream, meeting, media]);
 
   useEffect(() => {
     if (
@@ -286,37 +284,60 @@ export default function MeetingRoomPage() {
         }
       }
     })();
-  }, [meetingId, user?.id, media.localStream, otherParticipants]);
+  }, [meetingId, user?.id, media.localStream, otherParticipants, media]);
 
   async function handleToggleMute() {
     if (!meetingId || !user?.id) return;
-    const nextMuted = media.toggleMute();
 
-    await updateMeetingMediaState({
-      meetingId,
-      userId: user.id,
-      isMuted: nextMuted,
-    });
+    try {
+      const nextMuted = media.toggleMute();
+
+      await updateMeetingMediaState({
+        meetingId,
+        userId: user.id,
+        isMuted: nextMuted,
+      });
+    } catch (err: unknown) {
+      console.error(err);
+      const message =
+        err instanceof Error ? err.message : "Failed to update microphone.";
+      setError(message);
+    }
   }
 
   async function handleToggleCamera() {
     if (!meetingId || !user?.id) return;
-    const nextCameraOn = media.toggleCamera();
 
-    await updateMeetingMediaState({
-      meetingId,
-      userId: user.id,
-      isCameraOn: nextCameraOn,
-    });
+    try {
+      const nextCameraOn = media.toggleCamera();
+
+      await updateMeetingMediaState({
+        meetingId,
+        userId: user.id,
+        isCameraOn: nextCameraOn,
+      });
+    } catch (err: unknown) {
+      console.error(err);
+      const message =
+        err instanceof Error ? err.message : "Failed to update camera.";
+      setError(message);
+    }
   }
 
   async function handleToggleScreenShare() {
-    if (media.isScreenSharing) {
-      await media.stopScreenShare();
-      return;
-    }
+    try {
+      if (media.isScreenSharing) {
+        await media.stopScreenShare();
+        return;
+      }
 
-    await media.startScreenShare();
+      await media.startScreenShare();
+    } catch (err: unknown) {
+      console.error(err);
+      const message =
+        err instanceof Error ? err.message : "Failed to toggle screen share.";
+      setError(message);
+    }
   }
 
   async function handleSendMessage() {
@@ -336,9 +357,11 @@ export default function MeetingRoomPage() {
       }
 
       setChatInput("");
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error(err);
-      setError(err?.message || "Failed to send meeting message.");
+      const message =
+        err instanceof Error ? err.message : "Failed to send meeting message.";
+      setError(message);
     } finally {
       setSending(false);
     }
@@ -365,9 +388,11 @@ export default function MeetingRoomPage() {
       }
 
       navigate("/meetings");
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error(err);
-      setError(err?.message || "Failed to leave meeting.");
+      const message =
+        err instanceof Error ? err.message : "Failed to leave meeting.";
+      setError(message);
     }
   }
 
@@ -377,9 +402,11 @@ export default function MeetingRoomPage() {
     try {
       await endMeeting(meetingId);
       navigate("/meetings");
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error(err);
-      setError(err?.message || "Failed to end meeting.");
+      const message =
+        err instanceof Error ? err.message : "Failed to end meeting.";
+      setError(message);
     }
   }
 

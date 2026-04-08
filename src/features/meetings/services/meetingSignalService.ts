@@ -3,13 +3,18 @@ import type { RealtimeChannel } from "@supabase/supabase-js";
 
 export type MeetingSignalType = "offer" | "answer" | "ice-candidate";
 
+export type MeetingSignalWirePayload =
+  | RTCSessionDescriptionInit
+  | RTCIceCandidateInit
+  | Record<string, unknown>;
+
 export type MeetingSignalPayload = {
   id: string;
   meeting_id: string;
   sender_id: string;
   receiver_id: string;
   signal_type: MeetingSignalType;
-  payload: Record<string, unknown>;
+  payload: MeetingSignalWirePayload;
   created_at: string;
 };
 
@@ -18,7 +23,7 @@ export async function sendMeetingSignal(params: {
   senderId: string;
   receiverId: string;
   signalType: MeetingSignalType;
-  payload: Record<string, unknown>;
+  payload: MeetingSignalWirePayload;
 }) {
   const { error } = await supabase.from("meeting_signals").insert({
     meeting_id: params.meetingId,

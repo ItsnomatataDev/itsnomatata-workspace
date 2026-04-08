@@ -59,13 +59,18 @@ export default function ITDashboardPage() {
   }, [profile?.full_name, user?.user_metadata?.full_name, user?.email]);
 
   const organizationId = profile?.organization_id ?? null;
-  const userId = user?.id ?? null;
+  const userId = user?.id ?? undefined;
+  const cityLabel =
+    typeof profile?.department === "string" &&
+    profile.department.trim().length > 0
+      ? profile.department
+      : "Your city";
 
   const sharedDashboard = useDashboard({
     userId,
     organizationId,
     role: profile?.primary_role ?? null,
-    cityLabel: profile?.department || "Your city",
+    cityLabel,
     latitude: null,
     longitude: null,
     enabled: !!organizationId && !!userId,

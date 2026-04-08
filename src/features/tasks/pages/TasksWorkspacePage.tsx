@@ -31,6 +31,7 @@ export default function TasksWorkspacePage({
   if (!auth?.user || !auth?.profile) return null;
 
   const { user, profile } = auth;
+  const organizationId = profile.organization_id ?? undefined;
 
   const {
     groupedTasks,
@@ -59,7 +60,7 @@ export default function TasksWorkspacePage({
     removeChecklistItem,
   } = useTasks({
     assignedTo: boardMode === "mine" ? user.id : undefined,
-    organizationId: profile.organization_id,
+    organizationId,
   });
 
   const canEditSelectedTaskDeadline = useMemo(() => {
@@ -87,7 +88,7 @@ export default function TasksWorkspacePage({
     try {
       setBusy(true);
 
-      if (!profile.organization_id) {
+      if (!organizationId) {
         throw new Error("Your profile has no organization_id.");
       }
 
@@ -95,7 +96,7 @@ export default function TasksWorkspacePage({
         values.assigned_to.trim() === "" ? null : values.assigned_to;
 
       await createTask({
-        organization_id: profile.organization_id,
+        organization_id: organizationId,
         assigned_to: assignedTo,
         assigned_by: user.id,
         created_by: user.id,
@@ -119,9 +120,14 @@ export default function TasksWorkspacePage({
   };
 
   const handleTrack = async (taskId: string, title: string) => {
+    if (!organizationId) {
+      alert("Your account is not linked to an organization yet.");
+      return;
+    }
+
     try {
       await startTimeEntry({
-        organizationId: profile.organization_id,
+        organizationId,
         userId: user.id,
         taskId,
         description: `Working on ${title}`,
@@ -190,10 +196,15 @@ export default function TasksWorkspacePage({
   };
 
   const handleAddComment = async (taskId: string, comment: string) => {
+    if (!organizationId) {
+      alert("Your account is not linked to an organization yet.");
+      return;
+    }
+
     try {
       await addComment({
         taskId,
-        organizationId: profile.organization_id,
+        organizationId,
         userId: user.id,
         comment,
       });
@@ -339,8 +350,9 @@ export default function TasksWorkspacePage({
   };
 
   const handleSearchAssignableUsers = async (search: string) => {
+    if (!organizationId) return [];
     return searchTaskAssignableUsers({
-      organizationId: profile.organization_id,
+      organizationId,
       search,
     });
   };
@@ -389,69 +401,75 @@ export default function TasksWorkspacePage({
             ) : null}
           </div>
 
-          <div className="grid gap-6 xl:grid-cols-[380px_minmax(0,1fr)]">
-            <section className="rounded-2xl border border-white/10 bg-white/5 p-5">
-              <div className="mb-4 flex items-center gap-3">
-                <div className="rounded-xl bg-orange-500/15 p-2 text-orange-500">
-                  <ClipboardPlus size={18} />
+          {!organizationId ? (
+            <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-5 text-red-300">
+              Your account is not linked to an organization yet.
+            </div>
+          ) : (
+            <div className="grid gap-6 xl:grid-cols-[380px_minmax(0,1fr)]">
+              <section className="rounded-2xl border border-white/10 bg-white/5 p-5">
+                <div className="mb-4 flex items-center gap-3">
+                  <div className="rounded-xl bg-orange-500/15 p-2 text-orange-500">
+                    <ClipboardPlus size={18} />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-semibold">Create Card</h2>
+                    <p className="text-sm text-white/50">
+                      Add a real task card to the board
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <h2 className="text-lg font-semibold">Create Card</h2>
-                  <p className="text-sm text-white/50">
-                    Add a real task card to the board
-                  </p>
-                </div>
-              </div>
-              <TaskForm
-                onSubmit={handleCreateTask}
-                onSearchUsers={handleSearchAssignableUsers}
-                currentUserId={user.id}
-                busy={busy}
-              />
-            </section>
-
-            <section className="min-w-0 rounded-2xl border border-white/10 bg-white/5 p-5">
-              <div className="mb-4 flex items-center gap-3">
-                <div className="rounded-xl bg-orange-500/15 p-2 text-orange-500">
-                  <CheckSquare size={18} />
-                </div>
-                <div>
-                  <h2 className="text-lg font-semibold">Board</h2>
-                  <p className="text-sm text-white/50">
-                    {boardMode === "organization"
-                      ? "Shared board for the organization"
-                      : "Only tasks assigned to you"}
-                  </p>
-                </div>
-              </div>
-
-              <div className="mb-5 rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
-                <div className="flex items-center gap-2 text-sm text-white/60">
-                  <LayoutGrid size={14} />
-                  <span>
-                    Cards support invited users, time tracking, comments, and
-                    checklists.
-                  </span>
-                </div>
-              </div>
-
-              {loading ? (
-                <p className="text-white/60">Loading tasks...</p>
-              ) : null}
-              {error ? <p className="text-red-400">{error}</p> : null}
-
-              {!loading ? (
-                <TaskBoard
-                  groupedTasks={groupedTasks}
-                  onTrack={handleTrack}
-                  onOpen={(taskId) => void openTask(taskId)}
-                  onMoveTask={handleMoveTask}
-                  taskRuntimeMap={taskRuntimeMap}
-                  taskInvitedCountMap={taskInvitedCountMap}
+                <TaskForm
+                  onSubmit={handleCreateTask}
+                  onSearchUsers={handleSearchAssignableUsers}
+                  currentUserId={user.id}
+                  busy={busy}
                 />
-              ) : null}
-            </section>
-          </div>
+              </section>
+
+              <section className="min-w-0 rounded-2xl border border-white/10 bg-white/5 p-5">
+                <div className="mb-4 flex items-center gap-3">
+                  <div className="rounded-xl bg-orange-500/15 p-2 text-orange-500">
+                    <CheckSquare size={18} />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-semibold">Board</h2>
+                    <p className="text-sm text-white/50">
+                      {boardMode === "organization"
+                        ? "Shared board for the organization"
+                        : "Only tasks assigned to you"}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mb-5 rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                  <div className="flex items-center gap-2 text-sm text-white/60">
+                    <LayoutGrid size={14} />
+                    <span>
+                      Cards support invited users, time tracking, comments, and
+                      checklists.
+                    </span>
+                  </div>
+                </div>
+
+                {loading ? (
+                  <p className="text-white/60">Loading tasks...</p>
+                ) : null}
+                {error ? <p className="text-red-400">{error}</p> : null}
+
+                {!loading ? (
+                  <TaskBoard
+                    groupedTasks={groupedTasks}
+                    onTrack={handleTrack}
+                    onOpen={(taskId) => void openTask(taskId)}
+                    onMoveTask={handleMoveTask}
+                    taskRuntimeMap={taskRuntimeMap}
+                    taskInvitedCountMap={taskInvitedCountMap}
+                  />
+                ) : null}
+              </section>
+            </div>
+          )}
         </main>
       </div>
 

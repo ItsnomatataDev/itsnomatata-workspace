@@ -85,6 +85,12 @@ export default function DashboardPage() {
     );
   }, []);
 
+  const cityLabel =
+    typeof profile?.department === "string" &&
+    profile.department.trim().length > 0
+      ? profile.department
+      : "Your city";
+
   const {
     loading,
     error,
@@ -99,10 +105,10 @@ export default function DashboardPage() {
     stopTimer,
     busy,
   } = useDashboard({
-    userId: user?.id,
+    userId: user?.id ?? undefined,
     organizationId: profile?.organization_id ?? null,
     role: profile?.primary_role ?? null,
-    cityLabel: profile?.department || "Your city",
+    cityLabel,
     latitude: coords?.latitude ?? null,
     longitude: coords?.longitude ?? null,
     enabled: !!user?.id && !!profile?.organization_id,
