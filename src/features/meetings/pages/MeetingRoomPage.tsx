@@ -52,6 +52,10 @@ function getInitials(label: string) {
     .join("");
 }
 
+function shouldInitiateOffer(currentUserId: string, peerUserId: string) {
+  return currentUserId.localeCompare(peerUserId) < 0;
+}
+
 function ParticipantTile({
   label,
   stream,
@@ -256,28 +260,6 @@ export default function MeetingRoomPage() {
     [activeParticipants, user?.id],
   );
 
-  const remoteLabelMap = useMemo(
-    () =>
-      new Map(
-        otherParticipants.map((participant) => [
-          participant.user_id,
-          getParticipantLabel(participant),
-        ]),
-      ),
-    [otherParticipants],
-  );
-
-  const remoteParticipantMap = useMemo(
-    () =>
-      new Map(
-        otherParticipants.map((participant) => [
-          participant.user_id,
-          participant,
-        ]),
-      ),
-    [otherParticipants],
-  );
-
   const remoteTiles = useMemo(() => {
     return otherParticipants.map((participant) => {
       const streamRecord =
@@ -456,9 +438,11 @@ export default function MeetingRoomPage() {
               });
             },
             onTrack: (stream) => {
+              console.log("REMOTE STREAM REGISTERED FROM:", senderId, stream);
               registerRemoteStream(senderId, stream);
             },
             onConnectionStateChange: (state) => {
+              console.log("PEER CONNECTION STATE:", senderId, state);
               if (
                 state === "disconnected" ||
                 state === "closed" ||
@@ -531,6 +515,10 @@ export default function MeetingRoomPage() {
       for (const participant of otherParticipants) {
         const peerUserId = participant.user_id;
 
+        if (!shouldInitiateOffer(user.id, peerUserId)) {
+          continue;
+        }
+
         if (
           offeredPeersRef.current.has(peerUserId) ||
           rtcService.hasPeer(peerUserId)
@@ -550,9 +538,11 @@ export default function MeetingRoomPage() {
               });
             },
             onTrack: (stream) => {
+              console.log("OUTGOING SIDE REMOTE STREAM:", peerUserId, stream);
               registerRemoteStream(peerUserId, stream);
             },
             onConnectionStateChange: (state) => {
+              console.log("OUTGOING SIDE PEER STATE:", peerUserId, state);
               if (
                 state === "disconnected" ||
                 state === "closed" ||

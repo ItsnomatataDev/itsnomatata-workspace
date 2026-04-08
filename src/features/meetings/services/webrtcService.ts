@@ -1,10 +1,23 @@
 type PeerRecord = {
   peerConnection: RTCPeerConnection;
+  pendingCandidates: RTCIceCandidateInit[];
 };
 
 const ICE_SERVERS: RTCIceServer[] = [
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "stun:stun1.l.google.com:19302" },
+
+  // Testing TURN servers
+  {
+    urls: "turn:openrelay.metered.ca:80",
+    username: "openrelayproject",
+    credential: "openrelayproject",
+  },
+  {
+    urls: "turn:openrelay.metered.ca:443",
+    username: "openrelayproject",
+    credential: "openrelayproject",
+  },
 ];
 
 export class WebRTCMeetingService {
@@ -34,10 +47,20 @@ export class WebRTCMeetingService {
       iceServers: ICE_SERVERS,
     });
 
+    const record: PeerRecord = {
+      peerConnection,
+      pendingCandidates: [],
+    };
+
     if (this.localStream) {
-      for (const track of this.localStream.getTracks()) {
+      const tracks = this.localStream.getTracks();
+      console.log("ADDING LOCAL TRACKS:", tracks.map((t) => t.kind));
+
+      for (const track of tracks) {
         peerConnection.addTrack(track, this.localStream);
       }
+    } else {
+      console.warn("No local stream was available when creating peer connection.");
     }
 
     peerConnection.onicecandidate = (event) => {
@@ -47,6 +70,7 @@ export class WebRTCMeetingService {
     };
 
     peerConnection.ontrack = (event) => {
+      console.log("REMOTE TRACK RECEIVED:", peerUserId, event.streams);
       const [stream] = event.streams;
       if (stream && handlers?.onTrack) {
         handlers.onTrack(stream);
@@ -54,10 +78,11 @@ export class WebRTCMeetingService {
     };
 
     peerConnection.onconnectionstatechange = () => {
+      console.log("PEER STATE:", peerUserId, peerConnection.connectionState);
       handlers?.onConnectionStateChange?.(peerConnection.connectionState);
     };
 
-    this.peers.set(peerUserId, { peerConnection });
+    this.peers.set(peerUserId, record);
     return peerConnection;
   }
 
@@ -73,12 +98,26 @@ export class WebRTCMeetingService {
   }
 
   async handleOffer(peerUserId: string, offer: RTCSessionDescriptionInit) {
-    const peerConnection = this.peers.get(peerUserId)?.peerConnection;
-    if (!peerConnection) {
+    const record = this.peers.get(peerUserId);
+    const peerConnection = record?.peerConnection;
+
+    if (!peerConnection || !record) {
       throw new Error(`Peer connection for ${peerUserId} does not exist.`);
     }
 
     await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+
+    // Flush any ICE candidates that arrived early
+    if (record.pendingCandidates.length > 0) {
+      for (const candidate of record.pendingCandidates) {
+        try {
+          await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+        } catch (err) {
+          console.error("FAILED TO APPLY PENDING ICE CANDIDATE:", err);
+        }
+      }
+      record.pendingCandidates = [];
+    }
 
     const answer = await peerConnection.createAnswer();
     await peerConnection.setLocalDescription(answer);
@@ -86,23 +125,43 @@ export class WebRTCMeetingService {
   }
 
   async handleAnswer(peerUserId: string, answer: RTCSessionDescriptionInit) {
-    const peerConnection = this.peers.get(peerUserId)?.peerConnection;
-    if (!peerConnection) {
+    const record = this.peers.get(peerUserId);
+    const peerConnection = record?.peerConnection;
+
+    if (!peerConnection || !record) {
       throw new Error(`Peer connection for ${peerUserId} does not exist.`);
     }
 
     if (peerConnection.signalingState === "closed") return;
 
     await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
+
+    // Flush any ICE candidates that arrived early
+    if (record.pendingCandidates.length > 0) {
+      for (const candidate of record.pendingCandidates) {
+        try {
+          await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+        } catch (err) {
+          console.error("FAILED TO APPLY PENDING ICE CANDIDATE:", err);
+        }
+      }
+      record.pendingCandidates = [];
+    }
   }
 
   async addIceCandidate(peerUserId: string, candidate: RTCIceCandidateInit) {
-    const peerConnection = this.peers.get(peerUserId)?.peerConnection;
-    if (!peerConnection) {
+    const record = this.peers.get(peerUserId);
+    const peerConnection = record?.peerConnection;
+
+    if (!peerConnection || !record) {
       throw new Error(`Peer connection for ${peerUserId} does not exist.`);
     }
 
+    if (peerConnection.signalingState === "closed") return;
+
+    // Queue ICE if remote description is not ready yet
     if (peerConnection.remoteDescription == null) {
+      record.pendingCandidates.push(candidate);
       return;
     }
 

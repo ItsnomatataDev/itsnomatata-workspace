@@ -93,7 +93,7 @@ function getRoleLinks(
         icon: LayoutDashboard,
       },
       { to: "/admin/employees", label: "Employees", icon: Users },
-      { to: "/admin/leave", label: "Leave Review", icon: CalendarDays },
+      { to: "/admin/leave", label: "Leave Request", icon: CalendarDays },
       { to: "/admin/roster", label: "Duty Roster", icon: Clock3 },
       { to: "/admin/crm", label: "CRM", icon: BriefcaseBusiness },
       { to: "/admin/stock", label: "Stock", icon: ShieldCheck },
