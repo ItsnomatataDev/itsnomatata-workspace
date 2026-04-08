@@ -104,6 +104,7 @@ export default function MeetingRoomPage() {
 
   const media = useMeetingMedia(meeting?.meeting_type ?? "video");
   const signalCleanupRef = useRef<null | (() => void)>(null);
+  const joinedRef = useRef(false);
 
   const participants = useMemo(
     () => meeting?.participants ?? [],
@@ -116,13 +117,35 @@ export default function MeetingRoomPage() {
     [participants, user?.id],
   );
 
+  const {
+    rtcService,
+    localStream,
+    remoteStreams,
+    isMuted,
+    isCameraOn,
+    isScreenSharing,
+    error: mediaError,
+    initializeLocalMedia,
+    toggleMute,
+    toggleCamera,
+    startScreenShare,
+    stopScreenShare,
+    registerRemoteStream,
+    removeRemoteStream,
+    cleanup: cleanupMedia,
+  } = media;
+
   useEffect(() => {
-    if (!meetingId || !user?.id) return;
+    if (!meetingId || !user?.id || joinedRef.current) return;
+
+    let cancelled = false;
 
     void (async () => {
       try {
         setLoading(true);
         setError("");
+
+        joinedRef.current = true;
 
         await joinMeeting({
           meetingId,
@@ -134,28 +157,45 @@ export default function MeetingRoomPage() {
           getMeetingMessages(meetingId),
         ]);
 
+        if (cancelled) return;
+
         setMeeting(meetingData);
         setMessages(messageData);
 
-        await media.initializeLocalMedia();
+        await initializeLocalMedia();
       } catch (err: unknown) {
         console.error(err);
         const message =
           err instanceof Error ? err.message : "Failed to load meeting room.";
         setError(message);
       } finally {
-        setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
     })();
 
     return () => {
-      if (!meetingId || !user?.id) return;
-      void leaveMeeting({ meetingId, userId: user.id });
+      cancelled = true;
+
+      if (meetingId && user?.id) {
+        void leaveMeeting({ meetingId, userId: user.id });
+      }
+
+      if (signalCleanupRef.current) {
+        signalCleanupRef.current();
+        signalCleanupRef.current = null;
+      }
+
+      cleanupMedia();
+      joinedRef.current = false;
     };
-  }, [meetingId, user?.id, media]);
+  }, [meetingId, user?.id, initializeLocalMedia, cleanupMedia]);
 
   useEffect(() => {
-    if (!meetingId || !user?.id || !media.localStream || !meeting) return;
+    if (!meetingId || !user?.id || !localStream || !meeting || !rtcService) {
+      return;
+    }
 
     if (signalCleanupRef.current) {
       signalCleanupRef.current();
@@ -169,7 +209,7 @@ export default function MeetingRoomPage() {
         try {
           const senderId = signal.sender_id;
 
-          media.rtcService.createPeerConnection(senderId, {
+          rtcService.createPeerConnection(senderId, {
             onIceCandidate: async (candidate) => {
               await sendMeetingSignal({
                 meetingId,
@@ -180,7 +220,7 @@ export default function MeetingRoomPage() {
               });
             },
             onTrack: (stream) => {
-              media.registerRemoteStream(senderId, stream);
+              registerRemoteStream(senderId, stream);
             },
             onConnectionStateChange: (state) => {
               if (
@@ -188,15 +228,15 @@ export default function MeetingRoomPage() {
                 state === "closed" ||
                 state === "failed"
               ) {
-                media.removeRemoteStream(senderId);
+                removeRemoteStream(senderId);
               }
             },
           });
 
           if (signal.signal_type === "offer") {
-            const answer = await media.rtcService.handleOffer(
+            const answer = await rtcService.handleOffer(
               senderId,
-              signal.payload as unknown as RTCSessionDescriptionInit,
+              signal.payload as RTCSessionDescriptionInit,
             );
 
             await sendMeetingSignal({
@@ -207,14 +247,14 @@ export default function MeetingRoomPage() {
               payload: answer,
             });
           } else if (signal.signal_type === "answer") {
-            await media.rtcService.handleAnswer(
+            await rtcService.handleAnswer(
               senderId,
-              signal.payload as unknown as RTCSessionDescriptionInit,
+              signal.payload as RTCSessionDescriptionInit,
             );
           } else if (signal.signal_type === "ice-candidate") {
-            await media.rtcService.addIceCandidate(
+            await rtcService.addIceCandidate(
               senderId,
-              signal.payload as unknown as RTCIceCandidateInit,
+              signal.payload as RTCIceCandidateInit,
             );
           }
         } catch (err) {
@@ -229,14 +269,23 @@ export default function MeetingRoomPage() {
         signalCleanupRef.current = null;
       }
     };
-  }, [meetingId, user?.id, media.localStream, meeting, media]);
+  }, [
+    meetingId,
+    user?.id,
+    localStream,
+    meeting,
+    rtcService,
+    registerRemoteStream,
+    removeRemoteStream,
+  ]);
 
   useEffect(() => {
     if (
       !meetingId ||
       !user?.id ||
-      !media.localStream ||
-      otherParticipants.length === 0
+      !localStream ||
+      otherParticipants.length === 0 ||
+      !rtcService
     ) {
       return;
     }
@@ -246,7 +295,7 @@ export default function MeetingRoomPage() {
         const peerUserId = participant.user_id;
 
         try {
-          media.rtcService.createPeerConnection(peerUserId, {
+          rtcService.createPeerConnection(peerUserId, {
             onIceCandidate: async (candidate) => {
               await sendMeetingSignal({
                 meetingId,
@@ -257,7 +306,7 @@ export default function MeetingRoomPage() {
               });
             },
             onTrack: (stream) => {
-              media.registerRemoteStream(peerUserId, stream);
+              registerRemoteStream(peerUserId, stream);
             },
             onConnectionStateChange: (state) => {
               if (
@@ -265,12 +314,12 @@ export default function MeetingRoomPage() {
                 state === "closed" ||
                 state === "failed"
               ) {
-                media.removeRemoteStream(peerUserId);
+                removeRemoteStream(peerUserId);
               }
             },
           });
 
-          const offer = await media.rtcService.createOffer(peerUserId);
+          const offer = await rtcService.createOffer(peerUserId);
 
           await sendMeetingSignal({
             meetingId,
@@ -284,13 +333,21 @@ export default function MeetingRoomPage() {
         }
       }
     })();
-  }, [meetingId, user?.id, media.localStream, otherParticipants, media]);
+  }, [
+    meetingId,
+    user?.id,
+    localStream,
+    otherParticipants,
+    rtcService,
+    registerRemoteStream,
+    removeRemoteStream,
+  ]);
 
   async function handleToggleMute() {
     if (!meetingId || !user?.id) return;
 
     try {
-      const nextMuted = media.toggleMute();
+      const nextMuted = toggleMute();
 
       await updateMeetingMediaState({
         meetingId,
@@ -309,7 +366,7 @@ export default function MeetingRoomPage() {
     if (!meetingId || !user?.id) return;
 
     try {
-      const nextCameraOn = media.toggleCamera();
+      const nextCameraOn = toggleCamera();
 
       await updateMeetingMediaState({
         meetingId,
@@ -326,12 +383,12 @@ export default function MeetingRoomPage() {
 
   async function handleToggleScreenShare() {
     try {
-      if (media.isScreenSharing) {
-        await media.stopScreenShare();
+      if (isScreenSharing) {
+        await stopScreenShare();
         return;
       }
 
-      await media.startScreenShare();
+      await startScreenShare();
     } catch (err: unknown) {
       console.error(err);
       const message =
@@ -381,11 +438,8 @@ export default function MeetingRoomPage() {
         signalCleanupRef.current = null;
       }
 
-      media.rtcService.cleanup();
-
-      if (media.localStream) {
-        media.localStream.getTracks().forEach((track) => track.stop());
-      }
+      cleanupMedia();
+      joinedRef.current = false;
 
       navigate("/meetings");
     } catch (err: unknown) {
@@ -425,6 +479,14 @@ export default function MeetingRoomPage() {
     );
   }
 
+  if (!meeting) {
+    return (
+      <div className="border border-red-500/20 bg-red-500/10 px-6 py-8 text-sm text-red-300">
+        Meeting room not found or unavailable.
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-full bg-black text-white">
       <div className="grid gap-6 xl:grid-cols-[1.8fr_360px]">
@@ -433,48 +495,48 @@ export default function MeetingRoomPage() {
             <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
               <div className="max-w-3xl">
                 <div className="inline-flex items-center gap-2 border border-orange-500/20 bg-orange-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.25em] text-orange-300">
-                  {meeting?.meeting_type === "video"
+                  {meeting.meeting_type === "video"
                     ? "Video room"
                     : "Audio room"}
                 </div>
 
                 <h1 className="mt-4 text-3xl font-bold">
-                  {meeting?.title || "Meeting room"}
+                  {meeting.title || "Meeting room"}
                 </h1>
 
                 <p className="mt-2 text-sm leading-6 text-white/45">
-                  {meeting?.description || "Live team collaboration room"}
+                  {meeting.description || "Live team collaboration room"}
                 </p>
               </div>
 
               <div className="border border-white/10 bg-neutral-950 px-4 py-3 text-sm text-white/55">
                 Room code:{" "}
                 <span className="font-semibold text-white">
-                  {meeting?.room_code}
+                  {meeting.room_code}
                 </span>
               </div>
             </div>
           </div>
 
-          {error || media.error ? (
+          {error || mediaError ? (
             <div className="border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">
-              {error || media.error}
+              {error || mediaError}
             </div>
           ) : null}
 
           <div className="grid gap-4 lg:grid-cols-2">
             <VideoTile
               label="You"
-              stream={media.localStream}
+              stream={localStream}
               muted
-              badge={media.isScreenSharing ? "Sharing" : "Local"}
+              badge={isScreenSharing ? "Sharing" : "Local"}
               placeholder={
-                meeting?.meeting_type === "video" ? "Camera off" : "Audio only"
+                meeting.meeting_type === "video" ? "Camera off" : "Audio only"
               }
             />
 
-            {media.remoteStreams.length > 0 ? (
-              media.remoteStreams.map((remote) => (
+            {remoteStreams.length > 0 ? (
+              remoteStreams.map((remote) => (
                 <VideoTile
                   key={remote.userId}
                   label={remoteLabelMap.get(remote.userId) || "Participant"}
@@ -500,32 +562,28 @@ export default function MeetingRoomPage() {
                 onClick={() => void handleToggleMute()}
                 className={[
                   "inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold transition",
-                  media.isMuted
+                  isMuted
                     ? "bg-red-500 text-white hover:bg-red-400"
                     : "border border-white/10 bg-neutral-950 text-white hover:border-orange-500/30 hover:bg-orange-500/5",
                 ].join(" ")}
               >
-                {media.isMuted ? <MicOff size={16} /> : <Mic size={16} />}
-                {media.isMuted ? "Unmute" : "Mute"}
+                {isMuted ? <MicOff size={16} /> : <Mic size={16} />}
+                {isMuted ? "Unmute" : "Mute"}
               </button>
 
-              {meeting?.meeting_type === "video" ? (
+              {meeting.meeting_type === "video" ? (
                 <button
                   type="button"
                   onClick={() => void handleToggleCamera()}
                   className={[
                     "inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold transition",
-                    !media.isCameraOn
+                    !isCameraOn
                       ? "bg-red-500 text-white hover:bg-red-400"
                       : "border border-white/10 bg-neutral-950 text-white hover:border-orange-500/30 hover:bg-orange-500/5",
                   ].join(" ")}
                 >
-                  {media.isCameraOn ? (
-                    <Video size={16} />
-                  ) : (
-                    <VideoOff size={16} />
-                  )}
-                  {media.isCameraOn ? "Stop camera" : "Start camera"}
+                  {isCameraOn ? <Video size={16} /> : <VideoOff size={16} />}
+                  {isCameraOn ? "Stop camera" : "Start camera"}
                 </button>
               ) : (
                 <div className="border border-white/10 bg-neutral-950 px-4 py-3 text-center text-sm text-white/35">
@@ -538,16 +596,16 @@ export default function MeetingRoomPage() {
                 onClick={() => void handleToggleScreenShare()}
                 className={[
                   "inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold transition",
-                  media.isScreenSharing
+                  isScreenSharing
                     ? "bg-orange-500 text-black hover:bg-orange-400"
                     : "border border-white/10 bg-neutral-950 text-white hover:border-orange-500/30 hover:bg-orange-500/5",
                 ].join(" ")}
               >
                 <MonitorUp size={16} />
-                {media.isScreenSharing ? "Stop share" : "Share screen"}
+                {isScreenSharing ? "Stop share" : "Share screen"}
               </button>
 
-              {meeting?.host_id === user?.id ? (
+              {meeting.host_id === user?.id ? (
                 <button
                   type="button"
                   onClick={() => void handleEndMeeting()}
