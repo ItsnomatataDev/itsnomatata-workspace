@@ -30,6 +30,7 @@ export async function getConversations(
       messages:chat_messages (
         id,
         sender_id,
+        body,
         created_at
       )
     `)
@@ -43,6 +44,7 @@ export async function getConversations(
       messages?: Array<{
         id: string;
         sender_id: string;
+        body: string | null;
         created_at: string;
       }>;
     }
@@ -57,12 +59,41 @@ export async function getConversations(
       (member) => member.user_id !== currentUserId,
     );
 
-    const unreadCount =
-      conversation.messages?.filter((message) => {
-        if (message.sender_id === currentUserId) return false;
-        if (!myMembership?.last_read_message_id) return true;
-        return message.id !== myMembership.last_read_message_id;
-      }).length ?? 0;
+    const sortedMessagesDesc = [...(conversation.messages ?? [])].sort(
+      (a, b) =>
+        new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+    );
+
+    const sortedMessagesAsc = [...(conversation.messages ?? [])].sort(
+      (a, b) =>
+        new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+    );
+
+    const latestMessage = sortedMessagesDesc[0] ?? null;
+
+    let unreadCount = 0;
+
+    if (currentUserId) {
+      if (!myMembership?.last_read_message_id) {
+        unreadCount = sortedMessagesAsc.filter(
+          (message) => message.sender_id !== currentUserId,
+        ).length;
+      } else {
+        const lastReadIndex = sortedMessagesAsc.findIndex(
+          (message) => message.id === myMembership.last_read_message_id,
+        );
+
+        if (lastReadIndex === -1) {
+          unreadCount = sortedMessagesAsc.filter(
+            (message) => message.sender_id !== currentUserId,
+          ).length;
+        } else {
+          unreadCount = sortedMessagesAsc
+            .slice(lastReadIndex + 1)
+            .filter((message) => message.sender_id !== currentUserId).length;
+        }
+      }
+    }
 
     const displayName =
       conversation.type === "direct"
@@ -76,6 +107,7 @@ export async function getConversations(
       ...conversation,
       display_name: displayName,
       unread_count: unreadCount,
+      last_message: latestMessage,
     };
   });
 }

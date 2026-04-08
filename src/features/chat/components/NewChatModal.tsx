@@ -25,11 +25,6 @@ export default function NewChatModal({
   useEffect(() => {
     if (!open) return;
 
-    // 🔥 Debug logs (VERY IMPORTANT)
-    console.log("MODAL OPEN");
-    console.log("ORG ID:", organizationId);
-    console.log("CURRENT USER:", currentUserId);
-
     if (!organizationId) {
       setError("Missing organization ID. Profile not loaded.");
       return;
@@ -46,8 +41,6 @@ export default function NewChatModal({
         setError("");
 
         const data = await getOrganizationUsers(organizationId, currentUserId);
-
-        console.log("FETCHED USERS:", data);
 
         setUsers(data);
       } catch (err: any) {
@@ -70,7 +63,6 @@ export default function NewChatModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
       <div className="w-full max-w-xl rounded-2xl border border-white/10 bg-neutral-950 shadow-2xl">
-        {/* HEADER */}
         <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
           <div>
             <h2 className="text-lg font-semibold text-white">Start new chat</h2>
@@ -83,25 +75,24 @@ export default function NewChatModal({
             type="button"
             onClick={onClose}
             className="rounded-lg p-2 text-white/60 hover:bg-white/10 hover:text-white"
+            aria-label="Close new chat modal"
           >
             <X size={18} />
           </button>
         </div>
 
-        {/* SEARCH */}
         <div className="border-b border-white/10 p-4">
           <div className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-4 py-3">
             <Search size={16} className="text-white/40" />
             <input
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              onChange={(event) => setQuery(event.target.value)}
               placeholder="Search people..."
               className="w-full bg-transparent text-sm text-white outline-none placeholder:text-white/35"
             />
           </div>
         </div>
 
-        {/* BODY */}
         <div className="max-h-[60vh] overflow-y-auto p-4">
           {loading ? (
             <div className="flex items-center gap-2 px-2 py-6 text-sm text-white/50">
@@ -130,8 +121,6 @@ export default function NewChatModal({
                       try {
                         setBusyUserId(user.id);
                         await onSelectUser(user);
-                      } catch (err) {
-                        console.error("START CHAT ERROR:", err);
                       } finally {
                         setBusyUserId(null);
                       }

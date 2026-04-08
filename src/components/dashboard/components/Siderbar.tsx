@@ -17,6 +17,7 @@ import {
   CalendarDays,
   Menu,
   X,
+  Video,
   MessageSquare,
 } from "lucide-react";
 import { NavLink, useNavigate } from "react-router-dom";
@@ -44,6 +45,7 @@ const commonLinks: LinkItem[] = [
   { to: "/time", label: "Time Tracking", icon: Clock3 },
   { to: "/leave", label: "Leave", icon: CalendarDays },
   { to: "/chat", label: "Team Chat", icon: MessageSquare },
+  { to: "/meetings", label: "Meetings", icon: Video },
 ];
 
 function getRoleLinks(

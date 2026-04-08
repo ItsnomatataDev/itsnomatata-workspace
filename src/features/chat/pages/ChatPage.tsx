@@ -84,12 +84,13 @@ export default function ChatPage() {
                     ...conversation,
                     last_message_at: incomingMessage.created_at,
                     updated_at: incomingMessage.created_at,
-                    unread_count:
-                      incomingMessage.sender_id === user?.id
-                        ? 0
-                        : conversation.id === activeConversationId
-                          ? 0
-                          : (conversation.unread_count ?? 0) + 1,
+                    last_message: {
+                      id: incomingMessage.id,
+                      sender_id: incomingMessage.sender_id,
+                      body: incomingMessage.body,
+                      created_at: incomingMessage.created_at,
+                    },
+                    unread_count: 0,
                   }
                 : conversation,
             )
@@ -286,6 +287,7 @@ export default function ChatPage() {
           onSelectConversation={setActiveConversationId}
           onNewChat={() => setNewChatOpen(true)}
           loading={loadingConversations}
+          currentUserId={user?.id}
         />
 
         <section className="flex min-w-0 flex-1 flex-col text-white">

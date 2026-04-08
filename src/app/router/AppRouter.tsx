@@ -28,6 +28,8 @@ import AdminEmployeesPage from "../../features/admin/pages/AdminEmployeesPage";
 import AdminEmployeeDetailsPage from "../../features/admin/pages/AdminEmployeeDetailsPage";
 import NotificationsPage from "../../features/notifications/pages/NotificationsPage";
 import ChatPage from "../../features/chat/pages/ChatPage";
+import MeetingsPage from "../../features/meetings/pages/MeetingsPage";
+import MeetingRoomPage from "../../features/meetings/pages/MeetingRoomPage";
 // import AiAssistantPage from "../../features/ai-workspace/pages/AIWorkspacePage";
 // import AIWorkspacePage from "../../features/ai-workspace/pages/AIWorkspacePage"
 const AppRouter = () => {
@@ -46,6 +48,8 @@ const AppRouter = () => {
             </ProtectedRoute>
           }
         />
+        <Route path="/meetings" element={<MeetingsPage />} />
+        <Route path="/meetings/:meetingId" element={<MeetingRoomPage />} />
 
         <Route
           path="/clients"

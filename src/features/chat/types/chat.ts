@@ -22,6 +22,13 @@ export type ChatConversationMember = {
   profile?: ChatConversationMemberProfile | null;
 };
 
+export type ChatConversationLastMessage = {
+  id: string;
+  sender_id: string;
+  body: string | null;
+  created_at: string;
+};
+
 export type ChatConversation = {
   id: string;
   organization_id: string;
@@ -34,6 +41,7 @@ export type ChatConversation = {
   members?: ChatConversationMember[];
   display_name?: string;
   unread_count?: number;
+  last_message?: ChatConversationLastMessage | null;
 };
 
 export type ChatMessageType = "text" | "image" | "file" | "system";
