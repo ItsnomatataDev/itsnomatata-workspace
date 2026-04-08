@@ -12,7 +12,7 @@ import { WebRTCMeetingService } from "../services/webrtcService";
 export function useMeetingMedia(meetingType: MeetingType) {
   const rtcRef = useRef<WebRTCMeetingService | null>(null);
   const screenShareRef = useRef<MediaStream | null>(null);
-  const localStreamRef = useRef<MediaStream | null>(null);
+  const cameraStreamRef = useRef<MediaStream | null>(null);
 
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStreams, setRemoteStreams] = useState<RemoteParticipantStream[]>(
@@ -31,8 +31,10 @@ export function useMeetingMedia(meetingType: MeetingType) {
     try {
       setError("");
 
-      if (localStreamRef.current) {
-        return localStreamRef.current;
+      if (cameraStreamRef.current) {
+        rtcRef.current?.setLocalStream(cameraStreamRef.current);
+        setLocalStream(cameraStreamRef.current);
+        return cameraStreamRef.current;
       }
 
       const stream = await getUserMediaStream({
@@ -40,11 +42,21 @@ export function useMeetingMedia(meetingType: MeetingType) {
         video: meetingType === "video",
       });
 
-      localStreamRef.current = stream;
+      cameraStreamRef.current = stream;
       setLocalStream(stream);
       setIsMuted(false);
       setIsCameraOn(meetingType === "video");
+
       rtcRef.current?.setLocalStream(stream);
+
+      console.log(
+        "LOCAL MEDIA INITIALIZED:",
+        stream.getTracks().map((track) => ({
+          kind: track.kind,
+          enabled: track.enabled,
+          readyState: track.readyState,
+        })),
+      );
 
       return stream;
     } catch (err: any) {
@@ -55,7 +67,7 @@ export function useMeetingMedia(meetingType: MeetingType) {
   }, [meetingType]);
 
   const toggleMute = useCallback(() => {
-    const stream = localStreamRef.current;
+    const stream = cameraStreamRef.current;
     const next = !isMuted;
 
     setTrackEnabled(stream, "audio", !next);
@@ -68,27 +80,39 @@ export function useMeetingMedia(meetingType: MeetingType) {
   }, [isMuted]);
 
   const toggleCamera = useCallback(() => {
-    const stream = localStreamRef.current;
+    const stream = cameraStreamRef.current;
     const next = !isCameraOn;
 
     setTrackEnabled(stream, "video", next);
     setIsCameraOn(next);
 
-    const videoTrack = getTrack(stream, "video");
-    rtcRef.current?.replaceVideoTrack(videoTrack);
+    const activeVideoSource =
+      isScreenSharing && screenShareRef.current
+        ? getTrack(screenShareRef.current, "video")
+        : getTrack(stream, "video");
+
+    rtcRef.current?.replaceVideoTrack(next ? activeVideoSource : null);
 
     return next;
-  }, [isCameraOn]);
+  }, [isCameraOn, isScreenSharing]);
 
   const stopScreenShare = useCallback(async () => {
     stopMediaStream(screenShareRef.current);
     screenShareRef.current = null;
 
-    const cameraTrack = getTrack(localStreamRef.current, "video");
+    const fallbackCameraStream = cameraStreamRef.current;
+    setLocalStream(fallbackCameraStream);
+
+    const cameraTrack =
+      isCameraOn && fallbackCameraStream
+        ? getTrack(fallbackCameraStream, "video")
+        : null;
+
+    rtcRef.current?.setLocalStream(fallbackCameraStream);
     rtcRef.current?.replaceVideoTrack(cameraTrack);
 
     setIsScreenSharing(false);
-  }, []);
+  }, [isCameraOn]);
 
   const startScreenShare = useCallback(async () => {
     try {
@@ -96,6 +120,8 @@ export function useMeetingMedia(meetingType: MeetingType) {
 
       const stream = await getScreenShareStream();
       screenShareRef.current = stream;
+
+      setLocalStream(stream);
 
       const videoTrack = stream.getVideoTracks()[0] ?? null;
       rtcRef.current?.replaceVideoTrack(videoTrack);
@@ -119,12 +145,12 @@ export function useMeetingMedia(meetingType: MeetingType) {
   const registerRemoteStream = useCallback(
     (userId: string, stream: MediaStream) => {
       setRemoteStreams((current) => {
-        const exists = current.some((item) => item.userId === userId);
+        const existingIndex = current.findIndex((item) => item.userId === userId);
 
-        if (exists) {
-          return current.map((item) =>
-            item.userId === userId ? { ...item, stream } : item,
-          );
+        if (existingIndex >= 0) {
+          const next = [...current];
+          next[existingIndex] = { userId, stream };
+          return next;
         }
 
         return [...current, { userId, stream }];
@@ -141,11 +167,11 @@ export function useMeetingMedia(meetingType: MeetingType) {
   }, []);
 
   const cleanup = useCallback(() => {
-    stopMediaStream(localStreamRef.current);
     stopMediaStream(screenShareRef.current);
+    stopMediaStream(cameraStreamRef.current);
 
-    localStreamRef.current = null;
     screenShareRef.current = null;
+    cameraStreamRef.current = null;
 
     setLocalStream(null);
     setRemoteStreams([]);
@@ -153,6 +179,7 @@ export function useMeetingMedia(meetingType: MeetingType) {
     setIsCameraOn(meetingType === "video");
     setIsScreenSharing(false);
 
+    rtcRef.current?.setLocalStream(null);
     rtcRef.current?.cleanup();
   }, [meetingType]);
 

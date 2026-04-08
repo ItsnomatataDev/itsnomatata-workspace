@@ -9,6 +9,14 @@ export async function sendMeetingSignal(params: {
   signalType: SignalType;
   payload: unknown;
 }) {
+  console.log("SENDING SIGNAL:", {
+    meetingId: params.meetingId,
+    from: params.senderId,
+    to: params.receiverId,
+    type: params.signalType,
+    payload: params.payload,
+  });
+
   const { error } = await supabase.from("meeting_signals").insert({
     meeting_id: params.meetingId,
     sender_id: params.senderId,
@@ -59,6 +67,15 @@ export function subscribeToMeetingSignals(params: {
         if (signal.receiver_id !== params.currentUserId) return;
         if (signal.sender_id === params.currentUserId) return;
 
+        console.log("RECEIVED SIGNAL:", {
+          id: signal.id,
+          meetingId: signal.meeting_id,
+          from: signal.sender_id,
+          to: signal.receiver_id,
+          type: signal.signal_type,
+          payload: signal.payload,
+        });
+
         await params.onSignal(signal);
 
         const { error } = await supabase
@@ -71,7 +88,12 @@ export function subscribeToMeetingSignals(params: {
         }
       },
     )
-    .subscribe();
+    .subscribe((status) => {
+      console.log(
+        `SIGNAL CHANNEL STATUS [${params.meetingId}:${params.currentUserId}]:`,
+        status,
+      );
+    });
 
   return () => {
     void supabase.removeChannel(channel);

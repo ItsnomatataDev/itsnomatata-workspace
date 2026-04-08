@@ -7,7 +7,7 @@ const ICE_SERVERS: RTCIceServer[] = [
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "stun:stun1.l.google.com:19302" },
 
-  // Testing TURN servers
+  // testing TURN
   {
     urls: "turn:openrelay.metered.ca:80",
     username: "openrelayproject",
@@ -45,6 +45,7 @@ export class WebRTCMeetingService {
 
     const peerConnection = new RTCPeerConnection({
       iceServers: ICE_SERVERS,
+      iceCandidatePoolSize: 10,
     });
 
     const record: PeerRecord = {
@@ -105,9 +106,13 @@ export class WebRTCMeetingService {
       throw new Error(`Peer connection for ${peerUserId} does not exist.`);
     }
 
+    if (peerConnection.signalingState !== "stable") {
+      console.warn("Skipping conflicting offer for", peerUserId);
+      return peerConnection.localDescription ?? { type: "answer", sdp: "" };
+    }
+
     await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
 
-    // Flush any ICE candidates that arrived early
     if (record.pendingCandidates.length > 0) {
       for (const candidate of record.pendingCandidates) {
         try {
@@ -133,10 +138,10 @@ export class WebRTCMeetingService {
     }
 
     if (peerConnection.signalingState === "closed") return;
+    if (peerConnection.currentRemoteDescription) return;
 
     await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
 
-    // Flush any ICE candidates that arrived early
     if (record.pendingCandidates.length > 0) {
       for (const candidate of record.pendingCandidates) {
         try {
@@ -159,7 +164,6 @@ export class WebRTCMeetingService {
 
     if (peerConnection.signalingState === "closed") return;
 
-    // Queue ICE if remote description is not ready yet
     if (peerConnection.remoteDescription == null) {
       record.pendingCandidates.push(candidate);
       return;

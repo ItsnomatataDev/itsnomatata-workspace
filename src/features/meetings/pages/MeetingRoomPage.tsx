@@ -88,7 +88,7 @@ function ParticipantTile({
     videoRef.current.srcObject = stream;
   }, [stream]);
 
-  const showVideo = !!stream && (!isVideoExpected || isCameraOn);
+  const showVideo = !!stream;
 
   return (
     <div
@@ -143,13 +143,17 @@ function ParticipantTile({
               {getInitials(label)}
             </div>
             <p className="mt-4 text-sm text-white/45">
-              {!isVideoExpected ? "Audio only" : "Camera off"}
+              {!isVideoExpected
+                ? "Audio only"
+                : isCameraOn
+                  ? "Waiting for video"
+                  : "Camera off"}
             </p>
           </div>
         )}
       </div>
 
-      <div className="absolute inset-x-0 bottom-0 z-10 flex items-center justify-between gap-3 bg-linear-to-t from-black/90 to-transparent p-3">
+      <div className="absolute inset-x-0 bottom-0 z-10 flex items-center justify-between gap-3 bg-gradient-to-t from-black/90 to-transparent p-3">
         <div className="flex flex-wrap gap-2 text-[11px]">
           <span
             className={[
@@ -183,10 +187,7 @@ function ParticipantTile({
 }
 
 function getGridClass(count: number, pinned: boolean) {
-  if (pinned) {
-    return "grid gap-4 md:grid-cols-2 xl:grid-cols-3";
-  }
-
+  if (pinned) return "grid gap-4 md:grid-cols-2 xl:grid-cols-3";
   if (count <= 1) return "grid gap-4 grid-cols-1";
   if (count === 2) return "grid gap-4 md:grid-cols-2";
   if (count <= 4) return "grid gap-4 md:grid-cols-2";
@@ -291,6 +292,35 @@ export default function MeetingRoomPage() {
 
   const isHost = meeting?.host_id === user?.id;
 
+  function ensurePeerConnection(peerUserId: string) {
+    if (!meetingId || !user?.id || !rtcService) return null;
+
+    return rtcService.createPeerConnection(peerUserId, {
+      onIceCandidate: async (candidate) => {
+        await sendMeetingSignal({
+          meetingId,
+          senderId: user.id,
+          receiverId: peerUserId,
+          signalType: "ice-candidate",
+          payload: candidate.toJSON(),
+        });
+      },
+      onTrack: (stream) => {
+        registerRemoteStream(peerUserId, stream);
+      },
+      onConnectionStateChange: (state) => {
+        if (
+          state === "disconnected" ||
+          state === "closed" ||
+          state === "failed"
+        ) {
+          removeRemoteStream(peerUserId);
+          offeredPeersRef.current.delete(peerUserId);
+        }
+      },
+    });
+  }
+
   useEffect(() => {
     if (!meetingId || !user?.id || joinedRef.current) return;
 
@@ -300,7 +330,6 @@ export default function MeetingRoomPage() {
       try {
         setLoading(true);
         setError("");
-
         joinedRef.current = true;
 
         await joinMeeting({
@@ -427,32 +456,7 @@ export default function MeetingRoomPage() {
         try {
           const senderId = signal.sender_id;
 
-          rtcService.createPeerConnection(senderId, {
-            onIceCandidate: async (candidate) => {
-              await sendMeetingSignal({
-                meetingId,
-                senderId: user.id,
-                receiverId: senderId,
-                signalType: "ice-candidate",
-                payload: candidate.toJSON(),
-              });
-            },
-            onTrack: (stream) => {
-              console.log("REMOTE STREAM REGISTERED FROM:", senderId, stream);
-              registerRemoteStream(senderId, stream);
-            },
-            onConnectionStateChange: (state) => {
-              console.log("PEER CONNECTION STATE:", senderId, state);
-              if (
-                state === "disconnected" ||
-                state === "closed" ||
-                state === "failed"
-              ) {
-                removeRemoteStream(senderId);
-                offeredPeersRef.current.delete(senderId);
-              }
-            },
-          });
+          ensurePeerConnection(senderId);
 
           if (signal.signal_type === "offer") {
             const answer = await rtcService.handleOffer(
@@ -460,13 +464,15 @@ export default function MeetingRoomPage() {
               signal.payload as RTCSessionDescriptionInit,
             );
 
-            await sendMeetingSignal({
-              meetingId,
-              senderId: user.id,
-              receiverId: senderId,
-              signalType: "answer",
-              payload: answer,
-            });
+            if (answer?.type === "answer" && answer.sdp) {
+              await sendMeetingSignal({
+                meetingId,
+                senderId: user.id,
+                receiverId: senderId,
+                signalType: "answer",
+                payload: answer,
+              });
+            }
           } else if (signal.signal_type === "answer") {
             await rtcService.handleAnswer(
               senderId,
@@ -515,45 +521,17 @@ export default function MeetingRoomPage() {
       for (const participant of otherParticipants) {
         const peerUserId = participant.user_id;
 
+        ensurePeerConnection(peerUserId);
+
         if (!shouldInitiateOffer(user.id, peerUserId)) {
           continue;
         }
 
-        if (
-          offeredPeersRef.current.has(peerUserId) ||
-          rtcService.hasPeer(peerUserId)
-        ) {
+        if (offeredPeersRef.current.has(peerUserId)) {
           continue;
         }
 
         try {
-          rtcService.createPeerConnection(peerUserId, {
-            onIceCandidate: async (candidate) => {
-              await sendMeetingSignal({
-                meetingId,
-                senderId: user.id,
-                receiverId: peerUserId,
-                signalType: "ice-candidate",
-                payload: candidate.toJSON(),
-              });
-            },
-            onTrack: (stream) => {
-              console.log("OUTGOING SIDE REMOTE STREAM:", peerUserId, stream);
-              registerRemoteStream(peerUserId, stream);
-            },
-            onConnectionStateChange: (state) => {
-              console.log("OUTGOING SIDE PEER STATE:", peerUserId, state);
-              if (
-                state === "disconnected" ||
-                state === "closed" ||
-                state === "failed"
-              ) {
-                removeRemoteStream(peerUserId);
-                offeredPeersRef.current.delete(peerUserId);
-              }
-            },
-          });
-
           const offer = await rtcService.createOffer(peerUserId);
 
           await sendMeetingSignal({
@@ -848,7 +826,7 @@ export default function MeetingRoomPage() {
                 muted
                 badge={isScreenSharing ? "Sharing" : "Local"}
                 isVideoExpected={meeting.meeting_type === "video"}
-                isCameraOn={isCameraOn}
+                isCameraOn={isCameraOn || isScreenSharing}
                 isMutedState={isMuted}
               />
 
