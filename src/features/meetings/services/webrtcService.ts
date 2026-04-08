@@ -15,10 +15,14 @@ export class WebRTCMeetingService {
     this.localStream = stream;
   }
 
+  hasPeer(peerUserId: string) {
+    return this.peers.has(peerUserId);
+  }
+
   createPeerConnection(
     peerUserId: string,
     handlers?: {
-      onIceCandidate?: (candidate: RTCIceCandidate) => void;
+      onIceCandidate?: (candidate: RTCIceCandidate) => void | Promise<void>;
       onTrack?: (stream: MediaStream) => void;
       onConnectionStateChange?: (state: RTCPeerConnectionState) => void;
     },
@@ -38,7 +42,7 @@ export class WebRTCMeetingService {
 
     peerConnection.onicecandidate = (event) => {
       if (event.candidate && handlers?.onIceCandidate) {
-        handlers.onIceCandidate(event.candidate);
+        void handlers.onIceCandidate(event.candidate);
       }
     };
 
@@ -54,7 +58,6 @@ export class WebRTCMeetingService {
     };
 
     this.peers.set(peerUserId, { peerConnection });
-
     return peerConnection;
   }
 
@@ -76,6 +79,7 @@ export class WebRTCMeetingService {
     }
 
     await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+
     const answer = await peerConnection.createAnswer();
     await peerConnection.setLocalDescription(answer);
     return answer;
@@ -87,6 +91,8 @@ export class WebRTCMeetingService {
       throw new Error(`Peer connection for ${peerUserId} does not exist.`);
     }
 
+    if (peerConnection.signalingState === "closed") return;
+
     await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
   }
 
@@ -94,6 +100,10 @@ export class WebRTCMeetingService {
     const peerConnection = this.peers.get(peerUserId)?.peerConnection;
     if (!peerConnection) {
       throw new Error(`Peer connection for ${peerUserId} does not exist.`);
+    }
+
+    if (peerConnection.remoteDescription == null) {
+      return;
     }
 
     await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));

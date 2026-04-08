@@ -46,7 +46,6 @@ export async function createMeeting(
   input: CreateMeetingInput,
 ): Promise<Meeting> {
   const roomCode = generateRoomCode();
-
   const scheduledStart = input.scheduled_start ?? null;
   const isScheduled = Boolean(scheduledStart);
 
@@ -61,6 +60,7 @@ export async function createMeeting(
       scheduled_start: scheduledStart ?? new Date().toISOString(),
       status: isScheduled ? "scheduled" : "live",
       started_at: isScheduled ? null : new Date().toISOString(),
+      ended_at: null,
       room_code: roomCode,
     })
     .select("*")
@@ -75,6 +75,7 @@ export async function createMeeting(
       user_id: input.host_id,
       role: "host",
       joined_at: isScheduled ? null : new Date().toISOString(),
+      left_at: null,
       is_muted: false,
       is_camera_on: input.meeting_type === "video",
     });
@@ -119,13 +120,50 @@ export async function joinMeeting(params: {
   meetingId: string;
   userId: string;
 }) {
+  const { data: meeting, error: meetingError } = await supabase
+    .from("meetings")
+    .select("id, status, started_at, ended_at")
+    .eq("id", params.meetingId)
+    .maybeSingle();
+
+  if (meetingError) throw meetingError;
+  if (!meeting) throw new Error("Meeting not found.");
+
+  if (meeting.status === "ended" || meeting.status === "cancelled") {
+    throw new Error("This meeting has already ended.");
+  }
+
+  if (meeting.status === "scheduled") {
+    const { error: startError } = await supabase
+      .from("meetings")
+      .update({
+        status: "live",
+        started_at: meeting.started_at ?? new Date().toISOString(),
+      })
+      .eq("id", params.meetingId)
+      .eq("status", "scheduled");
+
+    if (startError) throw startError;
+  }
+
+  const { data: existingParticipant, error: existingError } = await supabase
+    .from("meeting_participants")
+    .select("id, role")
+    .eq("meeting_id", params.meetingId)
+    .eq("user_id", params.userId)
+    .maybeSingle();
+
+  if (existingError) throw existingError;
+
+  const role = existingParticipant?.role === "host" ? "host" : "participant";
+
   const { error } = await supabase
     .from("meeting_participants")
     .upsert(
       {
         meeting_id: params.meetingId,
         user_id: params.userId,
-        role: "participant",
+        role,
         joined_at: new Date().toISOString(),
         left_at: null,
       },
@@ -178,6 +216,7 @@ export async function startMeeting(meetingId: string) {
     .update({
       status: "live",
       started_at: new Date().toISOString(),
+      ended_at: null,
     })
     .eq("id", meetingId);
 
@@ -185,15 +224,27 @@ export async function startMeeting(meetingId: string) {
 }
 
 export async function endMeeting(meetingId: string) {
+  const endedAt = new Date().toISOString();
+
   const { error } = await supabase
     .from("meetings")
     .update({
       status: "ended",
-      ended_at: new Date().toISOString(),
+      ended_at: endedAt,
     })
     .eq("id", meetingId);
 
   if (error) throw error;
+
+  const { error: participantError } = await supabase
+    .from("meeting_participants")
+    .update({
+      left_at: endedAt,
+    })
+    .eq("meeting_id", meetingId)
+    .is("left_at", null);
+
+  if (participantError) throw participantError;
 }
 
 export async function getMeetingMessages(

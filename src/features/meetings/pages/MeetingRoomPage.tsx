@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  Copy,
+  Maximize2,
   Mic,
   MicOff,
+  Minimize2,
   MonitorUp,
   PhoneOff,
   SendHorizontal,
@@ -21,6 +24,7 @@ import {
   sendMeetingMessage,
   updateMeetingMediaState,
 } from "../services/meetingService";
+import { subscribeToMeetingRoom } from "../services/meetingRealtime";
 import {
   sendMeetingSignal,
   subscribeToMeetingSignals,
@@ -31,18 +35,47 @@ import type {
   MeetingWithParticipants,
 } from "../types/meeting";
 
-function VideoTile({
+function getParticipantLabel(participant: MeetingParticipant) {
+  return (
+    participant.profile?.full_name ||
+    participant.profile?.email ||
+    "Unnamed participant"
+  );
+}
+
+function getInitials(label: string) {
+  return label
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("");
+}
+
+function ParticipantTile({
   label,
   stream,
   muted = false,
-  placeholder,
   badge,
+  isPinned = false,
+  isHost = false,
+  canManage = false,
+  isVideoExpected = true,
+  isCameraOn = true,
+  isMutedState = false,
+  onTogglePin,
 }: {
   label: string;
   stream: MediaStream | null;
   muted?: boolean;
-  placeholder?: string;
   badge?: string;
+  isPinned?: boolean;
+  isHost?: boolean;
+  canManage?: boolean;
+  isVideoExpected?: boolean;
+  isCameraOn?: boolean;
+  isMutedState?: boolean;
+  onTogglePin?: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
@@ -51,20 +84,48 @@ function VideoTile({
     videoRef.current.srcObject = stream;
   }, [stream]);
 
-  return (
-    <div className="border border-white/10 bg-black p-4 text-white">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <p className="truncate text-sm font-semibold">{label}</p>
+  const showVideo = !!stream && (!isVideoExpected || isCameraOn);
 
-        {badge ? (
-          <span className="rounded-full border border-orange-500/20 bg-orange-500/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-orange-300">
-            {badge}
+  return (
+    <div
+      className={[
+        "group relative overflow-hidden border border-white/10 bg-neutral-950 text-white",
+        isPinned ? "min-h-[420px]" : "min-h-[220px]",
+      ].join(" ")}
+    >
+      <div className="absolute inset-x-0 top-0 z-10 flex items-start justify-between gap-2 p-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="rounded-full bg-black/70 px-3 py-1 text-xs font-medium text-white">
+            {label}
           </span>
+
+          {badge ? (
+            <span className="rounded-full border border-orange-500/20 bg-orange-500/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-orange-300">
+              {badge}
+            </span>
+          ) : null}
+
+          {isHost ? (
+            <span className="rounded-full border border-white/10 bg-white/10 px-2.5 py-1 text-[11px] font-medium text-white/80">
+              Host
+            </span>
+          ) : null}
+        </div>
+
+        {canManage && onTogglePin ? (
+          <button
+            type="button"
+            onClick={onTogglePin}
+            className="inline-flex items-center gap-2 rounded-full bg-black/70 px-3 py-2 text-xs font-medium text-white transition hover:bg-black"
+          >
+            {isPinned ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+            {isPinned ? "Unpin" : "Pin"}
+          </button>
         ) : null}
       </div>
 
-      <div className="flex h-64 items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-neutral-950">
-        {stream ? (
+      <div className="flex h-full min-h-[220px] items-center justify-center">
+        {showVideo ? (
           <video
             ref={videoRef}
             autoPlay
@@ -73,21 +134,61 @@ function VideoTile({
             className="h-full w-full object-cover"
           />
         ) : (
-          <span className="text-sm text-white/30">
-            {placeholder || "No video"}
-          </span>
+          <div className="flex h-full w-full flex-col items-center justify-center bg-black">
+            <div className="flex h-20 w-20 items-center justify-center rounded-full border border-white/10 bg-white/5 text-2xl font-semibold text-orange-400">
+              {getInitials(label)}
+            </div>
+            <p className="mt-4 text-sm text-white/45">
+              {!isVideoExpected ? "Audio only" : "Camera off"}
+            </p>
+          </div>
         )}
+      </div>
+
+      <div className="absolute inset-x-0 bottom-0 z-10 flex items-center justify-between gap-3 bg-linear-to-t from-black/90 to-transparent p-3">
+        <div className="flex flex-wrap gap-2 text-[11px]">
+          <span
+            className={[
+              "rounded-full px-2 py-1",
+              isMutedState
+                ? "bg-red-500/15 text-red-300"
+                : "bg-green-500/15 text-green-300",
+            ].join(" ")}
+          >
+            {isMutedState ? "Muted" : "Mic on"}
+          </span>
+
+          <span
+            className={[
+              "rounded-full px-2 py-1",
+              isVideoExpected && isCameraOn
+                ? "bg-green-500/15 text-green-300"
+                : "bg-white/10 text-white/60",
+            ].join(" ")}
+          >
+            {isVideoExpected
+              ? isCameraOn
+                ? "Camera on"
+                : "Camera off"
+              : "Audio only"}
+          </span>
+        </div>
       </div>
     </div>
   );
 }
 
-function getParticipantLabel(participant: MeetingParticipant) {
-  return (
-    participant.profile?.full_name ||
-    participant.profile?.email ||
-    "Unnamed participant"
-  );
+function getGridClass(count: number, pinned: boolean) {
+  if (pinned) {
+    return "grid gap-4 md:grid-cols-2 xl:grid-cols-3";
+  }
+
+  if (count <= 1) return "grid gap-4 grid-cols-1";
+  if (count === 2) return "grid gap-4 md:grid-cols-2";
+  if (count <= 4) return "grid gap-4 md:grid-cols-2";
+  if (count <= 6) return "grid gap-4 sm:grid-cols-2 xl:grid-cols-3";
+  if (count <= 9) return "grid gap-4 sm:grid-cols-2 lg:grid-cols-3";
+  return "grid gap-4 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4";
 }
 
 export default function MeetingRoomPage() {
@@ -101,21 +202,9 @@ export default function MeetingRoomPage() {
   const [chatInput, setChatInput] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
+  const [pinnedUserId, setPinnedUserId] = useState<string | null>(null);
 
   const media = useMeetingMedia(meeting?.meeting_type ?? "video");
-  const signalCleanupRef = useRef<null | (() => void)>(null);
-  const joinedRef = useRef(false);
-
-  const participants = useMemo(
-    () => meeting?.participants ?? [],
-    [meeting?.participants],
-  );
-
-  const otherParticipants = useMemo(
-    () =>
-      participants.filter((participant) => participant.user_id !== user?.id),
-    [participants, user?.id],
-  );
 
   const {
     rtcService,
@@ -134,6 +223,91 @@ export default function MeetingRoomPage() {
     removeRemoteStream,
     cleanup: cleanupMedia,
   } = media;
+
+  const signalCleanupRef = useRef<null | (() => void)>(null);
+  const realtimeCleanupRef = useRef<null | (() => void)>(null);
+  const joinedRef = useRef(false);
+  const offeredPeersRef = useRef<Set<string>>(new Set());
+
+  const participants = useMemo(
+    () => meeting?.participants ?? [],
+    [meeting?.participants],
+  );
+
+  const activeParticipants = useMemo(() => {
+    const seen = new Set<string>();
+
+    return participants.filter((participant) => {
+      if (!participant.user_id) return false;
+      if (!participant.joined_at) return false;
+      if (participant.left_at) return false;
+      if (seen.has(participant.user_id)) return false;
+
+      seen.add(participant.user_id);
+      return true;
+    });
+  }, [participants]);
+
+  const otherParticipants = useMemo(
+    () =>
+      activeParticipants.filter(
+        (participant) => participant.user_id !== user?.id,
+      ),
+    [activeParticipants, user?.id],
+  );
+
+  const remoteLabelMap = useMemo(
+    () =>
+      new Map(
+        otherParticipants.map((participant) => [
+          participant.user_id,
+          getParticipantLabel(participant),
+        ]),
+      ),
+    [otherParticipants],
+  );
+
+  const remoteParticipantMap = useMemo(
+    () =>
+      new Map(
+        otherParticipants.map((participant) => [
+          participant.user_id,
+          participant,
+        ]),
+      ),
+    [otherParticipants],
+  );
+
+  const remoteTiles = useMemo(() => {
+    return otherParticipants.map((participant) => {
+      const streamRecord =
+        remoteStreams.find((remote) => remote.userId === participant.user_id) ??
+        null;
+
+      return {
+        userId: participant.user_id,
+        label: getParticipantLabel(participant),
+        participant,
+        stream: streamRecord?.stream ?? null,
+      };
+    });
+  }, [otherParticipants, remoteStreams]);
+
+  const pinnedTile = useMemo(() => {
+    if (!pinnedUserId) return null;
+    return remoteTiles.find((tile) => tile.userId === pinnedUserId) ?? null;
+  }, [pinnedUserId, remoteTiles]);
+
+  const unpinnedTiles = useMemo(() => {
+    return remoteTiles.filter((tile) => tile.userId !== pinnedUserId);
+  }, [remoteTiles, pinnedUserId]);
+
+  const joinLink = useMemo(() => {
+    if (typeof window === "undefined" || !meetingId) return "";
+    return `${window.location.origin}/meetings/${meetingId}`;
+  }, [meetingId]);
+
+  const isHost = meeting?.host_id === user?.id;
 
   useEffect(() => {
     if (!meetingId || !user?.id || joinedRef.current) return;
@@ -158,6 +332,17 @@ export default function MeetingRoomPage() {
         ]);
 
         if (cancelled) return;
+
+        if (!meetingData) {
+          throw new Error("Meeting room not found.");
+        }
+
+        if (
+          meetingData.status === "ended" ||
+          meetingData.status === "cancelled"
+        ) {
+          throw new Error("This meeting has already ended.");
+        }
 
         setMeeting(meetingData);
         setMessages(messageData);
@@ -187,10 +372,61 @@ export default function MeetingRoomPage() {
         signalCleanupRef.current = null;
       }
 
+      if (realtimeCleanupRef.current) {
+        realtimeCleanupRef.current();
+        realtimeCleanupRef.current = null;
+      }
+
+      offeredPeersRef.current.clear();
       cleanupMedia();
       joinedRef.current = false;
     };
   }, [meetingId, user?.id, initializeLocalMedia, cleanupMedia]);
+
+  useEffect(() => {
+    if (!meetingId) return;
+
+    if (realtimeCleanupRef.current) {
+      realtimeCleanupRef.current();
+      realtimeCleanupRef.current = null;
+    }
+
+    realtimeCleanupRef.current = subscribeToMeetingRoom({
+      meetingId,
+      onMeetingChange: (nextMeeting) => {
+        setMeeting(nextMeeting);
+
+        if (
+          nextMeeting &&
+          (nextMeeting.status === "ended" || nextMeeting.status === "cancelled")
+        ) {
+          setError("This meeting has ended.");
+          cleanupMedia();
+          offeredPeersRef.current.clear();
+          navigate("/meetings");
+        }
+      },
+      onMessagesChange: (nextMessages) => {
+        setMessages(nextMessages);
+      },
+      onMeetingEnded: () => {
+        setError("This meeting has ended.");
+        cleanupMedia();
+        offeredPeersRef.current.clear();
+        navigate("/meetings");
+      },
+      onError: (message) => {
+        setError(message);
+      },
+    });
+
+    return () => {
+      if (realtimeCleanupRef.current) {
+        realtimeCleanupRef.current();
+        realtimeCleanupRef.current = null;
+      }
+    };
+  }, [meetingId, cleanupMedia, navigate]);
 
   useEffect(() => {
     if (!meetingId || !user?.id || !localStream || !meeting || !rtcService) {
@@ -229,6 +465,7 @@ export default function MeetingRoomPage() {
                 state === "failed"
               ) {
                 removeRemoteStream(senderId);
+                offeredPeersRef.current.delete(senderId);
               }
             },
           });
@@ -294,6 +531,13 @@ export default function MeetingRoomPage() {
       for (const participant of otherParticipants) {
         const peerUserId = participant.user_id;
 
+        if (
+          offeredPeersRef.current.has(peerUserId) ||
+          rtcService.hasPeer(peerUserId)
+        ) {
+          continue;
+        }
+
         try {
           rtcService.createPeerConnection(peerUserId, {
             onIceCandidate: async (candidate) => {
@@ -315,6 +559,7 @@ export default function MeetingRoomPage() {
                 state === "failed"
               ) {
                 removeRemoteStream(peerUserId);
+                offeredPeersRef.current.delete(peerUserId);
               }
             },
           });
@@ -328,6 +573,8 @@ export default function MeetingRoomPage() {
             signalType: "offer",
             payload: offer,
           });
+
+          offeredPeersRef.current.add(peerUserId);
         } catch (err) {
           console.error("OFFER SEND ERROR:", err);
         }
@@ -342,6 +589,21 @@ export default function MeetingRoomPage() {
     registerRemoteStream,
     removeRemoteStream,
   ]);
+
+  useEffect(() => {
+    const activeRemoteIds = new Set(otherParticipants.map((p) => p.user_id));
+
+    remoteStreams.forEach((remote) => {
+      if (!activeRemoteIds.has(remote.userId)) {
+        removeRemoteStream(remote.userId);
+        offeredPeersRef.current.delete(remote.userId);
+      }
+    });
+
+    if (pinnedUserId && !activeRemoteIds.has(pinnedUserId)) {
+      setPinnedUserId(null);
+    }
+  }, [otherParticipants, remoteStreams, removeRemoteStream, pinnedUserId]);
 
   async function handleToggleMute() {
     if (!meetingId || !user?.id) return;
@@ -410,7 +672,10 @@ export default function MeetingRoomPage() {
       });
 
       if (created) {
-        setMessages((current) => [...current, created]);
+        setMessages((current) => {
+          const exists = current.some((item) => item.id === created.id);
+          return exists ? current : [...current, created];
+        });
       }
 
       setChatInput("");
@@ -438,7 +703,13 @@ export default function MeetingRoomPage() {
         signalCleanupRef.current = null;
       }
 
+      if (realtimeCleanupRef.current) {
+        realtimeCleanupRef.current();
+        realtimeCleanupRef.current = null;
+      }
+
       cleanupMedia();
+      offeredPeersRef.current.clear();
       joinedRef.current = false;
 
       navigate("/meetings");
@@ -455,6 +726,21 @@ export default function MeetingRoomPage() {
 
     try {
       await endMeeting(meetingId);
+
+      if (signalCleanupRef.current) {
+        signalCleanupRef.current();
+        signalCleanupRef.current = null;
+      }
+
+      if (realtimeCleanupRef.current) {
+        realtimeCleanupRef.current();
+        realtimeCleanupRef.current = null;
+      }
+
+      cleanupMedia();
+      offeredPeersRef.current.clear();
+      joinedRef.current = false;
+
       navigate("/meetings");
     } catch (err: unknown) {
       console.error(err);
@@ -464,12 +750,15 @@ export default function MeetingRoomPage() {
     }
   }
 
-  const remoteLabelMap = new Map(
-    otherParticipants.map((participant) => [
-      participant.user_id,
-      getParticipantLabel(participant),
-    ]),
-  );
+  async function handleCopyJoinLink() {
+    if (!joinLink) return;
+
+    try {
+      await navigator.clipboard.writeText(joinLink);
+    } catch (err) {
+      console.error("COPY LINK ERROR:", err);
+    }
+  }
 
   if (loading) {
     return (
@@ -489,7 +778,7 @@ export default function MeetingRoomPage() {
 
   return (
     <div className="min-h-full bg-black text-white">
-      <div className="grid gap-6 xl:grid-cols-[1.8fr_360px]">
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
         <section className="space-y-5">
           <div className="border border-white/10 bg-black px-6 py-6">
             <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
@@ -509,11 +798,29 @@ export default function MeetingRoomPage() {
                 </p>
               </div>
 
-              <div className="border border-white/10 bg-neutral-950 px-4 py-3 text-sm text-white/55">
-                Room code:{" "}
-                <span className="font-semibold text-white">
-                  {meeting.room_code}
-                </span>
+              <div className="space-y-3">
+                <div className="border border-white/10 bg-neutral-950 px-4 py-3 text-sm text-white/55">
+                  Room code:{" "}
+                  <span className="font-semibold text-white">
+                    {meeting.room_code}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2 border border-white/10 bg-neutral-950 px-3 py-3">
+                  <input
+                    value={joinLink}
+                    readOnly
+                    className="w-[220px] bg-transparent text-xs text-white/60 outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void handleCopyJoinLink()}
+                    className="inline-flex items-center gap-2 rounded-xl bg-orange-500 px-3 py-2 text-xs font-semibold text-black hover:bg-orange-400"
+                  >
+                    <Copy size={14} />
+                    Copy link
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -524,35 +831,62 @@ export default function MeetingRoomPage() {
             </div>
           ) : null}
 
-          <div className="grid gap-4 lg:grid-cols-2">
-            <VideoTile
-              label="You"
-              stream={localStream}
-              muted
-              badge={isScreenSharing ? "Sharing" : "Local"}
-              placeholder={
-                meeting.meeting_type === "video" ? "Camera off" : "Audio only"
-              }
-            />
-
-            {remoteStreams.length > 0 ? (
-              remoteStreams.map((remote) => (
-                <VideoTile
-                  key={remote.userId}
-                  label={remoteLabelMap.get(remote.userId) || "Participant"}
-                  stream={remote.stream}
-                  placeholder="Remote video unavailable"
-                  badge="Remote"
-                />
-              ))
-            ) : (
-              <VideoTile
-                label="Participants"
-                stream={null}
-                placeholder="Waiting for other participants to join"
-                badge="Remote"
+          <div className="space-y-4">
+            {pinnedTile ? (
+              <ParticipantTile
+                label={pinnedTile.label}
+                stream={pinnedTile.stream}
+                badge="Pinned"
+                isPinned
+                canManage={isHost}
+                isVideoExpected={meeting.meeting_type === "video"}
+                isCameraOn={pinnedTile.participant.is_camera_on}
+                isMutedState={pinnedTile.participant.is_muted}
+                onTogglePin={() => setPinnedUserId(null)}
               />
-            )}
+            ) : null}
+
+            <div
+              className={getGridClass(
+                (pinnedTile ? unpinnedTiles.length : remoteTiles.length) + 1,
+                !!pinnedTile,
+              )}
+            >
+              <ParticipantTile
+                label="You"
+                stream={localStream}
+                muted
+                badge={isScreenSharing ? "Sharing" : "Local"}
+                isVideoExpected={meeting.meeting_type === "video"}
+                isCameraOn={isCameraOn}
+                isMutedState={isMuted}
+              />
+
+              {(pinnedTile ? unpinnedTiles : remoteTiles).map((tile) => (
+                <ParticipantTile
+                  key={tile.userId}
+                  label={tile.label}
+                  stream={tile.stream}
+                  badge="Remote"
+                  canManage={isHost}
+                  isHost={meeting.host_id === tile.userId}
+                  isVideoExpected={meeting.meeting_type === "video"}
+                  isCameraOn={tile.participant.is_camera_on}
+                  isMutedState={tile.participant.is_muted}
+                  onTogglePin={() =>
+                    setPinnedUserId((current) =>
+                      current === tile.userId ? null : tile.userId,
+                    )
+                  }
+                />
+              ))}
+
+              {remoteTiles.length === 0 ? (
+                <div className="flex min-h-[220px] items-center justify-center border border-white/10 bg-neutral-950 text-sm text-white/35">
+                  Waiting for participants to join
+                </div>
+              ) : null}
+            </div>
           </div>
 
           <div className="border border-white/10 bg-black p-4">
@@ -605,7 +939,7 @@ export default function MeetingRoomPage() {
                 {isScreenSharing ? "Stop share" : "Share screen"}
               </button>
 
-              {meeting.host_id === user?.id ? (
+              {isHost ? (
                 <button
                   type="button"
                   onClick={() => void handleEndMeeting()}
@@ -632,48 +966,83 @@ export default function MeetingRoomPage() {
           <div className="border border-white/10 bg-black p-5">
             <div className="mb-4 flex items-center gap-2">
               <Users size={18} className="text-orange-400" />
-              <h2 className="text-lg font-semibold">Participants</h2>
+              <h2 className="text-lg font-semibold">
+                Participants ({activeParticipants.length})
+              </h2>
             </div>
 
-            <div className="grid gap-3 md:grid-cols-2">
-              {participants.map((participant) => (
-                <div
-                  key={participant.id}
-                  className="rounded-2xl border border-white/10 bg-neutral-950 px-4 py-4"
-                >
-                  <p className="font-medium">
-                    {getParticipantLabel(participant)}
-                  </p>
-                  <p className="mt-1 text-xs text-white/45">
-                    {participant.role}
-                  </p>
+            {activeParticipants.length === 0 ? (
+              <div className="rounded-2xl border border-white/10 bg-neutral-950 px-4 py-4 text-sm text-white/45">
+                No participants have joined yet.
+              </div>
+            ) : (
+              <div className="grid gap-3 md:grid-cols-2">
+                {activeParticipants.map((participant) => {
+                  const isYou = participant.user_id === user?.id;
 
-                  <div className="mt-3 flex gap-2 text-[11px]">
-                    <span
-                      className={[
-                        "rounded-full px-2 py-1",
-                        participant.is_muted
-                          ? "bg-red-500/15 text-red-300"
-                          : "bg-green-500/15 text-green-300",
-                      ].join(" ")}
+                  return (
+                    <div
+                      key={participant.id}
+                      className="rounded-2xl border border-white/10 bg-neutral-950 px-4 py-4"
                     >
-                      {participant.is_muted ? "Muted" : "Mic on"}
-                    </span>
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="font-medium">
+                            {getParticipantLabel(participant)}
+                            {isYou ? (
+                              <span className="ml-2 text-xs text-orange-400">
+                                (You)
+                              </span>
+                            ) : null}
+                          </p>
 
-                    <span
-                      className={[
-                        "rounded-full px-2 py-1",
-                        participant.is_camera_on
-                          ? "bg-green-500/15 text-green-300"
-                          : "bg-white/10 text-white/60",
-                      ].join(" ")}
-                    >
-                      {participant.is_camera_on ? "Camera on" : "Camera off"}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
+                          <p className="mt-1 text-xs uppercase tracking-[0.15em] text-white/45">
+                            {participant.role}
+                          </p>
+                        </div>
+
+                        <span className="rounded-full bg-green-500/15 px-2 py-1 text-[11px] font-medium text-green-300">
+                          Joined
+                        </span>
+                      </div>
+
+                      <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
+                        <span
+                          className={[
+                            "rounded-full px-2 py-1",
+                            participant.is_muted
+                              ? "bg-red-500/15 text-red-300"
+                              : "bg-green-500/15 text-green-300",
+                          ].join(" ")}
+                        >
+                          {participant.is_muted ? "Muted" : "Mic on"}
+                        </span>
+
+                        <span
+                          className={[
+                            "rounded-full px-2 py-1",
+                            participant.is_camera_on
+                              ? "bg-green-500/15 text-green-300"
+                              : "bg-white/10 text-white/60",
+                          ].join(" ")}
+                        >
+                          {participant.is_camera_on
+                            ? "Camera on"
+                            : "Camera off"}
+                        </span>
+                      </div>
+
+                      <p className="mt-3 text-[11px] text-white/30">
+                        Joined:{" "}
+                        {participant.joined_at
+                          ? new Date(participant.joined_at).toLocaleTimeString()
+                          : "Unknown"}
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </section>
 

@@ -1,29 +1,13 @@
 import { supabase } from "../../../lib/supabase/client";
-import type { RealtimeChannel } from "@supabase/supabase-js";
 
-export type MeetingSignalType = "offer" | "answer" | "ice-candidate";
-
-export type MeetingSignalWirePayload =
-  | RTCSessionDescriptionInit
-  | RTCIceCandidateInit
-  | Record<string, unknown>;
-
-export type MeetingSignalPayload = {
-  id: string;
-  meeting_id: string;
-  sender_id: string;
-  receiver_id: string;
-  signal_type: MeetingSignalType;
-  payload: MeetingSignalWirePayload;
-  created_at: string;
-};
+type SignalType = "offer" | "answer" | "ice-candidate";
 
 export async function sendMeetingSignal(params: {
   meetingId: string;
   senderId: string;
   receiverId: string;
-  signalType: MeetingSignalType;
-  payload: MeetingSignalWirePayload;
+  signalType: SignalType;
+  payload: unknown;
 }) {
   const { error } = await supabase.from("meeting_signals").insert({
     meeting_id: params.meetingId,
@@ -39,23 +23,52 @@ export async function sendMeetingSignal(params: {
 export function subscribeToMeetingSignals(params: {
   meetingId: string;
   currentUserId: string;
-  onSignal: (signal: MeetingSignalPayload) => void;
+  onSignal: (signal: {
+    id: string;
+    meeting_id: string;
+    sender_id: string;
+    receiver_id: string;
+    signal_type: SignalType;
+    payload: unknown;
+  }) => void | Promise<void>;
 }) {
-  const channel: RealtimeChannel = supabase
-    .channel(`meeting-signals:${params.meetingId}:${params.currentUserId}`)
+  const channel = supabase.channel(
+    `meeting-signals:${params.meetingId}:${params.currentUserId}`,
+  );
+
+  channel
     .on(
       "postgres_changes",
       {
         event: "INSERT",
         schema: "public",
         table: "meeting_signals",
-        filter: `receiver_id=eq.${params.currentUserId}`,
+        filter: `meeting_id=eq.${params.meetingId}`,
       },
-      (payload) => {
-        const signal = payload.new as MeetingSignalPayload;
+      async (payload) => {
+        const signal = payload.new as {
+          id: string;
+          meeting_id: string;
+          sender_id: string;
+          receiver_id: string;
+          signal_type: SignalType;
+          payload: unknown;
+        };
 
-        if (signal.meeting_id !== params.meetingId) return;
-        params.onSignal(signal);
+        if (!signal) return;
+        if (signal.receiver_id !== params.currentUserId) return;
+        if (signal.sender_id === params.currentUserId) return;
+
+        await params.onSignal(signal);
+
+        const { error } = await supabase
+          .from("meeting_signals")
+          .delete()
+          .eq("id", signal.id);
+
+        if (error) {
+          console.error("FAILED TO DELETE SIGNAL:", error);
+        }
       },
     )
     .subscribe();
