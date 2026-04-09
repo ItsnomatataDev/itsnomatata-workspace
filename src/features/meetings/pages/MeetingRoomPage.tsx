@@ -94,7 +94,7 @@ function ParticipantTile({
     <div
       className={[
         "group relative overflow-hidden border border-white/10 bg-neutral-950 text-white",
-        isPinned ? "min-h-[420px]" : "min-h-[220px]",
+        isPinned ? "min-h-105" : "min-h-55",
       ].join(" ")}
     >
       <div className="absolute inset-x-0 top-0 z-10 flex items-start justify-between gap-2 p-3">
@@ -128,7 +128,7 @@ function ParticipantTile({
         ) : null}
       </div>
 
-      <div className="flex h-full min-h-[220px] items-center justify-center">
+      <div className="flex h-full min-h-55 items-center justify-center">
         {showVideo ? (
           <video
             ref={videoRef}
@@ -153,7 +153,7 @@ function ParticipantTile({
         )}
       </div>
 
-      <div className="absolute inset-x-0 bottom-0 z-10 flex items-center justify-between gap-3 bg-gradient-to-t from-black/90 to-transparent p-3">
+      <div className="absolute inset-x-0 bottom-0 z-10 flex items-center justify-between gap-3 bg-linear-to-t from-black/90 to-transparent p-3">
         <div className="flex flex-wrap gap-2 text-[11px]">
           <span
             className={[
@@ -778,7 +778,7 @@ export default function MeetingRoomPage() {
                   <input
                     value={joinLink}
                     readOnly
-                    className="w-[220px] bg-transparent text-xs text-white/60 outline-none"
+                    className="w-55 bg-transparent text-xs text-white/60 outline-none"
                   />
                   <button
                     type="button"
@@ -850,7 +850,7 @@ export default function MeetingRoomPage() {
               ))}
 
               {remoteTiles.length === 0 ? (
-                <div className="flex min-h-[220px] items-center justify-center border border-white/10 bg-neutral-950 text-sm text-white/35">
+                <div className="flex min-h-55 items-center justify-center border border-white/10 bg-neutral-950 text-sm text-white/35">
                   Waiting for participants to join
                 </div>
               ) : null}

@@ -44,7 +44,7 @@ export type ChatConversation = {
   last_message?: ChatConversationLastMessage | null;
 };
 
-export type ChatMessageType = "text" | "image" | "file" | "system";
+export type ChatMessageType = "text" | "image" | "audio" | "file" | "system";
 
 export type ChatMessageSender = {
   id: string;
@@ -75,4 +75,13 @@ export type ChatUser = {
   email: string | null;
   primary_role: string | null;
   last_seen_at?: string | null;
+};
+
+export type SendChatMessageInput = {
+  conversationId: string;
+  userId: string;
+  body?: string;
+  messageType?: ChatMessageType;
+  attachmentUrl?: string | null;
+  attachmentName?: string | null;
 };

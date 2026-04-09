@@ -1,11 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   CalendarClock,
+  Clock3,
   Flag,
+  Globe,
+  Image,
+  Link as LinkIcon,
   MessageSquare,
+  Radio,
+  Search,
+  Upload,
   Users,
   X,
-  Search,
+  FileText,
 } from "lucide-react";
 import type {
   TaskCommentItem,
@@ -15,6 +22,10 @@ import type {
   TaskWatcherItem,
 } from "../../../lib/supabase/queries/tasks";
 import type { TaskChecklistWithItems } from "../../../lib/supabase/queries/taskChecklists";
+import type {
+  TaskSubmissionItem,
+  TaskSubmissionType,
+} from "../../../lib/supabase/queries/taskSubmissions";
 import TaskChecklistSection from "../components/TaskChecklistSection";
 
 function formatDateTime(value?: string | null) {
@@ -24,6 +35,19 @@ function formatDateTime(value?: string | null) {
   } catch {
     return value;
   }
+}
+
+function formatDurationHms(seconds?: number | null) {
+  const total = Math.max(0, Math.floor(Number(seconds ?? 0)));
+  const hrs = Math.floor(total / 3600);
+  const mins = Math.floor((total % 3600) / 60);
+  const secs = total % 60;
+
+  const hh = String(hrs).padStart(2, "0");
+  const mm = String(mins).padStart(2, "0");
+  const ss = String(secs).padStart(2, "0");
+
+  return `${hh}:${mm}:${ss}`;
 }
 
 const STATUS_OPTIONS: TaskStatus[] = [
@@ -45,14 +69,20 @@ export default function TaskDetailsModal({
   error,
   busy,
   currentUserId,
+  trackedSeconds,
+  hasRunningTimer,
   canEditDeadline,
   canEditStatus,
+  organizationId: _organizationId,
+  currentUserRole,
+  submissions,
   onClose,
   onSaveDeadline,
   onSaveStatus,
   onToggleDone,
   onAddComment,
   onTrack,
+  onSaveManualTime,
   onInviteUser,
   onRemoveInvitedUser,
   onSearchUsers,
@@ -61,6 +91,9 @@ export default function TaskDetailsModal({
   onAddChecklistItem,
   onToggleChecklistItem,
   onDeleteChecklistItem,
+  onCreateSubmission,
+  onApproveSubmission,
+  onRejectSubmission,
 }: {
   open: boolean;
   task: TaskItem | null;
@@ -71,14 +104,24 @@ export default function TaskDetailsModal({
   error: string;
   busy?: boolean;
   currentUserId: string;
+  trackedSeconds: number;
+  hasRunningTimer: boolean;
   canEditDeadline: boolean;
   canEditStatus: boolean;
+  organizationId: string;
+  currentUserRole: string;
+  submissions: TaskSubmissionItem[];
   onClose: () => void;
   onSaveDeadline: (taskId: string, dueDate: string | null) => Promise<void>;
   onSaveStatus: (taskId: string, status: TaskStatus) => Promise<void>;
   onToggleDone: (taskId: string, checked: boolean) => Promise<void>;
   onAddComment: (taskId: string, comment: string) => Promise<void>;
   onTrack: (taskId: string, title: string) => void;
+  onSaveManualTime: (
+    taskId: string,
+    hours: number,
+    minutes: number,
+  ) => Promise<void>;
   onInviteUser: (taskId: string, userId: string) => Promise<void>;
   onRemoveInvitedUser: (taskId: string, userId: string) => Promise<void>;
   onSearchUsers: (search: string) => Promise<TaskInvitableUser[]>;
@@ -87,14 +130,67 @@ export default function TaskDetailsModal({
   onAddChecklistItem: (checklistId: string, content: string) => Promise<void>;
   onToggleChecklistItem: (itemId: string, checked: boolean) => Promise<void>;
   onDeleteChecklistItem: (itemId: string) => Promise<void>;
+  onCreateSubmission: (params: {
+    taskId: string;
+    submissionType: TaskSubmissionType;
+    title: string;
+    notes?: string | null;
+    linkUrl?: string | null;
+    file?: File | null;
+  }) => Promise<void>;
+  onApproveSubmission: (
+    submissionId: string,
+    taskId: string,
+    reviewNote?: string,
+  ) => Promise<void>;
+  onRejectSubmission: (
+    submissionId: string,
+    taskId: string,
+    reviewNote?: string,
+  ) => Promise<void>;
 }) {
   const [deadline, setDeadline] = useState("");
   const [comment, setComment] = useState("");
   const [status, setStatus] = useState<TaskStatus>("todo");
+  const [manualHours, setManualHours] = useState("0");
+  const [manualMinutes, setManualMinutes] = useState("30");
 
   const [userSearch, setUserSearch] = useState("");
   const [userResults, setUserResults] = useState<TaskInvitableUser[]>([]);
   const [searchingUsers, setSearchingUsers] = useState(false);
+
+  const [liveTrackedSeconds, setLiveTrackedSeconds] = useState(
+    Number(trackedSeconds ?? 0),
+  );
+
+  const [submissionType, setSubmissionType] =
+    useState<TaskSubmissionType>("website");
+  const [submissionLink, setSubmissionLink] = useState("");
+  const [submissionTitle, setSubmissionTitle] = useState("");
+  const [submissionNotes, setSubmissionNotes] = useState("");
+  const [submissionFile, setSubmissionFile] = useState<File | null>(null);
+  const [reviewNote, setReviewNote] = useState("");
+
+  const canReview =
+    currentUserRole === "admin" || currentUserRole === "manager";
+
+  useEffect(() => {
+    setLiveTrackedSeconds(Number(trackedSeconds ?? 0));
+  }, [trackedSeconds, task?.id]);
+
+  useEffect(() => {
+    if (!hasRunningTimer) return;
+
+    const startedAt = Date.now();
+    const baseSeconds = Number(trackedSeconds ?? 0);
+
+    const interval = window.setInterval(() => {
+      const elapsed = Math.floor((Date.now() - startedAt) / 1000);
+      setLiveTrackedSeconds(baseSeconds + elapsed);
+    }, 1000);
+
+    return () => window.clearInterval(interval);
+  }, [hasRunningTimer, trackedSeconds]);
 
   const initialDeadline = useMemo(() => {
     if (!task?.due_date) return "";
@@ -154,6 +250,9 @@ export default function TaskDetailsModal({
 
   const effectiveDeadline = deadline || initialDeadline;
   const isDone = task?.status === "done";
+  const trackButtonText = hasRunningTimer
+    ? `Tracking ${formatDurationHms(liveTrackedSeconds)}`
+    : "Start timer on this card";
 
   const handleSaveDeadline = async () => {
     if (!task) return;
@@ -178,6 +277,47 @@ export default function TaskDetailsModal({
     setUserResults([]);
   };
 
+  const handleSaveManualTime = async () => {
+    if (!task) return;
+
+    const hours = Number(manualHours || "0");
+    const minutes = Number(manualMinutes || "0");
+
+    await onSaveManualTime(task.id, hours, minutes);
+    setManualHours("0");
+    setManualMinutes("30");
+  };
+
+  const handleCreateSubmission = async () => {
+    if (!task) return;
+
+    const needsPhysicalFile =
+      submissionType === "media" || submissionType === "document";
+
+    if (!submissionTitle.trim()) {
+      return;
+    }
+
+    if (needsPhysicalFile && !submissionFile) {
+      alert("Please upload a file for media or document submissions.");
+      return;
+    }
+
+    await onCreateSubmission({
+      taskId: task.id,
+      submissionType,
+      title: submissionTitle,
+      notes: submissionNotes || null,
+      linkUrl: submissionLink || null,
+      file: submissionFile,
+    });
+
+    setSubmissionTitle("");
+    setSubmissionLink("");
+    setSubmissionNotes("");
+    setSubmissionFile(null);
+  };
+
   return (
     <div className="fixed inset-0 z-50 bg-black/80 p-3 sm:p-4">
       <div className="mx-auto flex h-[95vh] w-full max-w-7xl flex-col overflow-hidden rounded-3xl border border-white/10 bg-zinc-950 shadow-2xl">
@@ -187,7 +327,7 @@ export default function TaskDetailsModal({
               {task?.title || "Task Details"}
             </h2>
             <p className="mt-1 text-sm text-white/50">
-              Professional workflow card
+              Trello-style workflow card
             </p>
           </div>
 
@@ -258,6 +398,68 @@ export default function TaskDetailsModal({
 
                 <div className="rounded-2xl border border-white/10 bg-black/30 p-5">
                   <div className="flex items-center gap-2 text-orange-400">
+                    <Clock3 size={16} />
+                    <p className="font-medium">Time Tracking</p>
+                  </div>
+
+                  <div className="mt-4 flex flex-wrap items-center gap-3">
+                    <div className="rounded-xl bg-white/5 px-4 py-3 text-white">
+                      Total tracked: {formatDurationHms(liveTrackedSeconds)}
+                    </div>
+
+                    {hasRunningTimer ? (
+                      <div className="inline-flex items-center gap-2 rounded-xl bg-orange-500/10 px-4 py-3 text-orange-300">
+                        <Radio size={14} />
+                        Running now
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => onTrack(task.id, task.title)}
+                      className="rounded-xl bg-orange-500 px-4 py-3 text-sm font-semibold text-black"
+                    >
+                      {trackButtonText}
+                    </button>
+                  </div>
+
+                  <div className="mt-5 grid gap-3 md:grid-cols-[1fr_1fr_auto]">
+                    <input
+                      type="number"
+                      min="0"
+                      value={manualHours}
+                      onChange={(e) => setManualHours(e.target.value)}
+                      className="rounded-xl border border-white/10 bg-black px-4 py-3 text-white outline-none focus:border-orange-500"
+                      placeholder="Hours"
+                    />
+                    <input
+                      type="number"
+                      min="0"
+                      max="59"
+                      value={manualMinutes}
+                      onChange={(e) => setManualMinutes(e.target.value)}
+                      className="rounded-xl border border-white/10 bg-black px-4 py-3 text-white outline-none focus:border-orange-500"
+                      placeholder="Minutes"
+                    />
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void handleSaveManualTime()}
+                      className="rounded-xl bg-white/10 px-4 py-3 text-sm font-semibold text-white disabled:opacity-60"
+                    >
+                      Save time
+                    </button>
+                  </div>
+
+                  <p className="mt-3 text-sm text-white/45">
+                    Add manual time in hours and minutes.
+                  </p>
+                </div>
+
+                <div className="rounded-2xl border border-white/10 bg-black/30 p-5">
+                  <div className="flex items-center gap-2 text-orange-400">
                     <CalendarClock size={16} />
                     <p className="font-medium">Deadline</p>
                   </div>
@@ -304,8 +506,9 @@ export default function TaskDetailsModal({
                         type="checkbox"
                         checked={isDone}
                         onChange={(e) => {
-                          if (task)
+                          if (task) {
                             void onToggleDone(task.id, e.target.checked);
+                          }
                         }}
                         className="h-4 w-4"
                       />
@@ -463,30 +666,207 @@ export default function TaskDetailsModal({
                 </div>
 
                 <div className="rounded-2xl border border-white/10 bg-black/30 p-5">
-                  <p className="text-sm text-white/50">Workflow Actions</p>
+                  <div className="flex items-center gap-2 text-orange-400">
+                    {submissionType === "website" ? (
+                      <Globe size={16} />
+                    ) : submissionType === "media" ? (
+                      <Image size={16} />
+                    ) : submissionType === "document" ? (
+                      <FileText size={16} />
+                    ) : (
+                      <LinkIcon size={16} />
+                    )}
+                    <p className="font-medium">Work Submission</p>
+                  </div>
+
+                  <p className="mt-2 text-sm text-white/45">
+                    Submit work here for admin or manager approval. Media and
+                    document tasks can upload a real file.
+                  </p>
+
+                  <div className="mt-4 grid gap-3 md:grid-cols-2">
+                    <select
+                      value={submissionType}
+                      onChange={(e) =>
+                        setSubmissionType(e.target.value as TaskSubmissionType)
+                      }
+                      className="rounded-xl border border-white/10 bg-black px-4 py-3 text-white outline-none focus:border-orange-500"
+                    >
+                      <option value="website">Website</option>
+                      <option value="media">Media</option>
+                      <option value="document">Document</option>
+                      <option value="general">General</option>
+                    </select>
+
+                    <input
+                      value={submissionTitle}
+                      onChange={(e) => setSubmissionTitle(e.target.value)}
+                      className="rounded-xl border border-white/10 bg-black px-4 py-3 text-white outline-none focus:border-orange-500"
+                      placeholder="Submission title"
+                    />
+                  </div>
+
+                  <div className="mt-3">
+                    <input
+                      value={submissionLink}
+                      onChange={(e) => setSubmissionLink(e.target.value)}
+                      className="w-full rounded-xl border border-white/10 bg-black px-4 py-3 text-white outline-none focus:border-orange-500"
+                      placeholder="Optional link"
+                    />
+                  </div>
+
+                  <div className="mt-3">
+                    <textarea
+                      value={submissionNotes}
+                      onChange={(e) => setSubmissionNotes(e.target.value)}
+                      rows={4}
+                      className="w-full rounded-xl border border-white/10 bg-black px-4 py-3 text-white outline-none focus:border-orange-500"
+                      placeholder="Submission notes"
+                    />
+                  </div>
+
+                  {submissionType === "media" ||
+                  submissionType === "document" ||
+                  submissionType === "general" ? (
+                    <div className="mt-3">
+                      <label className="mb-2 flex items-center gap-2 text-sm text-white/60">
+                        <Upload size={14} />
+                        Upload file
+                      </label>
+
+                      <input
+                        type="file"
+                        onChange={(e) =>
+                          setSubmissionFile(e.target.files?.[0] ?? null)
+                        }
+                        className="block w-full rounded-xl border border-white/10 bg-black px-4 py-3 text-sm text-white file:mr-4 file:rounded-lg file:border-0 file:bg-orange-500 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-black"
+                      />
+
+                      {submissionFile ? (
+                        <p className="mt-2 text-xs text-white/50">
+                          Selected: {submissionFile.name}
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : null}
 
                   <div className="mt-4 flex flex-wrap gap-2">
                     <button
                       type="button"
-                      onClick={() => onTrack(task.id, task.title)}
-                      className="rounded-xl bg-orange-500 px-4 py-3 text-sm font-semibold text-black"
+                      disabled={busy || !submissionTitle.trim()}
+                      onClick={() => void handleCreateSubmission()}
+                      className="rounded-xl bg-orange-500 px-4 py-3 text-sm font-semibold text-black disabled:opacity-60"
                     >
-                      Track time on this card
+                      Submit for approval
                     </button>
+                  </div>
 
-                    <button
-                      type="button"
-                      className="rounded-xl border border-white/10 px-4 py-3 text-sm text-white/70"
-                    >
-                      Approval section coming next
-                    </button>
+                  <div className="mt-5 space-y-3">
+                    {submissions.length === 0 ? (
+                      <p className="text-sm text-white/45">
+                        No submissions yet.
+                      </p>
+                    ) : (
+                      submissions.map((submission) => (
+                        <div
+                          key={submission.id}
+                          className="rounded-xl border border-white/10 bg-black px-4 py-4"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div>
+                              <p className="font-medium text-white">
+                                {submission.title}
+                              </p>
+                              <p className="mt-1 text-xs text-white/45">
+                                {submission.submission_type} •{" "}
+                                {submission.approval_status}
+                              </p>
+                            </div>
 
-                    <button
-                      type="button"
-                      className="rounded-xl border border-white/10 px-4 py-3 text-sm text-white/70"
-                    >
-                      Attachments section coming next
-                    </button>
+                            <div className="text-xs text-white/40">
+                              {formatDateTime(submission.created_at)}
+                            </div>
+                          </div>
+
+                          {submission.link_url ? (
+                            <a
+                              href={submission.link_url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="mt-3 block text-sm text-orange-400 underline"
+                            >
+                              Open link
+                            </a>
+                          ) : null}
+
+                          {submission.signed_file_url ? (
+                            <a
+                              href={submission.signed_file_url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="mt-2 block text-sm text-orange-400 underline"
+                            >
+                              Open file
+                              {submission.file_name
+                                ? ` (${submission.file_name})`
+                                : ""}
+                            </a>
+                          ) : null}
+
+                          {submission.notes ? (
+                            <p className="mt-3 whitespace-pre-wrap text-sm text-white/70">
+                              {submission.notes}
+                            </p>
+                          ) : null}
+
+                          {canReview ? (
+                            <div className="mt-4 space-y-3">
+                              <textarea
+                                value={reviewNote}
+                                onChange={(e) => setReviewNote(e.target.value)}
+                                rows={3}
+                                className="w-full rounded-xl border border-white/10 bg-[#0b0d0f] px-4 py-3 text-white outline-none focus:border-orange-500"
+                                placeholder="Optional review note"
+                              />
+
+                              <div className="flex flex-wrap gap-2">
+                                <button
+                                  type="button"
+                                  disabled={busy || !task}
+                                  onClick={() =>
+                                    task &&
+                                    void onApproveSubmission(
+                                      submission.id,
+                                      task.id,
+                                      reviewNote || undefined,
+                                    )
+                                  }
+                                  className="rounded-xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-black disabled:opacity-60"
+                                >
+                                  Approve
+                                </button>
+
+                                <button
+                                  type="button"
+                                  disabled={busy || !task}
+                                  onClick={() =>
+                                    task &&
+                                    void onRejectSubmission(
+                                      submission.id,
+                                      task.id,
+                                      reviewNote || undefined,
+                                    )
+                                  }
+                                  className="rounded-xl bg-red-500 px-4 py-3 text-sm font-semibold text-black disabled:opacity-60"
+                                >
+                                  Send back
+                                </button>
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
+                      ))
+                    )}
                   </div>
                 </div>
               </div>

@@ -10,6 +10,7 @@ import {
   getMessages,
   markConversationAsRead,
   sendMessage,
+  uploadChatAttachment,
 } from "../services/chatService";
 import { subscribeToConversationMessages } from "../services/chatRealtime";
 import { createTypingChannel } from "../services/chatTyping";
@@ -87,7 +88,12 @@ export default function ChatPage() {
                     last_message: {
                       id: incomingMessage.id,
                       sender_id: incomingMessage.sender_id,
-                      body: incomingMessage.body,
+                      body:
+                        incomingMessage.message_type === "image"
+                          ? "📷 Image"
+                          : incomingMessage.message_type === "audio"
+                            ? "🎤 Voice note"
+                            : incomingMessage.body,
                       created_at: incomingMessage.created_at,
                     },
                     unread_count: 0,
@@ -153,7 +159,15 @@ export default function ChatPage() {
     setConversations((current) =>
       current.map((conversation) =>
         conversation.id === activeConversationId
-          ? { ...conversation, unread_count: 0 }
+          ? {
+              ...conversation,
+              unread_count: 0,
+              members: conversation.members?.map((member) =>
+                member.user_id === user.id
+                  ? { ...member, last_read_message_id: lastMessage.id }
+                  : member,
+              ),
+            }
           : conversation,
       ),
     );
@@ -204,6 +218,7 @@ export default function ChatPage() {
         conversationId: activeConversationId,
         userId: user.id,
         body: input,
+        messageType: "text",
       });
 
       setInput("");
@@ -214,6 +229,62 @@ export default function ChatPage() {
     } catch (err: any) {
       console.error("SEND MESSAGE ERROR:", err);
       setError(err?.message || "Failed to send message.");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function handleSendImage(file: File) {
+    if (!user?.id || !activeConversationId) return;
+
+    try {
+      setSending(true);
+      setError("");
+
+      const uploaded = await uploadChatAttachment({
+        file,
+        conversationId: activeConversationId,
+        userId: user.id,
+      });
+
+      await sendMessage({
+        conversationId: activeConversationId,
+        userId: user.id,
+        messageType: "image",
+        attachmentUrl: uploaded.publicUrl,
+        attachmentName: uploaded.fileName,
+      });
+    } catch (err: any) {
+      console.error("SEND IMAGE ERROR:", err);
+      setError(err?.message || "Failed to send image.");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function handleSendAudio(file: File) {
+    if (!user?.id || !activeConversationId) return;
+
+    try {
+      setSending(true);
+      setError("");
+
+      const uploaded = await uploadChatAttachment({
+        file,
+        conversationId: activeConversationId,
+        userId: user.id,
+      });
+
+      await sendMessage({
+        conversationId: activeConversationId,
+        userId: user.id,
+        messageType: "audio",
+        attachmentUrl: uploaded.publicUrl,
+        attachmentName: uploaded.fileName,
+      });
+    } catch (err: any) {
+      console.error("SEND AUDIO ERROR:", err);
+      setError(err?.message || "Failed to send audio.");
     } finally {
       setSending(false);
     }
@@ -278,9 +349,14 @@ export default function ChatPage() {
     .reverse()
     .find((message) => message.sender_id !== user?.id)?.sender;
 
+  const isOtherOnline = latestOtherSender?.last_seen_at
+    ? Date.now() - new Date(latestOtherSender.last_seen_at).getTime() <=
+      2 * 60 * 1000
+    : false;
+
   return (
     <>
-      <div className="flex h-[calc(100vh-2rem)] overflow-hidden rounded-2xl border border-white/10 bg-neutral-950">
+      <div className="flex h-[calc(100vh-2rem)] overflow-hidden border border-white/10 bg-neutral-950">
         <ChatSidebar
           conversations={conversations}
           activeConversationId={activeConversationId}
@@ -292,24 +368,47 @@ export default function ChatPage() {
 
         <section className="flex min-w-0 flex-1 flex-col text-white">
           <div className="border-b border-white/10 px-5 py-4">
-            <h2 className="truncate text-base font-semibold">
-              {activeConversation?.display_name || "Select a conversation"}
-            </h2>
+            <div className="flex items-center gap-3">
+              <div className="relative">
+                <div className="flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-white/5 text-sm font-semibold text-orange-400">
+                  {(activeConversation?.display_name || "C")
+                    .split(" ")
+                    .slice(0, 2)
+                    .map((item) => item[0]?.toUpperCase() ?? "")
+                    .join("")}
+                </div>
 
-            <p className="mt-1 text-sm text-white/50">
-              {otherTyping
-                ? "Typing..."
-                : activeConversation?.type === "direct"
-                  ? getPresenceLabel(latestOtherSender?.last_seen_at)
-                  : activeConversation
-                    ? `Conversation type: ${activeConversation.type}`
-                    : "Choose a conversation from the left"}
-            </p>
+                {activeConversation?.type === "direct" ? (
+                  <span
+                    className={[
+                      "absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 border-neutral-950",
+                      isOtherOnline ? "bg-green-400" : "bg-white/20",
+                    ].join(" ")}
+                  />
+                ) : null}
+              </div>
+
+              <div className="min-w-0">
+                <h2 className="truncate text-base font-semibold">
+                  {activeConversation?.display_name || "Select a conversation"}
+                </h2>
+
+                <p className="mt-1 text-sm text-white/50">
+                  {otherTyping
+                    ? "Typing..."
+                    : activeConversation?.type === "direct"
+                      ? getPresenceLabel(latestOtherSender?.last_seen_at)
+                      : activeConversation
+                        ? `Conversation type: ${activeConversation.type}`
+                        : "Choose a conversation from the left"}
+                </p>
+              </div>
+            </div>
           </div>
 
           <div className="flex-1 overflow-y-auto px-5 py-4">
             {error ? (
-              <div className="mb-4 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+              <div className="mb-4 border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">
                 {error}
               </div>
             ) : null}
@@ -319,6 +418,7 @@ export default function ChatPage() {
               currentUserId={user?.id}
               loading={loadingMessages}
               hasConversation={Boolean(activeConversationId)}
+              conversation={activeConversation}
             />
           </div>
 
@@ -327,6 +427,8 @@ export default function ChatPage() {
             onChange={setInput}
             onSend={() => void handleSend()}
             onTyping={handleTyping}
+            onImageSelect={(file) => void handleSendImage(file)}
+            onAudioReady={(file) => void handleSendAudio(file)}
             disabled={!activeConversationId || creatingChat}
             sending={sending}
           />

@@ -43,14 +43,13 @@ export default function CreateLeaveRequestModal({
     })[]
   >([]);
 
-  if (!open) return null;
-
   const resetForm = () => {
     setLeaveTypeId("");
     setStartDate("");
     setEndDate("");
     setReason("");
     setError("");
+    setSuccessMessage("");
     setBlockedRules([]);
     setOverlappingLeaves([]);
   };
@@ -63,6 +62,7 @@ export default function CreateLeaveRequestModal({
         if (active) {
           setBlockedRules([]);
           setOverlappingLeaves([]);
+          setCheckingAvailability(false);
         }
         return;
       }
@@ -98,6 +98,8 @@ export default function CreateLeaveRequestModal({
       active = false;
     };
   }, [open, organizationId, startDate, endDate]);
+
+  if (!open) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -138,14 +140,15 @@ export default function CreateLeaveRequestModal({
       setSuccessMessage("Leave request submitted successfully.");
       await onCreated();
 
-      setTimeout(() => {
+      window.setTimeout(() => {
         resetForm();
         onClose();
-        setSuccessMessage("");
       }, 1200);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("CREATE LEAVE REQUEST ERROR:", err);
-      setError(err?.message || "Failed to submit leave request.");
+      setError(
+        err instanceof Error ? err.message : "Failed to submit leave request.",
+      );
     } finally {
       setBusy(false);
     }

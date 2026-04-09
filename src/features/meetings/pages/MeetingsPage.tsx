@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { CalendarDays, PlusCircle, Video } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { CalendarDays, ChevronLeft, ChevronRight, PlusCircle, Video } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../../../lib/hooks/useAuth";
 import CreateMeetingModal from "../components/CreateMeetingModal";
 import MeetingCard from "../components/MeetingCard";
@@ -82,22 +82,33 @@ export default function MeetingsPage() {
         <section className="border border-white/10 bg-black">
           <div className="border-b border-white/10 px-6 py-6">
             <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
-              <div className="max-w-3xl">
-                <div className="inline-flex items-center gap-2 border border-orange-500/20 bg-orange-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.25em] text-orange-300">
-                  <Video size={14} />
-                  Meetings hub
+              <div className="flex items-center">
+                <Link
+                  to="/dashboard"
+                  className="flex justify-center items-center gap-2 text-white/75 hover:text-white w-8 h-8 rounded-full border text-center  border-orange-400"
+                >
+                  <ChevronLeft
+                    size={20}
+                    className="inline-block text-orange-400"
+                  />
+                </Link>
+
+                <div className="max-w-3xl  ml-2.5">
+                  <div className="inline-flex items-center gap-2 border border-orange-500/20 bg-orange-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.25em] text-orange-300">
+                    <Video size={14} />
+                    Meetings hub
+                  </div>
+
+                  <h1 className="mt-5 text-3xl font-bold tracking-tight">
+                    Audio and video meetings
+                  </h1>
+
+                  <p className="mt-3 max-w-2xl text-sm leading-6 text-white/50">
+                    Create, manage, and join internal meetings from one clean
+                    workspace built for your team.
+                  </p>
                 </div>
-
-                <h1 className="mt-5 text-3xl font-bold tracking-tight">
-                  Audio and video meetings
-                </h1>
-
-                <p className="mt-3 max-w-2xl text-sm leading-6 text-white/50">
-                  Create, manage, and join internal meetings from one clean
-                  workspace built for your team.
-                </p>
               </div>
-
               <button
                 type="button"
                 onClick={() => setCreateOpen(true)}

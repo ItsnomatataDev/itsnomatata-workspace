@@ -167,3 +167,176 @@ export async function createBulkNotifications(params: {
   if (error) throw error;
   return (data ?? []) as NotificationRow[];
 }
+
+// --- Modular helpers for all-system notifications ---
+
+// System notification (e.g. admin broadcast, system alert)
+export async function notifySystemUsers(params: {
+  organizationId: string;
+  userIds: string[];
+  title: string;
+  message: string;
+  priority?: "low" | "medium" | "high" | "urgent";
+  metadata?: Record<string, unknown>;
+}) {
+  return createBulkNotifications({
+    organizationId: params.organizationId,
+    userIds: params.userIds,
+    type: "system",
+    title: params.title,
+    message: params.message,
+    priority: params.priority,
+    metadata: params.metadata,
+  });
+}
+
+// Project notification (e.g. project created, updated, archived)
+export async function notifyProjectEvent(params: {
+  organizationId: string;
+  userIds: string[];
+  projectId: string;
+  event: string;
+  title: string;
+  message: string;
+  priority?: "low" | "medium" | "high" | "urgent";
+  metadata?: Record<string, unknown>;
+}) {
+  return createBulkNotifications({
+    organizationId: params.organizationId,
+    userIds: params.userIds,
+    type: `project_${params.event}`,
+    title: params.title,
+    message: params.message,
+    entityType: "project",
+    entityId: params.projectId,
+    priority: params.priority,
+    metadata: params.metadata,
+  });
+}
+
+// Task notification (e.g. assigned, updated, moved, commented)
+export async function notifyTaskEvent(params: {
+  organizationId: string;
+  userIds: string[];
+  taskId: string;
+  event: string;
+  title: string;
+  message: string;
+  priority?: "low" | "medium" | "high" | "urgent";
+  metadata?: Record<string, unknown>;
+}) {
+  return createBulkNotifications({
+    organizationId: params.organizationId,
+    userIds: params.userIds,
+    type: `task_${params.event}`,
+    title: params.title,
+    message: params.message,
+    entityType: "task",
+    entityId: params.taskId,
+    priority: params.priority,
+    metadata: params.metadata,
+  });
+}
+
+// Meeting notification (e.g. meeting scheduled, updated, cancelled)
+export async function notifyMeetingEvent(params: {
+  organizationId: string;
+  userIds: string[];
+  meetingId: string;
+  event: string;
+  title: string;
+  message: string;
+  priority?: "low" | "medium" | "high" | "urgent";
+  metadata?: Record<string, unknown>;
+}) {
+  return createBulkNotifications({
+    organizationId: params.organizationId,
+    userIds: params.userIds,
+    type: `meeting_${params.event}`,
+    title: params.title,
+    message: params.message,
+    entityType: "meeting",
+    entityId: params.meetingId,
+    priority: params.priority,
+    metadata: params.metadata,
+  });
+}
+
+// Chat notification (e.g. new message, mention)
+export async function notifyChatEvent(params: {
+  organizationId: string;
+  userIds: string[];
+  chatId: string;
+  event: string;
+  title: string;
+  message: string;
+  priority?: "low" | "medium" | "high" | "urgent";
+  metadata?: Record<string, unknown>;
+}) {
+  return createBulkNotifications({
+    organizationId: params.organizationId,
+    userIds: params.userIds,
+    type: `chat_${params.event}`,
+    title: params.title,
+    message: params.message,
+    entityType: "chat",
+    entityId: params.chatId,
+    priority: params.priority,
+    metadata: params.metadata,
+  });
+}
+
+// Approval notification (e.g. approval requested, approved, rejected)
+export async function notifyApprovalEvent(params: {
+  organizationId: string;
+  userIds: string[];
+  approvalId: string;
+  event: string;
+  title: string;
+  message: string;
+  priority?: "low" | "medium" | "high" | "urgent";
+  metadata?: Record<string, unknown>;
+}) {
+  return createBulkNotifications({
+    organizationId: params.organizationId,
+    userIds: params.userIds,
+    type: `approval_${params.event}`,
+    title: params.title,
+    message: params.message,
+    entityType: "approval",
+    entityId: params.approvalId,
+    priority: params.priority,
+    metadata: params.metadata,
+  });
+}
+
+// Custom notification for any entity/event
+export async function notifyCustomEvent(params: {
+  organizationId: string;
+  userIds: string[];
+  type: string;
+  title: string;
+  message: string;
+  entityType?: string;
+  entityId?: string;
+  actionUrl?: string;
+  priority?: "low" | "medium" | "high" | "urgent";
+  metadata?: Record<string, unknown>;
+  referenceId?: string;
+  referenceType?: string;
+}) {
+  return createBulkNotifications({
+    organizationId: params.organizationId,
+    userIds: params.userIds,
+    type: params.type,
+    title: params.title,
+    message: params.message,
+    entityType: params.entityType,
+    entityId: params.entityId,
+    actionUrl: params.actionUrl,
+    priority: params.priority,
+    metadata: params.metadata,
+    referenceId: params.referenceId,
+    referenceType: params.referenceType,
+  });
+}

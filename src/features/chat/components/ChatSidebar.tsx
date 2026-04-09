@@ -43,6 +43,11 @@ function getMessagePreview(
   return `${prefix}${conversation.last_message.body || "Sent a message"}`;
 }
 
+function isOnline(lastSeenAt?: string | null) {
+  if (!lastSeenAt) return false;
+  return Date.now() - new Date(lastSeenAt).getTime() <= 2 * 60 * 1000;
+}
+
 export default function ChatSidebar({
   conversations,
   activeConversationId,
@@ -93,6 +98,14 @@ export default function ChatSidebar({
           <div className="space-y-2">
             {conversations.map((conversation) => {
               const isActive = conversation.id === activeConversationId;
+              const otherMember =
+                conversation.type === "direct"
+                  ? conversation.members?.find(
+                      (member) => member.user_id !== currentUserId,
+                    )
+                  : null;
+
+              const online = isOnline(otherMember?.profile?.last_seen_at);
 
               return (
                 <button
@@ -100,15 +113,23 @@ export default function ChatSidebar({
                   type="button"
                   onClick={() => onSelectConversation(conversation.id)}
                   className={[
-                    "w-full rounded-xl border px-4 py-3 text-left transition",
+                    "w-full border px-4 py-3 text-left transition",
                     isActive
                       ? "border-orange-500 bg-orange-500/10"
                       : "border-white/10 bg-white/3 hover:bg-white/6",
                   ].join(" ")}
                 >
                   <div className="flex items-start gap-3">
-                    <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/10">
+                    <div className="relative mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/10">
                       <MessageSquare size={18} className="text-orange-400" />
+                      {conversation.type === "direct" ? (
+                        <span
+                          className={[
+                            "absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-neutral-950",
+                            online ? "bg-green-400" : "bg-white/20",
+                          ].join(" ")}
+                        />
+                      ) : null}
                     </div>
 
                     <div className="min-w-0 flex-1">

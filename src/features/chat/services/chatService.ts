@@ -3,7 +3,10 @@ import type {
   ChatConversation,
   ChatMessage,
   ChatUser,
+  SendChatMessageInput,
 } from "../types/chat";
+
+const CHAT_BUCKET = "chat-attachments";
 
 export async function getConversations(
   currentUserId?: string,
@@ -133,20 +136,54 @@ export async function getMessages(
   return (data ?? []) as ChatMessage[];
 }
 
-export async function sendMessage(params: {
+export async function uploadChatAttachment(params: {
+  file: File;
   conversationId: string;
   userId: string;
-  body: string;
-}): Promise<ChatMessage | null> {
-  const message = params.body.trim();
-  if (!message) return null;
+}) {
+  const extension = params.file.name.split(".").pop() || "bin";
+  const filePath = `${params.conversationId}/${params.userId}/${Date.now()}.${extension}`;
 
-  const { error: insertError } = await supabase.from("chat_messages").insert({
+  const { error: uploadError } = await supabase.storage
+    .from(CHAT_BUCKET)
+    .upload(filePath, params.file, {
+      cacheControl: "3600",
+      upsert: false,
+    });
+
+  if (uploadError) throw uploadError;
+
+  const { data } = supabase.storage.from(CHAT_BUCKET).getPublicUrl(filePath);
+
+  return {
+    path: filePath,
+    publicUrl: data.publicUrl,
+    fileName: params.file.name,
+  };
+}
+
+export async function sendMessage(
+  params: SendChatMessageInput,
+): Promise<ChatMessage | null> {
+  const body = params.body?.trim() ?? "";
+  const messageType = params.messageType ?? "text";
+
+  if (!body && !params.attachmentUrl && messageType !== "system") {
+    return null;
+  }
+
+  const insertPayload = {
     conversation_id: params.conversationId,
     sender_id: params.userId,
-    body: message,
-    message_type: "text",
-  });
+    body: body || null,
+    message_type: messageType,
+    attachment_url: params.attachmentUrl ?? null,
+    attachment_name: params.attachmentName ?? null,
+  };
+
+  const { error: insertError } = await supabase
+    .from("chat_messages")
+    .insert(insertPayload);
 
   if (insertError) throw insertError;
 

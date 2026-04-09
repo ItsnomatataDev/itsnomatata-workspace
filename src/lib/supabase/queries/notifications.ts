@@ -21,11 +21,24 @@ export type NotificationRow = {
 
 export async function getUserNotifications(params: {
   userId: string;
+  organizationId?: string;
+  entityType?: string;
+  entityId?: string;
+  type?: string;
+  unreadOnly?: boolean;
   limit?: number;
 }) {
-  const { userId, limit = 25 } = params;
+  const {
+    userId,
+    organizationId,
+    entityType,
+    entityId,
+    type,
+    unreadOnly = false,
+    limit = 25,
+  } = params;
 
-  const { data, error } = await supabase
+  let query = supabase
     .from("notifications")
     .select(
       `
@@ -51,6 +64,13 @@ export async function getUserNotifications(params: {
     .order("created_at", { ascending: false })
     .limit(limit);
 
+  if (organizationId) query = query.eq("organization_id", organizationId);
+  if (entityType) query = query.eq("entity_type", entityType);
+  if (entityId) query = query.eq("entity_id", entityId);
+  if (type) query = query.eq("type", type);
+  if (unreadOnly) query = query.eq("is_read", false);
+
+  const { data, error } = await query;
   if (error) throw error;
   return (data ?? []) as NotificationRow[];
 }
@@ -64,4 +84,57 @@ export async function getUnreadNotificationCount(userId: string) {
 
   if (error) throw error;
   return count ?? 0;
+}
+
+// Get all notifications for an organization (admin/system view)
+export async function getOrganizationNotifications(params: {
+  organizationId: string;
+  type?: string;
+  entityType?: string;
+  entityId?: string;
+  unreadOnly?: boolean;
+  limit?: number;
+  offset?: number;
+}) {
+  const {
+    organizationId,
+    type,
+    entityType,
+    entityId,
+    unreadOnly = false,
+    limit = 50,
+    offset = 0,
+  } = params;
+
+  let query = supabase
+    .from("notifications")
+    .select("*")
+    .eq("organization_id", organizationId)
+    .order("created_at", { ascending: false })
+    .range(offset, offset + limit - 1);
+
+  if (type) query = query.eq("type", type);
+  if (entityType) query = query.eq("entity_type", entityType);
+  if (entityId) query = query.eq("entity_id", entityId);
+  if (unreadOnly) query = query.eq("is_read", false);
+
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data ?? []) as NotificationRow[];
+}
+
+// Get notification delivery summary for a user (e.g. for notification preferences)
+// Returns a summary of notification counts by type for a user
+export async function getNotificationSummaryForUser(userId: string) {
+  if (!userId) throw new Error("userId is required");
+  const { data, error } = await supabase
+    .from("notifications")
+    .select("type")
+    .eq("user_id", userId);
+  if (error) throw error;
+  const summary: Record<string, number> = {};
+  for (const row of data ?? []) {
+    summary[row.type] = (summary[row.type] ?? 0) + 1;
+  }
+  return Object.entries(summary).map(([type, count]) => ({ type, count }));
 }

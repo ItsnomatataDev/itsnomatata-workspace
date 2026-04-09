@@ -1,25 +1,30 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
+  BoardColumnWithTasks,
+  BoardTask,
+  ProjectBoardData,
   TaskCommentItem,
+  TaskInvitableUser,
   TaskItem,
-  TaskStatus,
   TaskWatcherCountItem,
   TaskWatcherItem,
 } from "../supabase/queries/tasks";
 import {
+  getProjectBoardData,
   getTaskById,
   getTaskComments,
-  getTasks,
   getTaskRuntimeInfo,
+  getTasks,
   getTaskWatcherCounts,
   getTaskWatchers,
+  getTrackedTimeByTask,
   searchTaskInvitableUsers,
-  type TaskInvitableUser,
 } from "../supabase/queries/tasks";
 import {
+  addTaskWatcher,
   createTask,
   createTaskComment,
-  addTaskWatcher,
+  moveTask,
   removeTaskWatcher,
   updateTask,
 } from "../supabase/mutations/tasks";
@@ -27,6 +32,7 @@ import {
 type UseTasksParams = {
   assignedTo?: string;
   organizationId?: string | null;
+  projectId?: string | null;
 };
 
 type TaskChecklistItem = {
@@ -47,10 +53,35 @@ type TaskChecklist = {
   items: TaskChecklistItem[];
 };
 
+function buildRuntimeMap(tasks: Array<TaskItem | BoardTask>) {
+  const runtimeMap = new Map<string, boolean>();
+
+  tasks.forEach((task) => {
+    const hasRunningTimer =
+      "has_running_timer" in task ? Boolean(task.has_running_timer) : false;
+    runtimeMap.set(task.id, hasRunningTimer);
+  });
+
+  return runtimeMap;
+}
+
+function buildInvitedMap(tasks: Array<TaskItem | BoardTask>) {
+  const invitedMap = new Map<string, number>();
+
+  tasks.forEach((task) => {
+    const watchersCount =
+      "watchers_count" in task ? Number(task.watchers_count ?? 0) : 0;
+    invitedMap.set(task.id, watchersCount);
+  });
+
+  return invitedMap;
+}
+
 export function useTasks(params: UseTasksParams) {
-  const { assignedTo, organizationId } = params;
+  const { assignedTo, organizationId, projectId } = params;
 
   const [tasks, setTasks] = useState<TaskItem[]>([]);
+  const [boardColumns, setBoardColumns] = useState<BoardColumnWithTasks[]>([]);
   const [selectedTask, setSelectedTask] = useState<TaskItem | null>(null);
 
   const [selectedTaskComments, setSelectedTaskComments] = useState<
@@ -78,6 +109,7 @@ export function useTasks(params: UseTasksParams) {
   const refetch = useCallback(async () => {
     if (!organizationId) {
       setTasks([]);
+      setBoardColumns([]);
       setSelectedTask(null);
       setSelectedTaskComments([]);
       setSelectedTaskWatchers([]);
@@ -91,13 +123,37 @@ export function useTasks(params: UseTasksParams) {
       setLoading(true);
       setError("");
 
-      const [items, runtimeInfo, watcherCounts] = await Promise.all([
-        getTasks({ assignedTo, organizationId }),
-        getTaskRuntimeInfo(organizationId),
-        getTaskWatcherCounts(organizationId),
-      ]);
+      // Trello-style real board path
+      if (projectId) {
+        const boardData: ProjectBoardData = await getProjectBoardData(
+          organizationId,
+          projectId,
+        );
 
-      setTasks(items);
+        const nextBoardColumns = boardData.columns.map((column) => ({
+          ...column,
+          tasks: [...column.tasks].sort((a, b) => a.position - b.position),
+        }));
+
+        const flatTasks = nextBoardColumns.flatMap((column) => column.tasks);
+
+        setBoardColumns(nextBoardColumns);
+        setTasks(flatTasks);
+        setTaskRuntimeMap(buildRuntimeMap(flatTasks));
+        setTaskInvitedCountMap(buildInvitedMap(flatTasks));
+
+        return flatTasks;
+      }
+
+      // Legacy fallback path
+      const [items, runtimeInfo, watcherCounts, trackedTime] = await Promise.all(
+        [
+          getTasks({ assignedTo, organizationId }),
+          getTaskRuntimeInfo(organizationId),
+          getTaskWatcherCounts(organizationId),
+          getTrackedTimeByTask(organizationId),
+        ],
+      );
 
       const runtimeMap = new Map<string, boolean>();
       runtimeInfo.forEach((item) => {
@@ -111,7 +167,21 @@ export function useTasks(params: UseTasksParams) {
       });
       setTaskInvitedCountMap(invitedMap);
 
-      return items;
+      const trackedMap = new Map<string, number>();
+      trackedTime.forEach((item) => {
+        trackedMap.set(item.task_id, item.tracked_seconds);
+      });
+
+      const enrichedTasks: TaskItem[] = items.map((task) => ({
+        ...task,
+        tracked_seconds_cache:
+          trackedMap.get(task.id) ?? Number(task.tracked_seconds_cache ?? 0),
+      }));
+
+      setTasks(enrichedTasks);
+      setBoardColumns([]);
+
+      return enrichedTasks;
     } catch (err: any) {
       console.error("LOAD TASKS ERROR:", err);
       setError(err?.message || "Failed to load tasks.");
@@ -119,7 +189,7 @@ export function useTasks(params: UseTasksParams) {
     } finally {
       setLoading(false);
     }
-  }, [assignedTo, organizationId]);
+  }, [assignedTo, organizationId, projectId]);
 
   useEffect(() => {
     void refetch();
@@ -127,42 +197,48 @@ export function useTasks(params: UseTasksParams) {
 
   const groupedTasks = useMemo(() => {
     return tasks.reduce<Record<string, TaskItem[]>>((acc, task) => {
-      const key = task.status || "todo";
+      const key = task.column_id || task.status || "todo";
       if (!acc[key]) acc[key] = [];
       acc[key].push(task);
+      acc[key].sort((a, b) => a.position - b.position);
       return acc;
     }, {});
   }, [tasks]);
 
-  const openTask = useCallback(async (taskId: string) => {
-    try {
-      setDetailsLoading(true);
-      setDetailsError("");
+  const openTask = useCallback(
+    async (taskId: string) => {
+      try {
+        setDetailsLoading(true);
+        setDetailsError("");
 
-      const [task, comments, watchers] = await Promise.all([
-        getTaskById(taskId),
-        getTaskComments(taskId),
-        getTaskWatchers(taskId),
-      ]);
+        const [task, comments, watchers] = await Promise.all([
+          getTaskById(taskId),
+          getTaskComments(taskId),
+          getTaskWatchers(taskId),
+        ]);
 
-      setSelectedTask(task ?? null);
-      setSelectedTaskComments(comments ?? []);
-      setSelectedTaskWatchers(watchers ?? []);
-      setSelectedTaskChecklists([]);
+        const liveTask = tasks.find((item) => item.id === taskId);
 
-      return task ?? null;
-    } catch (err: any) {
-      console.error("OPEN TASK ERROR:", err);
-      setDetailsError(err?.message || "Failed to open task.");
-      setSelectedTask(null);
-      setSelectedTaskComments([]);
-      setSelectedTaskWatchers([]);
-      setSelectedTaskChecklists([]);
-      return null;
-    } finally {
-      setDetailsLoading(false);
-    }
-  }, []);
+        setSelectedTask(liveTask ? { ...task, ...liveTask } : (task ?? null));
+        setSelectedTaskComments(comments ?? []);
+        setSelectedTaskWatchers(watchers ?? []);
+        setSelectedTaskChecklists([]);
+
+        return liveTask ? { ...task, ...liveTask } : (task ?? null);
+      } catch (err: any) {
+        console.error("OPEN TASK ERROR:", err);
+        setDetailsError(err?.message || "Failed to open task.");
+        setSelectedTask(null);
+        setSelectedTaskComments([]);
+        setSelectedTaskWatchers([]);
+        setSelectedTaskChecklists([]);
+        return null;
+      } finally {
+        setDetailsLoading(false);
+      }
+    },
+    [tasks],
+  );
 
   const closeTask = useCallback(() => {
     setSelectedTask(null);
@@ -189,24 +265,29 @@ export function useTasks(params: UseTasksParams) {
       comment: string;
     }) => {
       await createTaskComment({
-        task_id: params.taskId,
-        organization_id: params.organizationId,
-        user_id: params.userId,
+        taskId: params.taskId,
+        organizationId: params.organizationId,
+        userId: params.userId,
         comment: params.comment,
-        is_internal: false,
+        isInternal: false,
       });
 
       if (selectedTask?.id === params.taskId) {
         const comments = await getTaskComments(params.taskId);
         setSelectedTaskComments(comments);
       }
+
+      await refetch();
     },
-    [selectedTask?.id],
+    [refetch, selectedTask?.id],
   );
 
   const addWatcher = useCallback(
     async (taskId: string, userId: string) => {
+      if (!organizationId) return;
+
       await addTaskWatcher({
+        organizationId,
         taskId,
         userId,
       });
@@ -218,7 +299,7 @@ export function useTasks(params: UseTasksParams) {
 
       await refetch();
     },
-    [refetch, selectedTask?.id],
+    [organizationId, refetch, selectedTask?.id],
   );
 
   const removeWatcherFromTask = useCallback(
@@ -298,11 +379,46 @@ export function useTasks(params: UseTasksParams) {
     [],
   );
 
-  const moveTask = useCallback(
-    async (taskId: string, nextStatus: TaskStatus) => {
-      await updateTask(taskId, {
+  const moveTaskToColumn = useCallback(
+    async (params: {
+      taskId: string;
+      fromColumnId: string;
+      toColumnId: string;
+      fromPosition: number;
+      toPosition: number;
+    }) => {
+      if (!organizationId) return null;
+
+      await moveTask({
+        taskId: params.taskId,
+        organizationId,
+        fromColumnId: params.fromColumnId,
+        toColumnId: params.toColumnId,
+        fromPosition: params.fromPosition,
+        toPosition: params.toPosition,
+      });
+
+      const refreshedItems = await refetch();
+      const updatedTask =
+        refreshedItems.find((task) => task.id === params.taskId) ?? null;
+
+      setSelectedTask((prev) =>
+        prev?.id === params.taskId ? updatedTask : prev,
+      );
+
+      return updatedTask;
+    },
+    [organizationId, refetch],
+  );
+
+  const moveTaskByStatus = useCallback(
+    async (taskId: string, nextStatus: TaskItem["status"]) => {
+      if (!organizationId) return null;
+
+      await updateTask({
+        taskId,
+        organizationId,
         status: nextStatus,
-        completed_at: nextStatus === "done" ? new Date().toISOString() : null,
       });
 
       const refreshedItems = await refetch();
@@ -312,11 +428,12 @@ export function useTasks(params: UseTasksParams) {
       setSelectedTask((prev) => (prev?.id === taskId ? updatedTask : prev));
       return updatedTask;
     },
-    [refetch],
+    [organizationId, refetch],
   );
 
   return {
     tasks,
+    boardColumns,
     groupedTasks,
     taskRuntimeMap,
     taskInvitedCountMap,
@@ -349,7 +466,8 @@ export function useTasks(params: UseTasksParams) {
     toggleChecklistItem,
     removeChecklistItem,
 
-    moveTask,
+    moveTask: moveTaskByStatus,
+    moveTaskToColumn,
     setSelectedTask,
   };
 }
