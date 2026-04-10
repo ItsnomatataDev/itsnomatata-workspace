@@ -15,6 +15,7 @@ import { supabase } from "../../../lib/supabase/client";
 import AssetTable from "../components/AssetTable";
 import AssetForm from "../components/AssetForm";
 import { fetchActiveAssetAssignment } from "../services/stockService";
+import { exportAssetsToExcel } from "../services/assetExportService";
 
 interface LookupOption {
   id: string;
@@ -171,8 +172,8 @@ function AssignAssetModal({
         <div className="mb-5">
           <h2 className="text-xl font-semibold text-white">Assign Asset</h2>
           <p className="mt-2 text-sm text-zinc-400">
-            Assign <span className="text-white">{asset.asset_name}</span> using
-            a registered user name instead of raw IDs.
+            Assign <span className="text-white">{asset.asset_name}</span> to a
+            registered user.
           </p>
         </div>
 
@@ -241,7 +242,7 @@ function ReturnAssetModal({
           <h2 className="text-xl font-semibold text-white">Return Asset</h2>
           <p className="mt-2 text-sm text-zinc-400">
             Return <span className="text-white">{asset.asset_name}</span> from
-            the currently assigned user.
+            the current assignee.
           </p>
         </div>
 
@@ -537,6 +538,14 @@ export default function AssetsPage() {
                   className="border border-white/10 px-4 py-3 text-sm text-zinc-200 hover:border-white/20 hover:text-white"
                 >
                   Refresh
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => exportAssetsToExcel(assetRows)}
+                  className="border border-white/10 px-4 py-3 text-sm text-zinc-200 hover:border-white/20 hover:text-white"
+                >
+                  Export All Assets
                 </button>
 
                 <button
