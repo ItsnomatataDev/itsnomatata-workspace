@@ -1,6 +1,21 @@
-import { useEffect, useRef } from "react";
-import QRCode from "react-qr-code";
+import { useEffect, useRef, type ComponentType } from "react";
+import ReactQRCode from "react-qr-code";
 import JsBarcode from "jsbarcode";
+
+type QRCodeProps = {
+  value: string;
+  size?: number;
+  bgColor?: string;
+  fgColor?: string;
+  level?: "L" | "M" | "Q" | "H";
+};
+
+const qrCodeModule = ReactQRCode as unknown as {
+  QRCode?: ComponentType<QRCodeProps>;
+  default?: ComponentType<QRCodeProps>;
+};
+
+const QRCodeComponent = qrCodeModule.QRCode ?? qrCodeModule.default;
 
 export default function AssetCodeBlock({
   assetTag,
@@ -17,11 +32,11 @@ export default function AssetCodeBlock({
     try {
       JsBarcode(barcodeRef.current, assetTag, {
         format: "CODE128",
-        lineColor: "#ffffff",
+        lineColor: "#000000",
         width: 2,
         height: 60,
         displayValue: true,
-        background: "transparent",
+        background: "#ffffff",
       });
     } catch (error) {
       console.error("Failed to generate barcode:", error);
@@ -35,7 +50,11 @@ export default function AssetCodeBlock({
       <div className="border border-white/10 bg-black p-4">
         <p className="mb-3 text-sm text-zinc-400">QR Code</p>
         <div className="inline-block bg-white p-3">
-          <QRCode value={qrValue} size={140} />
+          {QRCodeComponent ? (
+            <QRCodeComponent value={qrValue} size={140} />
+          ) : (
+            <p className="text-sm text-black">QR code unavailable</p>
+          )}
         </div>
       </div>
 
