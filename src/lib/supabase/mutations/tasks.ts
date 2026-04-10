@@ -132,9 +132,7 @@ export async function createCardInviteNotification(params: {
     is_read: false,
   });
 
-  if (error) {
-    throw error;
-  }
+  if (error) throw error;
 }
 
 

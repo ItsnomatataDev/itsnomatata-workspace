@@ -16,6 +16,9 @@ type CreateLeaveRequestModalProps = {
   organizationId: string;
   userId: string;
   leaveTypes: LeaveTypeRow[];
+  officeOptions?: string[];
+  defaultOffice?: string;
+  requesterRole?: string | null;
   onCreated: () => Promise<void> | void;
 };
 
@@ -25,8 +28,20 @@ export default function CreateLeaveRequestModal({
   organizationId,
   userId,
   leaveTypes,
+  officeOptions = [],
+  defaultOffice = "",
+  requesterRole = null,
   onCreated,
 }: CreateLeaveRequestModalProps) {
+  const resolvedOfficeOptions = Array.from(
+    new Set(
+      [...officeOptions, defaultOffice]
+        .map((value) => value.trim())
+        .filter(Boolean),
+    ),
+  );
+
+  const [requestOffice, setRequestOffice] = useState(defaultOffice.trim());
   const [leaveTypeId, setLeaveTypeId] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -43,7 +58,11 @@ export default function CreateLeaveRequestModal({
     })[]
   >([]);
 
+  const hasAvailabilityConflict =
+    blockedRules.length > 0 || overlappingLeaves.length > 0;
+
   const resetForm = () => {
+    setRequestOffice(defaultOffice.trim());
     setLeaveTypeId("");
     setStartDate("");
     setEndDate("");
@@ -55,10 +74,21 @@ export default function CreateLeaveRequestModal({
   };
 
   useEffect(() => {
+    if (!open) return;
+    setRequestOffice(defaultOffice.trim());
+  }, [open, defaultOffice]);
+
+  useEffect(() => {
     let active = true;
 
     const runAvailabilityCheck = async () => {
-      if (!open || !startDate || !endDate || endDate < startDate) {
+      if (
+        !open ||
+        !requestOffice ||
+        !startDate ||
+        !endDate ||
+        endDate < startDate
+      ) {
         if (active) {
           setBlockedRules([]);
           setOverlappingLeaves([]);
@@ -74,6 +104,8 @@ export default function CreateLeaveRequestModal({
           organizationId,
           startDate,
           endDate,
+          requestDepartment: requestOffice,
+          requestRole: requesterRole,
         });
 
         if (!active) return;
@@ -97,7 +129,7 @@ export default function CreateLeaveRequestModal({
     return () => {
       active = false;
     };
-  }, [open, organizationId, startDate, endDate]);
+  }, [open, organizationId, requestOffice, requesterRole, startDate, endDate]);
 
   if (!open) return null;
 
@@ -105,6 +137,11 @@ export default function CreateLeaveRequestModal({
     e.preventDefault();
     setError("");
     setSuccessMessage("");
+
+    if (!requestOffice) {
+      setError("Please choose the office for this leave request.");
+      return;
+    }
 
     if (!startDate || !endDate) {
       setError("Please provide both start and end dates.");
@@ -125,6 +162,19 @@ export default function CreateLeaveRequestModal({
       return;
     }
 
+    if (overlappingLeaves.length > 0) {
+      const firstOverlap = overlappingLeaves[0];
+      const overlapName =
+        firstOverlap?.requester_name ||
+        firstOverlap?.requester_email ||
+        "another employee";
+
+      setError(
+        `You cannot submit leave for ${requestOffice} because ${overlapName} is already on approved leave in that office for the selected period.`,
+      );
+      return;
+    }
+
     try {
       setBusy(true);
 
@@ -135,6 +185,8 @@ export default function CreateLeaveRequestModal({
         startDate,
         endDate,
         reason,
+        requestDepartment: requestOffice,
+        requestRole: requesterRole,
       });
 
       setSuccessMessage("Leave request submitted successfully.");
@@ -187,6 +239,23 @@ export default function CreateLeaveRequestModal({
         ) : null}
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="mb-2 block text-sm text-white/70">Office</label>
+            <select
+              value={requestOffice}
+              onChange={(e) => setRequestOffice(e.target.value)}
+              required
+              className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 text-white outline-none focus:border-orange-500"
+            >
+              <option value="">Select office</option>
+              {resolvedOfficeOptions.map((office) => (
+                <option key={office} value={office}>
+                  {office}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <div>
             <label className="mb-2 block text-sm text-white/70">
               Leave Type
@@ -270,7 +339,8 @@ export default function CreateLeaveRequestModal({
           {overlappingLeaves.length > 0 ? (
             <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4">
               <p className="font-semibold text-amber-300">
-                Other employees are already on leave in this period
+                Leave submission is disabled because someone is already on leave
+                in this period
               </p>
               <div className="mt-3 space-y-2">
                 {overlappingLeaves.map((leave) => (
@@ -285,6 +355,10 @@ export default function CreateLeaveRequestModal({
                     </p>
                     <p className="mt-1 text-xs text-white/60">
                       {leave.start_date} → {leave.end_date}
+                    </p>
+                    <p className="mt-1 text-xs text-white/45">
+                      Office:{" "}
+                      {leave.requester_department || requestOffice || "—"}
                     </p>
                   </div>
                 ))}
@@ -305,10 +379,23 @@ export default function CreateLeaveRequestModal({
 
           <button
             type="submit"
-            disabled={busy || blockedRules.length > 0}
-            className="w-full rounded-2xl bg-orange-500 px-4 py-3 font-semibold text-black transition hover:bg-orange-400 disabled:opacity-60"
+            disabled={
+              busy ||
+              checkingAvailability ||
+              hasAvailabilityConflict ||
+              !requestOffice
+            }
+            className="w-full rounded-2xl bg-orange-500 px-4 py-3 font-semibold text-black transition hover:bg-orange-400 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {busy ? "Submitting..." : "Submit Leave Request"}
+            {busy
+              ? "Submitting..."
+              : checkingAvailability
+                ? "Checking availability..."
+                : !requestOffice
+                  ? "Choose office first"
+                  : hasAvailabilityConflict
+                    ? "Leave unavailable for selected dates"
+                    : "Submit Leave Request"}
           </button>
         </form>
       </div>

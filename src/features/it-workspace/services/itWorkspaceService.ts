@@ -153,7 +153,9 @@ async function getProfilesByIds(userIds: string[]) {
   return data ?? [];
 }
 
-export async function getITDashboardStats(organizationId: string) {
+export async function getITDashboardStats(
+  organizationId: string,
+): Promise<ITDashboardStats> {
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
   const [projectsRes, issuesRes, automationRes, invitesRes, failedRunsRes] =
@@ -161,8 +163,7 @@ export async function getITDashboardStats(organizationId: string) {
       supabase
         .from("projects")
         .select("id", { head: true, count: "exact" })
-        .eq("organization_id", organizationId)
-        .neq("status", "archived"),
+        .eq("organization_id", organizationId),
 
       supabase
         .from("issues")
@@ -198,27 +199,28 @@ export async function getITDashboardStats(organizationId: string) {
     failedRunsRes.error,
   ].filter(Boolean);
 
-  if (errors.length > 0) throw errors[0];
+  if (errors.length > 0) {
+    console.error("getITDashboardStats error details:", errors);
+    throw errors[0];
+  }
 
   const failedRuns = failedRunsRes.count ?? 0;
   const systemHealthLabel =
     failedRuns === 0 ? "Healthy" : failedRuns < 3 ? "Warning" : "Critical";
 
-  const stats: ITDashboardStats = {
+  return {
     activeProjects: projectsRes.count ?? 0,
     openIssues: issuesRes.count ?? 0,
     automationCount: automationRes.count ?? 0,
     pendingInvites: invitesRes.count ?? 0,
     systemHealthLabel,
   };
-
-  return stats;
 }
 
 export async function getITProjectsForDashboard(
   organizationId: string,
   userId: string,
-) {
+): Promise<ITProjectDashboardItem[]> {
   const { data: membershipRows, error: membershipError } = await supabase
     .from("project_members")
     .select("project_id")
@@ -231,7 +233,7 @@ export async function getITProjectsForDashboard(
   ];
 
   if (projectIds.length === 0) {
-    return [] as ITProjectDashboardItem[];
+    return [];
   }
 
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
@@ -279,7 +281,10 @@ export async function getITProjectsForDashboard(
     failedRunsRes.error,
   ].filter(Boolean);
 
-  if (errors.length > 0) throw errors[0];
+  if (errors.length > 0) {
+    console.error("getITProjectsForDashboard error details:", errors);
+    throw errors[0];
+  }
 
   const memberCounts = new Map<string, number>();
   (allMembersRes.data ?? []).forEach((row) => {
@@ -291,6 +296,7 @@ export async function getITProjectsForDashboard(
 
   const openTaskCounts = new Map<string, number>();
   const blockedTaskCounts = new Map<string, number>();
+
   (tasksRes.data ?? []).forEach((row) => {
     if (!row.project_id) return;
 
@@ -328,44 +334,43 @@ export async function getITProjectsForDashboard(
     );
   });
 
-  const items: ITProjectDashboardItem[] = (projectsRes.data ?? []).map(
-    (project) => {
-      const openTasks = openTaskCounts.get(project.id) ?? 0;
-      const blockedTasks = blockedTaskCounts.get(project.id) ?? 0;
-      const openIssues = issueCounts.get(project.id) ?? 0;
-      const failedRuns24h = failedRunCounts.get(project.id) ?? 0;
+  return (projectsRes.data ?? []).map((project) => {
+    const openTasks = openTaskCounts.get(project.id) ?? 0;
+    const blockedTasks = blockedTaskCounts.get(project.id) ?? 0;
+    const openIssues = issueCounts.get(project.id) ?? 0;
+    const failedRuns24h = failedRunCounts.get(project.id) ?? 0;
 
-      const computed = computeHealth({
-        openTasks,
-        blockedTasks,
-        openIssues,
-        failedRuns24h,
-        dueDate: project.due_date,
-      });
+    const computed = computeHealth({
+      openTasks,
+      blockedTasks,
+      openIssues,
+      failedRuns24h,
+      dueDate: project.due_date,
+    });
 
-      return {
-        id: project.id,
-        name: project.name,
-        description: project.description,
-        status: project.status,
-        priority: project.priority,
-        due_date: project.due_date,
-        membersCount: memberCounts.get(project.id) ?? 0,
-        openTasksCount: openTasks,
-        blockedTasksCount: blockedTasks,
-        openIssuesCount: openIssues,
-        failedRuns24h,
-        healthScore: computed.score,
-        healthStatus: computed.healthStatus,
-        riskLevel: computed.riskLevel,
-      };
-    },
-  );
-
-  return items;
+    return {
+      id: project.id,
+      name: project.name,
+      description: project.description,
+      status: project.status,
+      priority: project.priority,
+      due_date: project.due_date,
+      membersCount: memberCounts.get(project.id) ?? 0,
+      openTasksCount: openTasks,
+      blockedTasksCount: blockedTasks,
+      openIssuesCount: openIssues,
+      failedRuns24h,
+      healthScore: computed.score,
+      healthStatus: computed.healthStatus,
+      riskLevel: computed.riskLevel,
+    };
+  });
 }
 
-export async function getRecentITActivity(organizationId: string, limit = 8) {
+export async function getRecentITActivity(
+  organizationId: string,
+  limit = 8,
+): Promise<ITRecentActivityItem[]> {
   const { data: projects, error: projectsError } = await supabase
     .from("projects")
     .select("id")
@@ -375,7 +380,7 @@ export async function getRecentITActivity(organizationId: string, limit = 8) {
 
   const projectIds = (projects ?? []).map((row) => row.id);
 
-  if (projectIds.length === 0) return [] as ITRecentActivityItem[];
+  if (projectIds.length === 0) return [];
 
   const { data: activityRows, error: activityError } = await supabase
     .from("project_activity")
@@ -397,7 +402,7 @@ export async function getRecentITActivity(organizationId: string, limit = 8) {
   const profiles = await getProfilesByIds(userIds);
   const profileMap = new Map(profiles.map((item) => [item.id, item]));
 
-  const items: ITRecentActivityItem[] = (activityRows ?? []).map((item) => {
+  return (activityRows ?? []).map((item) => {
     const actor = item.user_id ? profileMap.get(item.user_id) : null;
 
     return {
@@ -409,8 +414,6 @@ export async function getRecentITActivity(organizationId: string, limit = 8) {
       details: (item.details as Record<string, any> | null) ?? null,
     };
   });
-
-  return items;
 }
 
 export async function getProjectActivity(
@@ -636,7 +639,7 @@ export async function createITProject(input: CreateProjectInput) {
 
   if (memberError) throw memberError;
 
-  await supabase.from("project_activity").insert({
+  const { error: activityError } = await supabase.from("project_activity").insert({
     project_id: createdProject.id,
     user_id: createdBy,
     action: "Project created",
@@ -646,6 +649,8 @@ export async function createITProject(input: CreateProjectInput) {
       priority: createdProject.priority,
     },
   });
+
+  if (activityError) throw activityError;
 
   return createdProject;
 }
@@ -701,7 +706,7 @@ export async function inviteProjectMember(input: InviteProjectMemberInput) {
     if (memberError) throw memberError;
   }
 
-  await supabase.from("project_activity").insert({
+  const { error: activityError } = await supabase.from("project_activity").insert({
     project_id: projectId,
     user_id: invitedBy,
     action: "Project member invited",
@@ -710,6 +715,8 @@ export async function inviteProjectMember(input: InviteProjectMemberInput) {
       role,
     },
   });
+
+  if (activityError) throw activityError;
 
   return true;
 }

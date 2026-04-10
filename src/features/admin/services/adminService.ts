@@ -24,6 +24,7 @@ export type LeaveRequestRow = {
   created_at: string;
   requester_name?: string | null;
   requester_email?: string | null;
+  requester_department?: string | null;
 };
 
 export type LeaveTypeRow = {
@@ -252,7 +253,7 @@ export async function getLeaveRequests(organizationId: string) {
 
   const { data: profilesData, error: profilesError } = await supabase
     .from("profiles")
-    .select("id, full_name, email")
+    .select("id, full_name, email, department")
     .in("id", userIds);
 
   if (profilesError) throw profilesError;
@@ -268,6 +269,7 @@ export async function getLeaveRequests(organizationId: string) {
       ...request,
       requester_name: requester?.full_name ?? null,
       requester_email: requester?.email ?? null,
+      requester_department: requester?.department ?? null,
     };
   });
 }
@@ -296,7 +298,7 @@ export async function getRecentLeaveRequests(
 
   const { data: profilesData, error: profilesError } = await supabase
     .from("profiles")
-    .select("id, full_name, email")
+    .select("id, full_name, email, department")
     .in("id", userIds);
 
   if (profilesError) throw profilesError;
@@ -312,6 +314,7 @@ export async function getRecentLeaveRequests(
       ...request,
       requester_name: requester?.full_name ?? null,
       requester_email: requester?.email ?? null,
+      requester_department: requester?.department ?? null,
     };
   });
 }
@@ -342,8 +345,9 @@ export async function updateLeaveRequestStatus(params: {
       status: params.status,
       approved_by: params.approvedBy,
       approved_at: approvedAt,
-      rejection_reason:
-        params.status === "rejected" ? (params.rejectionReason ?? "") : null,
+      rejection_reason: params.status === "rejected"
+        ? (params.rejectionReason ?? "")
+        : null,
     })
     .eq("id", params.leaveRequestId)
     .eq("organization_id", params.organizationId)
@@ -368,37 +372,35 @@ export async function updateLeaveRequestStatus(params: {
         .maybeSingle(),
       request.leave_type_id
         ? supabase
-            .from("leave_types")
-            .select("name")
-            .eq("id", request.leave_type_id)
-            .maybeSingle()
+          .from("leave_types")
+          .select("name")
+          .eq("id", request.leave_type_id)
+          .maybeSingle()
         : Promise.resolve({ data: null }),
     ]);
 
-    const approverLabel =
-      approver?.full_name?.trim() ||
+    const approverLabel = approver?.full_name?.trim() ||
       approver?.email?.trim() ||
       "An administrator";
 
     const leaveTypeName = leaveType?.name || "General Leave";
 
-    const notificationTitle =
-      params.status === "approved"
-        ? "Leave Request Approved"
-        : "Leave Request Rejected";
+    const notificationTitle = params.status === "approved"
+      ? "Leave Request Approved"
+      : "Leave Request Rejected";
 
-    const notificationMessage =
-      params.status === "approved"
-        ? `${leaveTypeName} from ${request.start_date} to ${request.end_date} was approved by ${approverLabel}.`
-        : `${leaveTypeName} from ${request.start_date} to ${request.end_date} was rejected by ${approverLabel}.${params.rejectionReason ? ` Reason: ${params.rejectionReason}` : ""}`;
+    const notificationMessage = params.status === "approved"
+      ? `${leaveTypeName} from ${request.start_date} to ${request.end_date} was approved by ${approverLabel}.`
+      : `${leaveTypeName} from ${request.start_date} to ${request.end_date} was rejected by ${approverLabel}.${
+        params.rejectionReason ? ` Reason: ${params.rejectionReason}` : ""
+      }`;
 
     await supabase.from("notifications").insert({
       organization_id: params.organizationId,
       user_id: request.user_id,
-      type:
-        params.status === "approved"
-          ? "leave_request_approved"
-          : "leave_request_rejected",
+      type: params.status === "approved"
+        ? "leave_request_approved"
+        : "leave_request_rejected",
       title: notificationTitle,
       message: notificationMessage,
       reference_id: request.id,

@@ -31,6 +31,7 @@ export type LeaveCalendarEventRow = {
   requester_name?: string | null;
   requester_email?: string | null;
   requester_role?: string | null;
+  requester_department?: string | null;
 };
 
 export async function getLeaveCalendarRules(organizationId: string) {
@@ -92,15 +93,18 @@ export async function updateLeaveCalendarRule(params: {
   const payload: Record<string, unknown> = {};
 
   if (params.title !== undefined) payload.title = params.title;
-  if (params.description !== undefined)
+  if (params.description !== undefined) {
     payload.description = params.description;
+  }
   if (params.startDate !== undefined) payload.start_date = params.startDate;
   if (params.endDate !== undefined) payload.end_date = params.endDate;
   if (params.ruleType !== undefined) payload.rule_type = params.ruleType;
-  if (params.appliesToRole !== undefined)
+  if (params.appliesToRole !== undefined) {
     payload.applies_to_role = params.appliesToRole;
-  if (params.appliesToDepartment !== undefined)
+  }
+  if (params.appliesToDepartment !== undefined) {
     payload.applies_to_department = params.appliesToDepartment;
+  }
 
   const { data, error } = await supabase
     .from("leave_calendar_rules")
@@ -143,7 +147,7 @@ export async function getApprovedLeaveCalendarEvents(organizationId: string) {
 
   const { data: profiles, error: profilesError } = await supabase
     .from("profiles")
-    .select("id, full_name, email, primary_role")
+    .select("id, full_name, email, primary_role, department")
     .in("id", userIds);
 
   if (profilesError) throw profilesError;
@@ -160,6 +164,7 @@ export async function getApprovedLeaveCalendarEvents(organizationId: string) {
       requester_name: profile?.full_name ?? null,
       requester_email: profile?.email ?? null,
       requester_role: profile?.primary_role ?? null,
+      requester_department: profile?.department ?? null,
     };
   });
 }
@@ -192,6 +197,8 @@ export async function checkLeaveAvailability(params: {
   organizationId: string;
   startDate: string;
   endDate: string;
+  requestDepartment?: string | null;
+  requestRole?: string | null;
 }) {
   const [rulesRes, overlapRes] = await Promise.all([
     supabase
@@ -217,18 +224,41 @@ export async function checkLeaveAvailability(params: {
   if (rulesRes.error) throw rulesRes.error;
   if (overlapRes.error) throw overlapRes.error;
 
+  const normalizedDepartment = params.requestDepartment?.trim().toLowerCase() ||
+    null;
+  const normalizedRole = params.requestRole?.trim().toLowerCase() || null;
+
+  const rawRules = (rulesRes.data ?? []) as LeaveCalendarRuleRow[];
+  const blockedRules = rawRules.filter((rule) => {
+    const ruleDepartment = rule.applies_to_department?.trim().toLowerCase() ||
+      null;
+    const ruleRole = rule.applies_to_role?.trim().toLowerCase() || null;
+
+    const matchesDepartment = !ruleDepartment || !normalizedDepartment ||
+      ruleDepartment === normalizedDepartment;
+    const matchesRole = !ruleRole || !normalizedRole ||
+      ruleRole === normalizedRole;
+
+    return matchesDepartment && matchesRole;
+  });
+
   const overlaps = (overlapRes.data ?? []) as LeaveCalendarEventRow[];
   const userIds = [...new Set(overlaps.map((item) => item.user_id))];
 
   let profilesMap = new Map<
     string,
-    { full_name?: string | null; email?: string | null }
+    {
+      full_name?: string | null;
+      email?: string | null;
+      primary_role?: string | null;
+      department?: string | null;
+    }
   >();
 
   if (userIds.length > 0) {
     const { data: profiles, error: profilesError } = await supabase
       .from("profiles")
-      .select("id, full_name, email")
+      .select("id, full_name, email, primary_role, department")
       .in("id", userIds);
 
     if (profilesError) throw profilesError;
@@ -236,17 +266,35 @@ export async function checkLeaveAvailability(params: {
     profilesMap = new Map(
       (profiles ?? []).map((profile) => [
         profile.id,
-        { full_name: profile.full_name, email: profile.email },
+        {
+          full_name: profile.full_name,
+          email: profile.email,
+          primary_role: profile.primary_role,
+          department: profile.department,
+        },
       ]),
     );
   }
 
-  return {
-    blockedRules: (rulesRes.data ?? []) as LeaveCalendarRuleRow[],
-    overlappingApprovedLeaves: overlaps.map((item) => ({
+  const overlappingApprovedLeaves = overlaps
+    .map((item) => ({
       ...item,
       requester_name: profilesMap.get(item.user_id)?.full_name ?? null,
       requester_email: profilesMap.get(item.user_id)?.email ?? null,
-    })),
+      requester_role: profilesMap.get(item.user_id)?.primary_role ?? null,
+      requester_department: profilesMap.get(item.user_id)?.department ?? null,
+    }))
+    .filter((item) => {
+      if (!normalizedDepartment) {
+        return true;
+      }
+
+      return (item.requester_department?.trim().toLowerCase() || null) ===
+        normalizedDepartment;
+    });
+
+  return {
+    blockedRules,
+    overlappingApprovedLeaves,
   };
 }

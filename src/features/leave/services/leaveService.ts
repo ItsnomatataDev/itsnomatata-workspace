@@ -61,11 +61,15 @@ export async function createLeaveRequest(params: {
   startDate: string;
   endDate: string;
   reason?: string;
+  requestDepartment?: string | null;
+  requestRole?: string | null;
 }) {
   const availability = await checkLeaveAvailability({
     organizationId: params.organizationId,
     startDate: params.startDate,
     endDate: params.endDate,
+    requestDepartment: params.requestDepartment,
+    requestRole: params.requestRole,
   });
 
   if (availability.blockedRules.length > 0) {
@@ -75,6 +79,18 @@ export async function createLeaveRequest(params: {
       firstBlockedRule.title
         ? `Leave requests are closed for this period: ${firstBlockedRule.title}.`
         : "Leave requests are closed for the selected period.",
+    );
+  }
+
+  if (availability.overlappingApprovedLeaves.length > 0) {
+    const firstOverlap = availability.overlappingApprovedLeaves[0];
+    const overlapName = firstOverlap?.requester_name ||
+      firstOverlap?.requester_email ||
+      "another employee";
+    const officeLabel = params.requestDepartment || "the selected office";
+
+    throw new Error(
+      `Leave cannot be requested for ${officeLabel} because ${overlapName} is already on approved leave for that period.`,
     );
   }
 
@@ -115,10 +131,10 @@ export async function createLeaveRequest(params: {
       .maybeSingle(),
     params.leaveTypeId
       ? supabase
-          .from("leave_types")
-          .select("name")
-          .eq("id", params.leaveTypeId)
-          .maybeSingle()
+        .from("leave_types")
+        .select("name")
+        .eq("id", params.leaveTypeId)
+        .maybeSingle()
       : Promise.resolve({ data: null, error: null }),
   ]);
 
@@ -155,13 +171,15 @@ export async function createLeaveRequest(params: {
   const requesterName = requester?.full_name?.trim() || "Unknown user";
   const requesterEmail = requester?.email?.trim() || "No email";
   const leaveTypeName = leaveType?.name || "General Leave";
+  const officeLabel = params.requestDepartment?.trim() || "Unspecified office";
 
   await sendBulkNotifications({
     organizationId: params.organizationId,
     userIds: admins.map((admin) => admin.id),
     type: "leave_request_submitted",
     title: "New Leave Request Submitted",
-    message: `${requesterName} (${requesterEmail}) requested ${leaveTypeName} from ${params.startDate} to ${params.endDate}.`,
+    message:
+      `${requesterName} (${requesterEmail}) requested ${leaveTypeName} for ${officeLabel} from ${params.startDate} to ${params.endDate}.`,
     entityType: "leave_request",
     entityId: leaveRequest.id,
     referenceId: leaveRequest.id,
@@ -173,6 +191,7 @@ export async function createLeaveRequest(params: {
       requesterName,
       requesterEmail,
       leaveTypeName,
+      office: officeLabel,
       startDate: params.startDate,
       endDate: params.endDate,
     },

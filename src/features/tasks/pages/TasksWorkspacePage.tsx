@@ -425,35 +425,35 @@ export default function TasksWorkspacePage({
     }
   };
 
- const handleInviteUser = async (taskId: string, invitedUserId: string) => {
-   try {
-     const currentTask =
-       tasks.find((item) => item.id === taskId) ?? selectedTask;
+const handleInviteUser = async (taskId: string, invitedUserId: string) => {
+  try {
+    const currentTask =
+      tasks.find((item) => item.id === taskId) ?? selectedTask;
 
-     await addWatcher(taskId, invitedUserId);
+    await addWatcher(taskId, invitedUserId);
 
-     if (organizationId && currentTask) {
-       try {
-         await createCardInviteNotification({
-           organizationId,
-           userId: invitedUserId,
-           taskId,
-           invitedBy: user.id,
-           taskTitle: currentTask.title,
-         });
-       } catch (notificationError) {
-         console.error("INVITE NOTIFICATION ERROR:", notificationError);
-       }
-     }
+    if (organizationId && currentTask) {
+      try {
+        await createCardInviteNotification({
+          organizationId,
+          userId: invitedUserId,
+          taskId,
+          invitedBy: user.id,
+          taskTitle: currentTask.title,
+        });
+      } catch (notificationError) {
+        console.error("INVITE NOTIFICATION ERROR:", notificationError);
+      }
+    }
 
-     await openTask(taskId);
-     await handleLoadTaskSubmissions(taskId);
-     alert("User invited to card");
-   } catch (err) {
-     console.error("INVITE USER ERROR:", err);
-     alert(err instanceof Error ? err.message : "Failed to invite user");
-   }
- };
+    await openTask(taskId);
+    await handleLoadTaskSubmissions(taskId);
+    alert("User invited to card");
+  } catch (err) {
+    console.error("INVITE USER ERROR:", err);
+    alert(err instanceof Error ? err.message : "Failed to invite user");
+  }
+};
 
   const handleRemoveInvitedUser = async (
     taskId: string,

@@ -86,7 +86,6 @@ export async function getUnreadNotificationCount(userId: string) {
   return count ?? 0;
 }
 
-// Get all notifications for an organization (admin/system view)
 export async function getOrganizationNotifications(params: {
   organizationId: string;
   type?: string;
@@ -123,8 +122,7 @@ export async function getOrganizationNotifications(params: {
   return (data ?? []) as NotificationRow[];
 }
 
-// Get notification delivery summary for a user (e.g. for notification preferences)
-// Returns a summary of notification counts by type for a user
+
 export async function getNotificationSummaryForUser(userId: string) {
   if (!userId) throw new Error("userId is required");
   const { data, error } = await supabase

@@ -65,7 +65,7 @@ export default function LeaveRuleList({
 
                     {rule.applies_to_department ? (
                       <span className="rounded-full border border-white/10 bg-black/30 px-3 py-1 text-white/60">
-                        Department: {rule.applies_to_department}
+                        Office: {rule.applies_to_department}
                       </span>
                     ) : null}
                   </div>

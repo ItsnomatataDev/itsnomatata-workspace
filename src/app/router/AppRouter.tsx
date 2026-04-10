@@ -30,6 +30,10 @@ import NotificationsPage from "../../features/notifications/pages/NotificationsP
 import ChatPage from "../../features/chat/pages/ChatPage";
 import MeetingsPage from "../../features/meetings/pages/MeetingsPage";
 import MeetingRoomPage from "../../features/meetings/pages/MeetingRoomPage";
+import TimeApprovalPage from "../../features/timesheets/pages/TimeApprovalPage";
+import AssetsPage from "../../features/stock/pages/AssetsPage";
+import AssetDetailsPage from "../../features/stock/pages/AssetDetailsPage";
+import ScanAssetPage from "../../features/stock/pages/ScanAssetPage";
 // import AiAssistantPage from "../../features/ai-workspace/pages/AIWorkspacePage";
 // import AIWorkspacePage from "../../features/ai-workspace/pages/AIWorkspacePage"
 const AppRouter = () => {
@@ -87,7 +91,16 @@ const AppRouter = () => {
             </ProtectedRoute>
           }
         />
-
+        <Route
+          path="/time-approval"
+          element={
+            <ProtectedRoute>
+              <RoleRoute roles={["admin", "manager"]}>
+                <TimeApprovalPage />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
         <Route
           path="/tasks"
           element={
@@ -96,7 +109,14 @@ const AppRouter = () => {
             </ProtectedRoute>
           }
         />
-
+        <Route
+          path="/assets"
+          element={
+            <ProtectedRoute>
+              <AssetsPage />
+            </ProtectedRoute>
+          }
+        />
         <Route
           path="/time"
           element={
@@ -139,6 +159,22 @@ const AppRouter = () => {
               <RoleRoute roles={["it"]}>
                 <AutomationFlowsPage />
               </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/assets/:assetId"
+          element={
+            <ProtectedRoute>
+              <AssetDetailsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/scan"
+          element={
+            <ProtectedRoute>
+              <ScanAssetPage />
             </ProtectedRoute>
           }
         />

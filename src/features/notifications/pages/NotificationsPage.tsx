@@ -1,11 +1,12 @@
 import Sidebar from "../../../components/dashboard/components/Siderbar";
 import { useAuth } from "../../../app/providers/AuthProvider";
-import { useNotificationContext } from "../../../app/providers/NotificationProvider";
 import NotificationList from "../components/NotificationList";
+import { useNotifications } from "../../../lib/hooks/useNotifications";
 
 export default function NotificationsPage() {
   const auth = useAuth();
   const profile = auth?.profile ?? null;
+  const userId = auth?.user?.id ?? null;
 
   const {
     notifications,
@@ -14,7 +15,7 @@ export default function NotificationsPage() {
     error,
     markOneAsRead,
     markEverythingAsRead,
-  } = useNotificationContext();
+  } = useNotifications(userId);
 
   if (!auth?.user || !profile) return null;
 

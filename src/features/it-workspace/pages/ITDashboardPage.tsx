@@ -76,30 +76,35 @@ export default function ITDashboardPage() {
     enabled: !!organizationId && !!userId,
   });
 
-  const loadDashboard = useCallback(async () => {
-    if (!organizationId || !userId) return;
+ const loadDashboard = useCallback(async () => {
+   if (!organizationId || !userId) return;
 
-    try {
-      setPageLoading(true);
-      setPageError("");
+   try {
+     setPageLoading(true);
+     setPageError("");
 
-      const [statsData, projectData, activityData] = await Promise.all([
-        getITDashboardStats(organizationId),
-        getITProjectsForDashboard(organizationId, userId),
-        getRecentITActivity(organizationId, 8),
-      ]);
+     const statsResult = await getITDashboardStats(organizationId);
+     console.log("statsResult", statsResult);
 
-      setStats(statsData);
-      setProjects(projectData);
-      setActivity(activityData);
-    } catch (err: any) {
-      console.error("IT DASHBOARD LOAD ERROR:", err);
-      setPageError(err?.message || "Failed to load IT dashboard.");
-    } finally {
-      setPageLoading(false);
-    }
-  }, [organizationId, userId]);
+     const projectsResult = await getITProjectsForDashboard(
+       organizationId,
+       userId,
+     );
+     console.log("projectsResult", projectsResult);
 
+     const activityResult = await getRecentITActivity(organizationId, 8);
+     console.log("activityResult", activityResult);
+
+     setStats(statsResult);
+     setProjects(projectsResult);
+     setActivity(activityResult);
+   } catch (err: any) {
+     console.error("IT DASHBOARD LOAD ERROR:", err);
+     setPageError(err?.message || "Failed to load IT dashboard.");
+   } finally {
+     setPageLoading(false);
+   }
+ }, [organizationId, userId]);
   useEffect(() => {
     if (!organizationId || !userId) return;
     void loadDashboard();

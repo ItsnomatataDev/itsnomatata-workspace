@@ -18,6 +18,8 @@ import {
   type LeaveCalendarRuleRow,
 } from "../services/leaveCalendarService";
 
+const LEAVE_OFFICE_OPTIONS = ["Three Little Birds", "ITsNomatata", ];
+
 export default function LeavePage() {
   const auth = useAuth();
   const user = auth?.user ?? null;
@@ -153,6 +155,13 @@ export default function LeavePage() {
         organizationId={organizationId}
         userId={userId}
         leaveTypes={leaveTypes}
+        officeOptions={LEAVE_OFFICE_OPTIONS}
+        defaultOffice={
+          typeof profile.department === "string" ? profile.department : ""
+        }
+        requesterRole={
+          typeof profile.primary_role === "string" ? profile.primary_role : null
+        }
         onCreated={loadPage}
       />
     </div>

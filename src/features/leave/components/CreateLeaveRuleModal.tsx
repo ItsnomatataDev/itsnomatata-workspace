@@ -2,6 +2,8 @@ import { useState } from "react";
 import { X } from "lucide-react";
 import { createLeaveCalendarRule } from "../services/leaveCalendarService";
 
+const OFFICE_OPTIONS = ["Three Little Birds", "ITsNomatata", ];
+
 export default function CreateLeaveRuleModal({
   open,
   onClose,
@@ -20,6 +22,7 @@ export default function CreateLeaveRuleModal({
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [ruleType, setRuleType] = useState<"open" | "closed">("closed");
+  const [appliesToDepartment, setAppliesToDepartment] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -39,6 +42,7 @@ export default function CreateLeaveRuleModal({
         startDate,
         endDate,
         ruleType,
+        appliesToDepartment: appliesToDepartment || null,
         createdBy: userId,
       });
 
@@ -49,6 +53,7 @@ export default function CreateLeaveRuleModal({
       setStartDate("");
       setEndDate("");
       setRuleType("closed");
+      setAppliesToDepartment("");
       onClose();
     } catch (err: any) {
       console.error("CREATE LEAVE RULE ERROR:", err);
@@ -126,6 +131,24 @@ export default function CreateLeaveRuleModal({
             <option value="closed">Closed period</option>
             <option value="open">Open period</option>
           </select>
+
+          <div>
+            <label className="mb-2 block text-sm text-white/70">
+              Office Target
+            </label>
+            <select
+              value={appliesToDepartment}
+              onChange={(e) => setAppliesToDepartment(e.target.value)}
+              className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 text-white outline-none focus:border-orange-500"
+            >
+              <option value="">All offices</option>
+              {OFFICE_OPTIONS.map((office) => (
+                <option key={office} value={office}>
+                  {office}
+                </option>
+              ))}
+            </select>
+          </div>
 
           <button
             type="submit"

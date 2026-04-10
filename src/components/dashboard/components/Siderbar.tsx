@@ -19,6 +19,7 @@ import {
   X,
   Video,
   MessageSquare,
+  ScanLine,
 } from "lucide-react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { signOutUser } from "../../../lib/supabase/auth";
@@ -46,6 +47,7 @@ const commonLinks: LinkItem[] = [
   { to: "/leave", label: "Leave", icon: CalendarDays },
   { to: "/chat", label: "Team Chat", icon: MessageSquare },
   { to: "/meetings", label: "Meetings", icon: Video },
+
 ];
 
 function getRoleLinks(
@@ -96,9 +98,10 @@ function getRoleLinks(
       { to: "/admin/leave", label: "Leave Request", icon: CalendarDays },
       { to: "/admin/roster", label: "Duty Roster", icon: Clock3 },
       { to: "/admin/crm", label: "CRM", icon: BriefcaseBusiness },
-      { to: "/admin/stock", label: "Stock", icon: ShieldCheck },
-
+      { to: "/assets", label: "Stock", icon: ShieldCheck },
+      { to: "/time-approval", label: "Time Approvals", icon: CheckSquare },
       { to: "/admin/ai", label: "AI Control", icon: Sparkles },
+      { to: "/scan", label: "Scan Asset", icon: ScanLine },
     ],
   };
 
