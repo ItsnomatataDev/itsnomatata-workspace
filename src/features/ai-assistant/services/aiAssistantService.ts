@@ -1,381 +1,379 @@
 import {
-  analyzeDocument,
-  analyzeImage,
-  askAssistant,
-  buildAssistantContext,
-  generateImage,
-  runAIAction,
-  transcribeAudio,
+    type AIUserRole,
+    analyzeDocument,
+    analyzeImage,
+    askAssistant,
+    buildAssistantContext,
+    type DashboardSummaryResult,
+    generateDashboardSummary as generateDashboardSummaryRequest,
+    generateImage,
+    runAIAction,
+    transcribeAudio,
 } from "../../../lib/api/ai";
 import type {
-  AssistantActionInput,
-  AssistantAttachmentInput,
-  AssistantContextInput as N8nAssistantContextInput,
-  AssistantResponse,
+    AssistantActionInput,
+    AssistantAttachmentInput,
+    AssistantContextInput as N8nAssistantContextInput,
+    AssistantResponse,
 } from "../../../lib/api/n8n";
 
 export type AssistantContextInput = N8nAssistantContextInput;
-
-export type AIUserRole =
-  | "admin"
-  | "manager"
-  | "it"
-  | "social_media"
-  | "media_team"
-  | "seo_specialist";
-
-export type DashboardSummaryResult = {
-  summary: string;
-  suggestions: string[];
-};
+export type { AIUserRole, DashboardSummaryResult };
 
 export type AiChatResponse = {
-  reply: string;
-  conversationId: string | null;
-  assistantMessage: AssistantChatMessage;
+    reply: string;
+    conversationId: string | null;
+    assistantMessage: AssistantChatMessage;
 };
 
 export interface AssistantChatMessage {
-  id: string;
-  role: "user" | "assistant" | "system";
-  content: string;
-  type?:
-    | "text"
-    | "task_summary"
-    | "project_summary"
-    | "document_summary"
-    | "image_analysis"
-    | "audio_transcript"
-    | "leave_summary"
-    | "report_summary"
-    | "approval_request"
-    | "generated_image"
-    | "error";
-  createdAt: string;
-  data?: Record<string, unknown>;
-  actions?: Array<{
     id: string;
-    label: string;
-    variant?: "primary" | "secondary" | "danger";
-    payload?: Record<string, unknown>;
-  }>;
-  sources?: Array<{
-    id?: string;
-    title?: string;
-    type?: string;
-    url?: string;
-    snippet?: string;
-  }>;
-  pending?: boolean;
-  error?: boolean;
+    role: "user" | "assistant" | "system";
+    content: string;
+    type?: AssistantResponse["type"];
+    createdAt: string;
+    data?: Record<string, unknown>;
+    actions?: NonNullable<AssistantResponse["actions"]>;
+    sources?: NonNullable<AssistantResponse["sources"]>;
+    pending?: boolean;
+    error?: boolean;
 }
 
 export interface SendAssistantMessageParams {
-  message: string;
-  context: AssistantContextInput;
-  conversationId?: string | null;
-  attachments?: AssistantAttachmentInput[];
-  metadata?: Record<string, unknown>;
+    message: string;
+    context: AssistantContextInput;
+    conversationId?: string | null;
+    attachments?: AssistantAttachmentInput[];
+    metadata?: Record<string, unknown>;
 }
 
 export interface RunAssistantActionParams {
-  context: AssistantContextInput;
-  action: AssistantActionInput;
-  conversationId?: string | null;
-  attachments?: AssistantAttachmentInput[];
-  metadata?: Record<string, unknown>;
+    context: AssistantContextInput;
+    action: AssistantActionInput;
+    conversationId?: string | null;
+    attachments?: AssistantAttachmentInput[];
+    metadata?: Record<string, unknown>;
 }
 
 function createId(prefix = "msg"): string {
-  return `${prefix}_${crypto.randomUUID()}`;
+    const randomPart = typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+
+    return `${prefix}_${randomPart}`;
 }
 
 function nowIso(): string {
-  return new Date().toISOString();
+    return new Date().toISOString();
+}
+
+function getErrorMessage(error: unknown): string {
+    return error instanceof Error
+        ? error.message
+        : "Unable to reach the AI service.";
+}
+
+function isServiceUnavailableError(error: unknown): boolean {
+    return /VITE_N8N_AI_WEBHOOK_URL|Failed to fetch|Load failed|NetworkError|AI request failed/i
+        .test(
+            getErrorMessage(error),
+        );
+}
+
+function createFallbackAssistantMessage(content: string): AssistantChatMessage {
+    return {
+        id: createId("assistant"),
+        role: "assistant",
+        content,
+        type: "text",
+        createdAt: nowIso(),
+        data: {
+            preview: true,
+        },
+    };
 }
 
 function mapAssistantResponseToChatMessage(
-  response: AssistantResponse,
+    response: AssistantResponse,
 ): AssistantChatMessage {
-  return {
-    id: response.requestId || createId("assistant"),
-    role: "assistant",
-    content: response.message,
-    type: response.type,
-    createdAt: nowIso(),
-    data: (response.data as Record<string, unknown>) ?? {},
-    actions: response.actions ?? [],
-    sources: response.sources ?? [],
-    error: !response.success || response.type === "error",
-  };
+    return {
+        id: response.requestId || createId("assistant"),
+        role: "assistant",
+        content: response.message,
+        type: response.type,
+        createdAt: nowIso(),
+        data: (response.data as Record<string, unknown>) ?? {},
+        actions: response.actions ?? [],
+        sources: response.sources ?? [],
+        error: response.success === false || response.type === "error",
+    };
 }
 
-function normalizeRole(role: string | null | undefined): AIUserRole | undefined {
-  if (
-    role === "admin" ||
-    role === "manager" ||
-    role === "it" ||
-    role === "social_media" ||
-    role === "media_team" ||
-    role === "seo_specialist"
-  ) {
-    return role;
-  }
-
-  return undefined;
-}
-
-function getFallbackContext(
-  role?: AIUserRole,
-  context?: Partial<AssistantContextInput>,
-): AssistantContextInput {
-  return {
-
-  userId: context?.userId ?? "workspace-ai",
-  organizationId: context?.organizationId ?? "workspace-default",
-  role: context?.role ?? role ?? "manager",
-
-  };
-}
 export function createUserChatMessage(
-  content: string,
-  extras?: Partial<AssistantChatMessage>,
+    content: string,
+    extras?: Partial<AssistantChatMessage>,
 ): AssistantChatMessage {
-  return {
-    id: createId("user"),
-    role: "user",
-    content,
-    type: "text",
-    createdAt: nowIso(),
-    ...extras,
-  };
+    return {
+        id: createId("user"),
+        role: "user",
+        content,
+        type: "text",
+        createdAt: nowIso(),
+        ...extras,
+    };
 }
 
 export function createPendingAssistantMessage(
-  content = "Codex is thinking...",
+    content = "AI assistant is thinking...",
 ): AssistantChatMessage {
-  return {
-    id: createId("pending"),
-    role: "assistant",
-    content,
-    type: "text",
-    createdAt: nowIso(),
-    pending: true,
-  };
+    return {
+        id: createId("pending"),
+        role: "assistant",
+        content,
+        type: "text",
+        createdAt: nowIso(),
+        pending: true,
+    };
 }
 
 export async function generateDashboardSummary(params: {
-  role: AIUserRole | string;
-  context?: Partial<AssistantContextInput>;
+    role: AIUserRole | string;
+    context?: Partial<AssistantContextInput>;
 }): Promise<DashboardSummaryResult> {
-  const role = normalizeRole(params.role) ?? "manager";
-  const normalizedContext = buildAssistantContext(
-    getFallbackContext(role, params.context),
-  );
+    const normalizedContext = buildAssistantContext({
+        userId: params.context?.userId ?? "workspace-ai",
+        organizationId: params.context?.organizationId ?? "workspace-default",
+        fullName: params.context?.fullName ?? "Workspace User",
+        email: params.context?.email ?? null,
+        role: params.context?.role ?? params.role,
+        department: params.context?.department ?? null,
+        currentRoute: params.context?.currentRoute ?? "/dashboard",
+        currentModule: params.context?.currentModule ?? "dashboard",
+        selectedEntityId: params.context?.selectedEntityId ?? null,
+        selectedEntityType: params.context?.selectedEntityType ?? null,
+        timezone: params.context?.timezone ?? "Africa/Harare",
+        channel: params.context?.channel ?? "dashboard",
+        sessionId: params.context?.sessionId ?? null,
+    });
 
-  const response = await askAssistant({
-    message:
-      "Generate a concise dashboard summary for this workspace role. Include key priorities and 3 short actionable suggestions.",
-    context: normalizedContext,
-    attachments: [],
-    conversationId: null,
-    metadata: {
-      requestType: "dashboard_summary",
-      role,
-    },
-  });
+    try {
+        return await generateDashboardSummaryRequest({
+            organizationId: normalizedContext.organizationId ??
+                "workspace-default",
+            userId: normalizedContext.userId,
+            role: normalizedContext.role ?? params.role,
+            userName: normalizedContext.fullName ?? null,
+            currentModule: normalizedContext.currentModule ?? "dashboard",
+        });
+    } catch (error) {
+        if (!isServiceUnavailableError(error)) {
+            throw error;
+        }
 
-  const data = (response.data as Record<string, unknown> | undefined) ?? {};
-  const summaryFromData =
-    typeof data.summary === "string" ? data.summary : undefined;
+        const roleLabel = String(
+            normalizedContext.role ?? params.role ?? "employee",
+        )
+            .replaceAll("_", " ")
+            .trim();
 
-  const suggestionsFromData = Array.isArray(data.suggestions)
-    ? data.suggestions.filter(
-        (item): item is string =>
-          typeof item === "string" && item.trim().length > 0,
-      )
-    : [];
-
-  return {
-    summary: summaryFromData ?? response.message,
-    suggestions:
-      suggestionsFromData.length > 0
-        ? suggestionsFromData
-        : [
-            "Review pending work and overdue items.",
-            "Check approvals, announcements, and team activity.",
-            "Follow up on blockers and ownership gaps.",
-          ],
-  };
+        return {
+            summary:
+                `AI preview mode is active for the ${roleLabel} workspace. The UI is ready and will return live role-based insights once the AI webhook is connected.`,
+            suggestions: [
+                "Review overdue tasks, blockers, and approvals first.",
+                "Check team activity and recent operational updates.",
+                "Configure `VITE_N8N_AI_WEBHOOK_URL` to enable real-time AI summaries.",
+            ],
+        };
+    }
 }
 
 export async function sendMessage(params: SendAssistantMessageParams): Promise<{
-  conversationId: string | null;
-  assistantMessage: AssistantChatMessage;
+    conversationId: string | null;
+    assistantMessage: AssistantChatMessage;
 }> {
-  const normalizedContext = buildAssistantContext(params.context);
+    const normalizedContext = buildAssistantContext(params.context);
 
-  const response = await askAssistant({
-    message: params.message,
-    context: normalizedContext,
-    attachments: params.attachments ?? [],
-    conversationId: params.conversationId ?? null,
-    metadata: params.metadata,
-  });
+    try {
+        const response = await askAssistant({
+            message: params.message,
+            context: normalizedContext,
+            attachments: params.attachments ?? [],
+            conversationId: params.conversationId ?? null,
+            metadata: params.metadata,
+        });
 
-  return {
-    conversationId: response.conversationId ?? null,
-    assistantMessage: mapAssistantResponseToChatMessage(response),
-  };
+        return {
+            conversationId: response.conversationId ?? null,
+            assistantMessage: mapAssistantResponseToChatMessage(response),
+        };
+    } catch (error) {
+        if (!isServiceUnavailableError(error)) {
+            throw error;
+        }
+
+        return {
+            conversationId: params.conversationId ?? null,
+            assistantMessage: createFallbackAssistantMessage(
+                [
+                    "Live AI is not available right now, so the assistant is running in preview mode.",
+                    getErrorMessage(error),
+                    `Request: ${params.message}`,
+                    "Configure `VITE_N8N_AI_WEBHOOK_URL` to enable real-time assistant replies.",
+                ].join("\n\n"),
+            ),
+        };
+    }
 }
 
 export async function sendAiChatMessage(params: {
-  message: string;
-  context: AssistantContextInput;
-  conversationId?: string | null;
-  attachments?: AssistantAttachmentInput[];
-  metadata?: Record<string, unknown>;
+    message: string;
+    context: AssistantContextInput;
+    conversationId?: string | null;
+    attachments?: AssistantAttachmentInput[];
+    metadata?: Record<string, unknown>;
 }): Promise<AiChatResponse> {
-  const result = await sendMessage({
-    message: params.message,
-    context: params.context,
-    conversationId: params.conversationId ?? null,
-    attachments: params.attachments ?? [],
-    metadata: params.metadata,
-  });
+    const result = await sendMessage({
+        message: params.message,
+        context: params.context,
+        conversationId: params.conversationId ?? null,
+        attachments: params.attachments ?? [],
+        metadata: params.metadata,
+    });
 
-  return {
-    reply: result.assistantMessage.content,
-    conversationId: result.conversationId,
-    assistantMessage: result.assistantMessage,
-  };
+    return {
+        reply: result.assistantMessage.content,
+        conversationId: result.conversationId,
+        assistantMessage: result.assistantMessage,
+    };
 }
 
 export async function runAssistantAction(
-  params: RunAssistantActionParams,
+    params: RunAssistantActionParams,
 ): Promise<{
-  conversationId: string | null;
-  assistantMessage: AssistantChatMessage;
+    conversationId: string | null;
+    assistantMessage: AssistantChatMessage;
 }> {
-  const normalizedContext = buildAssistantContext(params.context);
+    const normalizedContext = buildAssistantContext(params.context);
 
-  const response = await runAIAction({
-    context: normalizedContext,
-    action: params.action,
-    conversationId: params.conversationId ?? null,
-    attachments: params.attachments ?? [],
-    metadata: params.metadata,
-  });
+    const response = await runAIAction({
+        context: normalizedContext,
+        action: params.action,
+        conversationId: params.conversationId ?? null,
+        attachments: params.attachments ?? [],
+        metadata: params.metadata,
+    });
 
-  return {
-    conversationId: response.conversationId ?? null,
-    assistantMessage: mapAssistantResponseToChatMessage(response),
-  };
+    return {
+        conversationId: response.conversationId ?? null,
+        assistantMessage: mapAssistantResponseToChatMessage(response),
+    };
 }
 
 export async function sendDocumentForAnalysis(params: {
-  context: AssistantContextInput;
-  attachment: AssistantAttachmentInput;
-  question?: string;
-  conversationId?: string | null;
+    context: AssistantContextInput;
+    attachment: AssistantAttachmentInput;
+    question?: string;
+    conversationId?: string | null;
 }): Promise<{
-  conversationId: string | null;
-  assistantMessage: AssistantChatMessage;
+    conversationId: string | null;
+    assistantMessage: AssistantChatMessage;
 }> {
-  const normalizedContext = buildAssistantContext(params.context);
+    const normalizedContext = buildAssistantContext(params.context);
 
-  const response = await analyzeDocument({
-    context: normalizedContext,
-    attachment: params.attachment,
-    question: params.question,
-    conversationId: params.conversationId ?? null,
-  });
+    const response = await analyzeDocument({
+        context: normalizedContext,
+        prompt: params.question ??
+            "Summarize this document and highlight the key action items.",
+        attachments: [params.attachment],
+        conversationId: params.conversationId ?? null,
+    });
 
-  return {
-    conversationId: response.conversationId ?? null,
-    assistantMessage: mapAssistantResponseToChatMessage(response),
-  };
+    return {
+        conversationId: response.conversationId ?? null,
+        assistantMessage: mapAssistantResponseToChatMessage(response),
+    };
 }
 
 export async function sendImageForAnalysis(params: {
-  context: AssistantContextInput;
-  attachment: AssistantAttachmentInput;
-  prompt?: string;
-  conversationId?: string | null;
+    context: AssistantContextInput;
+    attachment: AssistantAttachmentInput;
+    prompt?: string;
+    conversationId?: string | null;
 }): Promise<{
-  conversationId: string | null;
-  assistantMessage: AssistantChatMessage;
+    conversationId: string | null;
+    assistantMessage: AssistantChatMessage;
 }> {
-  const normalizedContext = buildAssistantContext(params.context);
+    const normalizedContext = buildAssistantContext(params.context);
 
-  const response = await analyzeImage({
-    context: normalizedContext,
-    attachment: params.attachment,
-    prompt: params.prompt,
-    conversationId: params.conversationId ?? null,
-  });
+    const response = await analyzeImage({
+        context: normalizedContext,
+        attachment: params.attachment,
+        prompt: params.prompt,
+        conversationId: params.conversationId ?? null,
+    });
 
-  return {
-    conversationId: response.conversationId ?? null,
-    assistantMessage: mapAssistantResponseToChatMessage(response),
-  };
+    return {
+        conversationId: response.conversationId ?? null,
+        assistantMessage: mapAssistantResponseToChatMessage(response),
+    };
 }
 
 export async function sendAudioForTranscription(params: {
-  context: AssistantContextInput;
-  attachment: AssistantAttachmentInput;
-  prompt?: string;
-  conversationId?: string | null;
+    context: AssistantContextInput;
+    attachment: AssistantAttachmentInput;
+    prompt?: string;
+    conversationId?: string | null;
 }): Promise<{
-  conversationId: string | null;
-  assistantMessage: AssistantChatMessage;
+    conversationId: string | null;
+    assistantMessage: AssistantChatMessage;
 }> {
-  const normalizedContext = buildAssistantContext(params.context);
+    const normalizedContext = buildAssistantContext(params.context);
 
-  const response = await transcribeAudio({
-    context: normalizedContext,
-    attachment: params.attachment,
-    prompt: params.prompt,
-    conversationId: params.conversationId ?? null,
-  });
+    const response = await transcribeAudio({
+        context: normalizedContext,
+        attachment: params.attachment,
+        prompt: params.prompt,
+        conversationId: params.conversationId ?? null,
+    });
 
-  return {
-    conversationId: response.conversationId ?? null,
-    assistantMessage: mapAssistantResponseToChatMessage(response),
-  };
+    return {
+        conversationId: response.conversationId ?? null,
+        assistantMessage: mapAssistantResponseToChatMessage(response),
+    };
 }
 
 export async function requestImageGeneration(params: {
-  context: AssistantContextInput;
-  prompt: string;
-  conversationId?: string | null;
+    context: AssistantContextInput;
+    prompt: string;
+    conversationId?: string | null;
 }): Promise<{
-  conversationId: string | null;
-  assistantMessage: AssistantChatMessage;
+    conversationId: string | null;
+    assistantMessage: AssistantChatMessage;
 }> {
-  const normalizedContext = buildAssistantContext(params.context);
+    const normalizedContext = buildAssistantContext(params.context);
 
-  const response = await generateImage({
-    context: normalizedContext,
-    prompt: params.prompt,
-    conversationId: params.conversationId ?? null,
-  });
+    const response = await generateImage({
+        context: normalizedContext,
+        prompt: params.prompt,
+        conversationId: params.conversationId ?? null,
+    });
 
-  return {
-    conversationId: response.conversationId ?? null,
-    assistantMessage: mapAssistantResponseToChatMessage(response),
-  };
+    return {
+        conversationId: response.conversationId ?? null,
+        assistantMessage: mapAssistantResponseToChatMessage(response),
+    };
 }
 
 export async function saveConversationMessage(
-  _message: AssistantChatMessage,
-  _conversationId?: string | null,
+    _message: AssistantChatMessage,
+    _conversationId?: string | null,
 ): Promise<void> {
-  return;
+    return;
 }
 
 export async function getConversationHistory(
-  _conversationId: string,
+    _conversationId: string,
 ): Promise<AssistantChatMessage[]> {
-  return [];
+    return [];
 }

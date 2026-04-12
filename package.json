@@ -10,12 +10,15 @@
     "preview": "vite preview --host"
   },
   "dependencies": {
+    "@livekit/components-react": "^2.9.20",
+    "@livekit/components-styles": "^1.2.0",
     "@supabase/supabase-js": "^2.100.1",
     "@tailwindcss/vite": "^4.2.2",
     "@types/react-big-calendar": "^1.16.3",
     "date-fns": "^4.1.0",
     "file-saver": "^2.0.5",
     "jsbarcode": "^3.12.3",
+    "livekit-client": "^2.18.1",
     "lucide-react": "^1.7.0",
     "react": "^19.2.4",
     "react-big-calendar": "^1.19.4",

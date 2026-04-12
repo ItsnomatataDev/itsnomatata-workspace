@@ -30,12 +30,12 @@ import NotificationsPage from "../../features/notifications/pages/NotificationsP
 import ChatPage from "../../features/chat/pages/ChatPage";
 import MeetingsPage from "../../features/meetings/pages/MeetingsPage";
 import MeetingRoomPage from "../../features/meetings/pages/MeetingRoomPage";
+import SocialPostsPage from "../../features/social-posts/pages/SocialPostsPage";
 import TimeApprovalPage from "../../features/timesheets/pages/TimeApprovalPage";
 import AssetsPage from "../../features/stock/pages/AssetsPage";
 import AssetDetailsPage from "../../features/stock/pages/AssetDetailsPage";
 import ScanAssetPage from "../../features/stock/pages/ScanAssetPage";
-// import AiAssistantPage from "../../features/ai-workspace/pages/AIWorkspacePage";
-// import AIWorkspacePage from "../../features/ai-workspace/pages/AIWorkspacePage"
+import AIWorkspacePage from "../../features/ai-workspace/pages/AIWorkspacePage";
 const AppRouter = () => {
   return (
     <BrowserRouter>
@@ -43,15 +43,16 @@ const AppRouter = () => {
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/signup" element={<SignupPage />} />
-
         <Route
           path="/dashboard"
           element={
             <ProtectedRoute>
-              <DashboardPage />
+              {" "}
+              <DashboardPage />{" "}
             </ProtectedRoute>
           }
         />
+
         <Route path="/meetings" element={<MeetingsPage />} />
         <Route path="/meetings/:meetingId" element={<MeetingRoomPage />} />
 
@@ -149,6 +150,24 @@ const AppRouter = () => {
           element={
             <ProtectedRoute>
               <CampaignsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/social-posts"
+          element={
+            <ProtectedRoute>
+              <RoleRoute
+                roles={[
+                  "admin",
+                  "manager",
+                  "seo_specialist",
+                  "social_media",
+                  "media_team",
+                ]}
+              >
+                <SocialPostsPage />
+              </RoleRoute>
             </ProtectedRoute>
           }
         />
@@ -312,8 +331,8 @@ const AppRouter = () => {
             </ProtectedRoute>
           }
         />
-        {/* <Route path="/ai-assistant" element={<AiAssistantPage />} />
-        <Route path="/ai-workspace" element={<AIWorkspacePage />} /> */}
+
+        <Route path="/ai-workspace" element={<AIWorkspacePage />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </BrowserRouter>

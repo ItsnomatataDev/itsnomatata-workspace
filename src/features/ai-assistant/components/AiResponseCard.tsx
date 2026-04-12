@@ -53,7 +53,7 @@ function getTypeMeta(type?: AssistantChatMessage["type"]) {
     default:
       return {
         icon: <CheckCircle2 size={18} />,
-        title: "Codex",
+        title: "Copilot",
       };
   }
 }

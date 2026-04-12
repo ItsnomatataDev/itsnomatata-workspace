@@ -16,7 +16,7 @@ export default function AIWorkspaceHeader({
   userName,
 }: AIWorkspaceHeaderProps) {
   return (
-    <div className="rounded-3xl border border-white/10 bg-[#0f0f10] p-5">
+    <div className="rounded-3xl border border-white/10 bg-black p-5 shadow-[0_0_0_1px_rgba(255,255,255,0.03)]">
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div className="min-w-0">
           <div className="flex items-center gap-3">

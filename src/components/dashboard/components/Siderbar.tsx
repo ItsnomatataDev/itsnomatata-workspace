@@ -47,6 +47,7 @@ const commonLinks: LinkItem[] = [
   { to: "/leave", label: "Leave", icon: CalendarDays },
   { to: "/chat", label: "Team Chat", icon: MessageSquare },
   { to: "/meetings", label: "Meetings", icon: Video },
+  { to: "/ai-workspace", label: "AI Workspace", icon: Sparkles },
 
 ];
 

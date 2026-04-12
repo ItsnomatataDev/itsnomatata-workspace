@@ -1,12 +1,23 @@
+import type { ReactNode } from "react";
 import { Navigate } from "react-router-dom";
 import { useAuth } from "../providers/AuthProvider";
+import { hasAnyPermission } from "../../lib/helpers/permissions";
+import type { Permission } from "../../lib/constants/permissions";
+import type { AppRole } from "../../lib/constants/roles";
 
 type RoleRouteProps = {
-  children: React.ReactNode;
-  roles: string[];
+  children: ReactNode;
+  roles?: AppRole[];
+  permissions?: Permission[];
+  fallbackTo?: string;
 };
 
-export default function RoleRoute({ children, roles }: RoleRouteProps) {
+export default function RoleRoute({
+  children,
+  roles,
+  permissions,
+  fallbackTo = "/dashboard",
+}: RoleRouteProps) {
   const auth = useAuth();
 
   if (!auth || auth.loading) {
@@ -17,14 +28,19 @@ export default function RoleRoute({ children, roles }: RoleRouteProps) {
     );
   }
 
-  const role = auth.profile?.primary_role;
+  const role = auth.profile?.primary_role ?? null;
 
   if (!auth.user) {
     return <Navigate to="/login" replace />;
   }
 
-  if (!role || !roles.includes(role)) {
-    return <Navigate to="/dashboard" replace />;
+  const roleAllowed =
+    !roles || (role ? roles.includes(role as AppRole) : false);
+
+  const permissionAllowed = !permissions || hasAnyPermission(role, permissions);
+
+  if (!roleAllowed || !permissionAllowed) {
+    return <Navigate to={fallbackTo} replace />;
   }
 
   return <>{children}</>;

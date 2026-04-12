@@ -7,10 +7,20 @@ import {
   PackageCheck,
   Wrench,
   Archive,
+  ArrowRight,
+  Bot,
+  ClipboardList,
+  Download,
+  FileText,
+  Loader2,
+  MessageSquareText,
+  ScanLine,
+  ShieldAlert,
 } from "lucide-react";
 import Sidebar from "../../../components/dashboard/components/Siderbar";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import { useAssets } from "../../../lib/hooks/useAssets";
+import { askAssistant, buildAssistantContext } from "../../../lib/api/ai";
 import { supabase } from "../../../lib/supabase/client";
 import AssetTable from "../components/AssetTable";
 import AssetForm from "../components/AssetForm";
@@ -140,6 +150,231 @@ function StatBox({
       </div>
     </div>
   );
+}
+
+function isDateWithinDays(value?: string | null, days = 30) {
+  if (!value) return false;
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return false;
+
+  const now = Date.now();
+  const diff = date.getTime() - now;
+  return diff >= 0 && diff <= days * 24 * 60 * 60 * 1000;
+}
+
+function assetNeedsAttention(asset: AssetRecord) {
+  return (
+    asset.status === "in_repair" ||
+    asset.status === "lost" ||
+    asset.insured !== true ||
+    !asset.location?.name ||
+    isDateWithinDays(asset.warranty_expiry_date, 45)
+  );
+}
+
+function buildTimeSavingIdeas(params: {
+  stats: {
+    total: number;
+    in_stock: number;
+    assigned: number;
+    in_repair: number;
+    retired: number;
+    lost: number;
+    disposed: number;
+    insured: number;
+    uninsured: number;
+  };
+  assets: AssetRecord[];
+}) {
+  const warrantyExpiringSoon = params.assets.filter((asset) =>
+    isDateWithinDays(asset.warranty_expiry_date, 45),
+  ).length;
+  const missingLocation = params.assets.filter(
+    (asset) => !asset.location?.name && !asset.sub_location,
+  ).length;
+
+  const ideas = [
+    params.stats.in_stock > 0
+      ? {
+          title: "Reuse idle equipment first",
+          description: `${params.stats.in_stock} asset(s) are currently in stock. Reassigning these before buying new hardware cuts procurement time and cost.`,
+        }
+      : null,
+    params.stats.in_repair > 0
+      ? {
+          title: "Reduce repair downtime",
+          description: `${params.stats.in_repair} asset(s) are in repair. A weekly repair follow-up list will keep teams productive and reduce replacement requests.`,
+        }
+      : null,
+    params.stats.uninsured > 0
+      ? {
+          title: "Protect high-value items",
+          description: `${params.stats.uninsured} asset(s) are uninsured. Prioritizing cover for key devices lowers replacement risk and admin delays.`,
+        }
+      : null,
+    warrantyExpiringSoon > 0
+      ? {
+          title: "Catch warranty deadlines early",
+          description: `${warrantyExpiringSoon} asset(s) have warranties expiring soon. Servicing or renewing them early avoids avoidable support costs.`,
+        }
+      : null,
+    missingLocation > 0
+      ? {
+          title: "Fix tracking gaps",
+          description: `${missingLocation} asset(s) have incomplete location details. Cleaning this up saves staff time when searching or auditing equipment.`,
+        }
+      : null,
+  ].filter(Boolean) as Array<{ title: string; description: string }>;
+
+  if (ideas.length > 0) {
+    return ideas.slice(0, 4);
+  }
+
+  return [
+    {
+      title: "Asset operations look healthy",
+      description:
+        "Inventory data is in a good state. Use the AI helper to draft audits, summaries, and assignment follow-ups faster.",
+    },
+  ];
+}
+
+function formatAssetLine(asset: AssetRecord) {
+  return `${asset.asset_name} (${asset.asset_tag || "No tag"}) • ${asset.status.replaceAll("_", " ")}`;
+}
+
+function buildWeeklyAssetReport(params: {
+  stats: {
+    total: number;
+    in_stock: number;
+    assigned: number;
+    in_repair: number;
+    retired: number;
+    lost: number;
+    disposed: number;
+    insured: number;
+    uninsured: number;
+  };
+  assets: AssetRecord[];
+  attentionCount: number;
+}) {
+  const repairAssets = params.assets.filter(
+    (asset) => asset.status === "in_repair",
+  );
+  const expiringAssets = params.assets.filter((asset) =>
+    isDateWithinDays(asset.warranty_expiry_date, 45),
+  );
+
+  const lines = [
+    `AssetTiger Weekly Report — ${new Date().toLocaleDateString()}`,
+    "",
+    "Inventory Snapshot",
+    `• Total assets: ${params.stats.total}`,
+    `• Available in stock: ${params.stats.in_stock}`,
+    `• Assigned to staff/projects: ${params.stats.assigned}`,
+    `• In repair: ${params.stats.in_repair}`,
+    `• Uninsured: ${params.stats.uninsured}`,
+    `• Needs attention: ${params.attentionCount}`,
+    "",
+    "Priority Actions",
+    params.stats.in_stock > 0
+      ? `• Reuse ${params.stats.in_stock} available asset(s) before raising new purchase requests.`
+      : "• No idle stock detected right now.",
+    repairAssets.length > 0
+      ? `• Follow up on repair items: ${repairAssets.slice(0, 3).map(formatAssetLine).join("; ")}`
+      : "• No assets are currently stuck in repair.",
+    expiringAssets.length > 0
+      ? `• Review expiring warranties for: ${expiringAssets.slice(0, 3).map(formatAssetLine).join("; ")}`
+      : "• No immediate warranty expiries found.",
+    params.stats.uninsured > 0
+      ? `• Prioritize insurance cover for ${params.stats.uninsured} asset(s) to reduce admin risk.`
+      : "• Insurance coverage looks healthy.",
+    "",
+    "Suggested Weekly Routine",
+    "1. Export the needs-attention list and review it in the Monday ops meeting.",
+    "2. Reassign available devices before approving new procurement.",
+    "3. Chase repair vendors and close overdue maintenance items.",
+    "4. Verify missing locations and barcode scans before the week ends.",
+  ];
+
+  return lines.join("\n");
+}
+
+function buildRepairFollowUpMessage(repairAssets: AssetRecord[]) {
+  if (!repairAssets.length) {
+    return [
+      "Repair Follow-up Draft",
+      "",
+      "No assets are currently marked as in repair, so no vendor follow-up is needed right now.",
+    ].join("\n");
+  }
+
+  return [
+    "Repair Follow-up Draft",
+    "",
+    "Hello team,",
+    "",
+    "Please share an update on the following assets currently marked as in repair:",
+    ...repairAssets.slice(0, 8).map((asset) => `• ${formatAssetLine(asset)}`),
+    "",
+    "Kindly confirm expected completion dates, blockers, and whether any temporary replacements are needed.",
+    "",
+    "Thanks.",
+  ].join("\n");
+}
+
+function buildLocalAssetOutput(params: {
+  mode: "summary" | "audit" | "savings" | "weekly_report" | "repair_followup";
+  stats: {
+    total: number;
+    in_stock: number;
+    assigned: number;
+    in_repair: number;
+    retired: number;
+    lost: number;
+    disposed: number;
+    insured: number;
+    uninsured: number;
+  };
+  assets: AssetRecord[];
+  attentionCount: number;
+  timeSavingIdeas: Array<{ title: string; description: string }>;
+}) {
+  switch (params.mode) {
+    case "weekly_report":
+      return buildWeeklyAssetReport({
+        stats: params.stats,
+        assets: params.assets,
+        attentionCount: params.attentionCount,
+      });
+    case "repair_followup":
+      return buildRepairFollowUpMessage(
+        params.assets.filter((asset) => asset.status === "in_repair"),
+      );
+    case "audit":
+      return [
+        "Weekly Asset Audit Checklist",
+        "",
+        "• Verify all assets in the 'needs attention' filter.",
+        "• Confirm physical location and barcode scan for shared devices.",
+        "• Review assets still marked 'in repair' and record next action.",
+        "• Check uninsured items and expiring warranties.",
+        "• Reconcile any devices still assigned to inactive or moved staff.",
+      ].join("\n");
+    case "savings":
+      return [
+        "Cost-saving opportunities",
+        "",
+        ...params.timeSavingIdeas.map((item) => `• ${item.description}`),
+      ].join("\n");
+    case "summary":
+    default:
+      return [
+        "Local time-saving opportunities:",
+        ...params.timeSavingIdeas.map((item) => `• ${item.description}`),
+      ].join("\n");
+  }
 }
 
 function AssignAssetModal({
@@ -349,6 +584,13 @@ export default function AssetsPage() {
   );
   const [activeAssignment, setActiveAssignment] =
     useState<ActiveAssignment | null>(null);
+  const [assetAIAdvice, setAssetAIAdvice] = useState("");
+  const [assetAIHeading, setAssetAIHeading] = useState("Asset helper output");
+  const [assetAIError, setAssetAIError] = useState("");
+  const [assetAIloading, setAssetAILoading] = useState(false);
+  const [viewFilter, setViewFilter] = useState<
+    "all" | "available" | "assigned" | "repair" | "attention"
+  >("all");
 
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
@@ -414,6 +656,128 @@ export default function AssetsPage() {
   }, [organizationId]);
 
   const assetRows = useMemo(() => assets as AssetRecord[], [assets]);
+
+  const timeSavingIdeas = useMemo(
+    () => buildTimeSavingIdeas({ stats, assets: assetRows }),
+    [assetRows, stats],
+  );
+
+  const attentionAssets = useMemo(
+    () => assetRows.filter((asset) => assetNeedsAttention(asset)),
+    [assetRows],
+  );
+
+  const attentionCount = useMemo(
+    () => attentionAssets.length,
+    [attentionAssets],
+  );
+
+  const displayedAssets = useMemo(() => {
+    switch (viewFilter) {
+      case "available":
+        return assetRows.filter((asset) => asset.status === "in_stock");
+      case "assigned":
+        return assetRows.filter((asset) => asset.status === "assigned");
+      case "repair":
+        return assetRows.filter((asset) => asset.status === "in_repair");
+      case "attention":
+        return assetRows.filter((asset) => assetNeedsAttention(asset));
+      default:
+        return assetRows;
+    }
+  }, [assetRows, viewFilter]);
+
+  async function handleRunAssetAssistant(
+    mode: "summary" | "audit" | "savings" | "weekly_report" | "repair_followup",
+  ) {
+    const aiContext = buildAssistantContext({
+      userId: user?.id ?? "stock-user",
+      organizationId,
+      fullName: profile?.full_name ?? user?.email ?? "Workspace User",
+      email: user?.email ?? null,
+      role: profile?.primary_role ?? "it",
+      department:
+        typeof profile?.department === "string" ? profile.department : null,
+      currentRoute: "/assets",
+      currentModule: "assettiger",
+      channel: "web",
+      timezone: "Africa/Harare",
+    });
+
+    const prompts = {
+      summary:
+        "Review the current AssetTiger inventory snapshot and explain the biggest time-saving opportunities for the company. Focus on idle assets, tracking gaps, repairs, and staff productivity.",
+      audit:
+        "Using the current asset inventory snapshot, draft a short weekly audit checklist that helps the company save time and reduce missing equipment issues.",
+      savings:
+        "Based on the current asset inventory data, give a concise cost-saving and time-saving action plan for management. Prioritize reuse, faster handovers, and repair turnaround.",
+      weekly_report:
+        "Create a concise weekly asset report for management using this AssetTiger inventory snapshot. Include counts, issues, priorities, and recommended next steps.",
+      repair_followup:
+        "Draft a short professional follow-up message for assets currently in repair, asking for updates and expected completion dates.",
+    } as const;
+
+    const labels = {
+      summary: "Time-saving plan",
+      audit: "Audit checklist",
+      savings: "Cost-saving ideas",
+      weekly_report: "Weekly asset report",
+      repair_followup: "Repair follow-up draft",
+    } as const;
+
+    try {
+      setAssetAIHeading(labels[mode]);
+      setAssetAILoading(true);
+      setAssetAIError("");
+
+      const response = await askAssistant({
+        message: prompts[mode],
+        context: aiContext,
+        metadata: {
+          source: "assettiger_productivity_panel",
+          requestedAction: mode,
+          assetSummary: {
+            total: stats.total,
+            inStock: stats.in_stock,
+            assigned: stats.assigned,
+            inRepair: stats.in_repair,
+            uninsured: stats.uninsured,
+            attentionCount,
+            currentViewCount: displayedAssets.length,
+          },
+          sampleAssets: assetRows.slice(0, 12).map((asset) => ({
+            asset_name: asset.asset_name,
+            asset_tag: asset.asset_tag,
+            status: asset.status,
+            assigned_to:
+              asset.assigned_profile?.full_name ||
+              asset.assigned_profile?.email ||
+              null,
+            location: asset.location?.name || asset.sub_location || null,
+            insured: asset.insured ?? false,
+            warranty_expiry_date: asset.warranty_expiry_date ?? null,
+          })),
+        },
+      });
+
+      setAssetAIAdvice(response.message || "No response returned yet.");
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Failed to generate asset advice.";
+      setAssetAIError(message);
+      setAssetAIAdvice(
+        buildLocalAssetOutput({
+          mode,
+          stats,
+          assets: assetRows,
+          attentionCount,
+          timeSavingIdeas,
+        }),
+      );
+    } finally {
+      setAssetAILoading(false);
+    }
+  }
 
   async function handleSearchSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -583,6 +947,158 @@ export default function AssetsPage() {
             />
           </section>
 
+          <section className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
+            <div className="border border-white/10 bg-black p-5">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.24em] text-orange-300">
+                    AssetTiger productivity helper
+                  </p>
+                  <h2 className="mt-2 text-xl font-semibold text-white">
+                    Save time with smarter asset actions
+                  </h2>
+                  <p className="mt-2 max-w-2xl text-sm text-zinc-400">
+                    Use live Supabase asset data to spot idle equipment, reduce
+                    repair delays, prepare audits faster, and avoid unnecessary
+                    purchases.
+                  </p>
+                </div>
+
+                <div className="border border-orange-500/20 bg-orange-500/10 p-3 text-orange-300">
+                  <Bot size={20} />
+                </div>
+              </div>
+
+              {assetAIError ? (
+                <div className="mt-4 border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+                  {assetAIError}
+                </div>
+              ) : null}
+
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => void handleRunAssetAssistant("weekly_report")}
+                  disabled={assetAIloading}
+                  className="inline-flex items-center gap-2 border border-orange-500 bg-orange-500 px-4 py-2.5 text-sm font-medium text-black hover:bg-orange-400 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {assetAIloading ? (
+                    <Loader2 size={16} className="animate-spin" />
+                  ) : (
+                    <FileText size={16} />
+                  )}
+                  Generate weekly report
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => void handleRunAssetAssistant("summary")}
+                  disabled={assetAIloading}
+                  className="inline-flex items-center gap-2 border border-white/10 px-4 py-2.5 text-sm text-zinc-200 hover:border-white/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <ArrowRight size={16} />
+                  Time-saving plan
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => void handleRunAssetAssistant("audit")}
+                  disabled={assetAIloading}
+                  className="inline-flex items-center gap-2 border border-white/10 px-4 py-2.5 text-sm text-zinc-200 hover:border-white/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <ClipboardList size={16} />
+                  Audit checklist
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    void handleRunAssetAssistant("repair_followup")
+                  }
+                  disabled={assetAIloading}
+                  className="inline-flex items-center gap-2 border border-white/10 px-4 py-2.5 text-sm text-zinc-200 hover:border-white/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <MessageSquareText size={16} />
+                  Repair follow-up
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => void handleRunAssetAssistant("savings")}
+                  disabled={assetAIloading}
+                  className="inline-flex items-center gap-2 border border-white/10 px-4 py-2.5 text-sm text-zinc-200 hover:border-white/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <Bot size={16} />
+                  Cost-saving ideas
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => exportAssetsToExcel(attentionAssets)}
+                  disabled={attentionAssets.length === 0}
+                  className="inline-flex items-center gap-2 border border-white/10 px-4 py-2.5 text-sm text-zinc-200 hover:border-white/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <Download size={16} />
+                  Export needs attention
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => exportAssetsToExcel(displayedAssets)}
+                  disabled={displayedAssets.length === 0}
+                  className="inline-flex items-center gap-2 border border-white/10 px-4 py-2.5 text-sm text-zinc-200 hover:border-white/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <Download size={16} />
+                  Export current view
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => navigate("/scan")}
+                  className="inline-flex items-center gap-2 border border-white/10 px-4 py-2.5 text-sm text-zinc-200 hover:border-white/20 hover:text-white"
+                >
+                  <ScanLine size={16} />
+                  Open scanner
+                </button>
+              </div>
+
+              <div className="mt-4 border border-white/10 bg-zinc-950 p-4">
+                <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">
+                  {assetAIHeading}
+                </p>
+                <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-white">
+                  {assetAIAdvice ||
+                    "Use the buttons above to generate a weekly report, audit checklist, repair follow-up draft, cost-saving plan, or export the exact asset view your team needs."}
+                </p>
+              </div>
+            </div>
+
+            <div className="border border-white/10 bg-black p-5">
+              <div className="flex items-center gap-2 text-orange-300">
+                <ShieldAlert size={18} />
+                <h3 className="text-base font-semibold">
+                  Where this saves time
+                </h3>
+              </div>
+
+              <div className="mt-4 space-y-3">
+                {timeSavingIdeas.map((item) => (
+                  <div
+                    key={item.title}
+                    className="border border-white/10 bg-zinc-950 p-3"
+                  >
+                    <p className="text-sm font-medium text-white">
+                      {item.title}
+                    </p>
+                    <p className="mt-1 text-sm leading-6 text-zinc-400">
+                      {item.description}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </section>
+
           <section className="border border-white/10 bg-black p-5">
             <form
               onSubmit={handleSearchSubmit}
@@ -608,6 +1124,49 @@ export default function AssetsPage() {
                 Search
               </button>
             </form>
+
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              {[
+                { id: "all", label: `All (${assetRows.length})` },
+                { id: "available", label: `Available (${stats.in_stock})` },
+                { id: "assigned", label: `Assigned (${stats.assigned})` },
+                { id: "repair", label: `In Repair (${stats.in_repair})` },
+                {
+                  id: "attention",
+                  label: `Needs Attention (${attentionCount})`,
+                },
+              ].map((filter) => {
+                const active = viewFilter === filter.id;
+
+                return (
+                  <button
+                    key={filter.id}
+                    type="button"
+                    onClick={() =>
+                      setViewFilter(
+                        filter.id as
+                          | "all"
+                          | "available"
+                          | "assigned"
+                          | "repair"
+                          | "attention",
+                      )
+                    }
+                    className={`px-3 py-2 text-sm transition ${
+                      active
+                        ? "border border-orange-500 bg-orange-500 text-black"
+                        : "border border-white/10 bg-black text-zinc-200 hover:border-white/20 hover:text-white"
+                    }`}
+                  >
+                    {filter.label}
+                  </button>
+                );
+              })}
+
+              <p className="ml-auto text-xs text-zinc-500">
+                Showing {displayedAssets.length} of {assetRows.length} asset(s)
+              </p>
+            </div>
           </section>
 
           {error ? (
@@ -618,7 +1177,7 @@ export default function AssetsPage() {
 
           <section>
             <AssetTable
-              assets={assetRows}
+              assets={displayedAssets}
               loading={loading}
               onView={handleViewClick}
               onEdit={handleEditClick}

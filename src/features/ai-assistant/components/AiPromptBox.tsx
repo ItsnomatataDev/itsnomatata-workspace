@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import { Image, Mic, Paperclip, Send, Sparkles } from "lucide-react";
 import type { AssistantAttachmentInput } from "../../../lib/api/n8n";
 
-type PromptMode = "ask" | "analyze" | "create" | "action";
+export type PromptMode = "ask" | "analyze" | "create" | "action";
 
 interface AiPromptBoxProps {
   disabled?: boolean;
@@ -33,10 +33,16 @@ function detectAttachmentType(file: File): AssistantAttachmentInput["type"] {
   return "unknown";
 }
 
+function makeAttachmentId() {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
 export default function AiPromptBox({
   disabled = false,
   busy = false,
-  placeholder = "Ask Codex anything about your work, tasks, files, or projects...",
+  placeholder = "Ask Copilot anything about your work, tasks, files, or projects...",
   onSend,
 }: AiPromptBoxProps) {
   const [text, setText] = useState("");
@@ -56,7 +62,7 @@ export default function AiPromptBox({
     if (!files?.length) return;
 
     const mapped = Array.from(files).map<AssistantAttachmentInput>((file) => ({
-      id: crypto.randomUUID(),
+      id: makeAttachmentId(),
       name: file.name,
       mimeType: file.type,
       size: file.size,
@@ -140,7 +146,7 @@ export default function AiPromptBox({
         <div className="flex-1">
           <textarea
             value={text}
-            onChange={(e) => setText(e.target.value)}
+            onChange={(event) => setText(event.target.value)}
             placeholder={placeholder}
             disabled={isDisabled}
             rows={4}
@@ -181,7 +187,7 @@ export default function AiPromptBox({
 
           <button
             type="button"
-            onClick={submit}
+            onClick={() => void submit()}
             disabled={isDisabled || (!text.trim() && attachments.length === 0)}
             className="rounded-xl bg-orange-500 p-3 text-white transition hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-50"
             title="Send"
@@ -196,7 +202,7 @@ export default function AiPromptBox({
         type="file"
         hidden
         multiple
-        onChange={(e) => handleFilesSelected(e.target.files)}
+        onChange={(event) => handleFilesSelected(event.target.files)}
       />
     </div>
   );
