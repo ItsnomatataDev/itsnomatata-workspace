@@ -13,6 +13,11 @@ import { Link } from "react-router-dom";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import Sidebar from "../../../components/dashboard/components/Siderbar";
 import type { AssistantContextInput } from "../../../lib/api/n8n";
+import type {
+  SocialPlatform,
+  SocialPostPriority,
+  SocialQueueItem,
+} from "../../../lib/hooks/useSocialPosts";
 import { useSocialPosts } from "../../../lib/hooks/useSocialPosts";
 import AiChatPanel from "../../ai-assistant/components/AiChatPanel";
 import CalendarView from "../components/CalendarView";
@@ -56,6 +61,8 @@ export default function SocialPostsPage() {
   const auth = useAuth();
   const [generatedPrompt, setGeneratedPrompt] = useState("");
   const [copied, setCopied] = useState(false);
+  const [busyPostId, setBusyPostId] = useState<string | null>(null);
+  const [actionFeedback, setActionFeedback] = useState("");
 
   if (!auth?.user || !auth.profile) return null;
 
@@ -105,6 +112,65 @@ export default function SocialPostsPage() {
       window.setTimeout(() => setCopied(false), 1800);
     } catch (error) {
       console.error("COPY PROMPT ERROR:", error);
+    }
+  }
+
+  function buildPostPrompt(item: SocialQueueItem) {
+    return `Create a polished ${item.platform} post for ${item.clientName} under the ${item.campaignName} campaign. Current status is ${item.status}. The target outcome is ${item.aiAngle}. Include one primary version, two hook variants, CTA options, and a fast production checklist.`;
+  }
+
+  async function handleCreatePost(payload: {
+    title: string;
+    platform: SocialPlatform;
+    clientId?: string | null;
+    campaignId?: string | null;
+    priority: SocialPostPriority;
+    estimatedHours: number;
+    scheduledFor: string;
+    aiAngle: string;
+  }) {
+    try {
+      const created = await social.createPost({
+        title: payload.title,
+        platform: payload.platform,
+        clientId: payload.clientId,
+        campaignId: payload.campaignId,
+        priority: payload.priority,
+        estimatedHours: payload.estimatedHours,
+        scheduledFor: payload.scheduledFor,
+        aiAngle: payload.aiAngle,
+        status: "draft",
+      });
+
+      setActionFeedback(`Created draft: ${created.title}`);
+    } catch (error) {
+      setActionFeedback(
+        error instanceof Error
+          ? `Error: ${error.message}`
+          : "Failed to create social post.",
+      );
+    }
+  }
+
+  async function handleAdvanceStatus(item: SocialQueueItem) {
+    try {
+      setBusyPostId(item.id);
+      const updated = await social.advancePostStatus(item.id);
+      if (updated) {
+        setActionFeedback(`Moved \"${updated.title}\" to ${updated.status}.`);
+      }
+    } finally {
+      setBusyPostId(null);
+    }
+  }
+
+  async function handleDeletePost(item: SocialQueueItem) {
+    try {
+      setBusyPostId(item.id);
+      await social.removePost(item.id);
+      setActionFeedback(`Removed post: ${item.title}`);
+    } finally {
+      setBusyPostId(null);
     }
   }
 
@@ -186,6 +252,12 @@ export default function SocialPostsPage() {
             </div>
           ) : null}
 
+          {actionFeedback ? (
+            <div className="mt-4 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
+              {actionFeedback}
+            </div>
+          ) : null}
+
           <section className="mt-6 grid gap-4 md:grid-cols-2 2xl:grid-cols-4">
             <MetricCard
               label="Scheduled this week"
@@ -239,7 +311,16 @@ export default function SocialPostsPage() {
                   </div>
                 ) : social.queue.length > 0 ? (
                   social.queue.map((item) => (
-                    <SocialPostCard key={item.id} item={item} />
+                    <SocialPostCard
+                      key={item.id}
+                      item={item}
+                      busy={busyPostId === item.id || social.savingPost}
+                      onUseAi={(target) =>
+                        setGeneratedPrompt(buildPostPrompt(target))
+                      }
+                      onAdvanceStatus={handleAdvanceStatus}
+                      onDelete={handleDeletePost}
+                    />
                   ))
                 ) : (
                   <div className="rounded-3xl border border-white/10 bg-black/30 p-6 text-sm text-white/45">
@@ -378,6 +459,7 @@ export default function SocialPostsPage() {
                 clients={social.clients}
                 campaigns={social.campaigns}
                 onGenerate={setGeneratedPrompt}
+                onCreatePost={handleCreatePost}
               />
 
               <div className="rounded-3xl border border-white/10 bg-white/5 p-5">

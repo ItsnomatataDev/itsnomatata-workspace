@@ -74,6 +74,12 @@ export default function AIActionLauncher({
           <textarea
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                void handleRun();
+              }
+            }}
             rows={4}
             placeholder={`Describe what you want ${selectedTool.label.toLowerCase()} to do...`}
             className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none placeholder:text-gray-500 focus:border-orange-500"

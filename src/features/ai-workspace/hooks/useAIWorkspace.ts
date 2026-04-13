@@ -6,6 +6,8 @@ import type {
 import {
   askAIWorkspaceAssistant,
   buildDefaultAIWorkspaceData,
+  executeApprovedAction,
+  reviewAIApproval,
   runAIWorkspaceTool,
 } from "../services/aiWorkspaceService";
 import type {
@@ -42,7 +44,11 @@ export function useAIWorkspace({ context, role }: UseAIWorkspaceParams) {
     setState((prev) => ({ ...prev, loading: true, error: null }));
 
     try {
-      const data = await buildDefaultAIWorkspaceData(role);
+      const data = await buildDefaultAIWorkspaceData(
+        role,
+        context.userId,
+        context.organizationId,
+      );
 
       setState((prev) => ({
         ...prev,
@@ -57,10 +63,9 @@ export function useAIWorkspace({ context, role }: UseAIWorkspaceParams) {
       setState((prev) => ({
         ...prev,
         loading: false,
-        error:
-          error instanceof Error
-            ? error.message
-            : "Failed to load AI workspace.",
+        error: error instanceof Error
+          ? error.message
+          : "Failed to load AI workspace.",
       }));
     }
   }, [role]);
@@ -91,14 +96,14 @@ export function useAIWorkspace({ context, role }: UseAIWorkspaceParams) {
       const approvalItem: AIWorkspaceApprovalItem | null =
         output.requiresApproval
           ? {
-              id: output.approvalId || output.id,
-              title: output.title,
-              description: output.content,
-              createdAt: output.createdAt,
-              status: "pending",
-              requestedBy: context.fullName ?? context.userId,
-              toolId: output.toolId ?? null,
-            }
+            id: output.approvalId || output.id,
+            title: output.title,
+            description: output.content,
+            createdAt: output.createdAt,
+            status: "pending",
+            requestedBy: context.fullName ?? context.userId,
+            toolId: output.toolId ?? null,
+          }
           : null;
 
       setState((prev) => ({
@@ -137,10 +142,9 @@ export function useAIWorkspace({ context, role }: UseAIWorkspaceParams) {
         setState((prev) => ({ ...prev, running: false }));
         return output;
       } catch (error) {
-        const message =
-          error instanceof Error
-            ? error.message
-            : "Failed to run AI workspace tool.";
+        const message = error instanceof Error
+          ? error.message
+          : "Failed to run AI workspace tool.";
 
         setState((prev) => ({
           ...prev,
@@ -173,10 +177,9 @@ export function useAIWorkspace({ context, role }: UseAIWorkspaceParams) {
         setState((prev) => ({ ...prev, running: false }));
         return output;
       } catch (error) {
-        const message =
-          error instanceof Error
-            ? error.message
-            : "Failed to ask AI assistant.";
+        const message = error instanceof Error
+          ? error.message
+          : "Failed to ask AI assistant.";
 
         setState((prev) => ({
           ...prev,
@@ -184,6 +187,71 @@ export function useAIWorkspace({ context, role }: UseAIWorkspaceParams) {
           error: message,
         }));
         throw error;
+      }
+    },
+    [addOutput, context, conversationId],
+  );
+
+  const handleApprovalReview = useCallback(
+    async (
+      approvalId: string,
+      status: "approved" | "rejected",
+      reviewNote?: string,
+    ) => {
+      setState((prev) => ({ ...prev, running: true, error: null }));
+
+      try {
+        await reviewAIApproval({
+          approvalId,
+          reviewerId: context.userId,
+          status,
+          reviewNote,
+        });
+
+        // Update local state
+        setState((prev) => ({
+          ...prev,
+          pendingApprovals: prev.pendingApprovals.map((item) =>
+            item.id === approvalId ? { ...item, status } : item
+          ),
+        }));
+
+        // If approved, execute the gated action
+        if (status === "approved") {
+          try {
+            const output = await executeApprovedAction({
+              context,
+              approvalId,
+              conversationId,
+            });
+
+            setConversationId(output.conversationId ?? conversationId);
+            addOutput(output);
+          } catch (execError) {
+            console.warn(
+              "Approved action execution failed:",
+              execError,
+            );
+            setState((prev) => ({
+              ...prev,
+              error: execError instanceof Error
+                ? `Action approved but execution failed: ${execError.message}`
+                : "Action approved but execution failed.",
+            }));
+          }
+        }
+
+        setState((prev) => ({ ...prev, running: false }));
+      } catch (error) {
+        const message = error instanceof Error
+          ? error.message
+          : "Failed to review approval.";
+
+        setState((prev) => ({
+          ...prev,
+          running: false,
+          error: message,
+        }));
       }
     },
     [addOutput, context, conversationId],
@@ -209,5 +277,6 @@ export function useAIWorkspace({ context, role }: UseAIWorkspaceParams) {
     selectTool,
     runTool,
     askAssistant,
+    handleApprovalReview,
   };
 }

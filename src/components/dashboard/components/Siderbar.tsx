@@ -15,6 +15,7 @@ import {
   Bug,
   Activity,
   CalendarDays,
+  CalendarClock,
   Menu,
   X,
   Video,
@@ -45,10 +46,10 @@ const commonLinks: LinkItem[] = [
   { to: "/notifications", label: "Notifications", icon: Bell },
   { to: "/time", label: "Time Tracking", icon: Clock3 },
   { to: "/leave", label: "Leave", icon: CalendarDays },
+  { to: "/roster", label: "Duty Roster", icon: CalendarClock },
   { to: "/chat", label: "Team Chat", icon: MessageSquare },
   { to: "/meetings", label: "Meetings", icon: Video },
   { to: "/ai-workspace", label: "AI Workspace", icon: Sparkles },
-
 ];
 
 function getRoleLinks(
@@ -88,6 +89,10 @@ function getRoleLinks(
     manager: [
       { to: "/approvals", label: "Approvals", icon: ShieldCheck },
       { to: "/campaigns", label: "Campaigns", icon: BriefcaseBusiness },
+      { to: "/assets", label: "Stock", icon: ShieldCheck },
+      { to: "/scan", label: "Scan Asset", icon: ScanLine },
+      { to: "/admin/roster", label: "Manage Roster", icon: CalendarClock },
+      { to: "/admin/leave", label: "Leave Request", icon: CalendarDays },
     ],
     admin: [
       {

@@ -10,11 +10,13 @@ export type AppRole =
   | "media_team"
   | "seo_specialist";
 
+type PublicSignupRole = Exclude<AppRole, "admin">;
+
 type SignUpUserParams = {
   email: string;
   password: string;
   fullName: string;
-  role: AppRole;
+  role: PublicSignupRole;
 };
 
 type SignInUserParams = {
@@ -28,10 +30,63 @@ type OrganizationRow = {
   slug: string;
 };
 
+const SUPER_ADMIN_ALLOWLIST = [
+  "ben@itsnomatata.com",
+  "thando@itsnomatata.com",
+  "tammie@itsnomatata.com",
+] as const;
+
 let authRequestInFlight = false;
 
 function normalizeEmail(email: string) {
   return email.trim().toLowerCase();
+}
+
+function isAppRole(value: unknown): value is AppRole {
+  return (
+    typeof value === "string" &&
+    [
+      "admin",
+      "manager",
+      "it",
+      "social_media",
+      "media_team",
+      "seo_specialist",
+    ].includes(value)
+  );
+}
+
+function isPublicSignupRole(value: unknown): value is PublicSignupRole {
+  return (
+    typeof value === "string" &&
+    [
+      "manager",
+      "it",
+      "social_media",
+      "media_team",
+      "seo_specialist",
+    ].includes(value)
+  );
+}
+
+function isSuperAdminAllowedEmail(email: string) {
+  const normalizedEmail = normalizeEmail(email);
+  return SUPER_ADMIN_ALLOWLIST.includes(
+    normalizedEmail as (typeof SUPER_ADMIN_ALLOWLIST)[number],
+  );
+}
+
+function resolveSignupRole(
+  email: string,
+  requestedRole: PublicSignupRole,
+): AppRole {
+  const normalizedEmail = normalizeEmail(email);
+
+  if (isSuperAdminAllowedEmail(normalizedEmail)) {
+    return "admin";
+  }
+
+  return requestedRole;
 }
 
 async function getOrganizationBySlug(
@@ -56,16 +111,16 @@ export async function signUpUser(params: SignUpUserParams) {
 
   try {
     const email = normalizeEmail(params.email);
-
     const organization = await getOrganizationBySlug(ORGANIZATION_SLUG);
+    const resolvedRole = resolveSignupRole(email, params.role);
 
     const { data, error } = await supabase.auth.signUp({
       email,
       password: params.password,
       options: {
         data: {
-          full_name: params.fullName,
-          role: params.role,
+          full_name: params.fullName.trim(),
+          role: resolvedRole,
           organization_slug: ORGANIZATION_SLUG,
           organization_id: organization?.id ?? null,
         },

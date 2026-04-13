@@ -1,4 +1,7 @@
 import { supabase } from "../../../lib/supabase/client";
+import {
+  sendBulkNotifications,
+} from "../../notifications/services/notificationService";
 import type {
   ChatConversation,
   ChatMessage,
@@ -8,6 +11,189 @@ import type {
 
 const CHAT_BUCKET = "chat-attachments";
 
+async function dispatchChatNotificationsWithFallback(params: {
+  organizationId: string;
+  userIds: string[];
+  type: "chat_message";
+  title: string;
+  message: string;
+  entityType: "chat";
+  entityId: string;
+  actionUrl: string;
+  priority: "medium";
+  metadata: Record<string, unknown>;
+  referenceId: string;
+  referenceType: "chat_conversation";
+}) {
+  try {
+    return await sendBulkNotifications({
+      ...params,
+      sendEmail: true,
+    });
+  } catch (primaryError) {
+    console.error(
+      "CHAT notification primary send failed, trying edge fallback:",
+      primaryError,
+    );
+
+    const { data, error } = await supabase.functions.invoke(
+      "create-notification",
+      {
+        body: {
+          organizationId: params.organizationId,
+          userIds: params.userIds,
+          type: params.type,
+          title: params.title,
+          message: params.message,
+          entityType: params.entityType,
+          entityId: params.entityId,
+          actionUrl: params.actionUrl,
+          priority: params.priority,
+          metadata: params.metadata,
+          referenceId: params.referenceId,
+          referenceType: params.referenceType,
+        },
+      },
+    );
+
+    if (error) {
+      throw error;
+    }
+
+    return data;
+  }
+}
+
+function buildMessagePreview(params: {
+  body?: string | null;
+  messageType?: string | null;
+  attachmentName?: string | null;
+}) {
+  const body = params.body?.trim() ?? "";
+  const type = params.messageType ?? "text";
+
+  if (type === "image") {
+    return params.attachmentName
+      ? `📷 Image: ${params.attachmentName}`
+      : "📷 Image";
+  }
+
+  if (type === "audio") {
+    return "🎤 Voice note";
+  }
+
+  if (type === "file") {
+    return params.attachmentName
+      ? `📎 File: ${params.attachmentName}`
+      : "📎 File";
+  }
+
+  if (type === "system") {
+    return body || "System message";
+  }
+
+  return body || "New message";
+}
+
+async function getConversationMeta(conversationId: string) {
+  const { data, error } = await supabase
+    .from("chat_conversations")
+    .select("id, title, type, organization_id")
+    .eq("id", conversationId)
+    .single();
+
+  if (error) throw error;
+
+  return data as {
+    id: string;
+    title: string | null;
+    type: "direct" | "group" | "department" | "announcement";
+    organization_id: string;
+  };
+}
+
+async function getConversationRecipientIds(
+  conversationId: string,
+  senderId: string,
+) {
+  const { data, error } = await supabase
+    .from("chat_conversation_members")
+    .select("user_id")
+    .eq("conversation_id", conversationId);
+
+  if (error) throw error;
+
+  return (data ?? [])
+    .map((row) => row.user_id)
+    .filter((userId): userId is string =>
+      Boolean(userId && userId !== senderId)
+    );
+}
+
+async function notifyConversationMembers(params: {
+  conversationId: string;
+  senderId: string;
+  senderName: string;
+  body?: string | null;
+  messageType?: string | null;
+  attachmentName?: string | null;
+}) {
+  try {
+    const [conversation, recipientIds] = await Promise.all([
+      getConversationMeta(params.conversationId),
+      getConversationRecipientIds(params.conversationId, params.senderId),
+    ]);
+
+    console.log("CHAT conversation meta:", conversation);
+    console.log("CHAT recipient IDs:", recipientIds);
+
+    if (recipientIds.length === 0) {
+      console.log("CHAT notification skipped: no recipients found");
+      return;
+    }
+
+    const preview = buildMessagePreview({
+      body: params.body,
+      messageType: params.messageType,
+      attachmentName: params.attachmentName,
+    });
+
+    const title = conversation.type === "direct"
+      ? `${params.senderName} sent you a message`
+      : `${params.senderName} in ${conversation.title || "Group chat"}`;
+
+    const payload = {
+      organizationId: conversation.organization_id,
+      userIds: recipientIds,
+      type: "chat_message" as const,
+      title,
+      message: preview,
+      entityType: "chat" as const,
+      entityId: conversation.id,
+      actionUrl: "/chat",
+      priority: "medium" as const,
+      metadata: {
+        conversationId: conversation.id,
+        conversationType: conversation.type,
+        conversationTitle: conversation.title,
+        senderId: params.senderId,
+        senderName: params.senderName,
+        messageType: params.messageType ?? "text",
+      },
+      referenceId: conversation.id,
+      referenceType: "chat_conversation" as const,
+      sendEmail: true,
+    };
+
+    console.log("CHAT notification payload:", payload);
+
+    const result = await dispatchChatNotificationsWithFallback(payload);
+
+    console.log("CHAT notification success:", result);
+  } catch (error) {
+    console.error("CHAT NOTIFICATION ERROR:", error);
+  }
+}
 export async function getConversations(
   currentUserId?: string,
 ): Promise<ChatConversation[]> {
@@ -34,6 +220,7 @@ export async function getConversations(
         id,
         sender_id,
         body,
+        message_type,
         created_at
       )
     `)
@@ -48,6 +235,7 @@ export async function getConversations(
         id: string;
         sender_id: string;
         body: string | null;
+        message_type?: string | null;
         created_at: string;
       }>;
     }
@@ -98,19 +286,31 @@ export async function getConversations(
       }
     }
 
-    const displayName =
-      conversation.type === "direct"
-        ? otherMember?.profile?.full_name ||
-          otherMember?.profile?.email ||
-          conversation.title ||
-          "Direct conversation"
-        : conversation.title || "Untitled conversation";
+    const displayName = conversation.type === "direct"
+      ? otherMember?.profile?.full_name ||
+        otherMember?.profile?.email ||
+        conversation.title ||
+        "Direct conversation"
+      : conversation.title || "Untitled conversation";
 
     return {
       ...conversation,
       display_name: displayName,
       unread_count: unreadCount,
-      last_message: latestMessage,
+      last_message: latestMessage
+        ? {
+          id: latestMessage.id,
+          sender_id: latestMessage.sender_id,
+          body: latestMessage.message_type === "image"
+            ? "📷 Image"
+            : latestMessage.message_type === "audio"
+            ? "🎤 Voice note"
+            : latestMessage.message_type === "file"
+            ? "📎 File"
+            : latestMessage.body,
+          created_at: latestMessage.created_at,
+        }
+        : null,
     };
   });
 }
@@ -142,7 +342,8 @@ export async function uploadChatAttachment(params: {
   userId: string;
 }) {
   const extension = params.file.name.split(".").pop() || "bin";
-  const filePath = `${params.conversationId}/${params.userId}/${Date.now()}.${extension}`;
+  const filePath =
+    `${params.conversationId}/${params.userId}/${Date.now()}.${extension}`;
 
   const { error: uploadError } = await supabase.storage
     .from(CHAT_BUCKET)
@@ -181,14 +382,9 @@ export async function sendMessage(
     attachment_name: params.attachmentName ?? null,
   };
 
-  const { error: insertError } = await supabase
+  const { data, error } = await supabase
     .from("chat_messages")
-    .insert(insertPayload);
-
-  if (insertError) throw insertError;
-
-  const { data, error: fetchError } = await supabase
-    .from("chat_messages")
+    .insert(insertPayload)
     .select(`
       *,
       sender:profiles!chat_messages_sender_id_fkey (
@@ -198,14 +394,28 @@ export async function sendMessage(
         last_seen_at
       )
     `)
-    .eq("conversation_id", params.conversationId)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .single();
 
-  if (fetchError) throw fetchError;
+  if (error) throw error;
 
-  return (data as ChatMessage | null) ?? null;
+  const message = data as ChatMessage;
+
+  if (messageType !== "system") {
+    const senderName = message.sender?.full_name?.trim() ||
+      message.sender?.email?.trim() ||
+      "Someone";
+
+    void notifyConversationMembers({
+      conversationId: params.conversationId,
+      senderId: params.userId,
+      senderName,
+      body,
+      messageType,
+      attachmentName: params.attachmentName ?? null,
+    });
+  }
+
+  return message;
 }
 
 export async function markConversationAsRead(params: {
@@ -293,55 +503,142 @@ export async function findOrCreateDirectConversation(params: {
 
   const tempTitle = `direct:${currentUserId}:${otherUserId}:${Date.now()}`;
 
-  const { error: createConversationError } = await supabase
-    .from("chat_conversations")
-    .insert({
-      organization_id: organizationId,
-      title: tempTitle,
-      type: "direct",
-      created_by: currentUserId,
-    });
-
-  if (createConversationError) {
-    throw createConversationError;
-  }
-
-  const { data: newConversation, error: fetchConversationError } =
+  const { data: createdConversation, error: createConversationError } =
     await supabase
       .from("chat_conversations")
+      .insert({
+        organization_id: organizationId,
+        title: tempTitle,
+        type: "direct",
+        created_by: currentUserId,
+      })
       .select("*")
-      .eq("organization_id", organizationId)
-      .eq("type", "direct")
-      .eq("created_by", currentUserId)
-      .eq("title", tempTitle)
-      .maybeSingle();
+      .single();
 
-  if (fetchConversationError) {
-    throw fetchConversationError;
-  }
-
-  if (!newConversation) {
-    throw new Error("Direct conversation was created but could not be fetched.");
-  }
+  if (createConversationError) throw createConversationError;
 
   const { error: memberInsertError } = await supabase
     .from("chat_conversation_members")
     .insert([
       {
-        conversation_id: newConversation.id,
+        conversation_id: createdConversation.id,
         user_id: currentUserId,
         role: "owner",
       },
       {
-        conversation_id: newConversation.id,
+        conversation_id: createdConversation.id,
         user_id: otherUserId,
         role: "member",
       },
     ]);
 
-  if (memberInsertError) {
-    throw memberInsertError;
+  if (memberInsertError) throw memberInsertError;
+
+  return createdConversation as ChatConversation;
+}
+
+export async function createGroupConversation(params: {
+  currentUserId: string;
+  organizationId: string;
+  title: string;
+  memberIds: string[];
+}): Promise<ChatConversation> {
+  const cleanTitle = params.title.trim();
+  const uniqueMemberIds = Array.from(
+    new Set([params.currentUserId, ...params.memberIds]),
+  );
+
+  if (!cleanTitle) {
+    throw new Error("Group title is required.");
   }
 
-  return newConversation as ChatConversation;
+  if (uniqueMemberIds.length < 3) {
+    throw new Error(
+      "A group chat must have at least 3 participants including you.",
+    );
+  }
+
+  const { data: createdConversation, error: createConversationError } =
+    await supabase
+      .from("chat_conversations")
+      .insert({
+        organization_id: params.organizationId,
+        title: cleanTitle,
+        type: "group",
+        created_by: params.currentUserId,
+      })
+      .select("*")
+      .single();
+
+  if (createConversationError) throw createConversationError;
+
+  const memberRows = uniqueMemberIds.map((userId) => ({
+    conversation_id: createdConversation.id,
+    user_id: userId,
+    role: userId === params.currentUserId ? "owner" : "member",
+  }));
+
+  const { error: memberInsertError } = await supabase
+    .from("chat_conversation_members")
+    .insert(memberRows);
+
+  if (memberInsertError) throw memberInsertError;
+
+  const recipientIds = uniqueMemberIds.filter(
+    (userId) => userId !== params.currentUserId,
+  );
+
+  if (recipientIds.length > 0) {
+    void sendBulkNotifications({
+      organizationId: params.organizationId,
+      userIds: recipientIds,
+      type: "chat_message",
+      title: "You were added to a group chat",
+      message: `You were added to "${cleanTitle}".`,
+      entityType: "chat",
+      entityId: createdConversation.id,
+      actionUrl: "/chat",
+      priority: "medium",
+      metadata: {
+        conversationId: createdConversation.id,
+        conversationType: "group",
+        conversationTitle: cleanTitle,
+      },
+      referenceId: createdConversation.id,
+      referenceType: "chat_conversation",
+      sendEmail: true,
+    }).catch(async (error) => {
+      console.error("GROUP CHAT NOTIFICATION ERROR:", error);
+
+      try {
+        await supabase.functions.invoke("create-notification", {
+          body: {
+            organizationId: params.organizationId,
+            userIds: recipientIds,
+            type: "chat_message",
+            title: "You were added to a group chat",
+            message: `You were added to "${cleanTitle}".`,
+            entityType: "chat",
+            entityId: createdConversation.id,
+            actionUrl: "/chat",
+            priority: "medium",
+            metadata: {
+              conversationId: createdConversation.id,
+              conversationType: "group",
+              conversationTitle: cleanTitle,
+            },
+            referenceId: createdConversation.id,
+            referenceType: "chat_conversation",
+          },
+        });
+      } catch (fallbackError) {
+        console.error(
+          "GROUP CHAT NOTIFICATION EDGE FALLBACK ERROR:",
+          fallbackError,
+        );
+      }
+    });
+  }
+
+  return createdConversation as ChatConversation;
 }

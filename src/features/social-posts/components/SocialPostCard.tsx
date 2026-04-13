@@ -1,4 +1,4 @@
-import { Clock3 } from "lucide-react";
+import { ArrowRight, Clock3, Trash2, Wand2 } from "lucide-react";
 import type { SocialQueueItem } from "../../../lib/hooks/useSocialPosts";
 import PlatformBadge from "./PlatformBadge";
 
@@ -16,8 +16,21 @@ const PRIORITY_STYLES: Record<SocialQueueItem["priority"], string> = {
   high: "text-red-300",
 };
 
-export default function SocialPostCard({ item }: { item: SocialQueueItem }) {
+export default function SocialPostCard({
+  item,
+  busy = false,
+  onAdvanceStatus,
+  onUseAi,
+  onDelete,
+}: {
+  item: SocialQueueItem;
+  busy?: boolean;
+  onAdvanceStatus?: (item: SocialQueueItem) => void;
+  onUseAi?: (item: SocialQueueItem) => void;
+  onDelete?: (item: SocialQueueItem) => void;
+}) {
   const progress = Math.min((item.spentHours / item.estimatedHours) * 100, 100);
+  const isFinal = item.status === "published";
 
   return (
     <article className="rounded-3xl border border-white/10 bg-black/35 p-5">
@@ -85,6 +98,44 @@ export default function SocialPostCard({ item }: { item: SocialQueueItem }) {
       <div className="mt-4 flex items-start gap-3 rounded-2xl border border-orange-500/15 bg-orange-500/8 px-3 py-3 text-sm text-orange-100/90">
         <Clock3 size={16} className="mt-0.5 shrink-0 text-orange-300" />
         <p>{item.aiAngle}</p>
+      </div>
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        {onUseAi ? (
+          <button
+            type="button"
+            onClick={() => onUseAi(item)}
+            disabled={busy}
+            className="inline-flex items-center gap-2 rounded-xl border border-orange-500/20 bg-orange-500/10 px-3 py-2 text-xs font-semibold text-orange-100 transition hover:bg-orange-500/15 disabled:opacity-50"
+          >
+            <Wand2 size={14} />
+            AI prompt
+          </button>
+        ) : null}
+
+        {onAdvanceStatus && item.source === "supabase" ? (
+          <button
+            type="button"
+            onClick={() => onAdvanceStatus(item)}
+            disabled={busy || isFinal}
+            className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-black/35 px-3 py-2 text-xs font-semibold text-white transition hover:border-orange-500/30 disabled:opacity-50"
+          >
+            <ArrowRight size={14} />
+            {isFinal ? "Published" : "Advance stage"}
+          </button>
+        ) : null}
+
+        {onDelete && item.source === "supabase" ? (
+          <button
+            type="button"
+            onClick={() => onDelete(item)}
+            disabled={busy}
+            className="inline-flex items-center gap-2 rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-200 transition hover:bg-red-500/15 disabled:opacity-50"
+          >
+            <Trash2 size={14} />
+            Remove
+          </button>
+        ) : null}
       </div>
     </article>
   );

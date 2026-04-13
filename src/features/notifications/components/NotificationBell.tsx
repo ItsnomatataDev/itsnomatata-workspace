@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { Bell } from "lucide-react";
 import { Link } from "react-router-dom";
-import { useAuth } from "../../../app/providers/AuthProvider";
 import { useNotifications } from "../../../lib/hooks/useNotifications";
 
 function timeAgo(dateString: string) {
@@ -21,16 +20,15 @@ function timeAgo(dateString: string) {
 
 export default function NotificationBell() {
   const [open, setOpen] = useState(false);
-  const auth = useAuth();
-  const userId = auth?.user?.id ?? null;
 
   const {
     notifications,
     unreadCount,
     loading,
+    actionLoading,
     markOneAsRead,
     markEverythingAsRead,
-  } = useNotifications(userId);
+  } = useNotifications();
 
   const latest = notifications.slice(0, 6);
 
@@ -39,18 +37,18 @@ export default function NotificationBell() {
       <button
         type="button"
         onClick={() => setOpen((prev) => !prev)}
-        className="relative rounded-2xl border border-white/10 bg-white/5 p-3 text-white hover:bg-white/10"
+        className="relative border border-white/10 bg-white/5 p-3 text-white transition hover:bg-white/10"
       >
         <Bell size={18} />
         {unreadCount > 0 ? (
-          <span className="absolute -right-1 -top-1 flex h-5 min-w-5s-center justify-center rounded-full bg-orange-500 px-1 text-[10px] font-bold text-black">
+          <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center bg-orange-500 px-1 text-[10px] font-bold text-black">
             {unreadCount > 99 ? "99+" : unreadCount}
           </span>
         ) : null}
       </button>
 
       {open ? (
-        <div className="absolute left-19 z-50 mt-15 w-90 overflow-hidden rounded-2xl border border-white/10 bg-zinc-950 shadow-2xl">
+        <div className="absolute right z-50 mt-3 w-90 overflow-hidden border border-white/10 bg-zinc-950 shadow-2xl">
           <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
             <div>
               <p className="text-sm font-semibold text-white">Notifications</p>
@@ -61,8 +59,9 @@ export default function NotificationBell() {
 
             <button
               type="button"
+              disabled={actionLoading || unreadCount === 0}
               onClick={() => void markEverythingAsRead()}
-              className="text-xs font-semibold text-orange-400 hover:text-orange-300"
+              className="text-xs font-semibold text-orange-400 hover:text-orange-300 disabled:opacity-50"
             >
               Mark all read
             </button>
@@ -86,7 +85,7 @@ export default function NotificationBell() {
                     void markOneAsRead(item.id);
                     setOpen(false);
                   }}
-                  className="block border-b border-white/5 px-4 py-3 hover:bg-white/5"
+                  className="block border-b border-white/5 px-4 py-3 transition hover:bg-white/5"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
@@ -97,18 +96,20 @@ export default function NotificationBell() {
                       >
                         {item.title}
                       </p>
+
                       {item.message ? (
                         <p className="mt-1 line-clamp-2 text-xs text-white/60">
                           {item.message}
                         </p>
                       ) : null}
+
                       <p className="mt-2 text-[11px] text-white/40">
                         {timeAgo(item.created_at)}
                       </p>
                     </div>
 
                     {!item.is_read ? (
-                      <span className="mt-1 h-2.5 w-2.5 rounded-full bg-orange-500" />
+                      <span className="mt-1 h-2.5 w-2.5 shrink-0 bg-orange-500" />
                     ) : null}
                   </div>
                 </Link>

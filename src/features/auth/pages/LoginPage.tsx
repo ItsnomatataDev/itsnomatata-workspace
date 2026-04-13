@@ -20,11 +20,14 @@ export default function LoginPage() {
     try {
       setBusy(true);
 
-      const result = await signInUser({ email, password });
+      const result = await signInUser({
+        email: email.trim(),
+        password,
+      });
 
       if (result?.workspace?.organizationFound === false) {
         setWarning(
-          'Login succeeded, but the organization with slug "its-nomatata" was not found. Ask admin to create it in Supabase.',
+          'Login succeeded, but the organization with slug "its-nomatata" was not found. Ask an administrator to create it in Supabase.',
         );
       }
 
@@ -56,21 +59,23 @@ export default function LoginPage() {
       <div className="grid min-h-screen lg:grid-cols-2">
         <div className="hidden lg:flex flex-col justify-between border-r border-orange-500/20 bg-linear-to-br from-black via-black to-orange-950/20 p-10">
           <div>
-            <div className="inline-flex items-center rounded-full border border-orange-500/40 px-4 py-2 text-sm text-orange-400">
+            <div className="inline-flex items-center border border-orange-500/40 px-4 py-2 text-sm text-orange-400">
               ITsNomatata Workspace
             </div>
+
             <h1 className="mt-8 max-w-md text-5xl font-bold leading-tight">
               Welcome back to your workspace.
             </h1>
+
             <p className="mt-5 max-w-lg text-base text-white/70">
-              Login to continue managing clients, campaigns, tasks, reports, and
-              assets.
+              Login to continue managing clients, campaigns, tasks, reports,
+              assets, and collaboration.
             </p>
           </div>
         </div>
 
         <div className="flex items-center justify-center p-6">
-          <div className="w-full max-w-md rounded-3xl border border-orange-500/20 bg-white/5 p-8 shadow-2xl">
+          <div className="w-full max-w-md border border-orange-500/20 bg-white/5 p-8 shadow-2xl">
             <div className="mb-8">
               <h2 className="text-3xl font-bold text-white">Login</h2>
               <p className="mt-2 text-sm text-white/60">
@@ -79,13 +84,13 @@ export default function LoginPage() {
             </div>
 
             {error ? (
-              <div className="mb-4 rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+              <div className="mb-4 border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
                 {error}
               </div>
             ) : null}
 
             {warning ? (
-              <div className="mb-4 rounded-2xl border border-yellow-500/30 bg-yellow-500/10 px-4 py-3 text-sm text-yellow-300">
+              <div className="mb-4 border border-yellow-500/30 bg-yellow-500/10 px-4 py-3 text-sm text-yellow-300">
                 {warning}
               </div>
             ) : null}
@@ -96,7 +101,7 @@ export default function LoginPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="Email"
-                className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 text-white outline-none focus:border-orange-500"
+                className="w-full border border-white/10 bg-black px-4 py-3 text-white outline-none transition focus:border-orange-500"
                 required
               />
 
@@ -105,14 +110,14 @@ export default function LoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Password"
-                className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 text-white outline-none focus:border-orange-500"
+                className="w-full border border-white/10 bg-black px-4 py-3 text-white outline-none transition focus:border-orange-500"
                 required
               />
 
               <button
                 type="submit"
                 disabled={busy}
-                className="w-full rounded-2xl bg-orange-500 px-4 py-3 font-semibold text-black transition hover:bg-orange-400 disabled:opacity-60"
+                className="w-full bg-orange-500 px-4 py-3 font-semibold text-black transition hover:bg-orange-400 disabled:opacity-60"
               >
                 {busy ? "Logging in..." : "Login"}
               </button>
@@ -130,7 +135,7 @@ export default function LoginPage() {
               type="button"
               onClick={handleGoogleLogin}
               disabled={googleBusy}
-              className="w-full rounded-2xl border border-white/15 bg-white px-4 py-3 font-semibold text-black transition hover:bg-orange-50 disabled:opacity-60"
+              className="w-full border border-white/15 bg-white px-4 py-3 font-semibold text-black transition hover:bg-orange-50 disabled:opacity-60"
             >
               {googleBusy ? "Redirecting..." : "Continue with Google"}
             </button>

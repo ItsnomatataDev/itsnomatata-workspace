@@ -1,4 +1,8 @@
 import { supabase } from "../../../lib/supabase/client";
+import {
+  isAppRole,
+  isSuperAdminAllowedEmail,
+} from "../../../lib/constants/roles";
 
 export type AdminDashboardStats = {
   totalEmployees: number;
@@ -606,15 +610,37 @@ export async function getEmployeeOverview(
   });
 }
 
+
 export async function updateEmployeeRole(params: {
   organizationId: string;
   userId: string;
   role: string;
 }) {
+  const normalizedRole = params.role.trim().toLowerCase();
+
+  if (!isAppRole(normalizedRole)) {
+    throw new Error("Invalid role selected.");
+  }
+
+  const { data: targetUser, error: targetUserError } = await supabase
+    .from("profiles")
+    .select("id, email, organization_id")
+    .eq("id", params.userId)
+    .eq("organization_id", params.organizationId)
+    .single();
+
+  if (targetUserError) throw targetUserError;
+
+  if (normalizedRole === "admin" && !isSuperAdminAllowedEmail(targetUser.email)) {
+    throw new Error(
+      "This email is not allowed to receive the Super Admin role.",
+    );
+  }
+
   const { error: profileError } = await supabase
     .from("profiles")
     .update({
-      primary_role: params.role,
+      primary_role: normalizedRole,
     })
     .eq("id", params.userId)
     .eq("organization_id", params.organizationId);
@@ -634,7 +660,7 @@ export async function updateEmployeeRole(params: {
     .insert({
       organization_id: params.organizationId,
       user_id: params.userId,
-      role: params.role,
+      role: normalizedRole,
       status: "active",
     });
 
@@ -675,6 +701,17 @@ export async function inviteEmployeeToOrganization(params: {
   role: string;
 }) {
   const normalizedEmail = params.email.trim().toLowerCase();
+  const normalizedRole = params.role.trim().toLowerCase();
+
+  if (!isAppRole(normalizedRole)) {
+    throw new Error("Invalid role selected.");
+  }
+
+  if (normalizedRole === "admin" && !isSuperAdminAllowedEmail(normalizedEmail)) {
+    throw new Error(
+      "This email is not allowed to be invited as Super Admin.",
+    );
+  }
 
   const { data: matchingProfiles, error: profileError } = await supabase
     .from("profiles")
@@ -701,7 +738,7 @@ export async function inviteEmployeeToOrganization(params: {
     .from("profiles")
     .update({
       full_name: existingProfile.full_name || params.fullName,
-      primary_role: params.role,
+      primary_role: normalizedRole,
       organization_id: params.organizationId,
       is_active: true,
     })
@@ -715,7 +752,7 @@ export async function inviteEmployeeToOrganization(params: {
       {
         organization_id: params.organizationId,
         user_id: existingProfile.id,
-        role: params.role,
+        role: normalizedRole,
         status: "active",
       },
       {

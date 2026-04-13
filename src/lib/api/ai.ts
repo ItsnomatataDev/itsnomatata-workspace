@@ -97,7 +97,6 @@ export interface GenerateDashboardSummaryInput {
 const AI_WEBHOOK_URL = import.meta.env.VITE_N8N_AI_WEBHOOK_URL as
   | string
   | undefined;
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string | undefined;
 
 function getAIWebhookUrl() {
   if (!AI_WEBHOOK_URL) {
@@ -140,33 +139,11 @@ function isAISummaryResponse(value: unknown): value is AISummaryResponse {
   );
 }
 
-function getSupabaseProjectRef() {
-  if (!SUPABASE_URL) return null;
-
-  try {
-    return new URL(SUPABASE_URL).hostname.split(".")[0] ?? null;
-  } catch {
-    return null;
-  }
-}
-
-function buildRequestMetadata(
-  context?: AssistantContextInput,
-  metadata?: Record<string, unknown>,
-) {
-  return {
-    ...(metadata ?? {}),
-    supabase: {
-      url: SUPABASE_URL ?? null,
-      projectRef: getSupabaseProjectRef(),
-      organizationId: context?.organizationId ?? null,
-      userId: context?.userId ?? null,
-      fullName: context?.fullName ?? null,
-      email: context?.email ?? null,
-      role: context?.role ?? null,
-      department: context?.department ?? null,
-    },
-  };
+function extractTextFromHtml(value: string): string {
+  return value
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function normalizeAssistantResponse(value: unknown): AssistantResponse {
@@ -190,7 +167,10 @@ function normalizeAssistantResponse(value: unknown): AssistantResponse {
     ? (value.type as AssistantResponse["type"])
     : "text";
 
-  const message = typeof value.message === "string"
+  // n8n chatTrigger returns { output: "..." }
+  const message = typeof value.output === "string"
+    ? value.output
+    : typeof value.message === "string"
     ? value.message
     : typeof value.summary === "string"
     ? value.summary
@@ -261,8 +241,13 @@ function getSuggestionsFromResponse(response: AssistantResponse): string[] {
   ];
 }
 
-async function postToAI<TPayload>(payload: TPayload): Promise<unknown> {
+async function postToAI<TPayload extends Record<string, unknown>>(
+  payload: TPayload,
+): Promise<unknown> {
   let response: Response;
+
+  // n8n chatTrigger requires action: "sendMessage"
+  const body = { action: "sendMessage", ...payload };
 
   try {
     response = await fetch(getAIRequestUrl(), {
@@ -270,7 +255,7 @@ async function postToAI<TPayload>(payload: TPayload): Promise<unknown> {
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(body),
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to fetch";
@@ -286,18 +271,29 @@ async function postToAI<TPayload>(payload: TPayload): Promise<unknown> {
 
   if (!response.ok) {
     const errorText = await response.text();
+    const normalizedErrorText = /<html|<!doctype/i.test(errorText)
+      ? extractTextFromHtml(errorText)
+      : errorText;
 
     if (
       response.status === 404 &&
-      /not registered|webhook/i.test(errorText)
+      /not registered|webhook/i.test(normalizedErrorText)
     ) {
       throw new Error(
         "The n8n webhook is not active yet. Activate the workflow or use its test URL first.",
       );
     }
 
+    if (response.status >= 500) {
+      throw new Error(
+        normalizedErrorText ||
+          "The AI service returned an internal server error. Check your n8n workflow execution logs and webhook URL.",
+      );
+    }
+
     throw new Error(
-      errorText || `AI request failed with status ${response.status}.`,
+      normalizedErrorText ||
+        `AI request failed with status ${response.status}.`,
     );
   }
 
@@ -331,27 +327,75 @@ export async function requestRoleSummary(
     timezone: "Africa/Harare",
   });
 
-  const data = await postToAI({
-    route: "role_summary",
-    ...payload,
-    context: {
-      ...(payload.context ?? {}),
-      ...context,
-    },
-    metadata: buildRequestMetadata(context, payload.metadata),
-  });
+  const chatInput = buildChatInput(
+    payload.prompt ??
+      "Generate a concise role-based summary for my dashboard. Include highlights and recommended actions.",
+    context,
+  );
+  const sessionId = payload.userId;
 
-  if (!isAISummaryResponse(data)) {
-    throw new Error(
-      "AI response format is invalid. Check your n8n webhook response shape.",
+  const data = await postToAI({ chatInput, sessionId });
+
+  if (isAISummaryResponse(data)) {
+    return data;
+  }
+
+  // Adapt chatTrigger text-only response into AISummaryResponse shape
+  const message = isRecord(data) &&
+      typeof (data as Record<string, unknown>).output === "string"
+    ? (data as Record<string, unknown>).output as string
+    : isRecord(data) &&
+        typeof (data as Record<string, unknown>).message === "string"
+    ? (data as Record<string, unknown>).message as string
+    : "Dashboard summary is not available right now.";
+
+  return {
+    success: true,
+    title: "Dashboard Summary",
+    summary: message,
+    highlights: [],
+    recommendedActions: [],
+  };
+}
+
+function buildChatInput(
+  message: string,
+  context?: AssistantContextInput,
+  extra?: Record<string, unknown>,
+): string {
+  const parts: string[] = [message];
+
+  if (context) {
+    const contextLines: string[] = [];
+    if (context.role) contextLines.push(`Role: ${context.role}`);
+    if (context.department) {
+      contextLines.push(`Department: ${context.department}`);
+    }
+    if (context.currentModule) {
+      contextLines.push(`Module: ${context.currentModule}`);
+    }
+    if (context.fullName) contextLines.push(`User: ${context.fullName}`);
+    if (contextLines.length > 0) {
+      parts.push(`\n[Context]\n${contextLines.join("\n")}`);
+    }
+  }
+
+  if (extra) {
+    const extraEntries = Object.entries(extra).filter(
+      ([, v]) => v !== undefined && v !== null && v !== "",
     );
+    if (extraEntries.length > 0) {
+      parts.push(
+        `\n[Details]\n${
+          extraEntries.map(([k, v]) =>
+            `${k}: ${typeof v === "string" ? v : JSON.stringify(v)}`
+          ).join("\n")
+        }`,
+      );
+    }
   }
 
-  if (!data.success) {
-    throw new Error("AI request was not successful.");
-  }
-
-  return data;
+  return parts.join("\n");
 }
 
 export async function askAssistant(
@@ -359,11 +403,12 @@ export async function askAssistant(
 ): Promise<AssistantResponse> {
   const context = buildAssistantContext(payload.context);
 
+  const chatInput = buildChatInput(payload.message, context);
+  const sessionId = payload.conversationId ?? context.userId ?? undefined;
+
   const data = await postToAI({
-    route: "ask_assistant",
-    ...payload,
-    context,
-    metadata: buildRequestMetadata(context, payload.metadata),
+    chatInput,
+    sessionId,
   });
 
   return normalizeAssistantResponse(data);
@@ -374,11 +419,23 @@ export async function runAIAction(
 ): Promise<AssistantResponse> {
   const context = buildAssistantContext(payload.context);
 
+  const actionLabel = payload.action.label ?? payload.action.actionId;
+  const prompt = typeof payload.action.payload?.prompt === "string"
+    ? payload.action.payload.prompt
+    : "";
+  const message = prompt
+    ? `[Action: ${actionLabel}]\n${prompt}`
+    : `Run action: ${actionLabel}`;
+
+  const chatInput = buildChatInput(message, context, {
+    actionId: payload.action.actionId,
+    category: payload.action.payload?.category,
+  });
+  const sessionId = payload.conversationId ?? context.userId ?? undefined;
+
   const data = await postToAI({
-    route: "run_ai_action",
-    ...payload,
-    context,
-    metadata: buildRequestMetadata(context, payload.metadata),
+    chatInput,
+    sessionId,
   });
 
   return normalizeAssistantResponse(data);
@@ -389,17 +446,19 @@ export async function analyzeDocument(
 ): Promise<AssistantResponse> {
   const context = buildAssistantContext(payload.context);
 
-  const data = await postToAI({
-    route: "analyze_document",
-    message: payload.prompt,
+  const attachmentNames = payload.attachments
+    .map((a) => a.name)
+    .filter(Boolean)
+    .join(", ");
+  const chatInput = buildChatInput(
+    `[Document Analysis]\n${payload.prompt}${
+      attachmentNames ? `\nFiles: ${attachmentNames}` : ""
+    }`,
     context,
-    attachments: payload.attachments,
-    conversationId: payload.conversationId ?? null,
-    metadata: buildRequestMetadata(context, {
-      source: "document_analysis",
-      ...(payload.metadata ?? {}),
-    }),
-  });
+  );
+  const sessionId = payload.conversationId ?? context.userId ?? undefined;
+
+  const data = await postToAI({ chatInput, sessionId });
 
   return normalizeAssistantResponse(data);
 }

@@ -147,6 +147,12 @@ export default function AiPromptBox({
           <textarea
             value={text}
             onChange={(event) => setText(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                void submit();
+              }
+            }}
             placeholder={placeholder}
             disabled={isDisabled}
             rows={4}

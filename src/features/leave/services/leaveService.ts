@@ -84,7 +84,8 @@ export async function createLeaveRequest(params: {
 
   if (availability.overlappingApprovedLeaves.length > 0) {
     const firstOverlap = availability.overlappingApprovedLeaves[0];
-    const overlapName = firstOverlap?.requester_name ||
+    const overlapName =
+      firstOverlap?.requester_name ||
       firstOverlap?.requester_email ||
       "another employee";
     const officeLabel = params.requestDepartment || "the selected office";
@@ -102,7 +103,7 @@ export async function createLeaveRequest(params: {
       leave_type_id: params.leaveTypeId ?? null,
       start_date: params.startDate,
       end_date: params.endDate,
-      reason: params.reason ?? "",
+      reason: params.reason?.trim() || "",
       status: "pending",
     })
     .select(
@@ -114,87 +115,96 @@ export async function createLeaveRequest(params: {
 
   const leaveRequest = data as MyLeaveRequestRow;
 
-  const [
-    { data: admins, error: adminsError },
-    { data: requester, error: requesterError },
-    { data: leaveType, error: leaveTypeError },
-  ] = await Promise.all([
-    supabase
-      .from("profiles")
-      .select("id, full_name, email, organization_id, primary_role")
-      .eq("organization_id", params.organizationId)
-      .eq("primary_role", "admin"),
-    supabase
-      .from("profiles")
-      .select("full_name, email, organization_id, primary_role")
-      .eq("id", params.userId)
-      .maybeSingle(),
-    params.leaveTypeId
-      ? supabase
-        .from("leave_types")
-        .select("name")
-        .eq("id", params.leaveTypeId)
-        .maybeSingle()
-      : Promise.resolve({ data: null, error: null }),
-  ]);
+  try {
+    const [
+      { data: adminsAndManagers, error: recipientsError },
+      { data: requester, error: requesterError },
+      { data: leaveType, error: leaveTypeError },
+    ] = await Promise.all([
+      supabase
+        .from("profiles")
+        .select("id, full_name, email, organization_id, primary_role")
+        .eq("organization_id", params.organizationId)
+        .in("primary_role", ["admin", "manager"]),
+      supabase
+        .from("profiles")
+        .select("full_name, email, organization_id, primary_role")
+        .eq("id", params.userId)
+        .maybeSingle(),
+      params.leaveTypeId
+        ? supabase
+            .from("leave_types")
+            .select("name")
+            .eq("id", params.leaveTypeId)
+            .maybeSingle()
+        : Promise.resolve({ data: null, error: null }),
+    ]);
 
-  if (adminsError) {
+    if (recipientsError) {
+      console.error(
+        "FETCH LEAVE NOTIFICATION RECIPIENTS ERROR:",
+        recipientsError,
+      );
+      return leaveRequest;
+    }
+
+    if (requesterError) {
+      console.error(
+        "FETCH REQUESTER FOR LEAVE REQUEST NOTIFICATION ERROR:",
+        requesterError,
+      );
+      return leaveRequest;
+    }
+
+    if (leaveTypeError) {
+      console.error(
+        "FETCH LEAVE TYPE FOR LEAVE REQUEST NOTIFICATION ERROR:",
+        leaveTypeError,
+      );
+      return leaveRequest;
+    }
+
+    if (!adminsAndManagers || adminsAndManagers.length === 0) {
+      console.warn(
+        "No admin or manager profiles were found for leave request notifications.",
+      );
+      return leaveRequest;
+    }
+
+    const requesterName = requester?.full_name?.trim() || "Unknown user";
+    const requesterEmail = requester?.email?.trim() || "No email";
+    const leaveTypeName = leaveType?.name || "General Leave";
+    const officeLabel =
+      params.requestDepartment?.trim() || "Unspecified office";
+
+    await sendBulkNotifications({
+      organizationId: params.organizationId,
+      userIds: adminsAndManagers.map((person) => person.id),
+      type: "leave_request_submitted",
+      title: "New Leave Request Submitted",
+      message: `${requesterName} (${requesterEmail}) requested ${leaveTypeName} for ${officeLabel} from ${params.startDate} to ${params.endDate}.`,
+      entityType: "leave_request",
+      entityId: leaveRequest.id,
+      referenceId: leaveRequest.id,
+      referenceType: "leave_request",
+      actionUrl: "/admin/leave",
+      priority: "high",
+      metadata: {
+        leaveRequestId: leaveRequest.id,
+        requesterName,
+        requesterEmail,
+        leaveTypeName,
+        office: officeLabel,
+        startDate: params.startDate,
+        endDate: params.endDate,
+      },
+    });
+  } catch (notificationError) {
     console.error(
-      "FETCH ADMINS FOR LEAVE REQUEST NOTIFICATION ERROR:",
-      adminsError,
-    );
-    throw new Error(adminsError.message);
-  }
-
-  if (requesterError) {
-    console.error(
-      "FETCH REQUESTER FOR LEAVE REQUEST NOTIFICATION ERROR:",
-      requesterError,
-    );
-    throw new Error(requesterError.message);
-  }
-
-  if (leaveTypeError) {
-    console.error(
-      "FETCH LEAVE TYPE FOR LEAVE REQUEST NOTIFICATION ERROR:",
-      leaveTypeError,
-    );
-    throw new Error(leaveTypeError.message);
-  }
-
-  if (!admins || admins.length === 0) {
-    throw new Error(
-      "No admin profiles were found for this organization, so notification rows could not be created.",
+      "LEAVE REQUEST NOTIFICATION ERROR:",
+      notificationError,
     );
   }
 
-  const requesterName = requester?.full_name?.trim() || "Unknown user";
-  const requesterEmail = requester?.email?.trim() || "No email";
-  const leaveTypeName = leaveType?.name || "General Leave";
-  const officeLabel = params.requestDepartment?.trim() || "Unspecified office";
-
-  await sendBulkNotifications({
-    organizationId: params.organizationId,
-    userIds: admins.map((admin) => admin.id),
-    type: "leave_request_submitted",
-    title: "New Leave Request Submitted",
-    message:
-      `${requesterName} (${requesterEmail}) requested ${leaveTypeName} for ${officeLabel} from ${params.startDate} to ${params.endDate}.`,
-    entityType: "leave_request",
-    entityId: leaveRequest.id,
-    referenceId: leaveRequest.id,
-    referenceType: "leave_request",
-    actionUrl: "/admin/leave",
-    priority: "high",
-    metadata: {
-      leaveRequestId: leaveRequest.id,
-      requesterName,
-      requesterEmail,
-      leaveTypeName,
-      office: officeLabel,
-      startDate: params.startDate,
-      endDate: params.endDate,
-    },
-  });
   return leaveRequest;
 }

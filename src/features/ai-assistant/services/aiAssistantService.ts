@@ -366,14 +366,59 @@ export async function requestImageGeneration(params: {
 }
 
 export async function saveConversationMessage(
-    _message: AssistantChatMessage,
-    _conversationId?: string | null,
+    message: AssistantChatMessage,
+    conversationId?: string | null,
 ): Promise<void> {
-    return;
+    if (!conversationId) return;
+
+    try {
+        const { createMessage } = await import(
+            "../../../lib/supabase/queries/aiWorkspace"
+        );
+
+        await createMessage({
+            conversationId,
+            role: message.role,
+            content: message.content,
+            type: message.type ?? "text",
+            data: message.data ?? {},
+            sources: (message.sources ?? []) as Array<Record<string, unknown>>,
+            actions: (message.actions ?? []) as unknown as Array<
+                Record<string, unknown>
+            >,
+            error: message.error ?? false,
+        });
+    } catch (err) {
+        console.warn("Failed to persist assistant message:", err);
+    }
 }
 
 export async function getConversationHistory(
-    _conversationId: string,
+    conversationId: string,
 ): Promise<AssistantChatMessage[]> {
-    return [];
+    try {
+        const { getMessages } = await import(
+            "../../../lib/supabase/queries/aiWorkspace"
+        );
+
+        const rows = await getMessages(conversationId, 50);
+        return rows.map((row) => ({
+            id: row.id,
+            role: row.role,
+            content: row.content,
+            type: (row.type as AssistantResponse["type"]) ?? "text",
+            createdAt: row.created_at,
+            data: row.data ?? {},
+            actions: (row.actions ?? []) as unknown as NonNullable<
+                AssistantResponse["actions"]
+            >,
+            sources: (row.sources ?? []) as NonNullable<
+                AssistantResponse["sources"]
+            >,
+            error: row.error ?? false,
+        }));
+    } catch (err) {
+        console.warn("Failed to load conversation history:", err);
+        return [];
+    }
 }

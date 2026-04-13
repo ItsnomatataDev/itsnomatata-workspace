@@ -3,10 +3,11 @@ import AppRouter from "./app/router/AppRouter";
 import { AuthProvider, useAuth } from "./app/providers/AuthProvider";
 
 function AppContent() {
-
+  const auth = useAuth();
+  const userId = auth?.user?.id ?? null;
 
   return (
-    <NotificationProvider >
+    <NotificationProvider userId={userId}>
       <AppRouter />
     </NotificationProvider>
   );

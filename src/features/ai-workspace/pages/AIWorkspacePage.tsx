@@ -127,6 +127,7 @@ export default function AIWorkspacePage() {
     selectTool,
     runTool,
     askAssistant,
+    handleApprovalReview,
   } = useAIWorkspace({
     context,
     role: profile?.primary_role ?? "employee",
@@ -388,7 +389,12 @@ export default function AIWorkspacePage() {
             {viewMode === "approvals" && (
               <div className="grid gap-4 xl:grid-cols-3">
                 <div className="space-y-4 xl:col-span-2">
-                  <PendingApprovalsPanel items={pendingApprovals} />
+                  <PendingApprovalsPanel
+                    items={pendingApprovals}
+                    busy={running}
+                    onApprove={(id) => handleApprovalReview(id, "approved")}
+                    onReject={(id) => handleApprovalReview(id, "rejected")}
+                  />
                 </div>
 
                 <div className="space-y-4">

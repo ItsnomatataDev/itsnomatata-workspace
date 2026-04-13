@@ -1,17 +1,25 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import {
-  signInWithGoogle,
-  signUpUser,
-  type AppRole,
-} from "../../../lib/supabase/auth";
+import { signInWithGoogle, signUpUser } from "../../../lib/supabase/auth";
+import type { AppRole } from "../../../lib/constants/roles";
 
 type SignupFormState = {
   fullName: string;
   email: string;
   password: string;
-  role: AppRole;
+  role: Exclude<AppRole, "admin">;
 };
+
+const SIGNUP_ROLE_OPTIONS: Array<{
+  value: Exclude<AppRole, "admin">;
+  label: string;
+}> = [
+  { value: "manager", label: "Administrator" },
+  { value: "social_media", label: "Social Media" },
+  { value: "media_team", label: "Media Team" },
+  { value: "seo_specialist", label: "SEO Specialist" },
+  { value: "it", label: "IT" },
+];
 
 export default function SignupPage() {
   const navigate = useNavigate();
@@ -46,15 +54,15 @@ export default function SignupPage() {
       setBusy(true);
 
       const result = await signUpUser({
-        email: form.email,
+        email: form.email.trim(),
         password: form.password,
-        fullName: form.fullName,
+        fullName: form.fullName.trim(),
         role: form.role,
       });
 
       if (result?.workspace?.organizationFound === false) {
         setWarning(
-          'Account created, but organization "its-nomatata" was not found. Ask admin to create it in Supabase.',
+          'Account created, but organization "its-nomatata" was not found. Ask an administrator to create it in Supabase.',
         );
       }
 
@@ -94,45 +102,47 @@ export default function SignupPage() {
       <div className="grid min-h-screen lg:grid-cols-2">
         <div className="hidden lg:flex flex-col justify-between border-r border-orange-500/20 bg-linear-to-br from-black via-black to-orange-950/20 p-10">
           <div>
-            <div className="inline-flex items-center rounded-full border border-orange-500/40 px-4 py-2 text-sm text-orange-400">
+            <div className="inline-flex items-center border border-orange-500/40 px-4 py-2 text-sm text-orange-400">
               ITs Nomatata Workspace
             </div>
+
             <h1 className="mt-8 max-w-md text-5xl font-bold leading-tight">
               Create your workspace account and get started.
             </h1>
+
             <p className="mt-5 max-w-lg text-base text-white/70">
-              Join the internal workspace for clients, campaigns, tasks,
-              reports, and content.
+              Join the workspace for clients, campaigns, tasks, reports, assets,
+              and internal collaboration.
             </p>
           </div>
         </div>
 
         <div className="flex items-center justify-center p-6">
-          <div className="w-full max-w-md rounded-3xl border border-orange-500/20 bg-white/5 p-8 shadow-2xl">
+          <div className="w-full max-w-md border border-orange-500/20 bg-white/5 p-8 shadow-2xl">
             <div className="mb-8">
               <h2 className="text-3xl font-bold text-white">Create Account</h2>
               <p className="mt-2 text-sm text-white/60">
-                Set up your team account.
+                Set up your workspace account.
               </p>
             </div>
 
-            {error && (
-              <div className="mb-4 rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+            {error ? (
+              <div className="mb-4 border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
                 {error}
               </div>
-            )}
+            ) : null}
 
-            {warning && (
-              <div className="mb-4 rounded-2xl border border-yellow-500/30 bg-yellow-500/10 px-4 py-3 text-sm text-yellow-300">
+            {warning ? (
+              <div className="mb-4 border border-yellow-500/30 bg-yellow-500/10 px-4 py-3 text-sm text-yellow-300">
                 {warning}
               </div>
-            )}
+            ) : null}
 
-            {successMessage && (
-              <div className="mb-4 rounded-2xl border border-green-500/30 bg-green-500/10 px-4 py-3 text-sm text-green-300">
+            {successMessage ? (
+              <div className="mb-4 border border-green-500/30 bg-green-500/10 px-4 py-3 text-sm text-green-300">
                 {successMessage}
               </div>
-            )}
+            ) : null}
 
             <form onSubmit={handleSignup} className="space-y-4">
               <input
@@ -140,7 +150,7 @@ export default function SignupPage() {
                 value={form.fullName}
                 onChange={(e) => updateForm("fullName", e.target.value)}
                 placeholder="Full Name"
-                className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 text-white outline-none focus:border-orange-500"
+                className="w-full border border-white/10 bg-black px-4 py-3 text-white outline-none transition focus:border-orange-500"
                 required
               />
 
@@ -149,37 +159,45 @@ export default function SignupPage() {
                 value={form.email}
                 onChange={(e) => updateForm("email", e.target.value)}
                 placeholder="Email"
-                className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 text-white outline-none focus:border-orange-500"
+                className="w-full border border-white/10 bg-black px-4 py-3 text-white outline-none transition focus:border-orange-500"
                 required
               />
 
               <select
                 value={form.role}
-                onChange={(e) => updateForm("role", e.target.value as AppRole)}
-                className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 text-white outline-none focus:border-orange-500"
+                onChange={(e) =>
+                  updateForm(
+                    "role",
+                    e.target.value as Exclude<AppRole, "admin">,
+                  )
+                }
+                className="w-full border border-white/10 bg-black px-4 py-3 text-white outline-none transition focus:border-orange-500"
                 required
               >
-                <option value="admin">Admin</option>
-                <option value="manager">Manager</option>
-                <option value="social_media">Social Media</option>
-                <option value="media_team">Media Team</option>
-                <option value="seo_specialist">SEO Specialist</option>
-                <option value="it">IT</option>
+                {SIGNUP_ROLE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
               </select>
+
+              <p className="text-xs text-white/45">
+                Super Admin cannot be selected during public signup.
+              </p>
 
               <input
                 type="password"
                 value={form.password}
                 onChange={(e) => updateForm("password", e.target.value)}
                 placeholder="Password"
-                className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 text-white outline-none focus:border-orange-500"
+                className="w-full border border-white/10 bg-black px-4 py-3 text-white outline-none transition focus:border-orange-500"
                 required
               />
 
               <button
                 type="submit"
                 disabled={busy}
-                className="w-full rounded-2xl bg-orange-500 px-4 py-3 font-semibold text-black transition hover:bg-orange-400 disabled:opacity-60"
+                className="w-full bg-orange-500 px-4 py-3 font-semibold text-black transition hover:bg-orange-400 disabled:opacity-60"
               >
                 {busy ? "Creating account..." : "Create Account"}
               </button>
@@ -197,7 +215,7 @@ export default function SignupPage() {
               type="button"
               onClick={handleGoogleSignup}
               disabled={googleBusy}
-              className="w-full rounded-2xl border border-white/15 bg-white px-4 py-3 font-semibold text-black transition hover:bg-orange-50 disabled:opacity-60"
+              className="w-full border border-white/15 bg-white px-4 py-3 font-semibold text-black transition hover:bg-orange-50 disabled:opacity-60"
             >
               {googleBusy ? "Redirecting..." : "Continue with Google"}
             </button>

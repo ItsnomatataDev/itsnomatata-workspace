@@ -21,6 +21,7 @@ type NotificationContextValue = {
   notifications: NotificationRow[];
   unreadCount: number;
   loading: boolean;
+  actionLoading: boolean;
   error: string;
   reload: () => Promise<void>;
   markOneAsRead: (notificationId: string) => Promise<void>;
@@ -35,12 +36,13 @@ export function NotificationProvider({
   userId,
   children,
 }: {
-  userId?: string;
+  userId?: string | null;
   children: React.ReactNode;
 }) {
   const [notifications, setNotifications] = useState<NotificationRow[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState("");
 
   const reload = useCallback(async () => {
@@ -57,7 +59,7 @@ export function NotificationProvider({
       setError("");
 
       const [items, unread] = await Promise.all([
-        getUserNotifications({ userId, limit: 30 }),
+        getUserNotifications({ userId, limit: 50 }),
         getUnreadNotificationCount(userId),
       ]);
 
@@ -66,7 +68,7 @@ export function NotificationProvider({
     } catch (err) {
       console.error("NOTIFICATIONS LOAD ERROR:", err);
       setError(
-        err instanceof Error ? err.message : "Failed to load notifications",
+        err instanceof Error ? err.message : "Failed to load notifications.",
       );
     } finally {
       setLoading(false);
@@ -91,15 +93,15 @@ export function NotificationProvider({
           filter: `user_id=eq.${userId}`,
         },
         (payload) => {
-          const newNotification = payload.new as NotificationRow;
+          const incoming = payload.new as NotificationRow;
 
           setNotifications((prev) => {
-            const exists = prev.some((item) => item.id === newNotification.id);
+            const exists = prev.some((item) => item.id === incoming.id);
             if (exists) return prev;
-            return [newNotification, ...prev];
+            return [incoming, ...prev];
           });
 
-          if (!newNotification.is_read) {
+          if (!incoming.is_read) {
             setUnreadCount((prev) => prev + 1);
           }
         },
@@ -148,10 +150,13 @@ export function NotificationProvider({
 
   const markOneAsRead = useCallback(
     async (notificationId: string) => {
-      try {
-        setError("");
+      setError("");
 
-        await markNotificationAsRead(notificationId);
+      const existing = notifications.find((item) => item.id === notificationId);
+      if (!existing || existing.is_read) return;
+
+      try {
+        setActionLoading(true);
 
         setNotifications((prev) =>
           prev.map((item) =>
@@ -164,35 +169,30 @@ export function NotificationProvider({
               : item,
           ),
         );
+        setUnreadCount((prev) => Math.max(0, prev - 1));
 
-        setUnreadCount((prev) => {
-          const target = notifications.find(
-            (item) => item.id === notificationId,
-          );
-          if (target && !target.is_read) {
-            return Math.max(0, prev - 1);
-          }
-          return prev;
-        });
+        await markNotificationAsRead(notificationId);
       } catch (err) {
         console.error("MARK NOTIFICATION READ ERROR:", err);
         setError(
           err instanceof Error
             ? err.message
-            : "Failed to mark notification as read",
+            : "Failed to mark notification as read.",
         );
+        await reload();
+      } finally {
+        setActionLoading(false);
       }
     },
-    [notifications],
+    [notifications, reload],
   );
 
   const markEverythingAsRead = useCallback(async () => {
     if (!userId) return;
 
     try {
+      setActionLoading(true);
       setError("");
-
-      await markAllNotificationsAsRead(userId);
 
       setNotifications((prev) =>
         prev.map((item) => ({
@@ -202,21 +202,27 @@ export function NotificationProvider({
         })),
       );
       setUnreadCount(0);
+
+      await markAllNotificationsAsRead(userId);
     } catch (err) {
       console.error("MARK ALL NOTIFICATIONS READ ERROR:", err);
       setError(
         err instanceof Error
           ? err.message
-          : "Failed to mark all notifications as read",
+          : "Failed to mark all notifications as read.",
       );
+      await reload();
+    } finally {
+      setActionLoading(false);
     }
-  }, [userId]);
+  }, [userId, reload]);
 
   const value = useMemo(
     () => ({
       notifications,
       unreadCount,
       loading,
+      actionLoading,
       error,
       reload,
       markOneAsRead,
@@ -226,6 +232,7 @@ export function NotificationProvider({
       notifications,
       unreadCount,
       loading,
+      actionLoading,
       error,
       reload,
       markOneAsRead,

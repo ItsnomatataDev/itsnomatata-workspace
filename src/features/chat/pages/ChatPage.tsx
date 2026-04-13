@@ -5,6 +5,7 @@ import MessageInput from "../components/MessageInput";
 import MessageList from "../components/MessageList";
 import NewChatModal from "../components/NewChatModal";
 import {
+  createGroupConversation,
   findOrCreateDirectConversation,
   getConversations,
   getMessages,
@@ -39,6 +40,7 @@ export default function ChatPage() {
     typeof createTypingChannel
   > | null>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const bottomRef = useRef<HTMLDivElement | null>(null);
 
   const activeConversation = useMemo(
     () =>
@@ -48,16 +50,83 @@ export default function ChatPage() {
     [conversations, activeConversationId],
   );
 
-  const otherTyping = Object.entries(typingUsers).some(
-    ([userId, isTyping]) => userId !== user?.id && isTyping,
-  );
+  const activeOtherMember = useMemo(() => {
+    if (!activeConversation || activeConversation.type !== "direct")
+      return null;
+
+    return (
+      activeConversation.members?.find(
+        (member) => member.user_id !== user?.id,
+      ) ?? null
+    );
+  }, [activeConversation, user?.id]);
+
+  const groupMembers = useMemo(() => {
+    if (!activeConversation || activeConversation.type === "direct") return [];
+
+    return (activeConversation.members ?? []).filter(
+      (member) => member.user_id !== user?.id,
+    );
+  }, [activeConversation, user?.id]);
+
+  const onlineGroupMembers = useMemo(() => {
+    return groupMembers.filter((member) => {
+      if (!member.profile?.last_seen_at) return false;
+      return (
+        Date.now() - new Date(member.profile.last_seen_at).getTime() <=
+        2 * 60 * 1000
+      );
+    });
+  }, [groupMembers]);
+
+  const typingUserIds = useMemo(() => {
+    return Object.entries(typingUsers)
+      .filter(([userId, isTyping]) => userId !== user?.id && isTyping)
+      .map(([userId]) => userId);
+  }, [typingUsers, user?.id]);
+
+  const typingNames = useMemo(() => {
+    if (!activeConversation) return [];
+
+    const members = activeConversation.members ?? [];
+
+    return typingUserIds
+      .map((userId) => {
+        const member = members.find((item) => item.user_id === userId);
+        return (
+          member?.profile?.full_name || member?.profile?.email || "Someone"
+        );
+      })
+      .filter(Boolean);
+  }, [typingUserIds, activeConversation]);
+
+  const typingLabel = useMemo(() => {
+    if (typingNames.length === 0) return "";
+
+    if (activeConversation?.type === "direct") {
+      return "Typing...";
+    }
+
+    if (typingNames.length === 1) {
+      return `${typingNames[0]} is typing...`;
+    }
+
+    if (typingNames.length === 2) {
+      return `${typingNames[0]} and ${typingNames[1]} are typing...`;
+    }
+
+    return `${typingNames[0]}, ${typingNames[1]} and others are typing...`;
+  }, [typingNames, activeConversation?.type]);
 
   useEffect(() => {
     void loadConversations();
   }, [user?.id]);
 
   useEffect(() => {
-    if (!activeConversationId) return;
+    if (!activeConversationId) {
+      setMessages([]);
+      return;
+    }
 
     void loadMessagesForConversation(activeConversationId);
 
@@ -93,12 +162,21 @@ export default function ChatPage() {
                           ? "📷 Image"
                           : incomingMessage.message_type === "audio"
                             ? "🎤 Voice note"
-                            : incomingMessage.body,
+                            : incomingMessage.message_type === "file"
+                              ? "📎 File"
+                              : incomingMessage.body || "Sent a message",
                       created_at: incomingMessage.created_at,
                     },
                     unread_count: 0,
                   }
-                : conversation,
+                : {
+                    ...conversation,
+                    unread_count:
+                      incomingMessage.conversation_id === conversation.id &&
+                      incomingMessage.sender_id !== user?.id
+                        ? (conversation.unread_count ?? 0) + 1
+                        : conversation.unread_count,
+                  },
             )
             .sort((a, b) => {
               const aTime = a.last_message_at ?? a.created_at;
@@ -141,8 +219,14 @@ export default function ChatPage() {
         clearTimeout(typingTimeoutRef.current);
         typingTimeoutRef.current = null;
       }
+
+      setTypingUsers({});
     };
   }, [activeConversationId, user?.id]);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
 
   useEffect(() => {
     if (!user?.id || !activeConversationId || messages.length === 0) return;
@@ -207,27 +291,73 @@ export default function ChatPage() {
     }
   }
 
+  function updateConversationAfterSend(sentMessage: ChatMessage) {
+    setConversations((current) =>
+      current
+        .map((conversation) =>
+          conversation.id === sentMessage.conversation_id
+            ? {
+                ...conversation,
+                last_message_at: sentMessage.created_at,
+                updated_at: sentMessage.created_at,
+                last_message: {
+                  id: sentMessage.id,
+                  sender_id: sentMessage.sender_id,
+                  body:
+                    sentMessage.message_type === "image"
+                      ? "📷 Image"
+                      : sentMessage.message_type === "audio"
+                        ? "🎤 Voice note"
+                        : sentMessage.message_type === "file"
+                          ? "📎 File"
+                          : sentMessage.body || "Sent a message",
+                  created_at: sentMessage.created_at,
+                },
+                unread_count: 0,
+              }
+            : conversation,
+        )
+        .sort((a, b) => {
+          const aTime = a.last_message_at ?? a.created_at;
+          const bTime = b.last_message_at ?? b.created_at;
+          return new Date(bTime).getTime() - new Date(aTime).getTime();
+        }),
+    );
+  }
+
   async function handleSend() {
     if (!user?.id || !activeConversationId || !input.trim()) return;
+
+    const messageText = input.trim();
 
     try {
       setSending(true);
       setError("");
+      setInput("");
 
-      await sendMessage({
+      const sentMessage = await sendMessage({
         conversationId: activeConversationId,
         userId: user.id,
-        body: input,
+        body: messageText,
         messageType: "text",
       });
 
-      setInput("");
+      if (sentMessage) {
+        setMessages((current) => {
+          const exists = current.some(
+            (message) => message.id === sentMessage.id,
+          );
+          if (exists) return current;
+          return [...current, sentMessage];
+        });
 
-      if (typingChannelRef.current) {
-        typingChannelRef.current.sendTyping(user.id, false);
+        updateConversationAfterSend(sentMessage);
       }
+
+      typingChannelRef.current?.sendTyping(user.id, false);
     } catch (err: any) {
       console.error("SEND MESSAGE ERROR:", err);
+      setInput(messageText);
       setError(err?.message || "Failed to send message.");
     } finally {
       setSending(false);
@@ -247,13 +377,25 @@ export default function ChatPage() {
         userId: user.id,
       });
 
-      await sendMessage({
+      const sentMessage = await sendMessage({
         conversationId: activeConversationId,
         userId: user.id,
         messageType: "image",
         attachmentUrl: uploaded.publicUrl,
         attachmentName: uploaded.fileName,
       });
+
+      if (sentMessage) {
+        setMessages((current) => {
+          const exists = current.some(
+            (message) => message.id === sentMessage.id,
+          );
+          if (exists) return current;
+          return [...current, sentMessage];
+        });
+
+        updateConversationAfterSend(sentMessage);
+      }
     } catch (err: any) {
       console.error("SEND IMAGE ERROR:", err);
       setError(err?.message || "Failed to send image.");
@@ -275,13 +417,25 @@ export default function ChatPage() {
         userId: user.id,
       });
 
-      await sendMessage({
+      const sentMessage = await sendMessage({
         conversationId: activeConversationId,
         userId: user.id,
         messageType: "audio",
         attachmentUrl: uploaded.publicUrl,
         attachmentName: uploaded.fileName,
       });
+
+      if (sentMessage) {
+        setMessages((current) => {
+          const exists = current.some(
+            (message) => message.id === sentMessage.id,
+          );
+          if (exists) return current;
+          return [...current, sentMessage];
+        });
+
+        updateConversationAfterSend(sentMessage);
+      }
     } catch (err: any) {
       console.error("SEND AUDIO ERROR:", err);
       setError(err?.message || "Failed to send audio.");
@@ -304,11 +458,41 @@ export default function ChatPage() {
       });
 
       setNewChatOpen(false);
-      await loadConversations();
+      const refreshed = await getConversations(user.id);
+      setConversations(refreshed);
       setActiveConversationId(conversation.id);
     } catch (err: any) {
       console.error("CREATE DIRECT CHAT ERROR:", err);
       setError(err?.message || "Failed to start direct chat.");
+    } finally {
+      setCreatingChat(false);
+    }
+  }
+
+  async function handleCreateGroup(params: {
+    title: string;
+    users: ChatUser[];
+  }) {
+    if (!user?.id || !profile?.organization_id) return;
+
+    try {
+      setCreatingChat(true);
+      setError("");
+
+      const conversation = await createGroupConversation({
+        currentUserId: user.id,
+        organizationId: profile.organization_id,
+        title: params.title,
+        memberIds: params.users.map((item) => item.id),
+      });
+
+      setNewChatOpen(false);
+      const refreshed = await getConversations(user.id);
+      setConversations(refreshed);
+      setActiveConversationId(conversation.id);
+    } catch (err: any) {
+      console.error("CREATE GROUP CHAT ERROR:", err);
+      setError(err?.message || "Failed to create group chat.");
     } finally {
       setCreatingChat(false);
     }
@@ -345,14 +529,34 @@ export default function ChatPage() {
     return `Last seen ${new Date(lastSeenAt).toLocaleString()}`;
   }
 
-  const latestOtherSender = [...messages]
-    .reverse()
-    .find((message) => message.sender_id !== user?.id)?.sender;
+  const headerSubtitle = useMemo(() => {
+    if (!activeConversation) {
+      return "Choose a conversation from the left";
+    }
 
-  const isOtherOnline = latestOtherSender?.last_seen_at
-    ? Date.now() - new Date(latestOtherSender.last_seen_at).getTime() <=
-      2 * 60 * 1000
-    : false;
+    if (typingLabel) {
+      return typingLabel;
+    }
+
+    if (activeConversation.type === "direct") {
+      return getPresenceLabel(activeOtherMember?.profile?.last_seen_at);
+    }
+
+    const totalMembers = activeConversation.members?.length ?? 0;
+    const onlineCount = onlineGroupMembers.length;
+
+    if (onlineCount > 0) {
+      return `${totalMembers} members • ${onlineCount} online`;
+    }
+
+    return `${totalMembers} members`;
+  }, [activeConversation, typingLabel, activeOtherMember, onlineGroupMembers]);
+
+  const avatarText = (activeConversation?.display_name || "C")
+    .split(" ")
+    .slice(0, 2)
+    .map((item) => item[0]?.toUpperCase() ?? "")
+    .join("");
 
   return (
     <>
@@ -371,37 +575,46 @@ export default function ChatPage() {
             <div className="flex items-center gap-3">
               <div className="relative">
                 <div className="flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-white/5 text-sm font-semibold text-orange-400">
-                  {(activeConversation?.display_name || "C")
-                    .split(" ")
-                    .slice(0, 2)
-                    .map((item) => item[0]?.toUpperCase() ?? "")
-                    .join("")}
+                  {avatarText}
                 </div>
 
                 {activeConversation?.type === "direct" ? (
                   <span
                     className={[
                       "absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 border-neutral-950",
-                      isOtherOnline ? "bg-green-400" : "bg-white/20",
+                      activeOtherMember?.profile?.last_seen_at &&
+                      Date.now() -
+                        new Date(
+                          activeOtherMember.profile.last_seen_at,
+                        ).getTime() <=
+                        2 * 60 * 1000
+                        ? "bg-green-400"
+                        : "bg-white/20",
                     ].join(" ")}
                   />
                 ) : null}
               </div>
 
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <h2 className="truncate text-base font-semibold">
                   {activeConversation?.display_name || "Select a conversation"}
                 </h2>
 
-                <p className="mt-1 text-sm text-white/50">
-                  {otherTyping
-                    ? "Typing..."
-                    : activeConversation?.type === "direct"
-                      ? getPresenceLabel(latestOtherSender?.last_seen_at)
-                      : activeConversation
-                        ? `Conversation type: ${activeConversation.type}`
-                        : "Choose a conversation from the left"}
-                </p>
+                <p className="mt-1 text-sm text-white/50">{headerSubtitle}</p>
+
+                {activeConversation?.type !== "direct" &&
+                activeConversation?.members?.length ? (
+                  <p className="mt-1 truncate text-xs text-white/35">
+                    {(activeConversation.members ?? [])
+                      .map(
+                        (member) =>
+                          member.profile?.full_name ||
+                          member.profile?.email ||
+                          "Unknown",
+                      )
+                      .join(", ")}
+                  </p>
+                ) : null}
               </div>
             </div>
           </div>
@@ -420,6 +633,8 @@ export default function ChatPage() {
               hasConversation={Boolean(activeConversationId)}
               conversation={activeConversation}
             />
+
+            <div ref={bottomRef} />
           </div>
 
           <MessageInput
@@ -441,6 +656,7 @@ export default function ChatPage() {
         currentUserId={user?.id}
         onClose={() => setNewChatOpen(false)}
         onSelectUser={handleStartDirectChat}
+        onCreateGroup={handleCreateGroup}
       />
     </>
   );

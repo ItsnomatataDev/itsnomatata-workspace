@@ -5,6 +5,16 @@ import type {
   AssistantContextInput,
   AssistantResponse,
 } from "../../../lib/api/n8n";
+import {
+  type AIApprovalRow,
+  type AIMessageRow,
+  createApproval,
+  createConversation,
+  createMessage,
+  getHistoryItems,
+  getPendingApprovals,
+  getRecentOutputs,
+} from "../../../lib/supabase/queries/aiWorkspace";
 import { AI_ACTION_CATALOG, getActionById } from "../utils/actionCatalog";
 import { getFeaturedToolsForRole, getToolsForRole } from "../utils/roleTools";
 import type {
@@ -87,6 +97,58 @@ function buildFallbackOutput(params: {
   };
 }
 
+// ── Map DB rows → workspace types ─────────────────────────
+
+function messageToOutput(
+  msg: AIMessageRow & {
+    conversation?: { title?: string | null; tool_id?: string | null } | null;
+  },
+): AIWorkspaceOutput {
+  const toolId = msg.tool_id ?? msg.conversation?.tool_id ?? null;
+  return {
+    id: msg.id,
+    title: msg.conversation?.title ?? getActionById(toolId ?? "")?.label ??
+      "AI Output",
+    type: (msg.type as AIWorkspaceOutput["type"]) ?? "text",
+    content: msg.content,
+    createdAt: msg.created_at,
+    toolId,
+    conversationId: msg.conversation_id,
+    requiresApproval: msg.requires_approval,
+    approvalId: msg.approval_id,
+    data: msg.data,
+    sources: msg.sources as AIWorkspaceOutput["sources"],
+  };
+}
+
+function messageToHistoryItem(
+  msg: AIMessageRow & {
+    conversation?: { title?: string | null; tool_id?: string | null } | null;
+  },
+): AIWorkspaceHistoryItem {
+  return {
+    id: msg.id,
+    title: msg.conversation?.title ?? getActionById(msg.tool_id ?? "")?.label ??
+      "AI Action",
+    description: msg.content.slice(0, 200),
+    createdAt: msg.created_at,
+    status: msg.error ? "failed" : "success",
+    toolId: msg.tool_id ?? msg.conversation?.tool_id ?? null,
+  };
+}
+
+function approvalRowToItem(row: AIApprovalRow): AIWorkspaceApprovalItem {
+  return {
+    id: row.id,
+    title: row.title,
+    description: row.description ?? "",
+    createdAt: row.created_at,
+    status: row.status,
+    requestedBy: row.user_id,
+    toolId: row.tool_id,
+  };
+}
+
 function mapCatalogTool(
   tool: (typeof AI_ACTION_CATALOG)[number],
 ): AIWorkspaceTool {
@@ -126,57 +188,43 @@ export async function getFeaturedAIWorkspaceTools(
   return getFeaturedToolsForRole(role).map(mapCatalogTool);
 }
 
-export async function getRecentAIWorkspaceOutputs(): Promise<
-  AIWorkspaceOutput[]
-> {
-  return [
-    {
-      id: "aiws_welcome_output",
-      title: "AI workspace ready",
-      type: "text",
-      content:
-        "Your AI workspace is connected to role-aware tools for tasks, reports, knowledge, media, and automation. Use Quick Search, run a featured tool, or open the approvals view to continue.",
-      createdAt: minutesAgoIso(8),
-      toolId: "ask_codex",
-      conversationId: null,
-      requiresApproval: false,
-      approvalId: null,
-      data: {
-        starter: true,
-      },
-      sources: [
-        {
-          id: "ai-action-catalog",
-          title: "Role-based AI catalog",
-          type: "system",
-          snippet:
-            "Featured tools and permissions have been loaded for the current workspace role.",
-        },
-      ],
-    },
-  ];
+export async function getRecentAIWorkspaceOutputs(
+  userId?: string | null,
+): Promise<AIWorkspaceOutput[]> {
+  if (!userId) return [];
+  try {
+    const rows = await getRecentOutputs(userId, 10);
+    return rows.map(messageToOutput);
+  } catch (err) {
+    console.warn("AI outputs load failed, returning empty:", err);
+    return [];
+  }
 }
 
-export async function getAIWorkspaceHistory(): Promise<
-  AIWorkspaceHistoryItem[]
-> {
-  return [
-    {
-      id: "aiws_history_ready",
-      title: "Workspace initialized",
-      description:
-        "AI workspace components loaded successfully and are ready for live or preview-mode actions.",
-      createdAt: minutesAgoIso(12),
-      status: "success",
-      toolId: "ask_codex",
-    },
-  ];
+export async function getAIWorkspaceHistory(
+  userId?: string | null,
+): Promise<AIWorkspaceHistoryItem[]> {
+  if (!userId) return [];
+  try {
+    const rows = await getHistoryItems(userId, 20);
+    return rows.map(messageToHistoryItem);
+  } catch (err) {
+    console.warn("AI history load failed, returning empty:", err);
+    return [];
+  }
 }
 
-export async function getPendingAIWorkspaceApprovals(): Promise<
-  AIWorkspaceApprovalItem[]
-> {
-  return [];
+export async function getPendingAIWorkspaceApprovals(
+  organizationId?: string | null,
+): Promise<AIWorkspaceApprovalItem[]> {
+  if (!organizationId) return [];
+  try {
+    const rows = await getPendingApprovals(organizationId, 20);
+    return rows.map(approvalRowToItem);
+  } catch (err) {
+    console.warn("AI approvals load failed, returning empty:", err);
+    return [];
+  }
 }
 
 export async function runAIWorkspaceTool(params: {
@@ -193,6 +241,42 @@ export async function runAIWorkspaceTool(params: {
     throw new Error(`Unknown AI workspace tool: ${params.toolId}`);
   }
 
+  // Ensure a conversation exists
+  let conversationId = params.conversationId;
+  if (
+    !conversationId && params.context.userId && params.context.organizationId
+  ) {
+    try {
+      const conv = await createConversation({
+        organizationId: params.context.organizationId,
+        userId: params.context.userId,
+        title: tool.label,
+        toolId: tool.id,
+      });
+      conversationId = conv.id;
+    } catch (err) {
+      console.warn(
+        "Failed to create AI conversation, continuing without persistence:",
+        err,
+      );
+    }
+  }
+
+  // Persist user message
+  if (conversationId && params.prompt) {
+    try {
+      await createMessage({
+        conversationId,
+        role: "user",
+        content: params.prompt,
+        type: "text",
+        toolId: tool.id,
+      });
+    } catch (err) {
+      console.warn("Failed to persist user message:", err);
+    }
+  }
+
   const action: AssistantActionInput = {
     actionId: tool.id,
     label: tool.label,
@@ -207,7 +291,7 @@ export async function runAIWorkspaceTool(params: {
     const response = await runAIAction({
       context: params.context,
       action,
-      conversationId: params.conversationId ?? null,
+      conversationId: conversationId ?? null,
       attachments: params.attachments ?? [],
       metadata: {
         toolId: tool.id,
@@ -216,20 +300,86 @@ export async function runAIWorkspaceTool(params: {
       },
     });
 
-    return toWorkspaceOutput(response, tool.id);
+    const output = toWorkspaceOutput(response, tool.id);
+    output.conversationId = conversationId;
+
+    // Persist assistant response
+    if (conversationId) {
+      try {
+        const assistantMsg = await createMessage({
+          conversationId,
+          role: "assistant",
+          content: response.message,
+          type: response.type,
+          toolId: tool.id,
+          data: (response.data as Record<string, unknown>) ?? {},
+          sources: (response.sources ?? []) as Array<Record<string, unknown>>,
+          actions: (response.actions ?? []) as unknown as Array<
+            Record<string, unknown>
+          >,
+          requiresApproval: response.requiresApproval ?? false,
+        });
+
+        // Create approval record if needed
+        if (
+          response.requiresApproval && params.context.organizationId &&
+          params.context.userId
+        ) {
+          try {
+            const approval = await createApproval({
+              organizationId: params.context.organizationId,
+              userId: params.context.userId,
+              conversationId,
+              messageId: assistantMsg.id,
+              toolId: tool.id,
+              title: tool.label,
+              description: response.message.slice(0, 500),
+              payload: {
+                actionId: tool.id,
+                prompt: params.prompt,
+                response: response.data,
+              },
+            });
+            output.approvalId = approval.id;
+          } catch (err) {
+            console.warn("Failed to create approval:", err);
+          }
+        }
+      } catch (err) {
+        console.warn("Failed to persist assistant response:", err);
+      }
+    }
+
+    return output;
   } catch (error) {
+    // Persist error
+    if (conversationId) {
+      try {
+        await createMessage({
+          conversationId,
+          role: "assistant",
+          content: getErrorMessage(error),
+          type: "error",
+          toolId: tool.id,
+          error: true,
+        });
+      } catch (_) { /* ignore */ }
+    }
+
     if (!isServiceUnavailableError(error)) {
       throw error;
     }
 
-    return buildFallbackOutput({
+    const fallback = buildFallbackOutput({
       title: `${tool.label} (preview mode)`,
       prompt: params.prompt,
       toolId: tool.id,
-      conversationId: params.conversationId ?? null,
+      conversationId,
       requiresApproval: tool.requiresApproval,
       error,
     });
+    fallback.conversationId = conversationId;
+    return fallback;
   }
 }
 
@@ -240,31 +390,98 @@ export async function askAIWorkspaceAssistant(params: {
   conversationId?: string | null;
   metadata?: Record<string, unknown>;
 }): Promise<AIWorkspaceOutput> {
+  // Ensure a conversation exists
+  let conversationId = params.conversationId;
+  if (
+    !conversationId && params.context.userId && params.context.organizationId
+  ) {
+    try {
+      const conv = await createConversation({
+        organizationId: params.context.organizationId,
+        userId: params.context.userId,
+        title: params.prompt.slice(0, 80),
+      });
+      conversationId = conv.id;
+    } catch (err) {
+      console.warn("Failed to create AI conversation:", err);
+    }
+  }
+
+  // Persist user message
+  if (conversationId) {
+    try {
+      await createMessage({
+        conversationId,
+        role: "user",
+        content: params.prompt,
+        type: "text",
+      });
+    } catch (err) {
+      console.warn("Failed to persist user message:", err);
+    }
+  }
+
   try {
     const response = await askAssistant({
       message: params.prompt,
       context: params.context,
       attachments: params.attachments ?? [],
-      conversationId: params.conversationId ?? null,
+      conversationId: conversationId ?? null,
       metadata: {
         source: "ai_workspace",
         ...(params.metadata ?? {}),
       },
     });
 
-    return toWorkspaceOutput(response, null);
+    const output = toWorkspaceOutput(response, null);
+    output.conversationId = conversationId;
+
+    // Persist assistant response
+    if (conversationId) {
+      try {
+        await createMessage({
+          conversationId,
+          role: "assistant",
+          content: response.message,
+          type: response.type,
+          data: (response.data as Record<string, unknown>) ?? {},
+          sources: (response.sources ?? []) as Array<Record<string, unknown>>,
+          actions: (response.actions ?? []) as unknown as Array<
+            Record<string, unknown>
+          >,
+        });
+      } catch (err) {
+        console.warn("Failed to persist assistant response:", err);
+      }
+    }
+
+    return output;
   } catch (error) {
+    if (conversationId) {
+      try {
+        await createMessage({
+          conversationId,
+          role: "assistant",
+          content: getErrorMessage(error),
+          type: "error",
+          error: true,
+        });
+      } catch (_) { /* ignore */ }
+    }
+
     if (!isServiceUnavailableError(error)) {
       throw error;
     }
 
-    return buildFallbackOutput({
+    const fallback = buildFallbackOutput({
       title: "AI Workspace Assistant (preview mode)",
       prompt: params.prompt,
       toolId: null,
-      conversationId: params.conversationId ?? null,
+      conversationId,
       error,
     });
+    fallback.conversationId = conversationId;
+    return fallback;
   }
 }
 
@@ -273,23 +490,102 @@ export async function runAIWorkspaceRequest(params: {
   request: AIWorkspaceActionRequest;
   conversationId?: string | null;
 }): Promise<AIWorkspaceOutput> {
-  const response = await runAIAction({
+  return runAIWorkspaceTool({
     context: params.context,
-    action: params.request.action,
-    conversationId: params.conversationId ?? null,
-    attachments: params.request.attachments ?? [],
-    metadata: params.request.metadata ?? {},
+    toolId: params.request.action.actionId,
+    prompt: (params.request.action.payload?.prompt as string) ?? undefined,
+    attachments: params.request.attachments,
+    conversationId: params.conversationId,
+    metadata: params.request.metadata,
   });
-
-  return toWorkspaceOutput(response, params.request.action.actionId);
 }
 
-export async function buildDefaultAIWorkspaceData(role?: string | null) {
+export async function reviewAIApproval(params: {
+  approvalId: string;
+  reviewerId: string;
+  status: "approved" | "rejected";
+  reviewNote?: string | null;
+}) {
+  const { reviewApproval, getApproval } = await import(
+    "../../../lib/supabase/queries/aiWorkspace"
+  );
+
+  const approval = await reviewApproval(params);
+
+  // On approval, persist the review outcome to the audit log
+  if (approval.status === "approved" || approval.status === "rejected") {
+    try {
+      const { supabase } = await import("../../../lib/supabase/client");
+      await supabase.from("ai_audit_logs").insert({
+        organization_id: approval.organization_id,
+        user_id: params.reviewerId,
+        action: `approval_${approval.status}`,
+        status: "success",
+        request_payload: {
+          approvalId: params.approvalId,
+          toolId: approval.tool_id,
+          reviewNote: params.reviewNote,
+        },
+        response_payload: { status: approval.status },
+      });
+    } catch {
+      // Non-critical — don't fail the review
+    }
+  }
+
+  return approval;
+}
+
+/**
+ * Execute the action that was originally gated behind an approval.
+ * Called after a reviewer approves the request.
+ */
+export async function executeApprovedAction(params: {
+  context: AssistantContextInput;
+  approvalId: string;
+  conversationId?: string | null;
+}): Promise<AIWorkspaceOutput> {
+  const { getApproval } = await import(
+    "../../../lib/supabase/queries/aiWorkspace"
+  );
+  const approval = await getApproval(params.approvalId);
+
+  if (approval.status !== "approved") {
+    throw new Error(
+      `Cannot execute action — approval status is "${approval.status}".`,
+    );
+  }
+
+  const toolId = approval.tool_id;
+  const prompt = typeof approval.payload?.prompt === "string"
+    ? approval.payload.prompt
+    : undefined;
+
+  if (!toolId) {
+    throw new Error("Approval record has no associated tool ID.");
+  }
+
+  return runAIWorkspaceTool({
+    context: params.context,
+    toolId,
+    prompt,
+    conversationId: params.conversationId ?? approval.conversation_id ?? null,
+    metadata: {
+      triggeredByApproval: params.approvalId,
+    },
+  });
+}
+
+export async function buildDefaultAIWorkspaceData(
+  role?: string | null,
+  userId?: string | null,
+  organizationId?: string | null,
+) {
   return {
     tools: await getAvailableAIWorkspaceTools(role),
     featuredTools: await getFeaturedAIWorkspaceTools(role),
-    recentOutputs: await getRecentAIWorkspaceOutputs(),
-    history: await getAIWorkspaceHistory(),
-    pendingApprovals: await getPendingAIWorkspaceApprovals(),
+    recentOutputs: await getRecentAIWorkspaceOutputs(userId),
+    history: await getAIWorkspaceHistory(userId),
+    pendingApprovals: await getPendingAIWorkspaceApprovals(organizationId),
   };
 }

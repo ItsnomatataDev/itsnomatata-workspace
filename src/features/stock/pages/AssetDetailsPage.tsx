@@ -78,12 +78,14 @@ function InfoCard({
   children: React.ReactNode;
 }) {
   return (
-    <section className="border border-white/10 bg-black p-5">
+    <section className="border border-white/10 bg-black p-5 print:border-black/20 print:bg-white">
       <div className="mb-4 flex items-center gap-3">
-        <div className="border border-orange-500/20 bg-orange-500/10 p-2 text-orange-300">
+        <div className="border border-orange-500/20 bg-orange-500/10 p-2 text-orange-300 print:border-black/20 print:bg-black/5 print:text-black">
           {icon}
         </div>
-        <h2 className="text-lg font-semibold text-white">{title}</h2>
+        <h2 className="text-lg font-semibold text-white print:text-black">
+          {title}
+        </h2>
       </div>
       {children}
     </section>
@@ -92,9 +94,9 @@ function InfoCard({
 
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="grid gap-2 border-b border-white/5 py-3 md:grid-cols-[180px_1fr]">
-      <div className="text-sm text-zinc-400">{label}</div>
-      <div className="text-sm text-white">{value || "—"}</div>
+    <div className="grid gap-2 border-b border-white/5 py-3 md:grid-cols-[180px_1fr] print:border-black/10">
+      <div className="text-sm text-zinc-400 print:text-black">{label}</div>
+      <div className="text-sm text-white print:text-black">{value || "—"}</div>
     </div>
   );
 }
@@ -151,63 +153,65 @@ export default function AssetDetailsPage() {
   if (!user || !profile) return null;
 
   return (
-    <div className="min-h-screen bg-black text-white lg:flex">
-      <Sidebar role={profile.primary_role} />
+    <div className="min-h-screen bg-black text-white lg:flex print:block print:bg-white print:text-black">
+      <div className="print:hidden">
+        <Sidebar role={profile.primary_role} />
+      </div>
 
-      <main className="flex-1 px-4 pt-4 pb-8 md:px-6">
-        <div className="space-y-6">
-          <section className="border border-white/10 bg-black p-4">
+      <main className="flex-1 px-4 pt-4 pb-8 md:px-6 print:px-0 print:pt-0">
+        <div className="space-y-6 print:space-y-4">
+          <section className="border border-white/10 bg-black p-4 print:border-black/20 print:bg-white">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div>
                 <button
                   type="button"
                   onClick={() => window.history.back()}
-                  className="mb-4 inline-flex items-center gap-2 border border-white/10 px-4 py-2 text-sm text-zinc-200 hover:border-white/20 hover:text-white"
+                  className="mb-4 inline-flex items-center gap-2 border border-white/10 px-4 py-2 text-sm text-zinc-200 hover:border-white/20 hover:text-white print:hidden"
                 >
                   <ArrowLeft size={16} />
                   Back
                 </button>
 
-                <p className="text-sm uppercase tracking-wide text-orange-300">
+                <p className="text-sm uppercase tracking-wide text-orange-300 print:text-black">
                   Asset Profile
                 </p>
-                <h1 className="mt-2 text-3xl font-semibold text-white">
+                <h1 className="mt-2 text-3xl font-semibold text-white print:text-black">
                   {asset?.asset_name ?? "Asset Details"}
                 </h1>
-                <p className="mt-3 text-sm text-zinc-400">
-                  View printable asset information, purchase details, site,
-                  insurance, barcode, QR code, and assignment data.
+                <p className="mt-3 text-sm text-zinc-400 print:text-black">
+                  Printable asset information including codes, purchase details,
+                  location, insurance, and assignment status.
                 </p>
               </div>
 
               <button
                 type="button"
                 onClick={() => window.print()}
-                className="inline-flex items-center gap-2 border border-orange-500 bg-orange-500 px-4 py-3 text-sm font-medium text-black hover:bg-orange-400"
+                className="print:hidden inline-flex items-center gap-2 border border-orange-500 bg-orange-500 px-4 py-3 text-sm font-medium text-black hover:bg-orange-400"
               >
                 <Printer size={16} />
-                Print Asset Info
+                Print Asset Sheet
               </button>
             </div>
           </section>
 
           {loading ? (
-            <section className="border border-white/10 bg-black p-5 text-sm text-zinc-300">
+            <section className="border border-white/10 bg-black p-5 text-sm text-zinc-300 print:border-black/20 print:bg-white print:text-black">
               Loading asset...
             </section>
           ) : null}
 
           {error ? (
-            <section className="border border-red-500/20 bg-red-500/10 p-5 text-sm text-red-300">
+            <section className="border border-red-500/20 bg-red-500/10 p-5 text-sm text-red-300 print:border-black/20 print:bg-white print:text-black">
               {error}
             </section>
           ) : null}
 
           {!loading && !error && asset ? (
             <>
-              <section className="grid gap-6 xl:grid-cols-[320px_1fr]">
-                <div className="border border-white/10 bg-black p-5">
-                  <div className="aspect-square overflow-hidden border border-white/10 bg-zinc-950">
+              <section className="grid gap-6 xl:grid-cols-[320px_1fr] print:grid-cols-[260px_1fr]">
+                <div className="border border-white/10 bg-black p-5 print:border-black/20 print:bg-white">
+                  <div className="aspect-square overflow-hidden border border-white/10 bg-zinc-950 print:border-black/20 print:bg-white">
                     {asset.asset_image_url ? (
                       <img
                         src={asset.asset_image_url}
@@ -215,7 +219,7 @@ export default function AssetDetailsPage() {
                         className="h-full w-full object-cover"
                       />
                     ) : (
-                      <div className="flex h-full items-center justify-center text-sm text-zinc-500">
+                      <div className="flex h-full items-center justify-center text-sm text-zinc-500 print:text-black">
                         No asset image
                       </div>
                     )}
@@ -223,37 +227,37 @@ export default function AssetDetailsPage() {
 
                   <div className="mt-5 space-y-3">
                     <div>
-                      <p className="text-xs uppercase tracking-wide text-zinc-500">
+                      <p className="text-xs uppercase tracking-wide text-zinc-500 print:text-black">
                         Asset Tag
                       </p>
-                      <p className="mt-1 text-lg font-semibold text-white">
+                      <p className="mt-1 text-lg font-semibold text-white print:text-black">
                         {asset.asset_tag || "—"}
                       </p>
                     </div>
 
                     <div>
-                      <p className="text-xs uppercase tracking-wide text-zinc-500">
+                      <p className="text-xs uppercase tracking-wide text-zinc-500 print:text-black">
                         Serial Number
                       </p>
-                      <p className="mt-1 text-sm text-white">
+                      <p className="mt-1 text-sm text-white print:text-black">
                         {asset.serial_number || "—"}
                       </p>
                     </div>
 
                     <div>
-                      <p className="text-xs uppercase tracking-wide text-zinc-500">
+                      <p className="text-xs uppercase tracking-wide text-zinc-500 print:text-black">
                         Status
                       </p>
-                      <p className="mt-1 text-sm capitalize text-white">
+                      <p className="mt-1 text-sm capitalize text-white print:text-black">
                         {asset.status.replace(/_/g, " ")}
                       </p>
                     </div>
 
                     <div>
-                      <p className="text-xs uppercase tracking-wide text-zinc-500">
+                      <p className="text-xs uppercase tracking-wide text-zinc-500 print:text-black">
                         Condition
                       </p>
-                      <p className="mt-1 text-sm capitalize text-white">
+                      <p className="mt-1 text-sm capitalize text-white print:text-black">
                         {asset.condition || "—"}
                       </p>
                     </div>
@@ -316,8 +320,10 @@ export default function AssetDetailsPage() {
                   />
 
                   <div className="mt-4">
-                    <p className="mb-3 text-sm text-zinc-400">Site Image</p>
-                    <div className="overflow-hidden border border-white/10 bg-zinc-950">
+                    <p className="mb-3 text-sm text-zinc-400 print:text-black">
+                      Site Image
+                    </p>
+                    <div className="overflow-hidden border border-white/10 bg-zinc-950 print:border-black/20 print:bg-white">
                       {asset.location?.image_url || asset.site_image_url ? (
                         <img
                           src={
@@ -329,7 +335,7 @@ export default function AssetDetailsPage() {
                           className="h-56 w-full object-cover"
                         />
                       ) : (
-                        <div className="flex h-56 items-center justify-center text-sm text-zinc-500">
+                        <div className="flex h-56 items-center justify-center text-sm text-zinc-500 print:text-black">
                           No site image
                         </div>
                       )}

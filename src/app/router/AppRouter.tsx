@@ -24,6 +24,7 @@ import AdminDashboardPage from "../../features/admin/pages/AdminDashboardPage";
 import LeavePage from "../../features/leave/pages/LeavePage";
 import AdminLeavePage from "../../features/admin/pages/AdminLeavePage";
 import AdminRosterPage from "../../features/admin/pages/AdminRosterPage";
+import DutyRosterViewPage from "../../features/admin/pages/DutyRosterViewPage";
 import AdminEmployeesPage from "../../features/admin/pages/AdminEmployeesPage";
 import AdminEmployeeDetailsPage from "../../features/admin/pages/AdminEmployeeDetailsPage";
 import NotificationsPage from "../../features/notifications/pages/NotificationsPage";
@@ -36,26 +37,26 @@ import AssetsPage from "../../features/stock/pages/AssetsPage";
 import AssetDetailsPage from "../../features/stock/pages/AssetDetailsPage";
 import ScanAssetPage from "../../features/stock/pages/ScanAssetPage";
 import AIWorkspacePage from "../../features/ai-workspace/pages/AIWorkspacePage";
+import AiAssistantPage from "../../features/ai-assistant/pages/AiAssistantPage";
 const AppRouter = () => {
   return (
     <BrowserRouter>
       <Routes>
+        {"Auth routes"}
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/signup" element={<SignupPage />} />
+        {"/Public routes"}
         <Route
           path="/dashboard"
           element={
             <ProtectedRoute>
-              {" "}
-              <DashboardPage />{" "}
+              <DashboardPage />
             </ProtectedRoute>
           }
         />
-
         <Route path="/meetings" element={<MeetingsPage />} />
         <Route path="/meetings/:meetingId" element={<MeetingRoomPage />} />
-
         <Route
           path="/clients"
           element={
@@ -64,7 +65,6 @@ const AppRouter = () => {
             </ProtectedRoute>
           }
         />
-
         <Route
           path="/clients/:clientId"
           element={
@@ -73,7 +73,6 @@ const AppRouter = () => {
             </ProtectedRoute>
           }
         />
-
         <Route
           path="/clients/:clientId/workspace"
           element={
@@ -138,7 +137,7 @@ const AppRouter = () => {
           path="/admin/leave"
           element={
             <ProtectedRoute>
-              <RoleRoute roles={["admin"]}>
+              <RoleRoute roles={["admin", "manager"]}>
                 <AdminLeavePage />
               </RoleRoute>
             </ProtectedRoute>
@@ -197,7 +196,6 @@ const AppRouter = () => {
             </ProtectedRoute>
           }
         />
-
         <Route
           path="/automation-runs"
           element={
@@ -208,7 +206,6 @@ const AppRouter = () => {
             </ProtectedRoute>
           }
         />
-
         <Route
           path="/reports"
           element={
@@ -227,7 +224,6 @@ const AppRouter = () => {
             </ProtectedRoute>
           }
         />
-
         <Route
           path="/content-library"
           element={
@@ -236,7 +232,6 @@ const AppRouter = () => {
             </ProtectedRoute>
           }
         />
-
         <Route
           path="/it/dashboard"
           element={
@@ -247,7 +242,6 @@ const AppRouter = () => {
             </ProtectedRoute>
           }
         />
-
         <Route
           path="/it/projects"
           element={
@@ -258,7 +252,6 @@ const AppRouter = () => {
             </ProtectedRoute>
           }
         />
-
         <Route
           path="/admin/employees"
           element={
@@ -269,7 +262,6 @@ const AppRouter = () => {
             </ProtectedRoute>
           }
         />
-
         <Route
           path="/it/projects/:projectId"
           element={
@@ -280,7 +272,6 @@ const AppRouter = () => {
             </ProtectedRoute>
           }
         />
-
         <Route
           path="/it/collaboration"
           element={
@@ -291,7 +282,6 @@ const AppRouter = () => {
             </ProtectedRoute>
           }
         />
-
         <Route
           path="/it/issues"
           element={
@@ -302,7 +292,6 @@ const AppRouter = () => {
             </ProtectedRoute>
           }
         />
-
         <Route
           path="/it/system-monitor"
           element={
@@ -314,10 +303,18 @@ const AppRouter = () => {
           }
         />
         <Route
+          path="/roster"
+          element={
+            <ProtectedRoute>
+              <DutyRosterViewPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="/admin/roster"
           element={
             <ProtectedRoute>
-              <RoleRoute roles={["admin"]}>
+              <RoleRoute roles={["admin", "manager"]}>
                 <AdminRosterPage />
               </RoleRoute>
             </ProtectedRoute>
@@ -331,8 +328,22 @@ const AppRouter = () => {
             </ProtectedRoute>
           }
         />
-
-        <Route path="/ai-workspace" element={<AIWorkspacePage />} />
+        <Route
+          path="/ai-workspace"
+          element={
+            <ProtectedRoute>
+              <AIWorkspacePage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/ai-assistant"
+          element={
+            <ProtectedRoute>
+              <AiAssistantPage />
+            </ProtectedRoute>
+          }
+        />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </BrowserRouter>

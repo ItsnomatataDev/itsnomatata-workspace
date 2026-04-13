@@ -37,6 +37,7 @@ export default function AssetCodeBlock({
         height: 60,
         displayValue: true,
         background: "#ffffff",
+        margin: 8,
       });
     } catch (error) {
       console.error("Failed to generate barcode:", error);
@@ -46,9 +47,9 @@ export default function AssetCodeBlock({
   const qrValue = `${window.location.origin}/assets/${assetId}`;
 
   return (
-    <div className="grid gap-6 md:grid-cols-2">
-      <div className="border border-white/10 bg-black p-4">
-        <p className="mb-3 text-sm text-zinc-400">QR Code</p>
+    <section className="grid gap-6 md:grid-cols-2 print:grid-cols-2">
+      <div className="border border-white/10 bg-black p-4 print:border-black/20 print:bg-white">
+        <p className="mb-3 text-sm text-zinc-400 print:text-black">QR Code</p>
         <div className="inline-block bg-white p-3">
           {QRCodeComponent ? (
             <QRCodeComponent value={qrValue} size={140} />
@@ -56,14 +57,20 @@ export default function AssetCodeBlock({
             <p className="text-sm text-black">QR code unavailable</p>
           )}
         </div>
+        <p className="mt-3 text-xs text-zinc-500 print:text-black">
+          Scan to open this asset profile.
+        </p>
       </div>
 
-      <div className="border border-white/10 bg-black p-4">
-        <p className="mb-3 text-sm text-zinc-400">Barcode</p>
+      <div className="border border-white/10 bg-black p-4 print:border-black/20 print:bg-white">
+        <p className="mb-3 text-sm text-zinc-400 print:text-black">Barcode</p>
         <div className="overflow-x-auto bg-white p-3">
           <svg ref={barcodeRef} />
         </div>
+        <p className="mt-3 text-xs text-zinc-500 print:text-black">
+          Asset tag: {assetTag || "No tag assigned"}
+        </p>
       </div>
-    </div>
+    </section>
   );
 }

@@ -4,11 +4,15 @@ import {
   type NotificationRow,
 } from "../../../lib/supabase/queries/notifications";
 import {
-  createBulkNotifications,
-  createNotification,
   markAllNotificationsAsRead,
   markNotificationAsRead,
+  type NotificationPriority,
+  type NotificationType,
 } from "../../../lib/supabase/mutations/notifications";
+import {
+  deliverBulkNotifications,
+  deliverNotification,
+} from "./notificationDeliveryService";
 
 export type NotificationItem = NotificationRow;
 
@@ -31,33 +35,35 @@ export async function readAllNotifications(userId: string) {
 export async function sendNotification(params: {
   organizationId: string;
   userId: string;
-  type: string;
+  type: NotificationType;
   title: string;
   message?: string | null;
   entityType?: string | null;
   entityId?: string | null;
   actionUrl?: string | null;
-  priority?: "low" | "medium" | "high" | "urgent";
+  priority?: NotificationPriority;
   metadata?: Record<string, unknown>;
   referenceId?: string | null;
   referenceType?: string | null;
+  sendEmail?: boolean;
 }) {
-  return createNotification(params);
+  return deliverNotification(params);
 }
 
 export async function sendBulkNotifications(params: {
   organizationId: string;
   userIds: string[];
-  type: string;
+  type: NotificationType;
   title: string;
   message?: string | null;
   entityType?: string | null;
   entityId?: string | null;
   actionUrl?: string | null;
-  priority?: "low" | "medium" | "high" | "urgent";
+  priority?: NotificationPriority;
   metadata?: Record<string, unknown>;
   referenceId?: string | null;
   referenceType?: string | null;
+  sendEmail?: boolean;
 }) {
-  return createBulkNotifications(params);
+  return deliverBulkNotifications(params);
 }

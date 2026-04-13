@@ -42,6 +42,12 @@ export default function AIRequestForm({
       <textarea
         value={prompt}
         onChange={(e) => setPrompt(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            void handleSubmit(e);
+          }
+        }}
         rows={4}
         placeholder={
           tool
