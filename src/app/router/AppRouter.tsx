@@ -18,6 +18,7 @@ import ITProjectDetailsPage from "../../features/it-workspace/pages/ITProjectDet
 import ITCollaborationPage from "../../features/it-workspace/pages/ITCollaborationPage";
 import ITIssuesPage from "../../features/it-workspace/pages/ITIssuesPage";
 import ITSystemMonitorPage from "../../features/it-workspace/pages/ITSystemMonitorPage";
+import ITSupportPage from "../../features/it-workspace/pages/ITSupportPage";
 import AutomationFlowsPage from "../../features/automation-flows/pages/AutomationFlowsPage";
 import AutomationRunsPage from "../../features/automation-flows/pages/AutomationRunsPage";
 import AdminDashboardPage from "../../features/admin/pages/AdminDashboardPage";
@@ -298,6 +299,26 @@ const AppRouter = () => {
             <ProtectedRoute>
               <RoleRoute roles={["it"]}>
                 <ITSystemMonitorPage />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/it/support"
+          element={
+            <ProtectedRoute>
+              <RoleRoute roles={["it"]}>
+                <ITSupportPage />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/it/support/:ticketId"
+          element={
+            <ProtectedRoute>
+              <RoleRoute roles={["it"]}>
+                <ITSupportPage />
               </RoleRoute>
             </ProtectedRoute>
           }
