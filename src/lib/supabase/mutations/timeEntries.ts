@@ -78,6 +78,32 @@ interface TaskContextRow {
   title: string;
 }
 
+export interface ProjectRow {
+  id: string;
+  organization_id: string;
+  client_id: string | null;
+  campaign_id: string | null;
+  name: string;
+  description: string | null;
+  color: string | null;
+  is_active: boolean;
+  budget_id: string | null;
+  billing_rate_id: string | null;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface GetProjectsParams {
+  organizationId: string;
+  clientId?: string;
+  campaignId?: string;
+  isActive?: boolean;
+  search?: string;
+  limit?: number;
+  offset?: number;
+}
+
 const TIME_ENTRY_SELECT = `
   id,
   organization_id,
@@ -136,6 +162,36 @@ function calculateDurationSeconds(startedAt: string, endedAt: string) {
   const start = new Date(startedAt).getTime();
   const end = new Date(endedAt).getTime();
   return Math.max(0, Math.floor((end - start) / 1000));
+}
+
+async function ensureNoOtherRunningEntry(params: {
+  organizationId: string;
+  userId: string;
+  ignoreEntryId?: string;
+}) {
+  let query = supabase
+    .from("time_entries")
+    .select("id")
+    .eq("organization_id", params.organizationId)
+    .eq("user_id", params.userId)
+    .is("ended_at", null)
+    .limit(1);
+
+  if (params.ignoreEntryId) {
+    query = query.neq("id", params.ignoreEntryId);
+  }
+
+  const { data, error } = await query.maybeSingle();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  if (data?.id) {
+    throw new Error(
+      "You already have a running timer. Stop it first before starting or resuming another one.",
+    );
+  }
 }
 
 export const getActiveTimeEntry = async ({
@@ -199,6 +255,19 @@ export const getTimeEntriesForUser = async ({
 export const startTimeEntry = async (
   payload: StartTimeEntryInput,
 ): Promise<TimeEntryItem> => {
+  if (!payload.organizationId) {
+    throw new Error("organizationId is required");
+  }
+
+  if (!payload.userId) {
+    throw new Error("userId is required");
+  }
+
+  await ensureNoOtherRunningEntry({
+    organizationId: payload.organizationId,
+    userId: payload.userId,
+  });
+
   let projectId = payload.projectId ?? null;
   let clientId = payload.clientId ?? null;
   let campaignId = payload.campaignId ?? null;
@@ -226,6 +295,9 @@ export const startTimeEntry = async (
       campaign_id: campaignId,
       description: payload.description ?? null,
       started_at: new Date().toISOString(),
+      ended_at: null,
+      is_running: true,
+      duration_seconds: 0,
       is_billable: payload.isBillable ?? false,
       source: payload.source ?? "timer",
       metadata: payload.metadata ?? {},
@@ -241,12 +313,29 @@ export const startTimeEntry = async (
 };
 
 export const stopTimeEntry = async (entryId: string): Promise<TimeEntryItem> => {
+  if (!entryId) {
+    throw new Error("entryId is required");
+  }
+
+  const { data: existing, error: existingError } = await supabase
+    .from("time_entries")
+    .select("id, started_at")
+    .eq("id", entryId)
+    .single();
+
+  if (existingError) {
+    throw new Error(existingError.message);
+  }
+
   const endedAt = new Date().toISOString();
+  const durationSeconds = calculateDurationSeconds(existing.started_at, endedAt);
 
   const { data, error } = await supabase
     .from("time_entries")
     .update({
       ended_at: endedAt,
+      is_running: false,
+      duration_seconds: durationSeconds,
     })
     .eq("id", entryId)
     .select(TIME_ENTRY_SELECT)
@@ -268,6 +357,23 @@ export const resumeTimeEntry = async ({
   userId: string;
   organizationId: string;
 }): Promise<TimeEntryItem> => {
+  if (!entryId) {
+    throw new Error("entryId is required");
+  }
+
+  if (!userId) {
+    throw new Error("userId is required");
+  }
+
+  if (!organizationId) {
+    throw new Error("organizationId is required");
+  }
+
+  await ensureNoOtherRunningEntry({
+    organizationId,
+    userId,
+  });
+
   const { data: existing, error: existingError } = await supabase
     .from("time_entries")
     .select(TIME_ENTRY_SELECT)
@@ -293,6 +399,9 @@ export const resumeTimeEntry = async ({
       campaign_id: entry.campaign_id,
       description: entry.description,
       started_at: new Date().toISOString(),
+      ended_at: null,
+      is_running: true,
+      duration_seconds: 0,
       is_billable: entry.is_billable,
       source: "resume",
       metadata: {
@@ -313,6 +422,14 @@ export const resumeTimeEntry = async ({
 export const createManualTimeEntry = async (
   payload: ManualTimeEntryInput,
 ): Promise<TimeEntryItem> => {
+  if (!payload.organizationId) {
+    throw new Error("organizationId is required");
+  }
+
+  if (!payload.userId) {
+    throw new Error("userId is required");
+  }
+
   ensureValidRange(payload.startedAt, payload.endedAt);
 
   let projectId = payload.projectId ?? null;
@@ -343,8 +460,11 @@ export const createManualTimeEntry = async (
       description: payload.description ?? null,
       started_at: payload.startedAt,
       ended_at: payload.endedAt,
-      duration_seconds: calculateDurationSeconds(payload.startedAt, payload.endedAt),
       is_running: false,
+      duration_seconds: calculateDurationSeconds(
+        payload.startedAt,
+        payload.endedAt,
+      ),
       is_billable: payload.isBillable ?? false,
       source: payload.source ?? "manual",
       metadata: payload.metadata ?? {},
@@ -366,18 +486,50 @@ export const updateTimeEntry = async ({
   entryId: string;
   payload: UpdateTimeEntryInput;
 }): Promise<TimeEntryItem> => {
-  if (payload.started_at && payload.ended_at) {
-    ensureValidRange(payload.started_at, payload.ended_at);
+  if (!entryId) {
+    throw new Error("entryId is required");
   }
 
-  const updatePayload: Record<string, unknown> = { ...payload };
+  const { data: existing, error: existingError } = await supabase
+    .from("time_entries")
+    .select(TIME_ENTRY_SELECT)
+    .eq("id", entryId)
+    .single();
+
+  if (existingError) {
+    throw new Error(existingError.message);
+  }
+
+  const current = existing as TimeEntryItem;
+
+  const nextStartedAt = payload.started_at ?? current.started_at;
+  const nextEndedAt =
+    payload.ended_at === undefined ? current.ended_at : payload.ended_at;
+
+  if (nextStartedAt && nextEndedAt) {
+    ensureValidRange(nextStartedAt, nextEndedAt);
+  }
+
+  const updatePayload: Record<string, unknown> = {
+    ...payload,
+  };
 
   if (payload.task_id) {
     const task = await getTaskContext(payload.task_id);
-
     updatePayload.project_id = payload.project_id ?? task.project_id;
     updatePayload.client_id = payload.client_id ?? task.client_id;
     updatePayload.campaign_id = payload.campaign_id ?? task.campaign_id;
+  }
+
+  if (nextEndedAt) {
+    updatePayload.duration_seconds = calculateDurationSeconds(
+      nextStartedAt,
+      nextEndedAt,
+    );
+    updatePayload.is_running = false;
+  } else {
+    updatePayload.duration_seconds = 0;
+    updatePayload.is_running = true;
   }
 
   const { data, error } = await supabase
@@ -395,40 +547,23 @@ export const updateTimeEntry = async ({
 };
 
 export const deleteTimeEntry = async (entryId: string): Promise<void> => {
-  const { error } = await supabase.from("time_entries").delete().eq("id", entryId);
+  if (!entryId) {
+    throw new Error("entryId is required");
+  }
+
+  const { error } = await supabase
+    .from("time_entries")
+    .delete()
+    .eq("id", entryId);
 
   if (error) {
     throw new Error(error.message);
   }
 };
 
-export interface ProjectRow {
-  id: string;
-  organization_id: string;
-  client_id: string | null;
-  campaign_id: string | null;
-  name: string;
-  description: string | null;
-  color: string | null;
-  is_active: boolean;
-  budget_id: string | null;
-  billing_rate_id: string | null;
-  metadata: Record<string, unknown> | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface GetProjectsParams {
-  organizationId: string;
-  clientId?: string;
-  campaignId?: string;
-  isActive?: boolean;
-  search?: string;
-  limit?: number;
-  offset?: number;
-}
-
-export async function getProjects(params: GetProjectsParams): Promise<ProjectRow[]> {
+export async function getProjects(
+  params: GetProjectsParams,
+): Promise<ProjectRow[]> {
   const {
     organizationId,
     clientId,
@@ -439,7 +574,9 @@ export async function getProjects(params: GetProjectsParams): Promise<ProjectRow
     offset = 0,
   } = params;
 
-  if (!organizationId) throw new Error("organizationId is required");
+  if (!organizationId) {
+    throw new Error("organizationId is required");
+  }
 
   let query = supabase
     .from("projects")
@@ -449,27 +586,43 @@ export async function getProjects(params: GetProjectsParams): Promise<ProjectRow
   if (typeof isActive === "boolean") {
     query = query.eq("is_active", isActive);
   }
+
   if (clientId) {
     query = query.eq("client_id", clientId);
   }
+
   if (campaignId) {
     query = query.eq("campaign_id", campaignId);
   }
+
   if (search) {
     query = query.ilike("name", `%${search}%`);
   }
 
-  query = query.order("created_at", { ascending: false }).range(offset, offset + limit - 1);
+  query = query
+    .order("created_at", { ascending: false })
+    .range(offset, offset + limit - 1);
 
   const { data, error } = await query;
 
-  if (error) throw error;
+  if (error) {
+    throw error;
+  }
+
   return (data ?? []) as ProjectRow[];
 }
 
-export async function getProjectById(organizationId: string, projectId: string): Promise<ProjectRow | null> {
-  if (!organizationId) throw new Error("organizationId is required");
-  if (!projectId) throw new Error("projectId is required");
+export async function getProjectById(
+  organizationId: string,
+  projectId: string,
+): Promise<ProjectRow | null> {
+  if (!organizationId) {
+    throw new Error("organizationId is required");
+  }
+
+  if (!projectId) {
+    throw new Error("projectId is required");
+  }
 
   const { data, error } = await supabase
     .from("projects")
@@ -478,6 +631,9 @@ export async function getProjectById(organizationId: string, projectId: string):
     .eq("id", projectId)
     .single();
 
-  if (error && error.code !== "PGRST116") throw error; // Not found
-  return data as ProjectRow | null;
+  if (error && error.code !== "PGRST116") {
+    throw error;
+  }
+
+  return (data as ProjectRow | null) ?? null;
 }

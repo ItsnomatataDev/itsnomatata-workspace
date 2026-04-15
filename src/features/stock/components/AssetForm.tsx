@@ -83,6 +83,7 @@ export default function AssetForm({
   onClose,
   onCreate,
   onUpdate,
+  onCreatePurchaseBatch,
 }: {
   mode: "create" | "edit";
   open: boolean;
@@ -96,9 +97,12 @@ export default function AssetForm({
   onClose: () => void;
   onCreate: (input: CreateAssetInput) => Promise<void>;
   onUpdate: (assetId: string, input: UpdateAssetInput) => Promise<void>;
+  onCreatePurchaseBatch?: (label: string) => Promise<string>;
 }) {
   const [form, setForm] = useState(INITIAL_FORM);
   const [error, setError] = useState("");
+  const [customBatchMode, setCustomBatchMode] = useState(false);
+  const [customBatchLabel, setCustomBatchLabel] = useState("");
 
   useEffect(() => {
     if (!open) return;
@@ -139,8 +143,12 @@ export default function AssetForm({
         site_image_url: asset.site_image_url ?? "",
         notes: asset.notes ?? "",
       });
+      setCustomBatchMode(false);
+      setCustomBatchLabel("");
     } else {
       setForm(INITIAL_FORM);
+      setCustomBatchMode(false);
+      setCustomBatchLabel("");
     }
 
     setError("");
@@ -167,6 +175,23 @@ export default function AssetForm({
     }));
   }, [selectedLocation?.image_url, form.site_image_url]);
 
+  async function resolvePurchaseBatchId() {
+    if (!customBatchMode) {
+      return form.purchase_batch_id || null;
+    }
+
+    if (!customBatchLabel.trim()) {
+      throw new Error("Custom purchase batch name is required.");
+    }
+
+    if (!onCreatePurchaseBatch) {
+      throw new Error("Purchase batch creation is not configured.");
+    }
+
+    const batchId = await onCreatePurchaseBatch(customBatchLabel.trim());
+    return batchId;
+  }
+
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
@@ -187,6 +212,8 @@ export default function AssetForm({
     }
 
     try {
+      const resolvedPurchaseBatchId = await resolvePurchaseBatchId();
+
       if (mode === "create") {
         const payload: CreateAssetInput = {
           organization_id: organizationId,
@@ -194,7 +221,7 @@ export default function AssetForm({
           asset_name: form.asset_name.trim(),
           asset_tag: form.asset_tag.trim() || null,
           serial_number: form.serial_number.trim(),
-          purchase_batch_id: form.purchase_batch_id || null,
+          purchase_batch_id: resolvedPurchaseBatchId,
           category_id: form.category_id || null,
           current_location_id: form.current_location_id || null,
           brand: form.brand.trim() || null,
@@ -229,7 +256,7 @@ export default function AssetForm({
           asset_name: form.asset_name.trim(),
           asset_tag: form.asset_tag.trim() || null,
           serial_number: form.serial_number.trim(),
-          purchase_batch_id: form.purchase_batch_id || null,
+          purchase_batch_id: resolvedPurchaseBatchId,
           category_id: form.category_id || null,
           current_location_id: form.current_location_id || null,
           brand: form.brand.trim() || null,
@@ -393,10 +420,22 @@ export default function AssetForm({
               <label className="space-y-2">
                 <span className="text-sm text-zinc-300">Purchase Batch</span>
                 <select
-                  value={form.purchase_batch_id}
-                  onChange={(e) =>
-                    updateField("purchase_batch_id", e.target.value)
+                  value={
+                    customBatchMode ? "__custom__" : form.purchase_batch_id
                   }
+                  onChange={(e) => {
+                    const value = e.target.value;
+
+                    if (value === "__custom__") {
+                      setCustomBatchMode(true);
+                      updateField("purchase_batch_id", "");
+                      return;
+                    }
+
+                    setCustomBatchMode(false);
+                    setCustomBatchLabel("");
+                    updateField("purchase_batch_id", value);
+                  }}
                   className="w-full border border-white/10 bg-black px-4 py-3 text-sm text-white outline-none focus:border-orange-500"
                 >
                   <option value="">Select purchase batch</option>
@@ -405,8 +444,23 @@ export default function AssetForm({
                       {batch.label}
                     </option>
                   ))}
+                  <option value="__custom__">+ Custom purchase batch</option>
                 </select>
               </label>
+
+              {customBatchMode ? (
+                <label className="space-y-2">
+                  <span className="text-sm text-zinc-300">
+                    Custom Batch Name
+                  </span>
+                  <input
+                    value={customBatchLabel}
+                    onChange={(e) => setCustomBatchLabel(e.target.value)}
+                    className="w-full border border-white/10 bg-black px-4 py-3 text-sm text-white outline-none focus:border-orange-500"
+                    placeholder="Office Setup April 2026"
+                  />
+                </label>
+              ) : null}
 
               <label className="space-y-2">
                 <span className="text-sm text-zinc-300">Purchase Price</span>

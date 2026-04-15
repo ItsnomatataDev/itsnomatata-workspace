@@ -11,6 +11,7 @@ import { updateTask } from "../../../lib/supabase/mutations/tasks";
 import { supabase } from "../../../lib/supabase/client";
 import type { TaskItem } from "../../../lib/supabase/queries/tasks";
 import { searchTaskAssignableUsers } from "../../../lib/supabase/queries/taskAssignees";
+import type { TaskChecklistWithItems } from "../../../lib/supabase/queries/taskChecklists";
 import {
   approveTaskSubmission,
   createTaskSubmission,
@@ -22,6 +23,15 @@ import {
   type TaskSubmissionType,
 } from "../../../lib/supabase/queries/taskSubmissions";
 import { createCardInviteNotification } from "../../../lib/supabase/mutations/tasks";
+import { useTimeEntries } from "../../../lib/hooks/useTimeEntries";
+import {
+  getTaskClientInvites,
+  inviteClientToTask,
+  removeTaskClientInvite,
+  searchClients,
+  type TaskClientInviteItem,
+} from "../services/taskClientInviteService";
+
 type BoardMode = "organization" | "mine";
 
 export default function TasksWorkspacePage({
@@ -43,11 +53,29 @@ export default function TasksWorkspacePage({
   const [selectedTaskSubmissions, setSelectedTaskSubmissions] = useState<
     TaskSubmissionItem[]
   >([]);
+  const [selectedTaskClientInvites, setSelectedTaskClientInvites] = useState<
+    TaskClientInviteItem[]
+  >([]);
 
   if (!auth?.user || !auth?.profile) return null;
 
   const { user, profile } = auth;
-  const organizationId = profile.organization_id ?? undefined;
+  const organizationId = profile.organization_id ?? null;
+
+  if (!organizationId) {
+    return (
+      <div className="min-h-screen bg-black text-white">
+        <div className="flex min-h-screen">
+          <Sidebar role={profile.primary_role ?? "manager"} />
+          <main className="min-w-0 flex-1 overflow-hidden p-6 lg:p-8">
+            <div className="border border-red-500/20 bg-red-500/10 p-5 text-red-300">
+              Your account is not linked to an organization yet.
+            </div>
+          </main>
+        </div>
+      </div>
+    );
+  }
 
   const {
     tasks,
@@ -82,6 +110,33 @@ export default function TasksWorkspacePage({
     organizationId,
     projectId,
   });
+
+  const {
+    entries: taskTimeEntries,
+    activeEntry: taskActiveEntry,
+    loading: taskTimeLoading,
+    mutating: taskTimeMutating,
+    startEntry: startTaskEntry,
+    stopActiveEntry: stopTaskActiveEntry,
+    resumeEntry: resumeTaskEntry,
+    deleteEntry: deleteTaskEntry,
+    createManualEntry: createTaskManualEntry,
+    refresh: refreshTaskEntries,
+  } = useTimeEntries({
+    organizationId,
+    userId: user.id,
+  });
+
+  const filteredTaskTimeEntries = useMemo(() => {
+    if (!selectedTask?.id) return [];
+    return taskTimeEntries.filter((entry) => entry.task_id === selectedTask.id);
+  }, [taskTimeEntries, selectedTask]);
+
+  const filteredTaskActiveEntry = useMemo(() => {
+    if (!selectedTask?.id) return null;
+    if (!taskActiveEntry) return null;
+    return taskActiveEntry.task_id === selectedTask.id ? taskActiveEntry : null;
+  }, [taskActiveEntry, selectedTask]);
 
   const selectedTaskTrackedSeconds = useMemo(() => {
     if (!selectedTask) return 0;
@@ -119,13 +174,21 @@ export default function TasksWorkspacePage({
     setSelectedTaskSubmissions(submissions);
   };
 
+  const handleLoadTaskClientInvites = async (taskId: string) => {
+    const invites = await getTaskClientInvites(taskId);
+    setSelectedTaskClientInvites(invites);
+  };
+
+  const handleOpenTaskWithExtras = async (taskId: string) => {
+    await openTask(taskId);
+    await handleLoadTaskSubmissions(taskId);
+    await handleLoadTaskClientInvites(taskId);
+    await refreshTaskEntries();
+  };
+
   const handleCreateTask = async (values: TaskFormValues) => {
     try {
       setBusy(true);
-
-      if (!organizationId) {
-        throw new Error("Your profile has no organization_id.");
-      }
 
       const assignedTo =
         values.assigned_to.trim() === "" ? null : values.assigned_to;
@@ -161,11 +224,6 @@ export default function TasksWorkspacePage({
   };
 
   const handleTrack = async (taskId: string, title: string) => {
-    if (!organizationId) {
-      alert("Your account is not linked to an organization yet.");
-      return;
-    }
-
     try {
       await startTimeEntry({
         organizationId,
@@ -180,9 +238,10 @@ export default function TasksWorkspacePage({
       }
 
       await refetch();
+      await refreshTaskEntries();
+
       if (selectedTask?.id === taskId) {
-        await openTask(taskId);
-        await handleLoadTaskSubmissions(taskId);
+        await handleOpenTaskWithExtras(taskId);
       }
 
       alert("Timer started and linked to the main time tracking system");
@@ -196,11 +255,6 @@ export default function TasksWorkspacePage({
     hours: number,
     minutes: number,
   ) => {
-    if (!organizationId) {
-      alert("Your account is not linked to an organization yet.");
-      return;
-    }
-
     const totalSeconds = Math.max(
       0,
       Math.floor(hours) * 3600 + Math.floor(minutes) * 60,
@@ -239,13 +293,134 @@ export default function TasksWorkspacePage({
       if (insertError) throw insertError;
 
       await refetch();
-      await openTask(taskId);
-      await handleLoadTaskSubmissions(taskId);
+      await refreshTaskEntries();
+      await handleOpenTaskWithExtras(taskId);
       alert("Manual time added successfully");
     } catch (err) {
       alert(err instanceof Error ? err.message : "Failed to save manual time");
     } finally {
       setBusy(false);
+    }
+  };
+
+  const handleStartTaskTimer = async () => {
+    if (!selectedTask) return;
+
+    try {
+      await startTaskEntry({
+        taskId: selectedTask.id,
+        projectId: selectedTask.project_id ?? projectId ?? undefined,
+        clientId: selectedTask.client_id ?? undefined,
+        campaignId: selectedTask.campaign_id ?? undefined,
+        description: selectedTask.title,
+        isBillable: Boolean(
+          (selectedTask as TaskItem & { is_billable?: boolean }).is_billable,
+        ),
+        source: "timer",
+        metadata: {
+          started_from: "task_details_modal",
+          task_title: selectedTask.title,
+        },
+      });
+
+      if (selectedTask.status === "todo") {
+        await updateTask(selectedTask.id, { status: "in_progress" });
+      }
+
+      await refetch();
+      await refreshTaskEntries();
+      await handleOpenTaskWithExtras(selectedTask.id);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to start task timer");
+    }
+  };
+
+  const handleStopTaskTimer = async () => {
+    try {
+      await stopTaskActiveEntry();
+      await refetch();
+      await refreshTaskEntries();
+
+      if (selectedTask?.id) {
+        await handleOpenTaskWithExtras(selectedTask.id);
+      }
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to stop task timer");
+    }
+  };
+
+  const handleResumeTaskEntry = async (entryId: string) => {
+    try {
+      await resumeTaskEntry(entryId);
+      await refetch();
+      await refreshTaskEntries();
+
+      if (selectedTask?.id) {
+        await handleOpenTaskWithExtras(selectedTask.id);
+      }
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to resume task entry");
+    }
+  };
+
+  const handleDeleteTaskEntry = async (entryId: string) => {
+    try {
+      await deleteTaskEntry(entryId);
+      await refetch();
+      await refreshTaskEntries();
+
+      if (selectedTask?.id) {
+        await handleOpenTaskWithExtras(selectedTask.id);
+      }
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to delete task entry");
+    }
+  };
+
+  const handleManualTaskTime = async (
+    taskId: string,
+    hours: number,
+    minutes: number,
+  ) => {
+    if (!selectedTask) return;
+
+    const totalSeconds = Math.max(
+      0,
+      Math.floor(hours) * 3600 + Math.floor(minutes) * 60,
+    );
+
+    if (totalSeconds <= 0) {
+      alert("Please enter at least 1 minute.");
+      return;
+    }
+
+    try {
+      const endedAt = new Date();
+      const startedAt = new Date(endedAt.getTime() - totalSeconds * 1000);
+
+      await createTaskManualEntry({
+        taskId,
+        projectId: selectedTask.project_id ?? projectId ?? undefined,
+        clientId: selectedTask.client_id ?? undefined,
+        campaignId: selectedTask.campaign_id ?? undefined,
+        startedAt: startedAt.toISOString(),
+        endedAt: endedAt.toISOString(),
+        description: selectedTask.title,
+        isBillable: Boolean(
+          (selectedTask as TaskItem & { is_billable?: boolean }).is_billable,
+        ),
+        source: "manual",
+        metadata: {
+          created_from: "task_details_modal_manual",
+        },
+      });
+
+      await refetch();
+      await refreshTaskEntries();
+      await handleOpenTaskWithExtras(taskId);
+      alert("Manual task time added successfully");
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to save task time");
     }
   };
 
@@ -257,11 +432,6 @@ export default function TasksWorkspacePage({
     linkUrl?: string | null;
     file?: File | null;
   }) => {
-    if (!organizationId) {
-      alert("Your account is not linked to an organization yet.");
-      return;
-    }
-
     try {
       setBusy(true);
 
@@ -281,8 +451,7 @@ export default function TasksWorkspacePage({
       });
 
       await refetch();
-      await openTask(params.taskId);
-      await handleLoadTaskSubmissions(params.taskId);
+      await handleOpenTaskWithExtras(params.taskId);
 
       alert("Submission uploaded and sent for review");
     } catch (err) {
@@ -306,13 +475,13 @@ export default function TasksWorkspacePage({
         reviewNote: reviewNote ?? null,
       });
 
-      await updateTask(taskId, {
-        status: "approved",
-      });
+    await updateTask(taskId, {
+      status: "done",
+      completed_at: new Date().toISOString(),
+    });
 
       await refetch();
-      await openTask(taskId);
-      await handleLoadTaskSubmissions(taskId);
+      await handleOpenTaskWithExtras(taskId);
 
       alert("Submission approved");
     } catch (err) {
@@ -343,8 +512,7 @@ export default function TasksWorkspacePage({
       });
 
       await refetch();
-      await openTask(taskId);
-      await handleLoadTaskSubmissions(taskId);
+      await handleOpenTaskWithExtras(taskId);
 
       alert("Submission sent back for revision");
     } catch (err) {
@@ -361,8 +529,7 @@ export default function TasksWorkspacePage({
       });
 
       await refetch();
-      await openTask(taskId);
-      await handleLoadTaskSubmissions(taskId);
+      await handleOpenTaskWithExtras(taskId);
       alert("Deadline updated");
     } catch (err) {
       alert(err instanceof Error ? err.message : "Failed to update deadline");
@@ -380,8 +547,7 @@ export default function TasksWorkspacePage({
       });
 
       await refetch();
-      await openTask(taskId);
-      await handleLoadTaskSubmissions(taskId);
+      await handleOpenTaskWithExtras(taskId);
       alert("Task status updated");
     } catch (err) {
       alert(err instanceof Error ? err.message : "Failed to update status");
@@ -396,8 +562,7 @@ export default function TasksWorkspacePage({
       });
 
       await refetch();
-      await openTask(taskId);
-      await handleLoadTaskSubmissions(taskId);
+      await handleOpenTaskWithExtras(taskId);
       alert(checked ? "Card marked done" : "Card reopened");
     } catch (err) {
       alert(err instanceof Error ? err.message : "Failed to update card");
@@ -405,11 +570,6 @@ export default function TasksWorkspacePage({
   };
 
   const handleAddComment = async (taskId: string, comment: string) => {
-    if (!organizationId) {
-      alert("Your account is not linked to an organization yet.");
-      return;
-    }
-
     try {
       await addComment({
         taskId,
@@ -418,42 +578,40 @@ export default function TasksWorkspacePage({
         comment,
       });
 
-      await openTask(taskId);
-      await handleLoadTaskSubmissions(taskId);
+      await handleOpenTaskWithExtras(taskId);
     } catch (err) {
       alert(err instanceof Error ? err.message : "Failed to add comment");
     }
   };
 
-const handleInviteUser = async (taskId: string, invitedUserId: string) => {
-  try {
-    const currentTask =
-      tasks.find((item) => item.id === taskId) ?? selectedTask;
+  const handleInviteUser = async (taskId: string, invitedUserId: string) => {
+    try {
+      const currentTask =
+        tasks.find((item) => item.id === taskId) ?? selectedTask;
 
-    await addWatcher(taskId, invitedUserId);
+      await addWatcher(taskId, invitedUserId);
 
-    if (organizationId && currentTask) {
-      try {
-        await createCardInviteNotification({
-          organizationId,
-          userId: invitedUserId,
-          taskId,
-          invitedBy: user.id,
-          taskTitle: currentTask.title,
-        });
-      } catch (notificationError) {
-        console.error("INVITE NOTIFICATION ERROR:", notificationError);
+      if (currentTask) {
+        try {
+          await createCardInviteNotification({
+            organizationId,
+            userId: invitedUserId,
+            taskId,
+            invitedBy: user.id,
+            taskTitle: currentTask.title,
+          });
+        } catch (notificationError) {
+          console.error("INVITE NOTIFICATION ERROR:", notificationError);
+        }
       }
-    }
 
-    await openTask(taskId);
-    await handleLoadTaskSubmissions(taskId);
-    alert("User invited to card");
-  } catch (err) {
-    console.error("INVITE USER ERROR:", err);
-    alert(err instanceof Error ? err.message : "Failed to invite user");
-  }
-};
+      await handleOpenTaskWithExtras(taskId);
+      alert("User invited to card");
+    } catch (err) {
+      console.error("INVITE USER ERROR:", err);
+      alert(err instanceof Error ? err.message : "Failed to invite user");
+    }
+  };
 
   const handleRemoveInvitedUser = async (
     taskId: string,
@@ -461,11 +619,58 @@ const handleInviteUser = async (taskId: string, invitedUserId: string) => {
   ) => {
     try {
       await removeWatcher(taskId, invitedUserId);
-      await openTask(taskId);
-      await handleLoadTaskSubmissions(taskId);
+      await handleOpenTaskWithExtras(taskId);
       alert("User removed from card");
     } catch (err) {
       alert(err instanceof Error ? err.message : "Failed to remove user");
+    }
+  };
+
+  const handleSearchClients = async (search: string) => {
+    return searchClients({
+      organizationId,
+      search,
+    });
+  };
+
+  const handleInviteClient = async (params: {
+    taskId: string;
+    clientId: string;
+    clientName: string;
+  }) => {
+    try {
+      await inviteClientToTask({
+        taskId: params.taskId,
+        organizationId,
+        clientId: params.clientId,
+        invitedName: params.clientName,
+        invitedBy: user.id,
+        canView: true,
+        canComment: true,
+        canReviewSubmissions: true,
+        canApprove: false,
+      });
+
+      await handleLoadTaskClientInvites(params.taskId);
+      alert("Client invited to card");
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to invite client");
+    }
+  };
+
+  const handleRemoveClientInvite = async (inviteId: string) => {
+    try {
+      await removeTaskClientInvite(inviteId);
+
+      if (selectedTask?.id) {
+        await handleLoadTaskClientInvites(selectedTask.id);
+      }
+
+      alert("Client access removed from card");
+    } catch (err) {
+      alert(
+        err instanceof Error ? err.message : "Failed to remove client invite",
+      );
     }
   };
 
@@ -573,8 +778,7 @@ const handleInviteUser = async (taskId: string, invitedUserId: string) => {
       await refetch();
 
       if (selectedTask?.id === taskId) {
-        await openTask(taskId);
-        await handleLoadTaskSubmissions(taskId);
+        await handleOpenTaskWithExtras(taskId);
       }
     } catch (err) {
       alert(err instanceof Error ? err.message : "Failed to move card");
@@ -582,7 +786,6 @@ const handleInviteUser = async (taskId: string, invitedUserId: string) => {
   };
 
   const handleSearchAssignableUsers = async (search: string) => {
-    if (!organizationId) return [];
     return searchTaskAssignableUsers({
       organizationId,
       search,
@@ -592,7 +795,7 @@ const handleInviteUser = async (taskId: string, invitedUserId: string) => {
   return (
     <div className="min-h-screen bg-black text-white">
       <div className="flex min-h-screen">
-        <Sidebar role={profile.primary_role} />
+        <Sidebar role={profile.primary_role ?? "manager"} />
 
         <main className="min-w-0 flex-1 overflow-hidden p-6 lg:p-8">
           <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
@@ -633,119 +836,114 @@ const handleInviteUser = async (taskId: string, invitedUserId: string) => {
             ) : null}
           </div>
 
-          {!organizationId ? (
-            <div className="border border-red-500/20 bg-red-500/10 p-5 text-red-300">
-              Your account is not linked to an organization yet.
-            </div>
-          ) : (
-            <div className="grid gap-6 xl:grid-cols-[380px_minmax(0,1fr)]">
-              <section className="border border-white/10 bg-[#050505] p-5">
-                <div className="mb-4 flex items-center gap-3">
-                  <div className="rounded-xl bg-orange-500/15 p-2 text-orange-500">
-                    <ClipboardPlus size={18} />
-                  </div>
-                  <div>
-                    <h2 className="text-lg font-semibold">Create Card</h2>
-                    <p className="text-sm text-white/50">
-                      Add a real task card to the board
-                    </p>
-                  </div>
+          <div className="grid gap-6 xl:grid-cols-[380px_minmax(0,1fr)]">
+            <section className="border border-white/10 bg-[#050505] p-5">
+              <div className="mb-4 flex items-center gap-3">
+                <div className="rounded-xl bg-orange-500/15 p-2 text-orange-500">
+                  <ClipboardPlus size={18} />
                 </div>
+                <div>
+                  <h2 className="text-lg font-semibold">Create Card</h2>
+                  <p className="text-sm text-white/50">
+                    Add a real task card to the board
+                  </p>
+                </div>
+              </div>
 
-                <TaskForm
-                  onSubmit={handleCreateTask}
-                  onSearchUsers={handleSearchAssignableUsers}
-                  currentUserId={user.id}
-                  busy={busy}
+              <TaskForm
+                onSubmit={handleCreateTask}
+                onSearchUsers={handleSearchAssignableUsers}
+                currentUserId={user.id}
+                busy={busy}
+              />
+            </section>
+
+            <section className="min-w-0 border border-white/10 bg-[#050505] p-5">
+              <div className="mb-4 flex items-center gap-3">
+                <div className="rounded-xl bg-orange-500/15 p-2 text-orange-500">
+                  <CheckSquare size={18} />
+                </div>
+                <div>
+                  <h2 className="text-lg font-semibold">Board</h2>
+                  <p className="text-sm text-white/50">
+                    {projectId
+                      ? "Real project board columns"
+                      : boardMode === "organization"
+                        ? "Shared board for the organization"
+                        : "Only tasks assigned to you"}
+                  </p>
+                </div>
+              </div>
+
+              <div className="mb-5 border border-white/10 bg-black/40 px-4 py-3">
+                <div className="flex items-center gap-2 text-sm text-white/60">
+                  <LayoutGrid size={14} />
+                  <span>
+                    Cards support invited users, invited clients, time tracking,
+                    comments, checklists, and manual time editing.
+                  </span>
+                </div>
+              </div>
+
+              {loading ? (
+                <p className="text-white/60">Loading tasks...</p>
+              ) : null}
+              {error ? <p className="text-red-400">{error}</p> : null}
+
+              {!loading ? (
+                <TaskBoard
+                  groupedTasks={groupedTasks}
+                  boardColumns={boardColumns}
+                  onTrack={handleTrack}
+                  onOpen={(taskId) => {
+                    void handleOpenTaskWithExtras(taskId);
+                  }}
+                  onMoveTask={handleMoveTask}
+                  onMoveTaskToColumn={(params) => void moveTaskToColumn(params)}
+                  taskRuntimeMap={taskRuntimeMap}
+                  taskInvitedCountMap={taskInvitedCountMap}
                 />
-              </section>
-
-              <section className="min-w-0 border border-white/10 bg-[#050505] p-5">
-                <div className="mb-4 flex items-center gap-3">
-                  <div className="rounded-xl bg-orange-500/15 p-2 text-orange-500">
-                    <CheckSquare size={18} />
-                  </div>
-                  <div>
-                    <h2 className="text-lg font-semibold">Board</h2>
-                    <p className="text-sm text-white/50">
-                      {projectId
-                        ? "Real project board columns"
-                        : boardMode === "organization"
-                          ? "Shared board for the organization"
-                          : "Only tasks assigned to you"}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="mb-5 border border-white/10 bg-black/40 px-4 py-3">
-                  <div className="flex items-center gap-2 text-sm text-white/60">
-                    <LayoutGrid size={14} />
-                    <span>
-                      Cards support invited users, time tracking, comments,
-                      checklists, and manual time editing.
-                    </span>
-                  </div>
-                </div>
-
-                {loading ? (
-                  <p className="text-white/60">Loading tasks...</p>
-                ) : null}
-                {error ? <p className="text-red-400">{error}</p> : null}
-
-                {!loading ? (
-                  <TaskBoard
-                    groupedTasks={groupedTasks}
-                    boardColumns={boardColumns}
-                    onTrack={handleTrack}
-                    onOpen={(taskId) => {
-                      void (async () => {
-                        await openTask(taskId);
-                        await handleLoadTaskSubmissions(taskId);
-                      })();
-                    }}
-                    onMoveTask={handleMoveTask}
-                    onMoveTaskToColumn={(params) =>
-                      void moveTaskToColumn(params)
-                    }
-                    taskRuntimeMap={taskRuntimeMap}
-                    taskInvitedCountMap={taskInvitedCountMap}
-                  />
-                ) : null}
-              </section>
-            </div>
-          )}
+              ) : null}
+            </section>
+          </div>
         </main>
       </div>
 
       <TaskDetailsModal
-        open={!!selectedTask}
+        open={Boolean(selectedTask)}
         task={selectedTask}
         comments={selectedTaskComments}
         watchers={selectedTaskWatchers}
-        checklists={selectedTaskChecklists as any[]}
+        checklists={selectedTaskChecklists as TaskChecklistWithItems[]}
         loading={detailsLoading}
         error={detailsError}
         busy={busy}
         currentUserId={user.id}
         trackedSeconds={selectedTaskTrackedSeconds}
-        hasRunningTimer={
-          selectedTask ? (taskRuntimeMap.get(selectedTask.id) ?? false) : false
-        }
+        hasRunningTimer={Boolean(filteredTaskActiveEntry)}
         canEditDeadline={canEditSelectedTaskDeadline}
         canEditStatus={canEditSelectedTaskStatus}
-        organizationId={organizationId ?? ""}
-        currentUserRole={profile.primary_role ?? ""}
+        organizationId={organizationId}
+        currentUserRole={profile.primary_role ?? "manager"}
         submissions={selectedTaskSubmissions}
+        clientInvites={selectedTaskClientInvites}
+        taskTimeEntries={filteredTaskTimeEntries}
+        taskActiveEntry={filteredTaskActiveEntry}
+        taskTimeLoading={taskTimeLoading}
+        taskTimeMutating={taskTimeMutating}
         onClose={closeTask}
         onSaveDeadline={handleSaveDeadline}
         onSaveStatus={handleSaveStatus}
         onToggleDone={handleToggleDone}
         onAddComment={handleAddComment}
         onTrack={handleTrack}
-        onSaveManualTime={handleSaveManualTime}
+        onSaveManualTime={handleManualTaskTime}
         onInviteUser={handleInviteUser}
         onRemoveInvitedUser={handleRemoveInvitedUser}
         onSearchUsers={searchInvitableUsers}
+        onSearchClients={handleSearchClients}
+        onInviteClient={handleInviteClient}
+        onRemoveClientInvite={handleRemoveClientInvite}
         onCreateChecklist={handleCreateChecklist}
         onDeleteChecklist={handleDeleteChecklist}
         onAddChecklistItem={handleAddChecklistItem}
@@ -754,6 +952,10 @@ const handleInviteUser = async (taskId: string, invitedUserId: string) => {
         onCreateSubmission={handleCreateSubmission}
         onApproveSubmission={handleApproveSubmission}
         onRejectSubmission={handleRejectSubmission}
+        onStartTaskTimer={handleStartTaskTimer}
+        onStopTaskTimer={handleStopTaskTimer}
+        onResumeTaskEntry={handleResumeTaskEntry}
+        onDeleteTaskEntry={handleDeleteTaskEntry}
       />
     </div>
   );

@@ -16,6 +16,7 @@ import {
   MessageSquareText,
   ScanLine,
   ShieldAlert,
+  Upload,
 } from "lucide-react";
 import Sidebar from "../../../components/dashboard/components/Siderbar";
 import { useAuth } from "../../../app/providers/AuthProvider";
@@ -24,8 +25,10 @@ import { askAssistant, buildAssistantContext } from "../../../lib/api/ai";
 import { supabase } from "../../../lib/supabase/client";
 import AssetTable from "../components/AssetTable";
 import AssetForm from "../components/AssetForm";
+import AssetImportModal from "../components/AssetImportModal";
 import { fetchActiveAssetAssignment } from "../services/stockService";
 import { exportAssetsToExcel } from "../services/assetExportService";
+import type { CreateAssetInput } from "../../../lib/supabase/mutations/assets";
 
 interface LookupOption {
   id: string;
@@ -573,6 +576,9 @@ export default function AssetsPage() {
   const [formMode, setFormMode] = useState<"create" | "edit">("create");
   const [selectedAsset, setSelectedAsset] = useState<AssetRecord | null>(null);
 
+  const [importModalOpen, setImportModalOpen] = useState(false);
+  const [importingAssets, setImportingAssets] = useState(false);
+
   const [assignModalOpen, setAssignModalOpen] = useState(false);
   const [assigningAsset, setAssigningAsset] = useState<AssetRecord | null>(
     null,
@@ -596,62 +602,62 @@ export default function AssetsPage() {
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
   }, []);
 
-  useEffect(() => {
-    async function loadLookups() {
-      if (!organizationId) return;
+  async function loadLookups() {
+    if (!organizationId) return;
 
-      const [categoriesResult, locationsResult, batchesResult, usersResult] =
-        await Promise.all([
-          supabase
-            .from("asset_categories")
-            .select("id, name")
-            .eq("organization_id", organizationId)
-            .order("name", { ascending: true }),
+    const [categoriesResult, locationsResult, batchesResult, usersResult] =
+      await Promise.all([
+        supabase
+          .from("asset_categories")
+          .select("id, name")
+          .eq("organization_id", organizationId)
+          .order("name", { ascending: true }),
 
-          supabase
-            .from("stock_locations")
-            .select("id, name, code, image_url")
-            .eq("organization_id", organizationId)
-            .order("name", { ascending: true }),
+        supabase
+          .from("stock_locations")
+          .select("id, name, code, image_url")
+          .eq("organization_id", organizationId)
+          .order("name", { ascending: true }),
 
-          supabase
-            .from("purchase_batches")
-            .select("id, reference_number, invoice_number, purchase_date")
-            .eq("organization_id", organizationId)
-            .order("purchase_date", { ascending: false }),
+        supabase
+          .from("purchase_batches")
+          .select("id, reference_number, invoice_number, purchase_date")
+          .eq("organization_id", organizationId)
+          .order("purchase_date", { ascending: false }),
 
-          supabase
-            .from("profiles")
-            .select("id, full_name, email")
-            .eq("organization_id", organizationId)
-            .order("full_name", { ascending: true }),
-        ]);
+        supabase
+          .from("profiles")
+          .select("id, full_name, email")
+          .eq("organization_id", organizationId)
+          .order("full_name", { ascending: true }),
+      ]);
 
-      if (!categoriesResult.error) {
-        setCategories(categoriesResult.data ?? []);
-      }
-
-      if (!locationsResult.error) {
-        setLocations(locationsResult.data ?? []);
-      }
-
-      if (!batchesResult.error) {
-        setPurchaseBatches(
-          (batchesResult.data ?? []).map((item) => ({
-            id: item.id,
-            label:
-              item.reference_number ||
-              item.invoice_number ||
-              `Batch ${item.purchase_date ?? item.id.slice(0, 8)}`,
-          })),
-        );
-      }
-
-      if (!usersResult.error) {
-        setUsers(usersResult.data ?? []);
-      }
+    if (!categoriesResult.error) {
+      setCategories(categoriesResult.data ?? []);
     }
 
+    if (!locationsResult.error) {
+      setLocations(locationsResult.data ?? []);
+    }
+
+    if (!batchesResult.error) {
+      setPurchaseBatches(
+        (batchesResult.data ?? []).map((item) => ({
+          id: item.id,
+          label:
+            item.reference_number ||
+            item.invoice_number ||
+            `Batch ${item.purchase_date ?? item.id.slice(0, 8)}`,
+        })),
+      );
+    }
+
+    if (!usersResult.error) {
+      setUsers(usersResult.data ?? []);
+    }
+  }
+
+  useEffect(() => {
     void loadLookups();
   }, [organizationId]);
 
@@ -686,6 +692,100 @@ export default function AssetsPage() {
         return assetRows;
     }
   }, [assetRows, viewFilter]);
+
+  async function createPurchaseBatch(label: string) {
+    const trimmed = label.trim();
+
+    if (!trimmed) {
+      throw new Error("Purchase batch name is required.");
+    }
+
+    const existing = purchaseBatches.find(
+      (batch) => batch.label.trim().toLowerCase() === trimmed.toLowerCase(),
+    );
+
+    if (existing) {
+      return existing.id;
+    }
+
+    const { data, error } = await supabase
+      .from("purchase_batches")
+      .insert({
+        organization_id: organizationId,
+        reference_number: trimmed,
+        invoice_number: trimmed,
+        purchase_date: new Date().toISOString().slice(0, 10),
+        created_by: user?.id ?? null,
+      })
+      .select("id, reference_number, invoice_number, purchase_date")
+      .single();
+
+    if (error) {
+      throw new Error(error.message || "Failed to create purchase batch.");
+    }
+
+    const newLabel =
+      data.reference_number ||
+      data.invoice_number ||
+      `Batch ${data.purchase_date ?? data.id.slice(0, 8)}`;
+
+    setPurchaseBatches((current) => [
+      { id: data.id, label: newLabel },
+      ...current,
+    ]);
+
+    return data.id;
+  }
+
+  async function handleImportAssets(rows: CreateAssetInput[]) {
+    setImportingAssets(true);
+
+    try {
+      const assetTags = rows
+        .map((row) => row.asset_tag?.trim())
+        .filter((tag): tag is string => Boolean(tag));
+
+      if (assetTags.length > 0) {
+        const { data: existingTags, error: existingTagsError } = await supabase
+          .from("assets")
+          .select("asset_tag")
+          .eq("organization_id", organizationId)
+          .in("asset_tag", assetTags);
+
+        if (existingTagsError) {
+          throw new Error(existingTagsError.message);
+        }
+
+        const existingSet = new Set(
+          (existingTags ?? [])
+            .map((item) => item.asset_tag?.trim().toLowerCase())
+            .filter(Boolean),
+        );
+
+        const conflicting = assetTags.filter((tag) =>
+          existingSet.has(tag.trim().toLowerCase()),
+        );
+
+        if (conflicting.length > 0) {
+          throw new Error(
+            `These asset tags already exist: ${conflicting.join(", ")}`,
+          );
+        }
+      }
+
+      for (const row of rows) {
+        await addAsset(row);
+      }
+
+      await reload();
+      await loadLookups();
+      setImportModalOpen(false);
+    } catch (err) {
+      throw err instanceof Error ? err : new Error("Failed to import assets.");
+    } finally {
+      setImportingAssets(false);
+    }
+  }
 
   async function handleRunAssetAssistant(
     mode: "summary" | "audit" | "savings" | "weekly_report" | "repair_followup",
@@ -910,6 +1010,15 @@ export default function AssetsPage() {
                   className="border border-white/10 px-4 py-3 text-sm text-zinc-200 hover:border-white/20 hover:text-white"
                 >
                   Export All Assets
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setImportModalOpen(true)}
+                  className="inline-flex items-center gap-2 border border-white/10 px-4 py-3 text-sm text-zinc-200 hover:border-white/20 hover:text-white"
+                >
+                  <Upload size={16} />
+                  Import Assets
                 </button>
 
                 <button
@@ -1204,10 +1313,26 @@ export default function AssetsPage() {
         onClose={() => setFormOpen(false)}
         onCreate={async (input) => {
           await addAsset(input);
+          await loadLookups();
         }}
         onUpdate={async (assetId, input) => {
           await updateAsset(assetId, input);
+          await loadLookups();
         }}
+        onCreatePurchaseBatch={createPurchaseBatch}
+      />
+
+      <AssetImportModal
+        open={importModalOpen}
+        organizationId={organizationId}
+        userId={user.id}
+        categories={categories}
+        locations={locations}
+        purchaseBatches={purchaseBatches}
+        saving={importingAssets}
+        onClose={() => setImportModalOpen(false)}
+        onImport={handleImportAssets}
+        onCreatePurchaseBatch={createPurchaseBatch}
       />
 
       <AssignAssetModal

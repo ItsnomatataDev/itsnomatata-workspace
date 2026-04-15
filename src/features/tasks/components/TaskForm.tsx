@@ -265,7 +265,6 @@ export default function TaskForm({
             <option value="todo">To Do</option>
             <option value="in_progress">In Progress</option>
             <option value="review">Review</option>
-            <option value="approved">Approved</option>
             <option value="done">Done</option>
             <option value="blocked">Blocked</option>
           </select>

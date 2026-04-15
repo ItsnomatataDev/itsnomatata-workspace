@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { ArrowLeft, MessageSquareX } from "lucide-react";
 import { useAuth } from "../../../lib/hooks/useAuth";
 import ChatSidebar from "../components/ChatSidebar";
 import MessageInput from "../components/MessageInput";
@@ -18,6 +20,7 @@ import { createTypingChannel } from "../services/chatTyping";
 import type { ChatConversation, ChatMessage, ChatUser } from "../types/chat";
 
 export default function ChatPage() {
+  const navigate = useNavigate();
   const { user, profile } = useAuth();
 
   const [loadingConversations, setLoadingConversations] = useState(true);
@@ -51,8 +54,9 @@ export default function ChatPage() {
   );
 
   const activeOtherMember = useMemo(() => {
-    if (!activeConversation || activeConversation.type !== "direct")
+    if (!activeConversation || activeConversation.type !== "direct") {
       return null;
+    }
 
     return (
       activeConversation.members?.find(
@@ -265,9 +269,13 @@ export default function ChatPage() {
       const data = await getConversations(user?.id);
       setConversations(data);
 
-      if (!activeConversationId && data.length > 0) {
-        setActiveConversationId(data[0].id);
-      }
+      // Intentionally do not auto-open the latest conversation.
+      // Users should choose from the chat list themselves.
+      setActiveConversationId((current) => {
+        if (!current) return null;
+        const exists = data.some((conversation) => conversation.id === current);
+        return exists ? current : null;
+      });
     } catch (err) {
       console.error(err);
       setError("Failed to load conversations.");
@@ -323,6 +331,27 @@ export default function ChatPage() {
           return new Date(bTime).getTime() - new Date(aTime).getTime();
         }),
     );
+  }
+
+  function handleCloseChat() {
+    setActiveConversationId(null);
+    setMessages([]);
+    setTypingUsers({});
+
+    if (unsubscribeRef.current) {
+      unsubscribeRef.current();
+      unsubscribeRef.current = null;
+    }
+
+    if (typingChannelRef.current) {
+      typingChannelRef.current.cleanup();
+      typingChannelRef.current = null;
+    }
+
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = null;
+    }
   }
 
   async function handleSend() {
@@ -572,6 +601,28 @@ export default function ChatPage() {
 
         <section className="flex min-w-0 flex-1 flex-col text-white">
           <div className="border-b border-white/10 px-5 py-4">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={() => navigate("/dashboard")}
+                className="inline-flex items-center gap-2 border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-white transition hover:border-orange-500/40 hover:text-orange-300"
+              >
+                <ArrowLeft size={16} />
+                Back to Dashboard
+              </button>
+
+              {activeConversationId ? (
+                <button
+                  type="button"
+                  onClick={handleCloseChat}
+                  className="inline-flex items-center gap-2 border border-red-500/20 bg-red-500/10 px-4 py-2 text-sm font-medium text-red-300 transition hover:border-red-500/40 hover:bg-red-500/15"
+                >
+                  <MessageSquareX size={16} />
+                  Close Chat
+                </button>
+              ) : null}
+            </div>
+
             <div className="flex items-center gap-3">
               <div className="relative">
                 <div className="flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-white/5 text-sm font-semibold text-orange-400">

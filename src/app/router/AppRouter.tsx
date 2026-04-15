@@ -39,6 +39,8 @@ import AssetDetailsPage from "../../features/stock/pages/AssetDetailsPage";
 import ScanAssetPage from "../../features/stock/pages/ScanAssetPage";
 import AIWorkspacePage from "../../features/ai-workspace/pages/AIWorkspacePage";
 import AiAssistantPage from "../../features/ai-assistant/pages/AiAssistantPage";
+import EverHourAdminPage from "../../features/timesheets/pages/EverhourAdminPage";
+import TeamTimesheetsPage from "../../features/timesheets/pages/TeamTimesheetsPage";
 const AppRouter = () => {
   return (
     <BrowserRouter>
@@ -365,6 +367,24 @@ const AppRouter = () => {
             </ProtectedRoute>
           }
         />
+        <Route
+          path="/admin/everhour"
+          element={
+            <ProtectedRoute>
+              <RoleRoute roles={["admin"]}>
+                <EverHourAdminPage />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+        <Route path="/clients" element={<ClientsPage />} />
+        <Route path="/clients/:clientId" element={<ClientDetailsPage />} />
+        <Route
+          path="/clients/:clientId/workspace"
+          element={<ClientWorkspacePage />}
+        />
+        <Route path="/timesheets/reports" element={<ReportsPage />} />
+        <Route path="/timesheets/team" element={<TeamTimesheetsPage />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </BrowserRouter>

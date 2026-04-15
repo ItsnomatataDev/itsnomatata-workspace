@@ -70,9 +70,9 @@ export async function notifyTaskComment(params: {
     actionUrl: `/tasks/${params.taskId}`,
     priority: "medium",
     metadata: {
-      taskId: params.taskId,
-      taskTitle: params.taskTitle,
-      authorName: params.authorName,
+    taskId: params.taskId,
+    taskTitle: params.taskTitle,
+    authorName: params.authorName,
     },
-  });
-}
+    });
+    }

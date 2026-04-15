@@ -25,7 +25,8 @@ export type AdminTimeEntryRow = {
   cost_amount: number | null;
   created_at: string;
   updated_at: string;
-
+  email?: string | null;
+  full_name?: string | null;
   user_name?: string | null;
   user_email?: string | null;
   task_title?: string | null;
@@ -105,10 +106,18 @@ export async function getAdminTimeEntries(params: {
   const items = (data ?? []) as AdminTimeEntryRow[];
 
   const userIds = [...new Set(items.map((i) => i.user_id).filter(Boolean))];
-  const taskIds = [...new Set(items.map((i) => i.task_id).filter(Boolean))] as string[];
-  const projectIds = [...new Set(items.map((i) => i.project_id).filter(Boolean))] as string[];
-  const clientIds = [...new Set(items.map((i) => i.client_id).filter(Boolean))] as string[];
-  const campaignIds = [...new Set(items.map((i) => i.campaign_id).filter(Boolean))] as string[];
+  const taskIds = [
+    ...new Set(items.map((i) => i.task_id).filter(Boolean)),
+  ] as string[];
+  const projectIds = [
+    ...new Set(items.map((i) => i.project_id).filter(Boolean)),
+  ] as string[];
+  const clientIds = [
+    ...new Set(items.map((i) => i.client_id).filter(Boolean)),
+  ] as string[];
+  const campaignIds = [
+    ...new Set(items.map((i) => i.campaign_id).filter(Boolean)),
+  ] as string[];
 
   const [
     profilesResult,
@@ -118,7 +127,10 @@ export async function getAdminTimeEntries(params: {
     campaignsResult,
   ] = await Promise.all([
     userIds.length
-      ? supabase.from("profiles").select("id, full_name, email").in("id", userIds)
+      ? supabase.from("profiles").select("id, full_name, email").in(
+        "id",
+        userIds,
+      )
       : Promise.resolve({ data: [], error: null }),
     taskIds.length
       ? supabase.from("tasks").select("id, title").in("id", taskIds)
@@ -181,7 +193,9 @@ export async function getAdminTimeSummary(params: {
 
   let query = supabase
     .from("time_entries")
-    .select("duration_seconds, approval_status, is_billable, cost_amount, is_running")
+    .select(
+      "duration_seconds, approval_status, is_billable, cost_amount, is_running",
+    )
     .eq("organization_id", organizationId);
 
   if (from) query = query.gte("started_at", from);

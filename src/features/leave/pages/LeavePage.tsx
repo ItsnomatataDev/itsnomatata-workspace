@@ -38,7 +38,6 @@ export default function LeavePage() {
   );
   const [rules, setRules] = useState<LeaveCalendarRuleRow[]>([]);
   const [createOpen, setCreateOpen] = useState(false);
-
   const loadPage = useCallback(async () => {
     if (!organizationId || !userId) return;
 
@@ -84,10 +83,8 @@ export default function LeavePage() {
       <div className="min-h-screen bg-black p-6 text-white">
         Missing leave workspace context.
       </div>
-    );
-  }
-
-  return (
+    );}
+return (
     <div className="min-h-screen bg-black text-white">
       <div className="flex min-h-screen">
         <Sidebar role={profile.primary_role} />

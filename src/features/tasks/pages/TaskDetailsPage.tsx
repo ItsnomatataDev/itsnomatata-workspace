@@ -13,6 +13,10 @@ import {
   Users,
   X,
   FileText,
+  Play,
+  Square,
+  TimerReset,
+  Trash2,
 } from "lucide-react";
 import type {
   TaskCommentItem,
@@ -26,7 +30,12 @@ import type {
   TaskSubmissionItem,
   TaskSubmissionType,
 } from "../../../lib/supabase/queries/taskSubmissions";
+import type { TimeEntryItem } from "../../../lib/supabase/mutations/timeEntries";
 import TaskChecklistSection from "../components/TaskChecklistSection";
+import type {
+  ClientLookupItem,
+  TaskClientInviteItem,
+} from "../services/taskClientInviteService";
 
 function formatDateTime(value?: string | null) {
   if (!value) return "Not set";
@@ -55,7 +64,7 @@ const STATUS_OPTIONS: TaskStatus[] = [
   "todo",
   "in_progress",
   "review",
-  "approved",
+  "done",
   "blocked",
 ];
 
@@ -76,6 +85,11 @@ export default function TaskDetailsModal({
   organizationId: _organizationId,
   currentUserRole,
   submissions,
+  clientInvites,
+  taskTimeEntries,
+  taskActiveEntry,
+  taskTimeLoading,
+  taskTimeMutating,
   onClose,
   onSaveDeadline,
   onSaveStatus,
@@ -86,6 +100,9 @@ export default function TaskDetailsModal({
   onInviteUser,
   onRemoveInvitedUser,
   onSearchUsers,
+  onSearchClients,
+  onInviteClient,
+  onRemoveClientInvite,
   onCreateChecklist,
   onDeleteChecklist,
   onAddChecklistItem,
@@ -94,6 +111,10 @@ export default function TaskDetailsModal({
   onCreateSubmission,
   onApproveSubmission,
   onRejectSubmission,
+  onStartTaskTimer,
+  onStopTaskTimer,
+  onResumeTaskEntry,
+  onDeleteTaskEntry,
 }: {
   open: boolean;
   task: TaskItem | null;
@@ -111,6 +132,11 @@ export default function TaskDetailsModal({
   organizationId: string;
   currentUserRole: string;
   submissions: TaskSubmissionItem[];
+  clientInvites: TaskClientInviteItem[];
+  taskTimeEntries: TimeEntryItem[];
+  taskActiveEntry: TimeEntryItem | null;
+  taskTimeLoading: boolean;
+  taskTimeMutating: boolean;
   onClose: () => void;
   onSaveDeadline: (taskId: string, dueDate: string | null) => Promise<void>;
   onSaveStatus: (taskId: string, status: TaskStatus) => Promise<void>;
@@ -125,6 +151,13 @@ export default function TaskDetailsModal({
   onInviteUser: (taskId: string, userId: string) => Promise<void>;
   onRemoveInvitedUser: (taskId: string, userId: string) => Promise<void>;
   onSearchUsers: (search: string) => Promise<TaskInvitableUser[]>;
+  onSearchClients: (search: string) => Promise<ClientLookupItem[]>;
+  onInviteClient: (params: {
+    taskId: string;
+    clientId: string;
+    clientName: string;
+  }) => Promise<void>;
+  onRemoveClientInvite: (inviteId: string) => Promise<void>;
   onCreateChecklist: (title: string) => Promise<void>;
   onDeleteChecklist: (checklistId: string) => Promise<void>;
   onAddChecklistItem: (checklistId: string, content: string) => Promise<void>;
@@ -148,6 +181,10 @@ export default function TaskDetailsModal({
     taskId: string,
     reviewNote?: string,
   ) => Promise<void>;
+  onStartTaskTimer: () => Promise<void>;
+  onStopTaskTimer: () => Promise<void>;
+  onResumeTaskEntry: (entryId: string) => Promise<void>;
+  onDeleteTaskEntry: (entryId: string) => Promise<void>;
 }) {
   const [deadline, setDeadline] = useState("");
   const [comment, setComment] = useState("");
@@ -159,9 +196,14 @@ export default function TaskDetailsModal({
   const [userResults, setUserResults] = useState<TaskInvitableUser[]>([]);
   const [searchingUsers, setSearchingUsers] = useState(false);
 
+  const [clientSearch, setClientSearch] = useState("");
+  const [clientResults, setClientResults] = useState<ClientLookupItem[]>([]);
+  const [searchingClients, setSearchingClients] = useState(false);
+
   const [liveTrackedSeconds, setLiveTrackedSeconds] = useState(
     Number(trackedSeconds ?? 0),
   );
+  const [activeTaskLiveSeconds, setActiveTaskLiveSeconds] = useState(0);
 
   const [submissionType, setSubmissionType] =
     useState<TaskSubmissionType>("website");
@@ -192,6 +234,24 @@ export default function TaskDetailsModal({
     return () => window.clearInterval(interval);
   }, [hasRunningTimer, trackedSeconds]);
 
+  useEffect(() => {
+    if (!taskActiveEntry?.started_at) {
+      setActiveTaskLiveSeconds(0);
+      return;
+    }
+
+    const updateLiveTime = () => {
+      const startedAtMs = new Date(taskActiveEntry.started_at).getTime();
+      const nowMs = Date.now();
+      const diffSeconds = Math.max(0, Math.floor((nowMs - startedAtMs) / 1000));
+      setActiveTaskLiveSeconds(diffSeconds);
+    };
+
+    updateLiveTime();
+    const interval = window.setInterval(updateLiveTime, 1000);
+    return () => window.clearInterval(interval);
+  }, [taskActiveEntry]);
+
   const initialDeadline = useMemo(() => {
     if (!task?.due_date) return "";
     const date = new Date(task.due_date);
@@ -201,6 +261,13 @@ export default function TaskDetailsModal({
       date.getDate(),
     )}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
   }, [task?.due_date]);
+
+  const taskHistoryTotalSeconds = useMemo(() => {
+    return taskTimeEntries.reduce(
+      (sum, entry) => sum + Number(entry.duration_seconds ?? 0),
+      0,
+    );
+  }, [taskTimeEntries]);
 
   useEffect(() => {
     if (task?.status && task.status !== "done") {
@@ -246,6 +313,44 @@ export default function TaskDetailsModal({
     };
   }, [userSearch, onSearchUsers]);
 
+  useEffect(() => {
+    let active = true;
+
+    const run = async () => {
+      const trimmed = clientSearch.trim();
+
+      if (!trimmed) {
+        setClientResults([]);
+        return;
+      }
+
+      try {
+        setSearchingClients(true);
+        const results = await onSearchClients(trimmed);
+        if (active) {
+          setClientResults(results);
+        }
+      } catch {
+        if (active) {
+          setClientResults([]);
+        }
+      } finally {
+        if (active) {
+          setSearchingClients(false);
+        }
+      }
+    };
+
+    const timeout = window.setTimeout(() => {
+      void run();
+    }, 250);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timeout);
+    };
+  }, [clientSearch, onSearchClients]);
+
   if (!open) return null;
 
   const effectiveDeadline = deadline || initialDeadline;
@@ -277,6 +382,17 @@ export default function TaskDetailsModal({
     setUserResults([]);
   };
 
+  const handleInviteClient = async (clientId: string, clientName: string) => {
+    if (!task) return;
+    await onInviteClient({
+      taskId: task.id,
+      clientId,
+      clientName,
+    });
+    setClientSearch("");
+    setClientResults([]);
+  };
+
   const handleSaveManualTime = async () => {
     if (!task) return;
 
@@ -294,9 +410,7 @@ export default function TaskDetailsModal({
     const needsPhysicalFile =
       submissionType === "media" || submissionType === "document";
 
-    if (!submissionTitle.trim()) {
-      return;
-    }
+    if (!submissionTitle.trim()) return;
 
     if (needsPhysicalFile && !submissionFile) {
       alert("Please upload a file for media or document submissions.");
@@ -456,6 +570,131 @@ export default function TaskDetailsModal({
                   <p className="mt-3 text-sm text-white/45">
                     Add manual time in hours and minutes.
                   </p>
+                </div>
+
+                <div className="rounded-2xl border border-white/10 bg-black/30 p-5">
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <div className="flex items-center gap-2 text-orange-400">
+                        <Clock3 size={16} />
+                        <p className="font-medium">Task Time History</p>
+                      </div>
+                      <p className="mt-2 text-sm text-white/45">
+                        All recorded time on this card
+                      </p>
+                    </div>
+
+                    <div className="rounded-xl border border-orange-500/20 bg-orange-500/10 px-4 py-2 text-sm text-orange-300">
+                      {formatDurationHms(taskHistoryTotalSeconds)}
+                    </div>
+                  </div>
+
+                  {taskActiveEntry ? (
+                    <div className="mt-4 rounded-xl border border-orange-500/20 bg-orange-500/10 p-4">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <p className="text-sm text-orange-300">
+                            Timer running on this task
+                          </p>
+                          <p className="mt-2 text-2xl font-bold text-white">
+                            {formatDurationHms(activeTaskLiveSeconds)}
+                          </p>
+                          <p className="mt-1 text-xs text-white/60">
+                            Started {formatDateTime(taskActiveEntry.started_at)}
+                          </p>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => void onStopTaskTimer()}
+                          disabled={taskTimeMutating}
+                          className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-semibold text-black disabled:opacity-60"
+                        >
+                          <Square size={14} />
+                          Stop task timer
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="mt-4">
+                      <button
+                        type="button"
+                        onClick={() => void onStartTaskTimer()}
+                        disabled={taskTimeMutating}
+                        className="inline-flex items-center gap-2 rounded-xl bg-orange-500 px-4 py-3 text-sm font-semibold text-black disabled:opacity-60"
+                      >
+                        <Play size={14} />
+                        Start dedicated task timer
+                      </button>
+                    </div>
+                  )}
+
+                  {taskTimeLoading ? (
+                    <p className="mt-5 text-sm text-white/60">
+                      Loading task time entries...
+                    </p>
+                  ) : taskTimeEntries.length === 0 ? (
+                    <p className="mt-5 text-sm text-white/50">
+                      No task-specific entries yet.
+                    </p>
+                  ) : (
+                    <div className="mt-5 space-y-3">
+                      {taskTimeEntries.map((entry) => (
+                        <div
+                          key={entry.id}
+                          className="flex flex-col gap-3 rounded-xl border border-white/10 bg-black px-4 py-4 lg:flex-row lg:items-center lg:justify-between"
+                        >
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-medium text-white">
+                              {entry.description || "No description"}
+                            </p>
+                            <p className="mt-1 text-xs text-white/45">
+                              {formatDateTime(entry.started_at)} →{" "}
+                              {formatDateTime(entry.ended_at)}
+                            </p>
+                            <p className="mt-1 text-xs text-white/45">
+                              {entry.is_billable ? "Billable" : "Non-billable"}{" "}
+                              • {entry.source || "—"}
+                            </p>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="rounded-xl border border-orange-500/20 bg-orange-500/10 px-3 py-2 text-xs text-orange-300">
+                              {entry.ended_at
+                                ? formatDurationHms(entry.duration_seconds ?? 0)
+                                : "Running"}
+                            </span>
+
+                            {entry.ended_at ? (
+                              <button
+                                type="button"
+                                onClick={() => void onResumeTaskEntry(entry.id)}
+                                disabled={
+                                  taskTimeMutating || Boolean(taskActiveEntry)
+                                }
+                                className="inline-flex items-center gap-1 rounded-xl bg-white/10 px-3 py-2 text-xs text-white disabled:opacity-60"
+                              >
+                                <TimerReset size={13} />
+                                Resume
+                              </button>
+                            ) : null}
+
+                            {entry.ended_at ? (
+                              <button
+                                type="button"
+                                onClick={() => void onDeleteTaskEntry(entry.id)}
+                                disabled={taskTimeMutating}
+                                className="inline-flex items-center gap-1 rounded-xl bg-red-500/10 px-3 py-2 text-xs text-red-300 disabled:opacity-60"
+                              >
+                                <Trash2 size={13} />
+                                Delete
+                              </button>
+                            ) : null}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 <div className="rounded-2xl border border-white/10 bg-black/30 p-5">
@@ -648,11 +887,126 @@ export default function TaskDetailsModal({
                             <button
                               type="button"
                               onClick={() =>
-                                task &&
                                 void onRemoveInvitedUser(
                                   task.id,
                                   watcher.user_id,
                                 )
+                              }
+                              className="shrink-0 rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-300"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-white/10 bg-black/30 p-5">
+                  <div className="flex items-center gap-2 text-orange-400">
+                    <Users size={16} />
+                    <p className="font-medium">Invited Clients</p>
+                  </div>
+
+                  <p className="mt-2 text-sm text-white/45">
+                    Invite clients to view this card and see tracked time in
+                    their workspace.
+                  </p>
+
+                  <div className="mt-4 space-y-4">
+                    <div className="relative">
+                      <Search
+                        size={16}
+                        className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-white/35"
+                      />
+                      <input
+                        value={clientSearch}
+                        onChange={(e) => setClientSearch(e.target.value)}
+                        placeholder="Search clients by name or email"
+                        className="w-full rounded-xl border border-white/10 bg-black py-3 pl-11 pr-4 text-white outline-none focus:border-orange-500"
+                      />
+                    </div>
+
+                    <div className="max-h-64 overflow-y-auto rounded-2xl border border-white/10 bg-black/40">
+                      {searchingClients ? (
+                        <div className="px-4 py-4 text-sm text-white/50">
+                          Searching clients...
+                        </div>
+                      ) : clientResults.length === 0 && clientSearch.trim() ? (
+                        <div className="px-4 py-4 text-sm text-white/50">
+                          No matching clients found.
+                        </div>
+                      ) : clientResults.length > 0 ? (
+                        <div className="divide-y divide-white/10">
+                          {clientResults.map((item) => (
+                            <div
+                              key={item.id}
+                              className="flex items-center justify-between gap-3 px-4 py-3"
+                            >
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-medium text-white">
+                                  {item.name}
+                                </p>
+                                <p className="truncate text-xs text-white/45">
+                                  {item.email || "No email"}
+                                </p>
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  void handleInviteClient(item.id, item.name)
+                                }
+                                className="shrink-0 rounded-xl bg-orange-500 px-3 py-2 text-xs font-semibold text-black"
+                              >
+                                Invite client
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="px-4 py-4 text-sm text-white/50">
+                          Start typing a client name or email to invite them.
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="space-y-2">
+                      {clientInvites.length === 0 ? (
+                        <p className="text-sm text-white/50">
+                          No invited clients yet.
+                        </p>
+                      ) : (
+                        clientInvites.map((invite) => (
+                          <div
+                            key={invite.id}
+                            className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-black px-4 py-3"
+                          >
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-medium text-white">
+                                {invite.invited_name ||
+                                  invite.invited_email ||
+                                  invite.client_id ||
+                                  "Client"}
+                              </p>
+                              <p className="truncate text-xs text-white/45">
+                                {invite.invited_email ||
+                                  "Client workspace access"}
+                              </p>
+                              <p className="mt-1 text-xs text-orange-400">
+                                View: {invite.can_view ? "Yes" : "No"} •
+                                Comment: {invite.can_comment ? "Yes" : "No"} •
+                                Review:{" "}
+                                {invite.can_review_submissions ? "Yes" : "No"} •
+                                Approve: {invite.can_approve ? "Yes" : "No"}
+                              </p>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() =>
+                                void onRemoveClientInvite(invite.id)
                               }
                               className="shrink-0 rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-300"
                             >
@@ -725,9 +1079,9 @@ export default function TaskDetailsModal({
                     />
                   </div>
 
-                  {submissionType === "media" ||
-                  submissionType === "document" ||
-                  submissionType === "general" ? (
+                  {(submissionType === "media" ||
+                    submissionType === "document" ||
+                    submissionType === "general") && (
                     <div className="mt-3">
                       <label className="mb-2 flex items-center gap-2 text-sm text-white/60">
                         <Upload size={14} />
@@ -748,7 +1102,7 @@ export default function TaskDetailsModal({
                         </p>
                       ) : null}
                     </div>
-                  ) : null}
+                  )}
 
                   <div className="mt-4 flex flex-wrap gap-2">
                     <button
@@ -834,7 +1188,6 @@ export default function TaskDetailsModal({
                                   type="button"
                                   disabled={busy || !task}
                                   onClick={() =>
-                                    task &&
                                     void onApproveSubmission(
                                       submission.id,
                                       task.id,
@@ -850,7 +1203,6 @@ export default function TaskDetailsModal({
                                   type="button"
                                   disabled={busy || !task}
                                   onClick={() =>
-                                    task &&
                                     void onRejectSubmission(
                                       submission.id,
                                       task.id,

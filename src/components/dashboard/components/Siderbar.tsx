@@ -21,6 +21,7 @@ import {
   Video,
   MessageSquare,
   ScanLine,
+  BarChart3,
 } from "lucide-react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { signOutUser } from "../../../lib/supabase/auth";
@@ -76,6 +77,11 @@ function getRoleLinks(
         icon: Users,
         badge: counts?.pendingInvites,
       },
+      {
+        to: "/timesheets/team",
+        label: "Team Timesheets",
+        icon: Clock3,
+      },
       { to: "/automations", label: "Automations", icon: Sparkles },
       { to: "/automation-runs", label: "Automation Runs", icon: Activity },
       {
@@ -93,6 +99,11 @@ function getRoleLinks(
       { to: "/scan", label: "Scan Asset", icon: ScanLine },
       { to: "/admin/roster", label: "Manage Roster", icon: CalendarClock },
       { to: "/admin/leave", label: "Leave Request", icon: CalendarDays },
+      {
+        to: "/timesheets/team",
+        label: "Team Timesheets",
+        icon: Clock3,
+      },
     ],
     admin: [
       {
@@ -106,8 +117,11 @@ function getRoleLinks(
       { to: "/admin/crm", label: "CRM", icon: BriefcaseBusiness },
       { to: "/assets", label: "Stock", icon: ShieldCheck },
       { to: "/time-approval", label: "Time Approvals", icon: CheckSquare },
+      { to: "/admin/everhour", label: "EverHour Admin", icon: Clock3 },
       { to: "/admin/ai", label: "AI Control", icon: Sparkles },
       { to: "/scan", label: "Scan Asset", icon: ScanLine },
+      { to: "/timesheets/team", label: "Team Timesheets", icon: Clock3 },
+      { to: "/timesheets/reports", label: "Reports", icon: BarChart3 },
     ],
   };
 

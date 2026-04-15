@@ -1,175 +1,127 @@
-import { useEffect, useState } from "react";
-import { Building2, Globe, PenSquare, Tag, Type } from "lucide-react";
-import type { ClientStatus } from "../../../lib/supabase/queries/clients";
-import { slugifyClientName } from "../services/clientService";
+import { useState } from "react";
 
 export interface ClientFormValues {
   name: string;
-  slug: string;
+  email: string;
+  phone: string;
+  website: string;
   industry: string;
-  description: string;
-  website_url: string;
-  brand_voice: string;
-  status: ClientStatus;
-}
-
-interface ClientFormProps {
-  initialValues?: Partial<ClientFormValues>;
-  onSubmit: (values: ClientFormValues) => Promise<void> | void;
-  submitLabel?: string;
-  busy?: boolean;
-}
-
-const defaultValues: ClientFormValues = {
-  name: "",
-  slug: "",
-  industry: "",
-  description: "",
-  website_url: "",
-  brand_voice: "",
-  status: "active",
-};
-
-function InputWrap({
-  label,
-  icon,
-  children,
-}: {
-  label: string;
-  icon: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  return (
-    <div>
-      <label className="mb-2 flex items-center gap-2 text-sm font-medium text-white/75">
-        <span className="text-orange-500">{icon}</span>
-        {label}
-      </label>
-      {children}
-    </div>
-  );
+  notes: string;
 }
 
 export default function ClientForm({
-  initialValues,
-  onSubmit,
-  submitLabel = "Save Client",
   busy = false,
-}: ClientFormProps) {
+  onSubmit,
+}: {
+  busy?: boolean;
+  onSubmit: (values: ClientFormValues) => Promise<void>;
+}) {
   const [values, setValues] = useState<ClientFormValues>({
-    ...defaultValues,
-    ...initialValues,
+    name: "",
+    email: "",
+    phone: "",
+    website: "",
+    industry: "",
+    notes: "",
   });
 
-  useEffect(() => {
-    setValues({
-      ...defaultValues,
-      ...initialValues,
-    });
-  }, [initialValues]);
-
-  const handleChange = (field: keyof ClientFormValues, value: string) => {
-    setValues((prev) => {
-      const next = { ...prev, [field]: value };
-
-      if (
-        field === "name" &&
-        (!prev.slug || prev.slug === slugifyClientName(prev.name))
-      ) {
-        next.slug = slugifyClientName(value);
-      }
-
-      return next;
-    });
+  const handleChange = (key: keyof ClientFormValues, value: string) => {
+    setValues((prev) => ({
+      ...prev,
+      [key]: value,
+    }));
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!values.name.trim()) return;
+
     await onSubmit(values);
+
+    setValues({
+      name: "",
+      email: "",
+      phone: "",
+      website: "",
+      industry: "",
+      notes: "",
+    });
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-5">
-      <InputWrap label="Client Name" icon={<Type size={16} />}>
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <div>
+        <label className="mb-2 block text-sm text-white/60">Client name</label>
         <input
-          className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 text-white outline-none transition focus:border-orange-500"
           value={values.name}
           onChange={(e) => handleChange("name", e.target.value)}
-          placeholder="Shearwater Adventures"
-          required
+          placeholder="BluePeak Logistics"
+          className="w-full border border-white/10 bg-black px-4 py-3 text-white outline-none focus:border-orange-500"
         />
-      </InputWrap>
-
-      <div className="grid gap-4 md:grid-cols-2">
-        <InputWrap label="Slug" icon={<Tag size={16} />}>
-          <input
-            className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 text-white outline-none transition focus:border-orange-500"
-            value={values.slug}
-            onChange={(e) => handleChange("slug", e.target.value)}
-            placeholder="shearwater-adventures"
-            required
-          />
-        </InputWrap>
-
-        <InputWrap label="Industry" icon={<Building2 size={16} />}>
-          <input
-            className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 text-white outline-none transition focus:border-orange-500"
-            value={values.industry}
-            onChange={(e) => handleChange("industry", e.target.value)}
-            placeholder="Tourism"
-          />
-        </InputWrap>
       </div>
 
-      <InputWrap label="Website" icon={<Globe size={16} />}>
-        <input
-          className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 text-white outline-none transition focus:border-orange-500"
-          value={values.website_url}
-          onChange={(e) => handleChange("website_url", e.target.value)}
-          placeholder="https://example.com"
-        />
-      </InputWrap>
+      <div className="grid gap-4 md:grid-cols-2">
+        <div>
+          <label className="mb-2 block text-sm text-white/60">Email</label>
+          <input
+            type="email"
+            value={values.email}
+            onChange={(e) => handleChange("email", e.target.value)}
+            placeholder="hello@client.com"
+            className="w-full border border-white/10 bg-black px-4 py-3 text-white outline-none focus:border-orange-500"
+          />
+        </div>
 
-      <InputWrap label="Brand Voice" icon={<PenSquare size={16} />}>
-        <input
-          className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 text-white outline-none transition focus:border-orange-500"
-          value={values.brand_voice}
-          onChange={(e) => handleChange("brand_voice", e.target.value)}
-          placeholder="Professional, warm, premium"
-        />
-      </InputWrap>
+        <div>
+          <label className="mb-2 block text-sm text-white/60">Phone</label>
+          <input
+            value={values.phone}
+            onChange={(e) => handleChange("phone", e.target.value)}
+            placeholder="+263..."
+            className="w-full border border-white/10 bg-black px-4 py-3 text-white outline-none focus:border-orange-500"
+          />
+        </div>
+      </div>
 
-      <InputWrap label="Status" icon={<Tag size={16} />}>
-        <select
-          className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 text-white outline-none transition focus:border-orange-500"
-          value={values.status}
-          onChange={(e) =>
-            handleChange("status", e.target.value as ClientStatus)
-          }
-        >
-          <option value="lead">Lead</option>
-          <option value="active">Active</option>
-          <option value="paused">Paused</option>
-          <option value="closed">Closed</option>
-        </select>
-      </InputWrap>
+      <div className="grid gap-4 md:grid-cols-2">
+        <div>
+          <label className="mb-2 block text-sm text-white/60">Website</label>
+          <input
+            value={values.website}
+            onChange={(e) => handleChange("website", e.target.value)}
+            placeholder="https://client.com"
+            className="w-full border border-white/10 bg-black px-4 py-3 text-white outline-none focus:border-orange-500"
+          />
+        </div>
 
-      <InputWrap label="Description" icon={<PenSquare size={16} />}>
+        <div>
+          <label className="mb-2 block text-sm text-white/60">Industry</label>
+          <input
+            value={values.industry}
+            onChange={(e) => handleChange("industry", e.target.value)}
+            placeholder="Logistics"
+            className="w-full border border-white/10 bg-black px-4 py-3 text-white outline-none focus:border-orange-500"
+          />
+        </div>
+      </div>
+
+      <div>
+        <label className="mb-2 block text-sm text-white/60">Notes</label>
         <textarea
-          className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 text-white outline-none transition focus:border-orange-500"
-          rows={5}
-          value={values.description}
-          onChange={(e) => handleChange("description", e.target.value)}
-          placeholder="Add a strong internal description of this client..."
+          rows={4}
+          value={values.notes}
+          onChange={(e) => handleChange("notes", e.target.value)}
+          placeholder="Internal notes about this client..."
+          className="w-full border border-white/10 bg-black px-4 py-3 text-white outline-none focus:border-orange-500"
         />
-      </InputWrap>
+      </div>
 
       <button
         type="submit"
-        disabled={busy}
-        className="w-full rounded-2xl bg-orange-500 px-4 py-3 font-semibold text-black transition hover:bg-orange-400 disabled:opacity-60"
+        disabled={busy || !values.name.trim()}
+        className="rounded-xl bg-orange-500 px-4 py-3 text-sm font-semibold text-black disabled:opacity-60"
       >
-        {busy ? "Saving..." : submitLabel}
+        {busy ? "Creating..." : "Create Client"}
       </button>
     </form>
   );

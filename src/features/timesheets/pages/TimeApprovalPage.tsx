@@ -1,4 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
+import {
+  Activity,
+  Clock3,
+  DollarSign,
+  Filter,
+  Timer,
+  TriangleAlert,
+} from "lucide-react";
 import Sidebar from "../../../components/dashboard/components/Siderbar";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import {
@@ -13,12 +21,48 @@ import {
   rejectTimeEntry,
 } from "../../../lib/supabase/mutations/adminTime";
 import TimeApprovalTable from "../components/TimeApprovalTable";
+import TimeChartsPanel from "../components/TimeChartsPanel";
+import TimeInsightsPanel from "../components/TimeInsightsPanel";
 
 function formatDuration(seconds: number) {
   const total = Math.max(0, Number(seconds || 0));
   const hrs = Math.floor(total / 3600);
   const mins = Math.floor((total % 3600) / 60);
   return hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m`;
+}
+
+function formatMoney(amount: number) {
+  return `$${Number(amount || 0).toFixed(2)}`;
+}
+
+function SummaryCard({
+  title,
+  value,
+  subtitle,
+  icon,
+}: {
+  title: string;
+  value: string | number;
+  subtitle?: string;
+  icon: React.ReactNode;
+}) {
+  return (
+    <div className="border border-white/10 bg-[#050505] p-5">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-sm text-white/45">{title}</p>
+          <p className="mt-3 text-2xl font-bold text-white">{value}</p>
+          {subtitle ? (
+            <p className="mt-2 text-xs text-white/35">{subtitle}</p>
+          ) : null}
+        </div>
+
+        <div className="border border-orange-500/20 bg-orange-500/10 p-3 text-orange-400">
+          {icon}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export default function TimeApprovalPage() {
@@ -72,9 +116,12 @@ export default function TimeApprovalPage() {
 
       setEntries(rows);
       setSummary(summaryData);
-    } catch (err: any) {
-      console.error("LOAD ADMIN TIME ERROR:", err);
-      setError(err?.message || "Failed to load admin time entries.");
+    } catch (err) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Failed to load admin time entries.";
+      setError(message);
     } finally {
       setLoading(false);
     }
@@ -103,8 +150,10 @@ export default function TimeApprovalPage() {
       });
       setSelectedIds((prev) => prev.filter((id) => id !== entryId));
       await load();
-    } catch (err: any) {
-      alert(err?.message || "Failed to approve entry");
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Failed to approve entry";
+      setError(message);
     } finally {
       setBusy(false);
     }
@@ -118,8 +167,10 @@ export default function TimeApprovalPage() {
       await rejectTimeEntry({ entryId });
       setSelectedIds((prev) => prev.filter((id) => id !== entryId));
       await load();
-    } catch (err: any) {
-      alert(err?.message || "Failed to reject entry");
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Failed to reject entry";
+      setError(message);
     } finally {
       setBusy(false);
     }
@@ -136,14 +187,71 @@ export default function TimeApprovalPage() {
       });
       setSelectedIds([]);
       await load();
-    } catch (err: any) {
-      alert(err?.message || "Failed to bulk approve entries");
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Failed to bulk approve entries";
+      setError(message);
     } finally {
       setBusy(false);
     }
   };
 
   const selectedCount = useMemo(() => selectedIds.length, [selectedIds]);
+
+  const nonBillableSeconds = useMemo(
+    () => Math.max(0, summary.totalSeconds - summary.billableSeconds),
+    [summary.totalSeconds, summary.billableSeconds],
+  );
+
+  const dailyChartData = useMemo(() => {
+    const grouped = new Map<
+      string,
+      {
+        label: string;
+        trackedHours: number;
+        billableHours: number;
+        cost: number;
+      }
+    >();
+
+    for (const entry of entries) {
+      const rawDate = entry.started_at;
+      const date = new Date(rawDate);
+      const label = Number.isNaN(date.getTime())
+        ? rawDate.slice(0, 10)
+        : date.toLocaleDateString(undefined, {
+            month: "short",
+            day: "numeric",
+          });
+
+      const key = rawDate.slice(0, 10);
+      const current = grouped.get(key) ?? {
+        label,
+        trackedHours: 0,
+        billableHours: 0,
+        cost: 0,
+      };
+
+      const hours = Number(entry.duration_seconds ?? 0) / 3600;
+      current.trackedHours += hours;
+      if (entry.is_billable) {
+        current.billableHours += hours;
+      }
+      current.cost += Number(entry.cost_amount ?? 0);
+
+      grouped.set(key, current);
+    }
+
+    return Array.from(grouped.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .slice(-10)
+      .map(([, value]) => ({
+        ...value,
+        trackedHours: Number(value.trackedHours.toFixed(2)),
+        billableHours: Number(value.billableHours.toFixed(2)),
+        cost: Number(value.cost.toFixed(2)),
+      }));
+  }, [entries]);
 
   if (!auth?.user || !profile) return null;
 
@@ -159,9 +267,9 @@ export default function TimeApprovalPage() {
                 Everhour Admin
               </p>
               <h1 className="mt-2 text-3xl font-bold">Time Approval Center</h1>
-              <p className="mt-2 text-sm text-white/50">
-                Review, approve, and monitor tracked time across the
-                organization.
+              <p className="mt-2 max-w-3xl text-sm text-white/50">
+                Review tracked hours, billable work, cost exposure, and approval
+                flow in a cleaner Everhour-style admin dashboard.
               </p>
             </div>
 
@@ -170,88 +278,139 @@ export default function TimeApprovalPage() {
                 type="button"
                 disabled={!selectedCount || busy || !canManage}
                 onClick={() => void handleBulkApprove()}
-                className="rounded-xl bg-orange-500 px-4 py-3 text-sm font-semibold text-black disabled:opacity-60"
+                className="border border-orange-500 bg-orange-500 px-4 py-3 text-sm font-semibold text-black disabled:opacity-60"
               >
                 Approve selected ({selectedCount})
               </button>
             </div>
           </div>
 
-          <div className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-            <div className="border border-white/10 bg-[#050505] p-4">
-              <p className="text-sm text-white/45">Active timers</p>
-              <p className="mt-2 text-2xl font-bold">{summary.activeCount}</p>
-            </div>
-            <div className="border border-white/10 bg-[#050505] p-4">
-              <p className="text-sm text-white/45">Pending approvals</p>
-              <p className="mt-2 text-2xl font-bold">{summary.pendingCount}</p>
-            </div>
-            <div className="border border-white/10 bg-[#050505] p-4">
-              <p className="text-sm text-white/45">Approved time</p>
-              <p className="mt-2 text-2xl font-bold">
-                {formatDuration(summary.approvedSeconds)}
-              </p>
-            </div>
-            <div className="border border-white/10 bg-[#050505] p-4">
-              <p className="text-sm text-white/45">Billable time</p>
-              <p className="mt-2 text-2xl font-bold">
-                {formatDuration(summary.billableSeconds)}
-              </p>
-            </div>
-            <div className="border border-white/10 bg-[#050505] p-4">
-              <p className="text-sm text-white/45">Total cost</p>
-              <p className="mt-2 text-2xl font-bold">
-                ${summary.totalCost.toFixed(2)}
-              </p>
-            </div>
-          </div>
-
-          <div className="mb-6 flex flex-wrap gap-3 border border-white/10 bg-[#050505] p-4">
-            <select
-              value={approvalStatus}
-              onChange={(e) =>
-                setApprovalStatus(e.target.value as TimeApprovalStatus | "all")
-              }
-              className="rounded-xl border border-white/10 bg-black px-4 py-3 text-white"
-            >
-              <option value="pending">Pending</option>
-              <option value="approved">Approved</option>
-              <option value="rejected">Rejected</option>
-              <option value="all">All statuses</option>
-            </select>
-
-            <select
-              value={String(isBillable)}
-              onChange={(e) => {
-                const value = e.target.value;
-                if (value === "all") setIsBillable("all");
-                else setIsBillable(value === "true");
-              }}
-              className="rounded-xl border border-white/10 bg-black px-4 py-3 text-white"
-            >
-              <option value="all">All billing</option>
-              <option value="true">Billable</option>
-              <option value="false">Non-billable</option>
-            </select>
-          </div>
-
-          {loading ? (
-            <div className="border border-white/10 bg-[#050505] p-6 text-white/60">
-              Loading time approvals...
-            </div>
-          ) : error ? (
-            <div className="border border-red-500/20 bg-red-500/10 p-6 text-red-300">
+          {error ? (
+            <div className="mb-6 border border-red-500/20 bg-red-500/10 p-4 text-red-300">
               {error}
             </div>
-          ) : (
-            <TimeApprovalTable
-              entries={entries}
-              selectedIds={selectedIds}
-              onToggleSelect={toggleSelect}
-              onApprove={(entryId) => void handleApprove(entryId)}
-              onReject={(entryId) => void handleReject(entryId)}
+          ) : null}
+
+          <div className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+            <SummaryCard
+              title="Tracked Hours"
+              value={formatDuration(summary.totalSeconds)}
+              subtitle="All visible time in the current scope"
+              icon={<Clock3 size={18} />}
             />
-          )}
+            <SummaryCard
+              title="Billable Time"
+              value={formatDuration(summary.billableSeconds)}
+              subtitle={`Non-billable: ${formatDuration(nonBillableSeconds)}`}
+              icon={<Timer size={18} />}
+            />
+            <SummaryCard
+              title="Pending"
+              value={summary.pendingCount}
+              subtitle="Entries waiting for admin action"
+              icon={<TriangleAlert size={18} />}
+            />
+            <SummaryCard
+              title="Active Timers"
+              value={summary.activeCount}
+              subtitle="Live running timers right now"
+              icon={<Activity size={18} />}
+            />
+            <SummaryCard
+              title="Total Cost"
+              value={formatMoney(summary.totalCost)}
+              subtitle="Based on recorded rate snapshots"
+              icon={<DollarSign size={18} />}
+            />
+          </div>
+
+          <div className="mb-6 border border-white/10 bg-[#050505] p-4">
+            <div className="mb-4 flex items-center gap-2 text-sm text-white/60">
+              <Filter size={14} className="text-orange-400" />
+              <span>Filter time records</span>
+            </div>
+
+            <div className="flex flex-wrap gap-3">
+              <select
+                value={approvalStatus}
+                onChange={(event) =>
+                  setApprovalStatus(
+                    event.target.value as TimeApprovalStatus | "all",
+                  )
+                }
+                className="border border-white/10 bg-black px-4 py-3 text-white outline-none"
+              >
+                <option value="pending">Pending</option>
+                <option value="approved">Approved</option>
+                <option value="rejected">Rejected</option>
+                <option value="all">All statuses</option>
+              </select>
+
+              <select
+                value={String(isBillable)}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  if (value === "all") {
+                    setIsBillable("all");
+                  } else {
+                    setIsBillable(value === "true");
+                  }
+                }}
+                className="border border-white/10 bg-black px-4 py-3 text-white outline-none"
+              >
+                <option value="all">All billing</option>
+                <option value="true">Billable</option>
+                <option value="false">Non-billable</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="mb-6">
+            <TimeChartsPanel
+              dailyData={dailyChartData}
+              billableSeconds={summary.billableSeconds}
+              nonBillableSeconds={nonBillableSeconds}
+              totalCost={summary.totalCost}
+            />
+          </div>
+
+          <div className="grid gap-6 xl:grid-cols-[minmax(0,1.45fr)_380px]">
+            <section className="min-w-0 border border-white/10 bg-[#050505] p-5">
+              <div className="mb-5 flex items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-lg font-semibold text-white">
+                    Team Timesheet
+                  </h2>
+                  <p className="mt-1 text-sm text-white/45">
+                    Review user logs, project context, billing, cost, and
+                    approval status.
+                  </p>
+                </div>
+
+                <div className="border border-white/10 bg-black px-3 py-2 text-xs text-white/55">
+                  {entries.length} entries
+                </div>
+              </div>
+
+              {loading ? (
+                <div className="border border-white/10 bg-black/40 p-6 text-white/60">
+                  Loading time approvals...
+                </div>
+              ) : (
+                <TimeApprovalTable
+                  entries={entries}
+                  selectedIds={selectedIds}
+                  onToggleSelect={toggleSelect}
+                  onApprove={(entryId) => void handleApprove(entryId)}
+                  onReject={(entryId) => void handleReject(entryId)}
+                />
+              )}
+            </section>
+
+            <aside>
+              <TimeInsightsPanel entries={entries} summary={summary} />
+            </aside>
+          </div>
         </main>
       </div>
     </div>
