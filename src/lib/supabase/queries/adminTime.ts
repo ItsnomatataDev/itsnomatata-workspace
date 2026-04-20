@@ -232,3 +232,47 @@ export async function getAdminTimeSummary(params: {
     totalCost,
   };
 }
+
+export async function getCalendarTimeEntries(params: {
+  organizationId: string;
+  from?: string;
+  to?: string;
+  userId?: string;
+}) {
+  const { organizationId, from, to, userId } = params;
+
+  if (!organizationId) throw new Error("organizationId is required");
+
+  let query = supabase
+    .from("time_entries_calendar")
+    .select("*")
+    .eq("organization_id", organizationId)
+    .order("entry_date", { ascending: false });
+
+  if (from) query = query.gte("entry_date", from);
+  if (to) query = query.lte("entry_date", to);
+  if (userId) query = query.eq("user_id", userId);
+
+  const { data, error } = await query;
+  if (error) throw error;
+
+  return (data ?? []) as CalendarTimeEntry[];
+}
+
+export type CalendarTimeEntry = {
+  organization_id: string;
+  user_id: string;
+  user_name: string | null;
+  user_email: string | null;
+  entry_date: string;
+  total_seconds: number;
+  entry_count: number;
+  project_entries: Array<{
+    project_id: string | null;
+    project_name: string | null;
+    hours: number;
+    is_billable: boolean;
+    description: string | null;
+    entry_count: number;
+  }>;
+};

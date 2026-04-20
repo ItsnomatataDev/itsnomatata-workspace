@@ -51,6 +51,8 @@ export interface TaskItem {
   assigned_to: string | null;
   assigned_by: string | null;
   created_by: string | null;
+  created_by_full_name?: string | null;
+  created_by_email?: string | null;
   department: string | null;
   due_date: string | null;
   start_date: string | null;
@@ -63,6 +65,40 @@ export interface TaskItem {
   metadata?: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
+}
+
+interface ProfileShort {
+  id: string;
+  full_name: string | null;
+  email: string | null;
+}
+
+async function getProfilesByIds(
+  userIds: string[],
+): Promise<ProfileShort[]> {
+  if (userIds.length === 0) return [];
+
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("id, full_name, email")
+    .in("id", userIds);
+
+  if (error) throw error;
+  return (data ?? []) as ProfileShort[];
+}
+
+function attachCreatorProfiles(tasks: TaskItem[], profiles: ProfileShort[]) {
+  const profileMap = new Map(profiles.map((profile) => [profile.id, profile]));
+
+  return tasks.map((task) => ({
+    ...task,
+    created_by_full_name: task.created_by
+      ? profileMap.get(task.created_by)?.full_name ?? null
+      : null,
+    created_by_email: task.created_by
+      ? profileMap.get(task.created_by)?.email ?? null
+      : null,
+  }));
 }
 
 export interface TaskCommentItem {
@@ -280,7 +316,21 @@ export const getTasks = async ({
   const { data, error } = await query;
   if (error) throw error;
 
-  return (data ?? []) as TaskItem[];
+  const tasks = (data ?? []) as TaskItem[];
+  const creatorIds = Array.from(
+    new Set(
+      tasks
+        .map((task) => task.created_by)
+        .filter((createdBy): createdBy is string => Boolean(createdBy)),
+    ),
+  );
+
+  if (creatorIds.length === 0) {
+    return tasks;
+  }
+
+  const creatorProfiles = await getProfilesByIds(creatorIds);
+  return attachCreatorProfiles(tasks, creatorProfiles);
 };
 
 export const getTaskById = async (taskId: string): Promise<TaskItem> => {
@@ -316,7 +366,21 @@ export const getProjectTasks = async (
   const { data, error } = await query;
   if (error) throw error;
 
-  return (data ?? []) as TaskItem[];
+  const tasks = (data ?? []) as TaskItem[];
+  const creatorIds = Array.from(
+    new Set(
+      tasks
+        .map((task) => task.created_by)
+        .filter((createdBy): createdBy is string => Boolean(createdBy)),
+    ),
+  );
+
+  if (creatorIds.length === 0) {
+    return tasks;
+  }
+
+  const creatorProfiles = await getProfilesByIds(creatorIds);
+  return attachCreatorProfiles(tasks, creatorProfiles);
 };
 
 export const getTasksForColumn = async (
@@ -684,8 +748,8 @@ export const getProjectBoardData = async (
     comments_count: commentCountMap.get(task.id) ?? 0,
     watchers_count: watcherCountMap.get(task.id) ?? 0,
     has_running_timer: runtimeMap.get(task.id) ?? false,
-    tracked_seconds:
-      trackedTimeMap.get(task.id) ?? Number(task.tracked_seconds_cache ?? 0),
+    tracked_seconds: trackedTimeMap.get(task.id) ??
+      Number(task.tracked_seconds_cache ?? 0),
   }));
 
   const columnsWithTasks: BoardColumnWithTasks[] = columns.map((column) => ({

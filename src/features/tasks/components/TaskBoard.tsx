@@ -51,10 +51,12 @@ export default function TaskBoard({
 
   return (
     <div className="min-w-0">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 px-1">
+      <div className="mb-5 flex flex-wrap items-center justify-between gap-3 px-1">
         <div>
-          <h3 className="text-sm font-semibold text-white">Task Board</h3>
-          <p className="text-xs text-white/45">
+          <h3 className="text-sm font-semibold capitalize tracking-[0.22em] text-orange-400">
+           IT's No matata Task Board
+          </h3>
+          <p className="mt-1 text-xs text-white/45">
             {usingRealColumns
               ? "Drag cards between real Trello-style columns"
               : "Drag cards between workflow statuses"}
@@ -72,7 +74,7 @@ export default function TaskBoard({
       </div>
 
       <div className="overflow-x-auto overflow-y-hidden pb-2">
-        <div className="inline-flex min-w-max gap-4 align-top">
+        <div className="inline-flex min-w-max gap-5 align-top">
           {usingRealColumns
             ? boardColumns.map((column) => (
                 <TaskColumn

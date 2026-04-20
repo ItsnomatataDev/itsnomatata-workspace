@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Activity,
+  CheckCheck,
   Clock3,
   DollarSign,
   Filter,
@@ -89,13 +90,15 @@ export default function TimeApprovalPage() {
     TimeApprovalStatus | "all"
   >("pending");
   const [isBillable, setIsBillable] = useState<boolean | "all">("all");
+  const [autoApproveHours, setAutoApproveHours] = useState(2);
+  const [autoApproveBillable, setAutoApproveBillable] = useState(false);
 
   const organizationId = profile?.organization_id ?? null;
 
   const canManage =
     profile?.primary_role === "admin" || profile?.primary_role === "manager";
 
-  const load = async () => {
+  const load = useCallback(async () => {
     if (!organizationId) return;
 
     try {
@@ -125,11 +128,11 @@ export default function TimeApprovalPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [approvalStatus, isBillable, organizationId]);
 
   useEffect(() => {
     void load();
-  }, [organizationId, approvalStatus, isBillable]);
+  }, [load]);
 
   const toggleSelect = (entryId: string) => {
     setSelectedIds((prev) =>
@@ -197,6 +200,22 @@ export default function TimeApprovalPage() {
   };
 
   const selectedCount = useMemo(() => selectedIds.length, [selectedIds]);
+  const autoEligibleEntries = useMemo(
+    () =>
+      entries.filter((entry) => {
+        const durationHours = Number(entry.duration_seconds ?? 0) / 3600;
+
+        return (
+          entry.approval_status === "pending" &&
+          !entry.is_running &&
+          Boolean(entry.ended_at) &&
+          durationHours <= autoApproveHours &&
+          (autoApproveBillable || !entry.is_billable)
+        );
+      }),
+    [entries, autoApproveBillable, autoApproveHours],
+  );
+  const autoEligibleCount = autoEligibleEntries.length;
 
   const nonBillableSeconds = useMemo(
     () => Math.max(0, summary.totalSeconds - summary.billableSeconds),
@@ -253,6 +272,28 @@ export default function TimeApprovalPage() {
       }));
   }, [entries]);
 
+  const handleAutoApprove = async () => {
+    if (!user?.id || !canManage || autoEligibleEntries.length === 0) return;
+
+    try {
+      setBusy(true);
+      await bulkApproveTimeEntries({
+        entryIds: autoEligibleEntries.map((entry) => entry.id),
+        approvedBy: user.id,
+      });
+      setSelectedIds((prev) =>
+        prev.filter((id) => !autoEligibleEntries.some((entry) => entry.id === id)),
+      );
+      await load();
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Failed to auto approve entries";
+      setError(message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   if (!auth?.user || !profile) return null;
 
   return (
@@ -274,6 +315,14 @@ export default function TimeApprovalPage() {
             </div>
 
             <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={!autoEligibleCount || busy || !canManage}
+                onClick={() => void handleAutoApprove()}
+                className="border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-white disabled:opacity-60"
+              >
+                Auto approve ({autoEligibleCount})
+              </button>
               <button
                 type="button"
                 disabled={!selectedCount || busy || !canManage}
@@ -363,6 +412,54 @@ export default function TimeApprovalPage() {
                 <option value="false">Non-billable</option>
               </select>
             </div>
+          </div>
+
+          <div className="mb-6 border border-orange-500/20 bg-orange-500/10 p-4">
+            <div className="mb-4 flex items-center gap-2 text-sm text-orange-300">
+              <CheckCheck size={16} />
+              <span>Auto approval rule</span>
+            </div>
+
+            <div className="flex flex-wrap items-end gap-3">
+              <label className="flex flex-col gap-2 text-sm text-white/70">
+                <span>Approve entries up to</span>
+                <input
+                  type="number"
+                  min={0.25}
+                  max={12}
+                  step={0.25}
+                  value={autoApproveHours}
+                  onChange={(event) =>
+                    setAutoApproveHours(Number(event.target.value) || 0)
+                  }
+                  className="w-36 border border-white/10 bg-black px-4 py-3 text-white outline-none focus:border-orange-500"
+                />
+              </label>
+
+              <label className="inline-flex items-center gap-3 border border-white/10 bg-black px-4 py-3 text-sm text-white/80">
+                <input
+                  type="checkbox"
+                  checked={autoApproveBillable}
+                  onChange={(event) =>
+                    setAutoApproveBillable(event.target.checked)
+                  }
+                  className="h-4 w-4"
+                />
+                Include billable entries
+              </label>
+
+              <div className="border border-white/10 bg-black px-4 py-3 text-sm text-white/65">
+                Eligible now:{" "}
+                <span className="font-semibold text-white">
+                  {autoEligibleCount}
+                </span>
+              </div>
+            </div>
+
+            <p className="mt-3 text-sm text-white/55">
+              This approves finished pending entries that match the rule above.
+              Running timers are excluded automatically.
+            </p>
           </div>
 
           <div className="mb-6">

@@ -56,6 +56,7 @@ export type CreateMeetingInput = {
   host_id: string;
   meeting_type: MeetingType;
   scheduled_start?: string | null;
+  participant_ids?: string[]; 
 };
 
 export type MeetingWithParticipants = Meeting & {

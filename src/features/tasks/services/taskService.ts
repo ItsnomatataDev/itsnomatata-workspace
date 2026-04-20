@@ -201,7 +201,7 @@ export async function getBoardTasks(
     getTaskCommentsCountMap(taskIds),
     getTaskWatcherCountMap(taskIds),
   ]);
-
+  
   return tasks.map((task) => ({
     ...task,
     status: normalizeTaskStatus(task.status),
@@ -258,21 +258,25 @@ export async function createTask(
     throw new Error("Task title is required");
   }
 
-  const insertPayload = {
-    organization_id: payload.organization_id,
-    title: payload.title.trim(),
-    description: payload.description ?? null,
-    status: payload.status ?? "todo",
-    priority: payload.priority ?? "medium",
-    due_date: payload.due_date ?? null,
-    department: payload.department ?? null,
-    project_id: payload.project_id ?? null,
-    client_id: payload.client_id ?? null,
-    campaign_id: payload.campaign_id ?? null,
-    assigned_to: payload.assigned_to ?? null,
-    created_by: payload.created_by ?? null,
-    is_billable: payload.is_billable ?? false,
-  };
+const insertPayload = {
+  organization_id: payload.organization_id,
+  title: payload.title.trim(),
+  description: payload.description ?? null,
+  status: payload.status ?? "todo",
+  priority: payload.priority ?? "medium",
+  due_date: payload.due_date ?? null,
+  department: payload.department ?? null,
+  project_id: payload.project_id ?? null,
+  client_id: payload.client_id ?? null,
+  campaign_id: payload.campaign_id ?? null,
+  assigned_to: payload.assigned_to ?? null,
+  created_by: payload.created_by ?? null,
+  position: 0,
+  metadata: {},
+  tracked_seconds_cache: 0,
+  ai_generated: false,
+  is_billable: false,
+};
 
   const { data, error } = await supabase
     .from("tasks")

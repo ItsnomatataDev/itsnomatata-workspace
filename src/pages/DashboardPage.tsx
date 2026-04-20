@@ -167,13 +167,15 @@ export default function DashboardPage() {
     );
   }
 
-  if (!profile.organization_id) {
-    return (
-      <div className="min-h-screen bg-black p-6 text-white">
-        Your account is not linked to an organization yet.
-      </div>
-    );
-  }
+const organizationId = profile?.organization_id;
+
+if (!organizationId) {
+  return (
+    <div className="min-h-screen bg-black p-6 text-white">
+      Your account is not linked to an organization yet.
+    </div>
+  );
+}
 
   const isAdminView =
     profile.primary_role === "admin" || profile.primary_role === "manager";

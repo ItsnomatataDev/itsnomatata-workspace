@@ -34,6 +34,7 @@ export default function TaskColumn({
   taskInvitedCountMap: Map<string, number>;
 }) {
   const [isOver, setIsOver] = useState(false);
+  const accent = accentClass ?? "";
 
   const handleDragOver = (event: React.DragEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -81,8 +82,8 @@ export default function TaskColumn({
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
-      className={`w-85 shrink-0 bg-[#0b0d0f] p-3 transition ${
-        isOver ? "bg-orange-500/5" : (accentClass ?? "")
+      className={`w-85 shrink-0 rounded-3xl border border-white/10 bg-[#0b0d0f] p-3 shadow-[0_10px_30px_rgba(0,0,0,0.22)] transition ${
+        isOver ? "border-orange-500/30 bg-orange-500/5" : accent
       }`}
     >
       <div className="mb-3 flex items-center justify-between gap-3 px-1">
@@ -93,14 +94,14 @@ export default function TaskColumn({
           </p>
         </div>
 
-        <span className="rounded-xl bg-white/5 px-3 py-1 text-xs text-white/60">
+        <span className="rounded-xl border border-white/10 bg-white/5 px-3 py-1 text-xs text-white/60">
           {tasks.length}
         </span>
       </div>
 
       <div className="max-h-[72vh] space-y-3 overflow-y-auto pr-1">
         {tasks.length === 0 ? (
-          <div className="rounded-xl bg-white/3 px-4 py-8 text-center text-sm text-white/30">
+          <div className="rounded-2xl border border-dashed border-white/10 bg-white/3 px-4 py-8 text-center text-sm text-white/30">
             Drop cards here
           </div>
         ) : (

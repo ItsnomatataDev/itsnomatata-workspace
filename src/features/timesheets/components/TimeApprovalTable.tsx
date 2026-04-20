@@ -48,17 +48,18 @@ export default function TimeApprovalTable({
 }) {
   if (entries.length === 0) {
     return (
-      <div className="border border-white/10 bg-black/40 p-6 text-white/60">
+      <div className="rounded-[24px] border border-dashed border-white/10 bg-white/5 p-6 text-white/50">
         No time entries found for this filter.
       </div>
     );
   }
 
   return (
-    <div className="overflow-x-auto border border-white/10 bg-black/30">
+    <div className="overflow-hidden rounded-[28px] border border-white/10 bg-[#050505] shadow-[0_10px_30px_rgba(0,0,0,0.24)]">
+      <div className="overflow-x-auto">
       <table className="min-w-full border-collapse text-sm">
         <thead>
-          <tr className="border-b border-white/10 bg-black/40 text-left text-white/45">
+          <tr className="border-b border-white/10 bg-white/5 text-left text-white/45">
             <th className="px-4 py-3">Select</th>
             <th className="px-4 py-3">Member</th>
             <th className="px-4 py-3">Work Log</th>
@@ -78,7 +79,7 @@ export default function TimeApprovalTable({
             return (
               <tr
                 key={entry.id}
-                className="border-b border-white/5 transition hover:bg-white/3"
+                className="border-b border-white/5 align-top transition hover:bg-white/5"
               >
                 <td className="px-4 py-4 align-top">
                   <input
@@ -101,7 +102,7 @@ export default function TimeApprovalTable({
                 </td>
 
                 <td className="px-4 py-4 align-top">
-                  <p className="max-w-70 text-white">
+                  <p className="max-w-70 font-medium text-white">
                     {entry.description || "No description"}
                   </p>
                   <div className="mt-2 space-y-1 text-xs text-white/40">
@@ -128,7 +129,7 @@ export default function TimeApprovalTable({
                 </td>
 
                 <td className="px-4 py-4 align-top">
-                  <div className="inline-flex items-center gap-2 text-white">
+                  <div className="inline-flex items-center gap-2 font-medium text-white">
                     <Clock3 size={14} className="text-orange-400" />
                     <span>{formatDuration(entry.duration_seconds ?? 0)}</span>
                   </div>
@@ -147,7 +148,7 @@ export default function TimeApprovalTable({
                 </td>
 
                 <td className="px-4 py-4 align-top">
-                  <div className="inline-flex items-center gap-2 text-white">
+                  <div className="inline-flex items-center gap-2 font-medium text-white">
                     <DollarSign size={14} className="text-orange-400" />
                     <span>${Number(entry.cost_amount ?? 0).toFixed(2)}</span>
                   </div>
@@ -169,7 +170,7 @@ export default function TimeApprovalTable({
                       <button
                         type="button"
                         onClick={() => onApprove(entry.id)}
-                        className="inline-flex items-center gap-1 border border-emerald-500/20 bg-emerald-500 px-3 py-2 text-xs font-semibold text-black"
+                        className="inline-flex items-center gap-1 rounded-xl border border-emerald-200 bg-emerald-500 px-3 py-2 text-xs font-semibold text-black"
                       >
                         <Check size={13} />
                         Approve
@@ -180,7 +181,7 @@ export default function TimeApprovalTable({
                       <button
                         type="button"
                         onClick={() => onReject(entry.id)}
-                        className="inline-flex items-center gap-1 border border-red-500/20 bg-red-500 px-3 py-2 text-xs font-semibold text-black"
+                        className="inline-flex items-center gap-1 rounded-xl border border-red-200 bg-red-500 px-3 py-2 text-xs font-semibold text-black"
                       >
                         <X size={13} />
                         Reject
@@ -193,6 +194,7 @@ export default function TimeApprovalTable({
           })}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }

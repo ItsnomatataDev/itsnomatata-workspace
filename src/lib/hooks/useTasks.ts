@@ -123,7 +123,7 @@ export function useTasks(params: UseTasksParams) {
       setLoading(true);
       setError("");
 
-      // Trello-style real board path
+
       if (projectId) {
         const boardData: ProjectBoardData = await getProjectBoardData(
           organizationId,
@@ -145,7 +145,7 @@ export function useTasks(params: UseTasksParams) {
         return flatTasks;
       }
 
-      // Legacy fallback path
+  
       const [items, runtimeInfo, watcherCounts, trackedTime] = await Promise.all(
         [
           getTasks({ assignedTo, organizationId }),
@@ -248,14 +248,40 @@ export function useTasks(params: UseTasksParams) {
     setDetailsError("");
   }, []);
 
-  const createTaskCard = useCallback(
-    async (input: Parameters<typeof createTask>[0]) => {
-      const created = await createTask(input);
-      await refetch();
-      return created;
-    },
-    [refetch],
-  );
+const createTaskCard = useCallback(
+  async (input: {
+    values: any;
+    organizationId: string;
+    userId: string;
+  }) => {
+    const { values, organizationId, userId } = input;
+
+    if (!organizationId) throw new Error("organizationId is required");
+    if (!userId) throw new Error("userId is required");
+
+    const created = await createTask({
+      organizationId,
+      title: values.title,
+      description: values.description || null,
+      status: values.status || "todo",
+      priority: values.priority || "medium",
+      due_date: values.due_date || null,
+      department: values.department || null,
+      assigned_to: values.assigned_to || null,
+      project_id: values.project_id || null,
+      column_id: values.column_id || null,
+      position: values.position ?? 0,
+      created_by: userId,
+      assigned_by: userId,
+      is_billable: false,
+      metadata: {},
+    });
+
+    await refetch();
+    return created;
+  },
+  [refetch],
+);
 
   const addComment = useCallback(
     async (params: {
@@ -437,8 +463,7 @@ export function useTasks(params: UseTasksParams) {
     groupedTasks,
     taskRuntimeMap,
     taskInvitedCountMap,
-
-    loading,
+loading,
     error,
 
     createTask: createTaskCard,

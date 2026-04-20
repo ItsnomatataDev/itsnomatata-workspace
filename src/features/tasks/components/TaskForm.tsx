@@ -20,11 +20,15 @@ export default function TaskForm({
   onSubmit,
   onSearchUsers,
   currentUserId,
+  organizationId, 
   busy,
 }: {
-  onSubmit: (values: TaskFormValues) => Promise<void> | void;
+  onSubmit: (
+    values: TaskFormValues & { organization_id: string },
+  ) => Promise<void> | void;
   onSearchUsers: (search: string) => Promise<TaskAssignableUser[]>;
   currentUserId: string;
+  organizationId: string; 
   busy?: boolean;
 }) {
   const [values, setValues] = useState<TaskFormValues>({
@@ -95,11 +99,21 @@ export default function TaskForm({
     setSelectedAssignee(null);
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    await onSubmit(values);
-    resetForm();
-  };
+ const handleSubmit = async (e: React.FormEvent) => {
+   e.preventDefault();
+
+   if (!organizationId) {
+     alert("Organization not found");
+     return;
+   }
+
+   await onSubmit({
+     ...values,
+     organization_id: organizationId, 
+   });
+
+   resetForm();
+ };
 
   const assignToMe = () => {
     setValues((prev) => ({ ...prev, assigned_to: currentUserId }));

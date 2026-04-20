@@ -134,23 +134,37 @@ async function triggerNotificationEmail(payload: {
   priority: NotificationPriority;
   metadata?: Record<string, unknown>;
 }) {
-  if (!EMAIL_WEBHOOK_URL) return;
+  if (!EMAIL_WEBHOOK_URL) {
+    console.warn("VITE_N8N_NOTIFICATION_WEBHOOK_URL is not set — skipping email");
+    return;
+  }
 
-  const response = await fetch(EMAIL_WEBHOOK_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(EMAIL_WEBHOOK_SECRET
-        ? { "x-notification-secret": EMAIL_WEBHOOK_SECRET }
-        : {}),
-    },
-    body: JSON.stringify(payload),
-  });
+  try {
+    const response = await fetch(EMAIL_WEBHOOK_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(EMAIL_WEBHOOK_SECRET
+          ? { "x-notification-secret": EMAIL_WEBHOOK_SECRET }
+          : {}),
+      },
+      body: JSON.stringify({
+        to: payload.to,
+        fullName: payload.fullName ?? "Team Member",
+        title: payload.title,
+        message: payload.message ?? "",
+        actionUrl: payload.actionUrl ?? "/",
+        type: payload.type,
+        priority: payload.priority,
+        metadata: payload.metadata ?? {},
+      }),
+    });
 
-  if (!response.ok) {
-    throw new Error(
-      `Notification email webhook failed with ${response.status}`,
-    );
+    if (!response.ok) {
+      console.error("EMAIL WEBHOOK FAILED:", response.status, await response.text());
+    }
+  } catch (err) {
+    console.error("EMAIL WEBHOOK ERROR:", err);
   }
 }
 

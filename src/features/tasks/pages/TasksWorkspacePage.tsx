@@ -1,5 +1,12 @@
 import { useMemo, useState } from "react";
-import { CheckSquare, ClipboardPlus, LayoutGrid } from "lucide-react";
+import {
+  CheckSquare,
+  ClipboardPlus,
+  LayoutGrid,
+  Radio,
+  Sparkles,
+  Users,
+} from "lucide-react";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import Sidebar from "../../../components/dashboard/components/Siderbar";
 import TaskBoard from "../components/TaskBoard";
@@ -8,7 +15,6 @@ import TaskDetailsModal from "./TaskDetailsPage";
 import { useTasks } from "../../../lib/hooks/useTasks";
 import { startTimeEntry } from "../../../lib/supabase/mutations/timeEntries";
 import { updateTask } from "../../../lib/supabase/mutations/tasks";
-import { supabase } from "../../../lib/supabase/client";
 import type { TaskItem } from "../../../lib/supabase/queries/tasks";
 import { searchTaskAssignableUsers } from "../../../lib/supabase/queries/taskAssignees";
 import type { TaskChecklistWithItems } from "../../../lib/supabase/queries/taskChecklists";
@@ -56,26 +62,12 @@ export default function TasksWorkspacePage({
   const [selectedTaskClientInvites, setSelectedTaskClientInvites] = useState<
     TaskClientInviteItem[]
   >([]);
-
-  if (!auth?.user || !auth?.profile) return null;
-
-  const { user, profile } = auth;
-  const organizationId = profile.organization_id ?? null;
-
-  if (!organizationId) {
-    return (
-      <div className="min-h-screen bg-black text-white">
-        <div className="flex min-h-screen">
-          <Sidebar role={profile.primary_role ?? "manager"} />
-          <main className="min-w-0 flex-1 overflow-hidden p-6 lg:p-8">
-            <div className="border border-red-500/20 bg-red-500/10 p-5 text-red-300">
-              Your account is not linked to an organization yet.
-            </div>
-          </main>
-        </div>
-      </div>
-    );
-  }
+  const user = auth?.user ?? null;
+  const profile = auth?.profile ?? null;
+  const organizationId = profile?.organization_id ?? null;
+  const currentUserId = user?.id ?? "";
+  const currentUserRole = profile?.primary_role ?? "manager";
+  const currentOrganizationId = organizationId ?? undefined;
 
   const {
     tasks,
@@ -106,7 +98,8 @@ export default function TasksWorkspacePage({
     removeChecklistItem,
     moveTaskToColumn,
   } = useTasks({
-    assignedTo: boardMode === "mine" && !projectId ? user.id : undefined,
+    assignedTo:
+      boardMode === "mine" && !projectId && user ? currentUserId : undefined,
     organizationId,
     projectId,
   });
@@ -124,7 +117,7 @@ export default function TasksWorkspacePage({
     refresh: refreshTaskEntries,
   } = useTimeEntries({
     organizationId,
-    userId: user.id,
+    userId: user?.id ?? null,
   });
 
   const filteredTaskTimeEntries = useMemo(() => {
@@ -152,22 +145,22 @@ export default function TasksWorkspacePage({
     if (!selectedTask) return false;
 
     return (
-      selectedTask.created_by === user.id ||
-      profile.primary_role === "admin" ||
-      profile.primary_role === "manager"
+      selectedTask.created_by === currentUserId ||
+      currentUserRole === "admin" ||
+      currentUserRole === "manager"
     );
-  }, [selectedTask, user.id, profile.primary_role]);
+  }, [currentUserId, currentUserRole, selectedTask]);
 
   const canEditSelectedTaskStatus = useMemo(() => {
     if (!selectedTask) return false;
 
     return (
-      selectedTask.created_by === user.id ||
-      selectedTask.assigned_to === user.id ||
-      profile.primary_role === "admin" ||
-      profile.primary_role === "manager"
+      selectedTask.created_by === currentUserId ||
+      selectedTask.assigned_to === currentUserId ||
+      currentUserRole === "admin" ||
+      currentUserRole === "manager"
     );
-  }, [selectedTask, user.id, profile.primary_role]);
+  }, [currentUserId, currentUserRole, selectedTask]);
 
   const handleLoadTaskSubmissions = async (taskId: string) => {
     const submissions = await getTaskSubmissions(taskId);
@@ -186,48 +179,58 @@ export default function TasksWorkspacePage({
     await refreshTaskEntries();
   };
 
-  const handleCreateTask = async (values: TaskFormValues) => {
-    try {
-      setBusy(true);
+ const handleCreateTask = async (values: TaskFormValues) => {
+   try {
+     setBusy(true);
 
-      const assignedTo =
-        values.assigned_to.trim() === "" ? null : values.assigned_to;
+     if (!currentOrganizationId) {
+       throw new Error(
+         "Organization is not available yet. Please wait and try again.",
+       );
+     }
 
-      const firstColumnId =
-        projectId && boardColumns.length > 0 ? boardColumns[0].id : null;
+     await createTask({
+       values: {
+         ...values,
+         assigned_to:
+           values.assigned_to.trim() === "" ? null : values.assigned_to,
+         due_date: values.due_date
+           ? new Date(values.due_date).toISOString()
+           : null,
+         column_id:
+           projectId && boardColumns.length > 0 ? boardColumns[0].id : null,
+         position:
+           projectId && boardColumns.length > 0
+             ? boardColumns[0].tasks.length
+             : 0,
+         project_id: projectId ?? null,
+       },
+       organizationId: currentOrganizationId,
+       userId: currentUserId,
+     });
 
-      await createTask({
-        organization_id: organizationId,
-        project_id: projectId ?? null,
-        column_id: firstColumnId,
-        assigned_to: assignedTo,
-        assigned_by: user.id,
-        created_by: user.id,
-        title: values.title,
-        description: values.description || null,
-        status: values.status,
-        priority: values.priority,
-        due_date: values.due_date
-          ? new Date(values.due_date).toISOString()
-          : null,
-        department: values.department || profile.primary_role || null,
-        position: firstColumnId ? boardColumns[0].tasks.length : 0,
-      });
-
-      alert("Task card created successfully");
-    } catch (err) {
-      console.error("HANDLE CREATE TASK ERROR:", err);
-      alert(err instanceof Error ? err.message : "Failed to create task");
-    } finally {
-      setBusy(false);
-    }
-  };
-
+     alert("Task card created successfully");
+   } catch (err) {
+     console.error("Full error object:", err);
+     console.error("Error type:", typeof err);
+     console.error("Error JSON:", JSON.stringify(err, null, 2));
+     const errorMessage =
+       err instanceof Error ? err.message : JSON.stringify(err);
+     alert(`Failed to create task: ${errorMessage}`);
+   } finally {
+     setBusy(false);
+   }
+ };
   const handleTrack = async (taskId: string, title: string) => {
+    if (!currentOrganizationId) {
+      alert("Organization is not available yet. Please wait and try again.");
+      return;
+    }
+
     try {
       await startTimeEntry({
-        organizationId,
-        userId: user.id,
+        organizationId: currentOrganizationId,
+        userId: currentUserId,
         taskId,
         projectId: projectId ?? undefined,
         description: `Working on ${title}`,
@@ -247,59 +250,6 @@ export default function TasksWorkspacePage({
       alert("Timer started and linked to the main time tracking system");
     } catch (err) {
       alert(err instanceof Error ? err.message : "Failed to start timer");
-    }
-  };
-
-  const handleSaveManualTime = async (
-    taskId: string,
-    hours: number,
-    minutes: number,
-  ) => {
-    const totalSeconds = Math.max(
-      0,
-      Math.floor(hours) * 3600 + Math.floor(minutes) * 60,
-    );
-
-    if (totalSeconds <= 0) {
-      alert("Please enter at least 1 minute.");
-      return;
-    }
-
-    try {
-      setBusy(true);
-
-      const task = tasks.find((item) => item.id === taskId) ?? selectedTask;
-      const endedAt = new Date();
-      const startedAt = new Date(endedAt.getTime() - totalSeconds * 1000);
-
-      const { error: insertError } = await supabase
-        .from("time_entries")
-        .insert({
-          organization_id: organizationId,
-          user_id: user.id,
-          task_id: taskId,
-          project_id: task?.project_id ?? projectId ?? null,
-          client_id: task?.client_id ?? null,
-          campaign_id: task?.campaign_id ?? null,
-          description: `Manual time added for ${task?.title ?? "task"}`,
-          started_at: startedAt.toISOString(),
-          ended_at: endedAt.toISOString(),
-          is_running: false,
-          duration_seconds: totalSeconds,
-          source: "manual",
-          is_billable: Boolean(task?.is_billable ?? false),
-        });
-
-      if (insertError) throw insertError;
-
-      await refetch();
-      await refreshTaskEntries();
-      await handleOpenTaskWithExtras(taskId);
-      alert("Manual time added successfully");
-    } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to save manual time");
-    } finally {
-      setBusy(false);
     }
   };
 
@@ -432,13 +382,18 @@ export default function TasksWorkspacePage({
     linkUrl?: string | null;
     file?: File | null;
   }) => {
+    if (!currentOrganizationId) {
+      alert("Organization is not available yet. Please wait and try again.");
+      return;
+    }
+
     try {
       setBusy(true);
 
       await createTaskSubmission({
-        organizationId,
+        organizationId: currentOrganizationId,
         taskId: params.taskId,
-        submittedBy: user.id,
+        submittedBy: currentUserId,
         submissionType: params.submissionType,
         title: params.title,
         notes: params.notes ?? null,
@@ -471,14 +426,14 @@ export default function TasksWorkspacePage({
 
       await approveTaskSubmission({
         submissionId,
-        reviewedBy: user.id,
+        reviewedBy: currentUserId,
         reviewNote: reviewNote ?? null,
       });
 
-    await updateTask(taskId, {
-      status: "done",
-      completed_at: new Date().toISOString(),
-    });
+      await updateTask(taskId, {
+        status: "done",
+        completed_at: new Date().toISOString(),
+      });
 
       await refetch();
       await handleOpenTaskWithExtras(taskId);
@@ -503,7 +458,7 @@ export default function TasksWorkspacePage({
 
       await rejectTaskSubmission({
         submissionId,
-        reviewedBy: user.id,
+        reviewedBy: currentUserId,
         reviewNote: reviewNote ?? null,
       });
 
@@ -570,11 +525,16 @@ export default function TasksWorkspacePage({
   };
 
   const handleAddComment = async (taskId: string, comment: string) => {
+    if (!currentOrganizationId) {
+      alert("Organization is not available yet. Please wait and try again.");
+      return;
+    }
+
     try {
       await addComment({
         taskId,
-        organizationId,
-        userId: user.id,
+        organizationId: currentOrganizationId,
+        userId: currentUserId,
         comment,
       });
 
@@ -585,6 +545,11 @@ export default function TasksWorkspacePage({
   };
 
   const handleInviteUser = async (taskId: string, invitedUserId: string) => {
+    if (!currentOrganizationId) {
+      alert("Organization is not available yet. Please wait and try again.");
+      return;
+    }
+
     try {
       const currentTask =
         tasks.find((item) => item.id === taskId) ?? selectedTask;
@@ -594,10 +559,10 @@ export default function TasksWorkspacePage({
       if (currentTask) {
         try {
           await createCardInviteNotification({
-            organizationId,
+            organizationId: currentOrganizationId,
             userId: invitedUserId,
             taskId,
-            invitedBy: user.id,
+            invitedBy: currentUserId,
             taskTitle: currentTask.title,
           });
         } catch (notificationError) {
@@ -627,8 +592,10 @@ export default function TasksWorkspacePage({
   };
 
   const handleSearchClients = async (search: string) => {
+    if (!currentOrganizationId) return [];
+    
     return searchClients({
-      organizationId,
+      organizationId: currentOrganizationId,
       search,
     });
   };
@@ -638,13 +605,18 @@ export default function TasksWorkspacePage({
     clientId: string;
     clientName: string;
   }) => {
+    if (!currentOrganizationId) {
+      alert("Organization is not available yet. Please wait and try again.");
+      return;
+    }
+
     try {
       await inviteClientToTask({
         taskId: params.taskId,
-        organizationId,
+        organizationId: currentOrganizationId,
         clientId: params.clientId,
         invitedName: params.clientName,
-        invitedBy: user.id,
+        invitedBy: currentUserId,
         canView: true,
         canComment: true,
         canReviewSubmissions: true,
@@ -681,7 +653,7 @@ export default function TasksWorkspacePage({
       await addChecklist({
         taskId: selectedTask.id,
         title,
-        userId: user.id,
+        userId: currentUserId,
       });
     } catch (err) {
       alert(err instanceof Error ? err.message : "Failed to create checklist");
@@ -712,7 +684,7 @@ export default function TasksWorkspacePage({
         taskId: selectedTask.id,
         checklistId,
         content,
-        userId: user.id,
+        userId: currentUserId,
       });
     } catch (err) {
       alert(
@@ -732,7 +704,7 @@ export default function TasksWorkspacePage({
         taskId: selectedTask.id,
         itemId,
         checked,
-        userId: user.id,
+        userId: currentUserId,
       });
     } catch (err) {
       alert(
@@ -786,58 +758,130 @@ export default function TasksWorkspacePage({
   };
 
   const handleSearchAssignableUsers = async (search: string) => {
+    if (!currentOrganizationId) return [];
+    
     return searchTaskAssignableUsers({
-      organizationId,
+      organizationId: currentOrganizationId,
       search,
     });
   };
 
+  const totalCards = tasks.length;
+  const liveCards = Array.from(taskRuntimeMap.values()).filter(Boolean).length;
+  const reviewCards = tasks.filter((task) => task.status === "review").length;
+  const doneCards = tasks.filter((task) => task.status === "done").length;
+
+  if (!user || !profile) return null;
+
+  if (!organizationId) {
+    return (
+      <div className="min-h-screen bg-black text-white">
+        <div className="flex min-h-screen">
+          <Sidebar role={currentUserRole} />
+          <main className="min-w-0 flex-1 overflow-hidden p-6 lg:p-8">
+            <div className="border border-red-500/20 bg-red-500/10 p-5 text-red-300">
+              Your account is not linked to an organization yet.
+            </div>
+          </main>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-black text-white">
       <div className="flex min-h-screen">
-        <Sidebar role={profile.primary_role ?? "manager"} />
+        <Sidebar role={currentUserRole} />
 
-        <main className="min-w-0 flex-1 overflow-hidden p-6 lg:p-8">
-          <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
-            <div className="min-w-0">
-              <p className="text-xs uppercase tracking-[0.3em] text-orange-500">
-                Tasks
-              </p>
-              <h1 className="mt-2 text-3xl font-bold">{pageTitle}</h1>
-              <p className="mt-2 text-sm text-white/50">{pageDescription}</p>
+        <main className="min-w-0 flex-1 overflow-hidden bg-[radial-gradient(circle_at_top_left,rgba(249,115,22,0.14),transparent_20%),linear-gradient(180deg,#090909_0%,#050505_100%)] p-5 lg:p-8">
+          <section className="mb-8 overflow-hidden rounded-4xl border border-white/10 bg-[#0a0a0a]/95 shadow-[0_20px_60px_rgba(0,0,0,0.35)]">
+            <div className="border-b border-white/10 px-6 py-6 lg:px-8">
+              <div className="flex flex-wrap items-end justify-between gap-4">
+                <div className="min-w-0">
+                  <p className="text-xs uppercase tracking-[0.3em] text-orange-500">
+                    Tasks
+                  </p>
+                  <h1 className="mt-2 text-3xl font-bold">{pageTitle}</h1>
+                  <p className="mt-2 max-w-3xl text-sm text-white/50">
+                    {pageDescription}
+                  </p>
+                </div>
+
+                {allowModeSwitch && !projectId ? (
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setBoardMode("organization")}
+                      className={`rounded-2xl px-4 py-3 text-sm font-medium transition ${
+                        boardMode === "organization"
+                          ? "bg-orange-500 text-black"
+                          : "border border-white/10 bg-white/5 text-white/70"
+                      }`}
+                    >
+                      Organization Board
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setBoardMode("mine")}
+                      className={`rounded-2xl px-4 py-3 text-sm font-medium transition ${
+                        boardMode === "mine"
+                          ? "bg-orange-500 text-black"
+                          : "border border-white/10 bg-white/5 text-white/70"
+                      }`}
+                    >
+                      My Tasks
+                    </button>
+                  </div>
+                ) : null}
+              </div>
             </div>
 
-            {allowModeSwitch && !projectId ? (
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => setBoardMode("organization")}
-                  className={`rounded-xl px-4 py-3 text-sm font-medium transition ${
-                    boardMode === "organization"
-                      ? "bg-orange-500 text-black"
-                      : "border border-white/10 bg-white/5 text-white/70"
-                  }`}
-                >
-                  Organization Board
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setBoardMode("mine")}
-                  className={`rounded-xl px-4 py-3 text-sm font-medium transition ${
-                    boardMode === "mine"
-                      ? "bg-orange-500 text-black"
-                      : "border border-white/10 bg-white/5 text-white/70"
-                  }`}
-                >
-                  My Tasks
-                </button>
+            <div className="grid gap-4 px-6 py-6 md:grid-cols-2 xl:grid-cols-4 lg:px-8">
+              <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
+                <div className="flex items-center gap-3 text-white/55">
+                  <LayoutGrid size={18} className="text-orange-500" />
+                  <p className="text-sm font-medium">Cards on board</p>
+                </div>
+                <p className="mt-4 text-3xl font-semibold text-white">
+                  {totalCards}
+                </p>
               </div>
-            ) : null}
-          </div>
+
+              <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
+                <div className="flex items-center gap-3 text-white/55">
+                  <Radio size={18} className="text-orange-500" />
+                  <p className="text-sm font-medium">Live timers</p>
+                </div>
+                <p className="mt-4 text-3xl font-semibold text-white">
+                  {liveCards}
+                </p>
+              </div>
+
+              <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
+                <div className="flex items-center gap-3 text-white/55">
+                  <Sparkles size={18} className="text-orange-500" />
+                  <p className="text-sm font-medium">In review</p>
+                </div>
+                <p className="mt-4 text-3xl font-semibold text-white">
+                  {reviewCards}
+                </p>
+              </div>
+
+              <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
+                <div className="flex items-center gap-3 text-white/55">
+                  <Users size={18} className="text-orange-500" />
+                  <p className="text-sm font-medium">Done cards</p>
+                </div>
+                <p className="mt-4 text-3xl font-semibold text-white">
+                  {doneCards}
+                </p>
+              </div>
+            </div>
+          </section>
 
           <div className="grid gap-6 xl:grid-cols-[380px_minmax(0,1fr)]">
-            <section className="border border-white/10 bg-[#050505] p-5">
+            <section className="rounded-[28px] border border-white/10 bg-[#050505] p-5 shadow-[0_10px_30px_rgba(0,0,0,0.25)]">
               <div className="mb-4 flex items-center gap-3">
                 <div className="rounded-xl bg-orange-500/15 p-2 text-orange-500">
                   <ClipboardPlus size={18} />
@@ -853,12 +897,13 @@ export default function TasksWorkspacePage({
               <TaskForm
                 onSubmit={handleCreateTask}
                 onSearchUsers={handleSearchAssignableUsers}
-                currentUserId={user.id}
+                currentUserId={currentUserId}
+                organizationId={currentOrganizationId ?? ""}
                 busy={busy}
               />
             </section>
 
-            <section className="min-w-0 border border-white/10 bg-[#050505] p-5">
+            <section className="min-w-0 rounded-[28px] border border-white/10 bg-[#050505] p-5 shadow-[0_10px_30px_rgba(0,0,0,0.25)]">
               <div className="mb-4 flex items-center gap-3">
                 <div className="rounded-xl bg-orange-500/15 p-2 text-orange-500">
                   <CheckSquare size={18} />
@@ -879,8 +924,9 @@ export default function TasksWorkspacePage({
                 <div className="flex items-center gap-2 text-sm text-white/60">
                   <LayoutGrid size={14} />
                   <span>
-                    Cards support invited users, invited clients, time tracking,
-                    comments, checklists, and manual time editing.
+                    Drag cards across lanes like Trello. Each card still carries
+                    time tracking, invited collaborators, comments, checklists,
+                    and submissions.
                   </span>
                 </div>
               </div>
@@ -918,13 +964,13 @@ export default function TasksWorkspacePage({
         loading={detailsLoading}
         error={detailsError}
         busy={busy}
-        currentUserId={user.id}
+        currentUserId={currentUserId}
         trackedSeconds={selectedTaskTrackedSeconds}
         hasRunningTimer={Boolean(filteredTaskActiveEntry)}
         canEditDeadline={canEditSelectedTaskDeadline}
         canEditStatus={canEditSelectedTaskStatus}
-        organizationId={organizationId}
-        currentUserRole={profile.primary_role ?? "manager"}
+        organizationId={currentOrganizationId ?? ""}
+        currentUserRole={currentUserRole}
         submissions={selectedTaskSubmissions}
         clientInvites={selectedTaskClientInvites}
         taskTimeEntries={filteredTaskTimeEntries}

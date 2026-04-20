@@ -6,6 +6,9 @@ import type {
   MeetingParticipant,
   MeetingWithParticipants,
 } from "../types/meeting";
+import {
+  notifyAndEmailUsers,
+} from "../../notifications/services/notificationService";
 
 function generateRoomCode() {
   return Math.random().toString(36).slice(2, 8).toUpperCase();
@@ -49,6 +52,7 @@ export async function createMeeting(
   const scheduledStart = input.scheduled_start ?? null;
   const isScheduled = Boolean(scheduledStart);
 
+  // — insert the meeting —
   const { data, error } = await supabase
     .from("meetings")
     .insert({
@@ -68,6 +72,7 @@ export async function createMeeting(
 
   if (error) throw error;
 
+  // — add host as participant —
   const { error: participantError } = await supabase
     .from("meeting_participants")
     .insert({
@@ -81,6 +86,58 @@ export async function createMeeting(
     });
 
   if (participantError) throw participantError;
+
+  try {
+    const participantUserIds: string[] = (input.participant_ids ?? []).filter(
+      (id) => id !== input.host_id,
+    );
+
+    if (participantUserIds.length > 0) {
+      const { data: hostProfile, error: hostError } = await supabase
+        .from("profiles")
+        .select("full_name, email")
+        .eq("id", input.host_id)
+        .maybeSingle();
+
+      if (hostError) {
+        console.error("FETCH HOST PROFILE FOR MEETING NOTIFICATION ERROR:", hostError);
+      }
+
+      const hostName = hostProfile?.full_name?.trim() || "A team member";
+
+      const scheduledLabel = scheduledStart
+        ? new Date(scheduledStart).toLocaleString("en-ZW", {
+            dateStyle: "medium",
+            timeStyle: "short",
+          })
+        : "now";
+
+      await notifyAndEmailUsers({
+        organizationId: input.organization_id,
+        userIds: participantUserIds,
+        type: "meeting",
+        title: `Meeting Scheduled: ${input.title}`,
+        message: `${hostName} scheduled "${input.title}" for ${scheduledLabel}. Join when ready.`,
+        actionUrl: `/meetings/${data.id}`,
+        priority: "high",
+        entityType: "meeting",
+        entityId: data.id,
+        referenceId: data.id,
+        referenceType: "meeting",
+        metadata: {
+          meetingId: data.id,
+          meetingTitle: input.title,
+          meetingType: input.meeting_type,
+          scheduledStart: scheduledStart ?? null,
+          hostId: input.host_id,
+          hostName,
+          roomCode,
+        },
+      });
+    }
+  } catch (notificationError) {
+    console.error("MEETING NOTIFICATION ERROR:", notificationError);
+  }
 
   return data as Meeting;
 }
