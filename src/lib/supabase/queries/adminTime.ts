@@ -8,6 +8,7 @@ export type AdminTimeEntryRow = {
   user_id: string;
   task_id: string | null;
   project_id: string | null;
+  board_id: string | null;
   client_id: string | null;
   campaign_id: string | null;
   description: string | null;
@@ -31,6 +32,7 @@ export type AdminTimeEntryRow = {
   user_email?: string | null;
   task_title?: string | null;
   project_name?: string | null;
+  board_name?: string | null;
   client_name?: string | null;
   campaign_name?: string | null;
 };
@@ -40,6 +42,7 @@ export async function getAdminTimeEntries(params: {
   approvalStatus?: TimeApprovalStatus | "all";
   userId?: string;
   projectId?: string;
+  clientId?: string;
   isBillable?: boolean | "all";
   from?: string;
   to?: string;
@@ -50,6 +53,7 @@ export async function getAdminTimeEntries(params: {
     approvalStatus = "pending",
     userId,
     projectId,
+    clientId,
     isBillable = "all",
     from,
     to,
@@ -60,13 +64,13 @@ export async function getAdminTimeEntries(params: {
 
   let query = supabase
     .from("time_entries")
-    .select(
-      `
+    .select(`
       id,
       organization_id,
       user_id,
       task_id,
       project_id,
+
       client_id,
       campaign_id,
       description,
@@ -84,8 +88,7 @@ export async function getAdminTimeEntries(params: {
       cost_amount,
       created_at,
       updated_at
-      `,
-    )
+    `)
     .eq("organization_id", organizationId)
     .order("started_at", { ascending: false })
     .limit(limit);
@@ -96,6 +99,7 @@ export async function getAdminTimeEntries(params: {
 
   if (userId) query = query.eq("user_id", userId);
   if (projectId) query = query.eq("project_id", projectId);
+  if (clientId) query = query.eq("client_id", clientId);
   if (isBillable !== "all") query = query.eq("is_billable", isBillable);
   if (from) query = query.gte("started_at", from);
   if (to) query = query.lte("started_at", to);
@@ -103,7 +107,7 @@ export async function getAdminTimeEntries(params: {
   const { data, error } = await query;
   if (error) throw error;
 
-  const items = (data ?? []) as AdminTimeEntryRow[];
+  const items = (data ?? []) as unknown as AdminTimeEntryRow[];
 
   const userIds = [...new Set(items.map((i) => i.user_id).filter(Boolean))];
   const taskIds = [
@@ -112,9 +116,10 @@ export async function getAdminTimeEntries(params: {
   const projectIds = [
     ...new Set(items.map((i) => i.project_id).filter(Boolean)),
   ] as string[];
-  const clientIds = [
+  const boardIds = [
     ...new Set(items.map((i) => i.client_id).filter(Boolean)),
   ] as string[];
+  const clientIds = boardIds; // Boards are clients in this system
   const campaignIds = [
     ...new Set(items.map((i) => i.campaign_id).filter(Boolean)),
   ] as string[];
@@ -123,6 +128,7 @@ export async function getAdminTimeEntries(params: {
     profilesResult,
     tasksResult,
     projectsResult,
+    boardsResult,
     clientsResult,
     campaignsResult,
   ] = await Promise.all([
@@ -137,6 +143,9 @@ export async function getAdminTimeEntries(params: {
       : Promise.resolve({ data: [], error: null }),
     projectIds.length
       ? supabase.from("projects").select("id, name").in("id", projectIds)
+      : Promise.resolve({ data: [], error: null }),
+    boardIds.length
+      ? supabase.from("clients").select("id, name").in("id", boardIds)
       : Promise.resolve({ data: [], error: null }),
     clientIds.length
       ? supabase.from("clients").select("id, name").in("id", clientIds)
@@ -159,6 +168,9 @@ export async function getAdminTimeEntries(params: {
   const projectMap = new Map(
     (projectsResult.data ?? []).map((row) => [row.id, row]),
   );
+  const boardMap = new Map(
+    (boardsResult.data ?? []).map((row) => [row.id, row]),
+  );
   const clientMap = new Map(
     (clientsResult.data ?? []).map((row) => [row.id, row]),
   );
@@ -173,6 +185,9 @@ export async function getAdminTimeEntries(params: {
     task_title: item.task_id ? taskMap.get(item.task_id)?.title ?? null : null,
     project_name: item.project_id
       ? projectMap.get(item.project_id)?.name ?? null
+      : null,
+    board_name: item.client_id
+      ? boardMap.get(item.client_id)?.name ?? null
       : null,
     client_name: item.client_id
       ? clientMap.get(item.client_id)?.name ?? null
@@ -243,20 +258,145 @@ export async function getCalendarTimeEntries(params: {
 
   if (!organizationId) throw new Error("organizationId is required");
 
-  let query = supabase
-    .from("time_entries_calendar")
-    .select("*")
-    .eq("organization_id", organizationId)
-    .order("entry_date", { ascending: false });
+  try {
+    let query = supabase
+      .from("time_entries_calendar")
+      .select("*")
+      .eq("organization_id", organizationId)
+      .order("entry_date", { ascending: false });
 
-  if (from) query = query.gte("entry_date", from);
-  if (to) query = query.lte("entry_date", to);
+    if (from) query = query.gte("entry_date", from);
+    if (to) query = query.lte("entry_date", to);
+    if (userId) query = query.eq("user_id", userId);
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    return (data ?? []) as CalendarTimeEntry[];
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (
+      message.includes("time_entries_calendar") &&
+      message.includes("does not exist")
+    ) {
+      return getCalendarTimeEntriesFallback(params);
+    }
+    throw error;
+  }
+}
+
+async function getCalendarTimeEntriesFallback(params: {
+  organizationId: string;
+  from?: string;
+  to?: string;
+  userId?: string;
+}) {
+  const { organizationId, from, to, userId } = params;
+
+  let query = supabase
+    .from("time_entries")
+    .select(
+      "id, organization_id, user_id, project_id, description, started_at, duration_seconds, is_billable, approval_status",
+    )
+    .eq("organization_id", organizationId)
+    .in("approval_status", ["pending", "approved"])
+    .order("started_at", { ascending: false });
+
+  if (from) query = query.gte("started_at", from);
+  if (to) query = query.lte("started_at", to);
   if (userId) query = query.eq("user_id", userId);
 
   const { data, error } = await query;
   if (error) throw error;
 
-  return (data ?? []) as CalendarTimeEntry[];
+  const items = (data ?? []) as Array<{
+    id: string;
+    organization_id: string;
+    user_id: string;
+    project_id: string | null;
+    description: string | null;
+    started_at: string;
+    duration_seconds: number;
+    is_billable: boolean;
+    approval_status: string;
+  }>;
+
+  const userIds = Array.from(
+    new Set(items.map((item) => item.user_id).filter(Boolean)),
+  );
+  const projectIds = Array.from(
+    new Set(items.map((item) => item.project_id).filter(Boolean) as string[]),
+  );
+
+  const [profilesResult, projectsResult] = await Promise.all([
+    userIds.length
+      ? supabase.from("profiles").select("id, full_name, email").in(
+        "id",
+        userIds,
+      )
+      : Promise.resolve({ data: [], error: null }),
+    projectIds.length
+      ? supabase.from("projects").select("id, name").in("id", projectIds)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+
+  if (profilesResult.error) throw profilesResult.error;
+  if (projectsResult.error) throw projectsResult.error;
+
+  const profileMap = new Map(
+    (profilesResult.data ?? []).map((row) => [row.id, row]),
+  );
+  const projectMap = new Map(
+    (projectsResult.data ?? []).map((row) => [row.id, row]),
+  );
+
+  const grouped = new Map<string, CalendarTimeEntry>();
+
+  for (const item of items) {
+    const entryDate = item.started_at.slice(0, 10);
+    const key = `${item.user_id}-${entryDate}`;
+    const projectHours = Number(item.duration_seconds ?? 0) / 3600;
+
+    const projectEntry = {
+      project_id: item.project_id,
+      project_name: item.project_id
+        ? projectMap.get(item.project_id)?.name ?? null
+        : null,
+      hours: projectHours,
+      is_billable: item.is_billable,
+      description: item.description ?? null,
+      entry_count: 1,
+    };
+
+    const existing = grouped.get(key);
+    if (existing) {
+      existing.total_seconds += Number(item.duration_seconds ?? 0);
+      existing.entry_count += 1;
+
+      const existingProject = existing.project_entries.find(
+        (entry) => entry.project_id === projectEntry.project_id,
+      );
+      if (existingProject) {
+        existingProject.hours += projectEntry.hours;
+        existingProject.entry_count += 1;
+      } else {
+        existing.project_entries.push(projectEntry);
+      }
+    } else {
+      grouped.set(key, {
+        organization_id: item.organization_id,
+        user_id: item.user_id,
+        user_name: profileMap.get(item.user_id)?.full_name ?? null,
+        user_email: profileMap.get(item.user_id)?.email ?? null,
+        entry_date: entryDate,
+        total_seconds: Number(item.duration_seconds ?? 0),
+        entry_count: 1,
+        project_entries: [projectEntry],
+      });
+    }
+  }
+
+  return Array.from(grouped.values());
 }
 
 export type CalendarTimeEntry = {

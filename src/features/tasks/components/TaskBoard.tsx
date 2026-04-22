@@ -23,6 +23,7 @@ export default function TaskBoard({
   onMoveTaskToColumn,
   taskRuntimeMap,
   taskInvitedCountMap,
+  onCreateCard,
 }: {
   groupedTasks: Record<string, TaskItem[]>;
   boardColumns?: BoardColumnWithTasks[];
@@ -38,6 +39,7 @@ export default function TaskBoard({
   }) => void;
   taskRuntimeMap: Map<string, boolean>;
   taskInvitedCountMap: Map<string, number>;
+  onCreateCard?: (status: TaskStatus) => void;
 }) {
   const usingRealColumns = !!boardColumns && boardColumns.length > 0;
 
@@ -54,7 +56,7 @@ export default function TaskBoard({
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3 px-1">
         <div>
           <h3 className="text-sm font-semibold capitalize tracking-[0.22em] text-orange-400">
-           IT's No matata Task Board
+            IT's No matata Task Board
           </h3>
           <p className="mt-1 text-xs text-white/45">
             {usingRealColumns
@@ -88,6 +90,7 @@ export default function TaskBoard({
                   onMoveTaskToColumn={onMoveTaskToColumn}
                   taskRuntimeMap={taskRuntimeMap}
                   taskInvitedCountMap={taskInvitedCountMap}
+                  onCreateCard={onCreateCard}
                 />
               ))
             : STATUS_COLUMNS.map((column) => (
@@ -101,6 +104,7 @@ export default function TaskBoard({
                   onMoveTask={onMoveTask}
                   taskRuntimeMap={taskRuntimeMap}
                   taskInvitedCountMap={taskInvitedCountMap}
+                  onCreateCard={onCreateCard}
                 />
               ))}
         </div>

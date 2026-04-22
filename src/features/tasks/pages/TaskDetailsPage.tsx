@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   CalendarClock,
   Clock3,
+  Eye,
   Flag,
   Globe,
   Image,
@@ -18,6 +19,15 @@ import {
   TimerReset,
   Trash2,
 } from "lucide-react";
+import { formatRelativeDate } from "../../../lib/utils/formatRelativeDate";
+
+function getInitials(name?: string | null, email?: string | null) {
+  const source = name?.trim() || email?.trim() || "?";
+  const parts = source.split(" ").filter(Boolean);
+  return parts.length >= 2
+    ? `${parts[0][0]}${parts[1][0]}`.toUpperCase()
+    : source.slice(0, 2).toUpperCase();
+}
 import type {
   TaskCommentItem,
   TaskInvitableUser,
@@ -205,8 +215,7 @@ export default function TaskDetailsModal({
   );
   const [activeTaskLiveSeconds, setActiveTaskLiveSeconds] = useState(0);
 
-  const [submissionType, setSubmissionType] =
-    useState<TaskSubmissionType>("website");
+  const [submissionType, setSubmissionType] = useState<string>("website");
   const [submissionLink, setSubmissionLink] = useState("");
   const [submissionTitle, setSubmissionTitle] = useState("");
   const [submissionNotes, setSubmissionNotes] = useState("");
@@ -419,7 +428,7 @@ export default function TaskDetailsModal({
 
     await onCreateSubmission({
       taskId: task.id,
-      submissionType,
+      submissionType: submissionType as any,
       title: submissionTitle,
       notes: submissionNotes || null,
       linkUrl: submissionLink || null,
@@ -1041,9 +1050,7 @@ export default function TaskDetailsModal({
                   <div className="mt-4 grid gap-3 md:grid-cols-2">
                     <select
                       value={submissionType}
-                      onChange={(e) =>
-                        setSubmissionType(e.target.value as TaskSubmissionType)
-                      }
+                      onChange={(e) => setSubmissionType(e.target.value)}
                       className="rounded-xl border border-white/10 bg-black px-4 py-3 text-white outline-none focus:border-orange-500"
                     >
                       <option value="website">Website</option>
@@ -1238,25 +1245,42 @@ export default function TaskDetailsModal({
                     No comments yet. Start the conversation here.
                   </p>
                 ) : (
-                  comments.map((item) => (
-                    <div
-                      key={item.id}
-                      className="rounded-xl border border-white/10 bg-black px-4 py-3"
-                    >
-                      <p className="text-sm font-medium text-white">
-                        {item.author_name ||
-                          item.author_email ||
-                          item.user_id ||
-                          "Unknown user"}
-                      </p>
-                      <p className="mt-2 whitespace-pre-wrap text-sm text-white/70">
-                        {item.comment}
-                      </p>
-                      <p className="mt-2 text-xs text-white/40">
-                        {formatDateTime(item.created_at)}
-                      </p>
-                    </div>
-                  ))
+                  comments.map((item) => {
+                    const authorInitials = getInitials(
+                      item.author_name,
+                      item.author_email,
+                    );
+                    return (
+                      <div
+                        key={item.id}
+                        className="flex gap-3 rounded-xl border border-white/10 bg-black px-4 py-3"
+                      >
+                        <div
+                          title={
+                            item.author_name || item.author_email || "Unknown"
+                          }
+                          className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10 border border-white/10 text-[11px] font-bold text-white/80 shrink-0"
+                        >
+                          {authorInitials}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium text-white truncate">
+                            {item.author_name ||
+                              item.author_email ||
+                              item.user_id ||
+                              "Unknown user"}
+                          </p>
+                          <p className="mt-1 whitespace-pre-wrap text-sm text-white/70">
+                            {item.comment}
+                          </p>
+                          <p className="mt-2 text-xs text-white/40 flex items-center gap-1">
+                            {formatRelativeDate(item.created_at)} •{" "}
+                            {formatDateTime(item.created_at)}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })
                 )}
               </div>
 

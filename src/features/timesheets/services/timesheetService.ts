@@ -1,20 +1,7 @@
 import { supabase } from "../../../lib/supabase/client";
+import type { TimesheetSubmissionRow } from "../../../lib/supabase/queries/timesheets";
 
-export interface TimesheetSubmission {
-  id: string;
-  organization_id: string;
-  user_id: string;
-  week_start: string;
-  week_end: string;
-  status: "draft" | "submitted" | "approved" | "rejected";
-  submitted_at: string | null;
-  approved_at: string | null;
-  rejected_at: string | null;
-  approver_id: string | null;
-  notes: string | null;
-  created_at: string;
-  updated_at: string;
-}
+export type TimesheetSubmission = TimesheetSubmissionRow;
 
 export interface CreateTimesheetPayload {
   organizationId: string;

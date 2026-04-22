@@ -1,5 +1,3 @@
-// src/features/ai-workspace/components/AIWorkspaceHeader.tsx
-
 import { Sparkles } from "lucide-react";
 
 interface AIWorkspaceHeaderProps {

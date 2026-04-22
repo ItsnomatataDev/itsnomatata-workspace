@@ -4,7 +4,7 @@ import type { Client, ClientStatus } from "../queries/clients";
 export interface CreateClientInput {
   organization_id: string;
   name: string;
-  slug: string;
+  slug?: string;
   industry?: string;
   description?: string;
   logo_url?: string;

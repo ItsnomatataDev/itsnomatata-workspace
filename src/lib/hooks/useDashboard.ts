@@ -19,6 +19,10 @@ type DashboardTask = {
   status: string;
   priority: string;
   due_date: string | null;
+  created_at: string;
+  created_by: string | null;
+  created_by_full_name?: string | null;
+  created_by_email?: string | null;
 };
 
 type Announcement = {
@@ -162,9 +166,11 @@ export function useDashboard(params: {
     }
 
     try {
-      const url = `https://gnews.io/api/v4/search?q=${encodeURIComponent(
-        roleNewsTopic,
-      )}&lang=en&max=5&token=${apiKey}`;
+      const url = `https://gnews.io/api/v4/search?q=${
+        encodeURIComponent(
+          roleNewsTopic,
+        )
+      }&lang=en&max=5&token=${apiKey}`;
 
       const res = await fetch(url);
 
@@ -273,7 +279,10 @@ export function useDashboard(params: {
 
         supabase
           .from("tasks")
-          .select("id,title,status,priority,due_date")
+          .select(`
+            id,title,status,priority,due_date,created_at,created_by,
+            profiles:created_by(full_name,email)
+          `)
           .eq("assigned_to", userId)
           .order("updated_at", { ascending: false })
           .limit(6),
@@ -456,4 +465,3 @@ export function useDashboard(params: {
     stopTimer,
   };
 }
- 

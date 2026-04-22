@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   Clock3,
   LayoutGrid,
+  MessageSquare,
   ShieldCheck,
   Sparkles,
 } from "lucide-react";
@@ -13,6 +14,7 @@ import { useAuth } from "../../../app/providers/AuthProvider";
 import { buildAssistantContext } from "../../../lib/api/ai";
 import AIActionHistoryList from "../components/AIActionHistoryList";
 import AIActionLauncher from "../components/AIActionLauncher";
+import AIChatView from "../components/AIChatView";
 import AIOutputPreview from "../components/AIOutputPreview";
 import AIQuickSearch from "../components/AIQuickSearch";
 import AIRequestForm from "../components/AIRequestForm";
@@ -25,9 +27,11 @@ import RoleToolSection from "../components/RoleToolSection";
 import { useAIWorkspace } from "../hooks/useAIWorkspace";
 import type { AIWorkspaceViewMode } from "../types/aiWorkspace";
 
+// ── Extended view mode to include chat ────────────────────
+type ExtendedViewMode = AIWorkspaceViewMode | "chat";
+
 function formatRoleLabel(role: string | null | undefined) {
   if (!role) return "Employee";
-
   return role
     .split("_")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
@@ -41,11 +45,12 @@ function humanizeLabel(value: string) {
 }
 
 const VIEW_OPTIONS: Array<{
-  id: AIWorkspaceViewMode;
+  id: ExtendedViewMode;
   label: string;
   icon: ComponentType<{ size?: number }>;
 }> = [
   { id: "overview", label: "Overview", icon: Sparkles },
+  { id: "chat", label: "Chat", icon: MessageSquare },
   { id: "tool", label: "Tools", icon: LayoutGrid },
   { id: "history", label: "History", icon: Clock3 },
   { id: "approvals", label: "Approvals", icon: ShieldCheck },
@@ -133,6 +138,18 @@ export default function AIWorkspacePage() {
     role: profile?.primary_role ?? "employee",
   });
 
+  // Extended view mode includes "chat" which the hook doesn't know about
+  const [extendedViewMode, setExtendedViewMode] =
+    useState<ExtendedViewMode>("overview");
+
+  // Keep hook's viewMode in sync for non-chat views
+  const handleSetViewMode = (mode: ExtendedViewMode) => {
+    setExtendedViewMode(mode);
+    if (mode !== "chat") {
+      setViewMode(mode as AIWorkspaceViewMode);
+    }
+  };
+
   const [selectedOutputId, setSelectedOutputId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -181,13 +198,13 @@ export default function AIWorkspacePage() {
     });
 
     setSelectedOutputId(output.id);
-    setViewMode("overview");
+    handleSetViewMode("overview");
   };
 
   const handleQuickSearch = async (query: string) => {
     const output = await askAssistant(query);
     setSelectedOutputId(output.id);
-    setViewMode("overview");
+    handleSetViewMode("overview");
   };
 
   const handlePromptSubmit = async ({ prompt }: { prompt: string }) => {
@@ -200,6 +217,12 @@ export default function AIWorkspacePage() {
     }
 
     await handleQuickSearch(prompt);
+  };
+
+
+  const handleChatAsk = async (prompt: string) => {
+    const output = await askAssistant(prompt);
+    return { content: output.content };
   };
 
   return (
@@ -256,21 +279,29 @@ export default function AIWorkspacePage() {
 
         <div className="flex flex-wrap gap-2">
           {VIEW_OPTIONS.map(({ id, label, icon: Icon }) => {
-            const active = viewMode === id;
+            const active = extendedViewMode === id;
+            const isChat = id === "chat";
 
             return (
               <button
                 key={id}
                 type="button"
-                onClick={() => setViewMode(id)}
+                onClick={() => handleSetViewMode(id)}
                 className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition ${
                   active
-                    ? "bg-orange-500 text-white"
+                    ? isChat
+                      ? "bg-linear-to-r from-orange-500 to-orange-600 text-white shadow-lg shadow-orange-500/20"
+                      : "bg-orange-500 text-white"
                     : "border border-white/10 bg-white/5 text-gray-200 hover:bg-white/10"
                 }`}
               >
                 <Icon size={16} />
                 {label}
+                {isChat && !active && (
+                  <span className="ml-0.5 rounded-full bg-orange-500/20 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-orange-400">
+                    New
+                  </span>
+                )}
               </button>
             );
           })}
@@ -293,7 +324,16 @@ export default function AIWorkspacePage() {
           />
         ) : (
           <>
-            {viewMode === "overview" && (
+       
+            {extendedViewMode === "chat" && (
+              <AIChatView
+                busy={running}
+                userName={profile?.full_name ?? user?.email ?? null}
+                role={roleLabel}
+                onAsk={handleChatAsk}
+              />
+            )}
+            {extendedViewMode === "overview" && (
               <div className="grid gap-4 xl:grid-cols-3">
                 <div className="space-y-4 xl:col-span-2">
                   <AIQuickSearch busy={running} onSearch={handleQuickSearch} />
@@ -338,8 +378,7 @@ export default function AIWorkspacePage() {
                 </div>
               </div>
             )}
-
-            {viewMode === "tool" && (
+            {extendedViewMode === "tool" && (
               <div className="grid gap-4 xl:grid-cols-3">
                 <div className="space-y-6 xl:col-span-2">
                   {Object.entries(groupedTools).map(([category, items]) => (
@@ -368,8 +407,7 @@ export default function AIWorkspacePage() {
                 </div>
               </div>
             )}
-
-            {viewMode === "history" && (
+            {extendedViewMode === "history" && (
               <div className="grid gap-4 xl:grid-cols-3">
                 <div className="space-y-4 xl:col-span-2">
                   <AIActionHistoryList items={history} />
@@ -385,8 +423,7 @@ export default function AIWorkspacePage() {
                 </div>
               </div>
             )}
-
-            {viewMode === "approvals" && (
+            {extendedViewMode === "approvals" && (
               <div className="grid gap-4 xl:grid-cols-3">
                 <div className="space-y-4 xl:col-span-2">
                   <PendingApprovalsPanel

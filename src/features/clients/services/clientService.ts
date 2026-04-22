@@ -4,7 +4,7 @@ export interface ClientItem {
   id: string;
   organization_id: string;
   name: string;
-  slug?: string | null;
+  slug: string;
   email?: string | null;
   phone?: string | null;
   website?: string | null;
@@ -83,6 +83,29 @@ function normalizeOptional(value?: string | null): string | null {
   return trimmed ? trimmed : null;
 }
 
+async function generateUniqueSlug(
+  organizationId: string,
+  base: string,
+): Promise<string> {
+  const baseSlug = slugify(base);
+  let count = 0;
+
+  while (true) {
+    const slug = count === 0 ? baseSlug : `${baseSlug}-${count}`;
+
+    const { data } = await supabase
+      .from("clients")
+      .select("id")
+      .eq("organization_id", organizationId)
+      .eq("slug", slug)
+      .maybeSingle();
+
+    if (!data) return slug;
+
+    count++;
+  }
+}
+
 export async function createClient(
   input: CreateClientInput,
 ): Promise<ClientItem> {
@@ -91,14 +114,21 @@ export async function createClient(
   if (!organizationId) throw new Error("organizationId is required");
   if (!name?.trim()) throw new Error("name is required");
 
-  const generatedSlug = input.slug?.trim()
-    ? normalizeOptional(input.slug)
-    : slugify(name);
+  let finalSlug: string;
+
+  if (input.slug && input.slug.trim()) {
+  finalSlug = await generateUniqueSlug(
+    organizationId,
+    input.slug.trim()
+  );
+} else {
+  finalSlug = await generateUniqueSlug(organizationId, name);
+}
 
   const payload = {
     organization_id: organizationId,
     name: name.trim(),
-    slug: generatedSlug,
+    slug: finalSlug,
     email: normalizeOptional(input.email),
     phone: normalizeOptional(input.phone),
     website: normalizeOptional(input.website),
@@ -114,6 +144,7 @@ export async function createClient(
     .single();
 
   if (error) throw new Error(error.message);
+
   return data as ClientItem;
 }
 
@@ -127,7 +158,15 @@ export async function updateClient(
 
   const payload = {
     ...(input.name !== undefined ? { name: input.name.trim() } : {}),
-    ...(input.slug !== undefined ? { slug: normalizeOptional(input.slug) } : {}),
+    ...(input.slug !== undefined
+      ? {
+        slug: input.slug && input.slug.trim()
+          ? await generateUniqueSlug(organizationId, input.slug)
+          : input.name
+          ? await generateUniqueSlug(organizationId, input.name)
+          : undefined,
+      }
+      : {}),
     ...(input.email !== undefined
       ? { email: normalizeOptional(input.email) }
       : {}),
@@ -161,7 +200,9 @@ export async function updateClient(
   return data as ClientItem;
 }
 
-export async function getClients(organizationId: string): Promise<ClientItem[]> {
+export async function getClients(
+  organizationId: string,
+): Promise<ClientItem[]> {
   if (!organizationId) throw new Error("organizationId is required");
 
   const { data, error } = await supabase
@@ -192,10 +233,6 @@ export async function getClientById(
   return (data as ClientItem | null) ?? null;
 }
 
-/**
- * Direct tasks linked to the client through tasks.client_id.
- * Keep this for internal reporting screens if needed.
- */
 export async function getClientWorkspaceTasks(params: {
   organizationId: string;
   clientId: string;
@@ -322,3 +359,10 @@ export async function getClientVisibleTaskTimeSummary(params: {
     last_tracked_at: rows[0]?.updated_at ?? null,
   };
 }
+
+export type Board = ClientItem;
+
+export const createBoard = createClient;
+export const updateBoard = updateClient;
+export const getBoards = getClients;
+export const getBoardById = getClientById;

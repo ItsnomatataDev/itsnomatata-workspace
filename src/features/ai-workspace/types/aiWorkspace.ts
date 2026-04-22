@@ -1,5 +1,3 @@
-// src/features/ai-workspace/types/aiWorkspace.ts
-
 import type {
   AssistantActionInput,
   AssistantAttachmentInput,

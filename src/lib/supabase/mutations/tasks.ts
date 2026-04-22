@@ -1,5 +1,10 @@
 import { supabase } from "../client";
+import {
+  type TaskSubmissionFileResult,
+  uploadTaskSubmissionFile,
+} from "../storage";
 import type { TaskStatus } from "../queries/tasks";
+import type { TaskSubmissionItem } from "../queries/taskSubmissions";
 import { getTrackedTimeByTask } from "../queries/tasks";
 
 export interface CreateTaskCommentPayload {
@@ -134,7 +139,6 @@ export async function createCardInviteNotification(params: {
 
   if (error) throw error;
 }
-
 
 export async function removeTaskWatcher(params: {
   taskId: string;
@@ -516,6 +520,76 @@ export type CreateTaskInput = {
   status?: string | null;
   completed_at?: string | null;
 };
+
+export interface CreateTaskSubmissionPayload {
+  organizationId: string;
+  taskId: string;
+  submittedBy: string;
+  submissionType: string;
+  title: string;
+  notes?: string | null;
+  linkUrl?: string | null;
+  file?: File | null;
+}
+
+export async function createTaskSubmission(
+  payload: CreateTaskSubmissionPayload,
+): Promise<TaskSubmissionItem> {
+  const {
+    organizationId,
+    taskId,
+    submittedBy,
+    submissionType,
+    title,
+    notes = null,
+    linkUrl = null,
+    file = null,
+  } = payload;
+
+  if (!organizationId) throw new Error("organizationId is required");
+  if (!taskId) throw new Error("taskId is required");
+  if (!submittedBy) throw new Error("submittedBy is required");
+  if (!title.trim()) throw new Error("Submission title is required");
+
+  // First insert submission record
+  const { data: submission, error: insertError } = await supabase
+    .from("task_submissions")
+    .insert({
+      organization_id: organizationId,
+      task_id: taskId,
+      submitted_by: submittedBy,
+      submission_type: submissionType,
+      title: title.trim(),
+      notes,
+      link_url: linkUrl,
+      approval_status: "pending",
+    })
+    .select("*")
+    .single();
+
+  if (insertError) throw insertError;
+
+  // Handle file upload if present
+  if (file) {
+    const uploadResult: TaskSubmissionFileResult =
+      await uploadTaskSubmissionFile(taskId, file);
+
+    const { data: updatedSubmission, error: updateError } = await supabase
+      .from("task_submissions")
+      .update({
+        file_name: uploadResult.file_name,
+        signed_file_url: uploadResult.signed_file_url,
+      })
+      .eq("id", submission.id)
+      .select("*")
+      .single();
+
+    if (updateError) throw updateError;
+    return updatedSubmission as TaskSubmissionItem;
+  }
+
+  return submission as TaskSubmissionItem;
+}
 
 export async function createTaskSimple(input: CreateTaskInput) {
   const { data, error } = await supabase

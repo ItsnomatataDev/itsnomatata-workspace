@@ -57,8 +57,9 @@ function buildRuntimeMap(tasks: Array<TaskItem | BoardTask>) {
   const runtimeMap = new Map<string, boolean>();
 
   tasks.forEach((task) => {
-    const hasRunningTimer =
-      "has_running_timer" in task ? Boolean(task.has_running_timer) : false;
+    const hasRunningTimer = "has_running_timer" in task
+      ? Boolean(task.has_running_timer)
+      : false;
     runtimeMap.set(task.id, hasRunningTimer);
   });
 
@@ -69,8 +70,9 @@ function buildInvitedMap(tasks: Array<TaskItem | BoardTask>) {
   const invitedMap = new Map<string, number>();
 
   tasks.forEach((task) => {
-    const watchersCount =
-      "watchers_count" in task ? Number(task.watchers_count ?? 0) : 0;
+    const watchersCount = "watchers_count" in task
+      ? Number(task.watchers_count ?? 0)
+      : 0;
     invitedMap.set(task.id, watchersCount);
   });
 
@@ -123,7 +125,6 @@ export function useTasks(params: UseTasksParams) {
       setLoading(true);
       setError("");
 
-
       if (projectId) {
         const boardData: ProjectBoardData = await getProjectBoardData(
           organizationId,
@@ -141,19 +142,23 @@ export function useTasks(params: UseTasksParams) {
         setTasks(flatTasks);
         setTaskRuntimeMap(buildRuntimeMap(flatTasks));
         setTaskInvitedCountMap(buildInvitedMap(flatTasks));
+        const watchersMap = new Map<string, TaskWatcherItem[]>();
+        flatTasks.forEach((task) => {
+          watchersMap.set(task.id, (task as BoardTask).watchers || []);
+        });
 
         return flatTasks;
       }
 
-  
-      const [items, runtimeInfo, watcherCounts, trackedTime] = await Promise.all(
-        [
-          getTasks({ assignedTo, organizationId }),
-          getTaskRuntimeInfo(organizationId),
-          getTaskWatcherCounts(organizationId),
-          getTrackedTimeByTask(organizationId),
-        ],
-      );
+      const [items, runtimeInfo, watcherCounts, trackedTime] = await Promise
+        .all(
+          [
+            getTasks({ assignedTo, organizationId }),
+            getTaskRuntimeInfo(organizationId),
+            getTaskWatcherCounts(organizationId),
+            getTrackedTimeByTask(organizationId),
+          ],
+        );
 
       const runtimeMap = new Map<string, boolean>();
       runtimeInfo.forEach((item) => {
@@ -174,8 +179,8 @@ export function useTasks(params: UseTasksParams) {
 
       const enrichedTasks: TaskItem[] = items.map((task) => ({
         ...task,
-        tracked_seconds_cache:
-          trackedMap.get(task.id) ?? Number(task.tracked_seconds_cache ?? 0),
+        tracked_seconds_cache: trackedMap.get(task.id) ??
+          Number(task.tracked_seconds_cache ?? 0),
       }));
 
       setTasks(enrichedTasks);
@@ -248,40 +253,40 @@ export function useTasks(params: UseTasksParams) {
     setDetailsError("");
   }, []);
 
-const createTaskCard = useCallback(
-  async (input: {
-    values: any;
-    organizationId: string;
-    userId: string;
-  }) => {
-    const { values, organizationId, userId } = input;
+  const createTaskCard = useCallback(
+    async (input: {
+      values: any;
+      organizationId: string;
+      userId: string;
+    }) => {
+      const { values, organizationId, userId } = input;
 
-    if (!organizationId) throw new Error("organizationId is required");
-    if (!userId) throw new Error("userId is required");
+      if (!organizationId) throw new Error("organizationId is required");
+      if (!userId) throw new Error("userId is required");
 
-    const created = await createTask({
-      organizationId,
-      title: values.title,
-      description: values.description || null,
-      status: values.status || "todo",
-      priority: values.priority || "medium",
-      due_date: values.due_date || null,
-      department: values.department || null,
-      assigned_to: values.assigned_to || null,
-      project_id: values.project_id || null,
-      column_id: values.column_id || null,
-      position: values.position ?? 0,
-      created_by: userId,
-      assigned_by: userId,
-      is_billable: false,
-      metadata: {},
-    });
+      const created = await createTask({
+        organizationId,
+        title: values.title,
+        description: values.description || null,
+        status: values.status || "todo",
+        priority: values.priority || "medium",
+        due_date: values.due_date || null,
+        department: values.department || null,
+        assigned_to: values.assigned_to || null,
+        project_id: values.project_id || null,
+        column_id: values.column_id || null,
+        position: values.position ?? 0,
+        created_by: userId,
+        assigned_by: userId,
+        is_billable: false,
+        metadata: {},
+      });
 
-    await refetch();
-    return created;
-  },
-  [refetch],
-);
+      await refetch();
+      return created;
+    },
+    [refetch],
+  );
 
   const addComment = useCallback(
     async (params: {
@@ -429,7 +434,7 @@ const createTaskCard = useCallback(
         refreshedItems.find((task) => task.id === params.taskId) ?? null;
 
       setSelectedTask((prev) =>
-        prev?.id === params.taskId ? updatedTask : prev,
+        prev?.id === params.taskId ? updatedTask : prev
       );
 
       return updatedTask;
@@ -448,8 +453,8 @@ const createTaskCard = useCallback(
       });
 
       const refreshedItems = await refetch();
-      const updatedTask =
-        refreshedItems.find((task) => task.id === taskId) ?? null;
+      const updatedTask = refreshedItems.find((task) => task.id === taskId) ??
+        null;
 
       setSelectedTask((prev) => (prev?.id === taskId ? updatedTask : prev));
       return updatedTask;
@@ -463,7 +468,7 @@ const createTaskCard = useCallback(
     groupedTasks,
     taskRuntimeMap,
     taskInvitedCountMap,
-loading,
+    loading,
     error,
 
     createTask: createTaskCard,

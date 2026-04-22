@@ -5,6 +5,8 @@ import DashboardPage from "../../pages/DashboardPage";
 import ClientsPage from "../../features/clients/pages/ClientsPage";
 import ClientDetailsPage from "../../features/clients/pages/ClientDetailsPage";
 import ClientWorkspacePage from "../../features/clients/pages/ClientWorkspacePage";
+import BoardsGridPage from "../../features/boards/pages/BoardsGridPage";
+import BoardViewPage from "../../features/boards/pages/BoardViewPage";
 import ProtectedRoute from "./ProtectedRoute";
 import RoleRoute from "./RoleRoute";
 import TasksPage from "../../features/tasks/pages/TasksPage";
@@ -33,14 +35,18 @@ import ChatPage from "../../features/chat/pages/ChatPage";
 import MeetingsPage from "../../features/meetings/pages/MeetingsPage";
 import MeetingRoomPage from "../../features/meetings/pages/MeetingRoomPage";
 import SocialPostsPage from "../../features/social-posts/pages/SocialPostsPage";
-import TimeApprovalPage from "../../features/timesheets/pages/TimeApprovalPage";
 import AssetsPage from "../../features/stock/pages/AssetsPage";
 import AssetDetailsPage from "../../features/stock/pages/AssetDetailsPage";
 import ScanAssetPage from "../../features/stock/pages/ScanAssetPage";
 import AIWorkspacePage from "../../features/ai-workspace/pages/AIWorkspacePage";
 import AiAssistantPage from "../../features/ai-assistant/pages/AiAssistantPage";
-import EverHourAdminPage from "../../features/timesheets/pages/EverhourAdminPage";
+import WorkIntelligenceBoardPage from "../../features/timesheets/pages/WorkIntelligenceBoardPage";
 import TeamTimesheetsPage from "../../features/timesheets/pages/TeamTimesheetsPage";
+import EverhourHome from "../../features/everhour/pages/EverhourHome";
+import EverhourBoardDetail from "../../features/everhour/pages/EverhourBoardDetail";
+import EverhourAdminPage from "../../features/timesheets/pages/EverhourAdminPage";
+import BoardTimeManagementPage from "../../features/boards/pages/BoardTimeManagementPage";
+import BoardDetailView from "../../features/boards/pages/BoardDetailView";
 const AppRouter = () => {
   return (
     <BrowserRouter>
@@ -60,6 +66,23 @@ const AppRouter = () => {
         />
         <Route path="/meetings" element={<MeetingsPage />} />
         <Route path="/meetings/:meetingId" element={<MeetingRoomPage />} />
+        <Route
+          path="/boards"
+          element={
+            <ProtectedRoute>
+              <BoardsGridPage />
+            </ProtectedRoute>
+          }
+        />
+      
+        <Route
+          path="/boards/:boardId"
+          element={
+            <ProtectedRoute>
+              <BoardViewPage />
+            </ProtectedRoute>
+          }
+        />
         <Route
           path="/clients"
           element={
@@ -94,16 +117,7 @@ const AppRouter = () => {
             </ProtectedRoute>
           }
         />
-        <Route
-          path="/time-approval"
-          element={
-            <ProtectedRoute>
-              <RoleRoute roles={["admin", "manager"]}>
-                <TimeApprovalPage />
-              </RoleRoute>
-            </ProtectedRoute>
-          }
-        />
+  
         <Route
           path="/tasks"
           element={
@@ -235,6 +249,18 @@ const AppRouter = () => {
             </ProtectedRoute>
           }
         />
+
+        <Route
+          path="/admin/everhouradmin"
+          element={
+            <ProtectedRoute>
+              <RoleRoute roles={["admin"]}>
+                <EverhourAdminPage />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+
         <Route
           path="/it/dashboard"
           element={
@@ -368,11 +394,11 @@ const AppRouter = () => {
           }
         />
         <Route
-          path="/admin/everhour"
+          path="/admin/work-intelligence"
           element={
             <ProtectedRoute>
-              <RoleRoute roles={["admin"]}>
-                <EverHourAdminPage />
+              <RoleRoute roles={["admin", "manager"]}>
+                <WorkIntelligenceBoardPage />
               </RoleRoute>
             </ProtectedRoute>
           }
@@ -384,7 +410,47 @@ const AppRouter = () => {
           element={<ClientWorkspacePage />}
         />
         <Route path="/timesheets/reports" element={<ReportsPage />} />
+        <Route
+          path="/everhour"
+          element={
+            <ProtectedRoute>
+              <RoleRoute roles={["admin", "manager"]}>
+                <EverhourHome />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/everhour/boards/:boardId"
+          element={
+            <ProtectedRoute>
+              <RoleRoute roles={["admin", "manager"]}>
+                <EverhourBoardDetail />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
         <Route path="/timesheets/team" element={<TeamTimesheetsPage />} />
+        <Route
+          path="/board-management"
+          element={
+            <ProtectedRoute>
+              <RoleRoute roles={["manager", "it", "admin"]}>
+                <BoardTimeManagementPage />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/board/:boardId"
+          element={
+            <ProtectedRoute>
+              <RoleRoute roles={["manager", "it", "admin"]}>
+                <BoardDetailView />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </BrowserRouter>

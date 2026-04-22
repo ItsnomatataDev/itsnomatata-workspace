@@ -1,5 +1,6 @@
 import { useState } from "react";
-import TaskCard from "./TaskCard";
+import { Plus } from "lucide-react";
+import EnhancedTaskCard from "./EnhancedTaskCard";
 import type { TaskItem, TaskStatus } from "../../../lib/supabase/queries/tasks";
 
 export default function TaskColumn({
@@ -14,6 +15,7 @@ export default function TaskColumn({
   onMoveTaskToColumn,
   taskRuntimeMap,
   taskInvitedCountMap,
+  onCreateCard,
 }: {
   title: string;
   status?: TaskStatus;
@@ -32,6 +34,7 @@ export default function TaskColumn({
   }) => void;
   taskRuntimeMap: Map<string, boolean>;
   taskInvitedCountMap: Map<string, number>;
+  onCreateCard?: (status: TaskStatus) => void;
 }) {
   const [isOver, setIsOver] = useState(false);
   const accent = accentClass ?? "";
@@ -98,15 +101,31 @@ export default function TaskColumn({
           {tasks.length}
         </span>
       </div>
-
       <div className="max-h-[72vh] space-y-3 overflow-y-auto pr-1">
         {tasks.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-white/10 bg-white/3 px-4 py-8 text-center text-sm text-white/30">
-            Drop cards here
+          <div className="rounded-2xl border border-dashed border-white/20 bg-linear-to-br from-white/5 to-orange-500/5 px-6 py-8 text-center">
+            <div className="mb-4">
+              <div className="w-12 h-12 bg-orange-500/20 rounded-full flex items-center justify-center mx-auto mb-3">
+                <Plus className="w-6 h-6 text-orange-400" />
+              </div>
+              <h3 className="text-sm font-medium text-white/80 mb-1">
+                No cards yet
+              </h3>
+              <p className="text-xs text-white/40">
+                Get started by adding your first card
+              </p>
+            </div>
+            <button
+              onClick={() => onCreateCard?.(status || "todo")}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white text-sm font-medium rounded-lg transition"
+            >
+              <Plus size={14} />
+              Add Card
+            </button>
           </div>
         ) : (
           tasks.map((task) => (
-            <TaskCard
+            <EnhancedTaskCard
               key={task.id}
               task={task}
               onTrack={onTrack}

@@ -3,172 +3,413 @@ import {
   CalendarDays,
   Clock3,
   Filter,
-  Users,
-  Briefcase,
-  DollarSign,
+  CircleDot,
+  ChevronRight,
+  Layers,
+  ListTodo,
+  TrendingUp,
+  X,
+  BarChart3,
 } from "lucide-react";
 import Sidebar from "../../../components/dashboard/components/Siderbar";
 import { useAuth } from "../../../app/providers/AuthProvider";
-import {
-  getAdminTimeEntries,
-  type AdminTimeEntryRow,
-  type TimeApprovalStatus,
-} from "../../../lib/supabase/queries/adminTime";
+import { useTeamTimesheetsRealtime } from "../../../lib/hooks/useTeamTimesheetsRealtime";
+import type { AdminTimeEntryRow } from "../../../lib/supabase/queries/adminTime";
+import EverhourCalendar, {
+  type EverhourCalendarEvent,
+} from "../components/EverhourCalendar";
+
+// ── Types ──────────────────────────────────────────────────
+
+type UserSummary = {
+  id: string;
+  name: string;
+  email: string | null;
+  totalSeconds: number;
+  running: boolean;
+  recentBoard: string | null;
+  lastEntryAt: string;
+  activeTimers: number;
+  boardTotals: Record<string, number>;
+  taskTotals: Record<string, number>;
+  dailyHours: Record<string, number>;
+};
+
+type CalendarDay = {
+  date: Date;
+  key: string;
+  label: string;
+  weekLabel: string;
+};
+
+// ── Helpers ────────────────────────────────────────────────
 
 function formatDuration(seconds: number) {
   const total = Math.max(0, Number(seconds || 0));
-  const hrs = Math.floor(total / 3600);
-  const mins = Math.floor((total % 3600) / 60);
-  return hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m`;
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
 }
 
-function formatMoney(amount: number) {
-  return `$${Number(amount || 0).toFixed(2)}`;
+function formatHours(hours: number) {
+  if (!hours) return "—";
+  return `${hours.toFixed(1)}h`;
 }
 
-function formatDateTime(value?: string | null) {
-  if (!value) return "—";
-  try {
-    return new Date(value).toLocaleString();
-  } catch {
-    return value;
+function getDateKey(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function startOfWeekFn(date: Date, weekStart = 1) {
+  const copy = new Date(date);
+  const day = copy.getDay();
+  const distance = (day + 7 - weekStart) % 7;
+  copy.setDate(copy.getDate() - distance);
+  copy.setHours(0, 0, 0, 0);
+  return copy;
+}
+
+function buildTwoWeekDays(): CalendarDay[] {
+  const today = new Date();
+  const currentWeekStart = startOfWeekFn(today, 1);
+  const previousWeekStart = new Date(currentWeekStart);
+  previousWeekStart.setDate(previousWeekStart.getDate() - 7);
+  const weeks = [previousWeekStart, currentWeekStart];
+
+  return weeks.flatMap((start, weekIndex) =>
+    Array.from({ length: 7 }, (_, dayIndex) => {
+      const date = new Date(start);
+      date.setDate(start.getDate() + dayIndex);
+      return {
+        date,
+        key: getDateKey(date),
+        label: date
+          .toLocaleDateString(undefined, { weekday: "short" })
+          .slice(0, 2),
+        weekLabel: weekIndex === 0 ? "Last week" : "This week",
+      };
+    }),
+  );
+}
+
+// Per-user deterministic color (matches calendar)
+const USER_COLORS = [
+  "#f97316",
+  "#3b82f6",
+  "#10b981",
+  "#8b5cf6",
+  "#f59e0b",
+  "#ec4899",
+  "#06b6d4",
+  "#84cc16",
+];
+function getUserAccent(userId: string) {
+  let hash = 0;
+  for (let i = 0; i < userId.length; i++) {
+    hash = userId.charCodeAt(i) + ((hash << 5) - hash);
   }
+  return USER_COLORS[Math.abs(hash) % USER_COLORS.length];
 }
 
-function formatDateOnly(value?: string | null) {
-  if (!value) return "—";
-  try {
-    return new Date(value).toLocaleDateString();
-  } catch {
-    return value;
-  }
+// ── Sub-components ─────────────────────────────────────────
+
+function StatPill({
+  label,
+  value,
+  accent,
+}: {
+  label: string;
+  value: string;
+  accent?: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-white/8 bg-black/60 p-4">
+      <p className="text-xs text-white/40">{label}</p>
+      <p
+        className="mt-1.5 text-2xl font-bold"
+        style={{ color: accent ?? "white" }}
+      >
+        {value}
+      </p>
+    </div>
+  );
 }
 
-type GroupMode = "user" | "project" | "day";
+function BoardBar({
+  name,
+  seconds,
+  totalSeconds,
+  dailyHours,
+  calendarDays,
+  accent,
+}: {
+  name: string;
+  seconds: number;
+  totalSeconds: number;
+  dailyHours: Record<string, number>;
+  calendarDays: CalendarDay[];
+  accent: string;
+}) {
+  const pct = totalSeconds ? Math.round((seconds / totalSeconds) * 100) : 0;
+  const thisWeek = calendarDays.slice(7);
+
+  return (
+    <div className="rounded-2xl border border-white/8 bg-black/50 p-4 transition hover:border-white/15">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <div
+            className="mt-0.5 h-2.5 w-2.5 shrink-0 rounded-full"
+            style={{ backgroundColor: accent }}
+          />
+          <span className="font-semibold text-white leading-tight">{name}</span>
+        </div>
+        <div className="text-right shrink-0">
+          <span className="text-sm font-mono font-semibold text-white/80">
+            {formatDuration(seconds)}
+          </span>
+          <span className="ml-1 text-xs text-white/35">({pct}%)</span>
+        </div>
+      </div>
+
+      <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/8">
+        <div
+          className="h-full rounded-full transition-all duration-500"
+          style={{
+            width: `${Math.min(pct, 100)}%`,
+            backgroundColor: accent,
+            boxShadow: `0 0 8px ${accent}60`,
+          }}
+        />
+      </div>
+
+      {/* This-week daily mini chart */}
+      <div className="mt-3 grid grid-cols-7 gap-1">
+        {thisWeek.map((day) => {
+          const h = dailyHours[day.key] ?? 0;
+          const barH = Math.min(Math.round((h / 10) * 24), 24);
+          return (
+            <div
+              key={day.key}
+              className="flex flex-col items-center gap-1"
+              title={`${day.label}: ${formatHours(h)}`}
+            >
+              <div className="flex h-6 w-full items-end justify-center">
+                <div
+                  className="w-full max-w-2.5 rounded-sm transition-all duration-300"
+                  style={{
+                    height: h > 0 ? `${barH}px` : "2px",
+                    backgroundColor: h > 0 ? accent : "rgba(255,255,255,0.08)",
+                    opacity: h > 0 ? 0.85 : 1,
+                  }}
+                />
+              </div>
+              <span className="text-[9px] text-white/25 uppercase">
+                {day.label}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function TaskRow({
+  rank,
+  name,
+  seconds,
+  accent,
+}: {
+  rank: number;
+  name: string;
+  seconds: number;
+  accent: string;
+}) {
+  return (
+    <div className="flex items-center gap-3 rounded-xl border border-white/6 bg-black/40 px-3 py-2.5 transition hover:border-white/12">
+      <span
+        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg text-[10px] font-bold"
+        style={{ backgroundColor: `${accent}20`, color: accent }}
+      >
+        {rank}
+      </span>
+      <span className="flex-1 truncate text-sm text-white/80">{name}</span>
+      <span className="shrink-0 font-mono text-sm font-semibold text-white/60">
+        {formatDuration(seconds)}
+      </span>
+    </div>
+  );
+}
+
+// ── Main Page ──────────────────────────────────────────────
 
 export default function TeamTimesheetsPage() {
   const auth = useAuth();
   const profile = auth?.profile ?? null;
 
-  const [entries, setEntries] = useState<AdminTimeEntryRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<"grid" | "calendar">("grid");
 
-  const [approvalStatus, setApprovalStatus] = useState<
-    TimeApprovalStatus | "all"
-  >("all");
-  const [isBillable, setIsBillable] = useState<boolean | "all">("all");
-  const [groupMode, setGroupMode] = useState<GroupMode>("user");
+  const { entries, loading, error } = useTeamTimesheetsRealtime({
+    organizationId: profile?.organization_id ?? "",
+  });
 
-  const organizationId = profile?.organization_id ?? null;
+  const calendarDays = useMemo(() => buildTwoWeekDays(), []);
+  const calendarKeys = useMemo(
+    () => calendarDays.map((d) => d.key),
+    [calendarDays],
+  );
+  const calendarKeySet = useMemo(() => new Set(calendarKeys), [calendarKeys]);
 
-  useEffect(() => {
-    const load = async () => {
-      if (!organizationId) return;
+  // ── Build per-user summaries ───────────────────────────
 
-      try {
-        setLoading(true);
-        setError("");
-
-        const rows = await getAdminTimeEntries({
-          organizationId,
-          approvalStatus,
-          isBillable,
-          limit: 500,
-        });
-
-        setEntries(rows);
-      } catch (err) {
-        setError(
-          err instanceof Error
-            ? err.message
-            : "Failed to load team timesheets.",
-        );
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    void load();
-  }, [organizationId, approvalStatus, isBillable]);
-
-  const grouped = useMemo(() => {
-    const map = new Map<
-      string,
-      {
-        label: string;
-        secondary?: string;
-        entries: AdminTimeEntryRow[];
-        totalSeconds: number;
-        totalCost: number;
-        billableSeconds: number;
-      }
-    >();
+  const users = useMemo(() => {
+    const map = new Map<string, UserSummary>();
 
     for (const entry of entries) {
-      let key = "";
-      let label = "";
-      let secondary = "";
-
-      if (groupMode === "user") {
-        key = entry.user_id;
-        label = entry.user_name || "Unknown member";
-        secondary = entry.user_email || "";
-      } else if (groupMode === "project") {
-        key = entry.project_id || "no-project";
-        label = entry.project_name || "No project";
-        secondary = entry.client_name || "";
-      } else {
-        key = entry.started_at?.slice(0, 10) || "unknown-day";
-        label = formatDateOnly(entry.started_at);
-        secondary = "Tracked day";
-      }
-
-      const current = map.get(key) ?? {
-        label,
-        secondary,
-        entries: [],
+      const userId = entry.user_id;
+      const current = map.get(userId) ?? {
+        id: userId,
+        name: entry.user_name || entry.full_name || "Unknown",
+        email: entry.user_email || null,
         totalSeconds: 0,
-        totalCost: 0,
-        billableSeconds: 0,
+        running: false,
+        recentBoard: entry.board_name || null,
+        lastEntryAt: entry.started_at || "1970-01-01T00:00:00.000Z",
+        activeTimers: 0,
+        boardTotals: {},
+        taskTotals: {},
+        dailyHours: Object.fromEntries(calendarKeys.map((k) => [k, 0])),
       };
 
-      current.entries.push(entry);
-      current.totalSeconds += Number(entry.duration_seconds ?? 0);
-      current.totalCost += Number(entry.cost_amount ?? 0);
+      const dur = Number(entry.duration_seconds ?? 0);
+      current.totalSeconds += dur;
+      if (entry.is_running) current.activeTimers += 1;
+      if (entry.started_at > current.lastEntryAt) {
+        current.lastEntryAt = entry.started_at;
+        current.recentBoard = entry.board_name || current.recentBoard;
+      }
+      current.running = current.running || entry.is_running;
 
-      if (entry.is_billable) {
-        current.billableSeconds += Number(entry.duration_seconds ?? 0);
+      if (entry.board_name) {
+        current.boardTotals[entry.board_name] =
+          (current.boardTotals[entry.board_name] || 0) + dur;
       }
 
-      map.set(key, current);
+      const taskKey = entry.task_title || entry.description || "Untitled work";
+      current.taskTotals[taskKey] = (current.taskTotals[taskKey] || 0) + dur;
+
+      const dayKey = entry.started_at?.slice(0, 10);
+      if (dayKey && calendarKeySet.has(dayKey)) {
+        current.dailyHours[dayKey] += dur / 3600;
+      }
+
+      map.set(userId, current);
     }
 
-    return Array.from(map.values()).sort(
-      (a, b) => b.totalSeconds - a.totalSeconds,
+    return Array.from(map.values()).sort((a, b) => {
+      if (b.activeTimers !== a.activeTimers)
+        return b.activeTimers - a.activeTimers;
+      return b.totalSeconds - a.totalSeconds;
+    });
+  }, [entries, calendarKeySet, calendarKeys]);
+
+  const selectedUser = useMemo(
+    () => users.find((u) => u.id === selectedUserId) ?? null,
+    [users, selectedUserId],
+  );
+
+  const selectedUserEntries = useMemo(
+    () =>
+      selectedUserId ? entries.filter((e) => e.user_id === selectedUserId) : [],
+    [entries, selectedUserId],
+  );
+
+  // Board details for selected user (with daily breakdown)
+  const selectedUserBoardDetails = useMemo(() => {
+    const map = new Map<
+      string,
+      { seconds: number; dailyHours: Record<string, number> }
+    >();
+
+    for (const entry of selectedUserEntries) {
+      const board = entry.board_name;
+      if (!board) continue;
+      const cur = map.get(board) ?? { seconds: 0, dailyHours: {} };
+      const dur = Number(entry.duration_seconds ?? 0);
+      cur.seconds += dur;
+      const dayKey = entry.started_at?.slice(0, 10);
+      if (dayKey) {
+        cur.dailyHours[dayKey] = (cur.dailyHours[dayKey] || 0) + dur / 3600;
+      }
+      map.set(board, cur);
+    }
+
+    return Array.from(map.entries())
+      .map(([board, val]) => ({
+        board,
+        seconds: val.seconds,
+        dailyHours: val.dailyHours,
+      }))
+      .sort((a, b) => b.seconds - a.seconds);
+  }, [selectedUserEntries]);
+
+  // Task details for selected user (card-level)
+  const selectedUserTaskDetails = useMemo(() => {
+    const map = new Map<
+      string,
+      { seconds: number; board: string | null; isRunning: boolean }
+    >();
+
+    for (const entry of selectedUserEntries) {
+      const key = entry.task_title || entry.description || "Untitled work";
+      const cur = map.get(key) ?? {
+        seconds: 0,
+        board: entry.board_name || null,
+        isRunning: false,
+      };
+      cur.seconds += Number(entry.duration_seconds ?? 0);
+      cur.isRunning = cur.isRunning || entry.is_running;
+      map.set(key, cur);
+    }
+
+    return Array.from(map.entries())
+      .map(([task, val]) => ({ task, ...val }))
+      .sort((a, b) => b.seconds - a.seconds)
+      .slice(0, 10);
+  }, [selectedUserEntries]);
+
+  const selectedUserPeriodSeconds = useMemo(() => {
+    if (!selectedUser) return 0;
+    return (
+      Object.values(selectedUser.dailyHours).reduce((sum, h) => sum + h, 0) *
+      3600
     );
-  }, [entries, groupMode]);
+  }, [selectedUser]);
 
-  const totalTrackedSeconds = useMemo(() => {
-    return entries.reduce(
-      (sum, entry) => sum + Number(entry.duration_seconds ?? 0),
-      0,
-    );
-  }, [entries]);
+  const calendarTotals = useMemo(
+    () =>
+      calendarDays.map((day) =>
+        users.reduce((sum, u) => sum + (u.dailyHours[day.key] ?? 0), 0),
+      ),
+    [users, calendarDays],
+  );
 
-  const totalBillableSeconds = useMemo(() => {
-    return entries.reduce((sum, entry) => {
-      return entry.is_billable
-        ? sum + Number(entry.duration_seconds ?? 0)
-        : sum;
-    }, 0);
-  }, [entries]);
+  const totalTeamSeconds = useMemo(
+    () => entries.reduce((sum, e) => sum + Number(e.duration_seconds ?? 0), 0),
+    [entries],
+  );
 
-  const totalCost = useMemo(() => {
-    return entries.reduce((sum, entry) => {
-      return sum + Number(entry.cost_amount ?? 0);
-    }, 0);
-  }, [entries]);
+  const activeUsers = useMemo(
+    () => users.filter((u) => u.running).length,
+    [users],
+  );
+
+  // Handle calendar event click — select the user
+  const handleCalendarEvent = (event: EverhourCalendarEvent) => {
+    setSelectedUserId(event.resource.userId);
+  };
 
   if (!auth?.user || !profile) return null;
 
@@ -178,254 +419,549 @@ export default function TeamTimesheetsPage() {
         <Sidebar role={profile.primary_role ?? "manager"} />
 
         <main className="min-w-0 flex-1 p-6 lg:p-8">
+          {/* ── Page header ── */}
           <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
             <div>
-              <p className="text-xs uppercase tracking-[0.3em] text-orange-500">
-                Everhour Workspace
+              <p className="text-xs uppercase tracking-[0.35em] text-orange-500">
+                Team timesheet
               </p>
-              <h1 className="mt-2 text-3xl font-bold">Team Timesheets</h1>
-              <p className="mt-2 text-sm text-white/50">
-                Review tracked time by team member, project, or day across the
-                organization.
+              <h1 className="mt-3 text-3xl font-semibold text-white">
+                Team Timesheets
+              </h1>
+              <p className="mt-2 text-sm leading-6 text-white/50">
+                Two-week team hours at a glance. Click any user or calendar
+                event to inspect their breakdown.
               </p>
             </div>
 
-            <div className="border border-white/10 bg-[#050505] px-4 py-3 text-sm text-white/65">
-              {entries.length} visible entries
+            {/* View toggle */}
+            <div className="flex gap-1.5 rounded-2xl border border-white/10 bg-white/5 p-1">
+              <button
+                type="button"
+                onClick={() => setActiveTab("grid")}
+                className={`flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium transition ${
+                  activeTab === "grid"
+                    ? "bg-orange-500 text-white shadow"
+                    : "text-white/50 hover:text-white"
+                }`}
+              >
+                <BarChart3 size={13} />
+                Grid
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab("calendar")}
+                className={`flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium transition ${
+                  activeTab === "calendar"
+                    ? "bg-orange-500 text-white shadow"
+                    : "text-white/50 hover:text-white"
+                }`}
+              >
+                <CalendarDays size={13} />
+                Calendar
+              </button>
             </div>
           </div>
 
-          {error ? (
-            <div className="mb-6 border border-red-500/20 bg-red-500/10 p-4 text-red-300">
+          {error && (
+            <div className="mb-6 rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-200">
               {error}
             </div>
-          ) : null}
+          )}
 
-          <div className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <div className="border border-white/10 bg-[#050505] p-5">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm text-white/45">Tracked Time</p>
-                  <p className="mt-3 text-2xl font-bold text-white">
-                    {formatDuration(totalTrackedSeconds)}
-                  </p>
+          <div className="grid gap-4 xl:grid-cols-[300px_minmax(0,1fr)]">
+            {/* ── Left: roster + team stats ── */}
+            <aside className="space-y-4">
+              {/* Roster */}
+              <div className="rounded-3xl border border-white/10 bg-[#080808] p-5">
+                <div className="mb-4 flex items-center justify-between">
+                  <div>
+                    <p className="text-[10px] uppercase tracking-[0.35em] text-orange-400/70">
+                      Roster
+                    </p>
+                    <h2 className="mt-1 text-base font-semibold text-white">
+                      Everyone
+                    </h2>
+                  </div>
+                  <Filter size={16} className="text-white/30" />
                 </div>
-                <div className="border border-orange-500/20 bg-orange-500/10 p-3 text-orange-400">
-                  <Clock3 size={18} />
-                </div>
-              </div>
-            </div>
 
-            <div className="border border-white/10 bg-[#050505] p-5">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm text-white/45">Billable Time</p>
-                  <p className="mt-3 text-2xl font-bold text-white">
-                    {formatDuration(totalBillableSeconds)}
-                  </p>
-                </div>
-                <div className="border border-orange-500/20 bg-orange-500/10 p-3 text-orange-400">
-                  <Briefcase size={18} />
-                </div>
-              </div>
-            </div>
-
-            <div className="border border-white/10 bg-[#050505] p-5">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm text-white/45">Team Groups</p>
-                  <p className="mt-3 text-2xl font-bold text-white">
-                    {grouped.length}
-                  </p>
-                </div>
-                <div className="border border-orange-500/20 bg-orange-500/10 p-3 text-orange-400">
-                  <Users size={18} />
-                </div>
-              </div>
-            </div>
-
-            <div className="border border-white/10 bg-[#050505] p-5">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm text-white/45">Cost Snapshot</p>
-                  <p className="mt-3 text-2xl font-bold text-white">
-                    {formatMoney(totalCost)}
-                  </p>
-                </div>
-                <div className="border border-orange-500/20 bg-orange-500/10 p-3 text-orange-400">
-                  <DollarSign size={18} />
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="mb-6 border border-white/10 bg-[#050505] p-4">
-            <div className="mb-4 flex items-center gap-2 text-sm text-white/60">
-              <Filter size={14} className="text-orange-400" />
-              <span>Filter and group team timesheets</span>
-            </div>
-
-            <div className="flex flex-wrap gap-3">
-              <select
-                value={approvalStatus}
-                onChange={(event) =>
-                  setApprovalStatus(
-                    event.target.value as TimeApprovalStatus | "all",
-                  )
-                }
-                className="border border-white/10 bg-black px-4 py-3 text-white outline-none"
-              >
-                <option value="all">All statuses</option>
-                <option value="pending">Pending</option>
-                <option value="approved">Approved</option>
-                <option value="rejected">Rejected</option>
-              </select>
-
-              <select
-                value={String(isBillable)}
-                onChange={(event) => {
-                  const value = event.target.value;
-                  if (value === "all") {
-                    setIsBillable("all");
-                  } else {
-                    setIsBillable(value === "true");
-                  }
-                }}
-                className="border border-white/10 bg-black px-4 py-3 text-white outline-none"
-              >
-                <option value="all">All billing</option>
-                <option value="true">Billable</option>
-                <option value="false">Non-billable</option>
-              </select>
-
-              <select
-                value={groupMode}
-                onChange={(event) =>
-                  setGroupMode(event.target.value as GroupMode)
-                }
-                className="border border-white/10 bg-black px-4 py-3 text-white outline-none"
-              >
-                <option value="user">Group by user</option>
-                <option value="project">Group by project</option>
-                <option value="day">Group by day</option>
-              </select>
-            </div>
-          </div>
-
-          {loading ? (
-            <div className="border border-white/10 bg-[#050505] p-6 text-white/60">
-              Loading team timesheets...
-            </div>
-          ) : grouped.length === 0 ? (
-            <div className="border border-white/10 bg-[#050505] p-6 text-white/60">
-              No timesheet entries found for this filter.
-            </div>
-          ) : (
-            <div className="space-y-6">
-              {grouped.map((group, index) => (
-                <section
-                  key={`${group.label}-${index}`}
-                  className="border border-white/10 bg-[#050505] p-5"
-                >
-                  <div className="mb-5 flex flex-wrap items-start justify-between gap-4 border-b border-white/10 pb-4">
-                    <div>
-                      <h2 className="text-lg font-semibold text-white">
-                        {group.label}
-                      </h2>
-                      {group.secondary ? (
-                        <p className="mt-1 text-sm text-white/45">
-                          {group.secondary}
-                        </p>
-                      ) : null}
+                <div className="space-y-1.5">
+                  {loading && (
+                    <div className="rounded-2xl border border-white/8 bg-black/50 p-4 text-sm text-white/40">
+                      Loading...
                     </div>
+                  )}
+                  {!loading && users.length === 0 && (
+                    <div className="rounded-2xl border border-white/8 bg-black/50 p-4 text-sm text-white/40">
+                      No time entries found.
+                    </div>
+                  )}
+                  {users.map((u) => {
+                    const active = selectedUserId === u.id;
+                    const accent = getUserAccent(u.id);
+                    const periodH = Object.values(u.dailyHours).reduce(
+                      (s, h) => s + h,
+                      0,
+                    );
 
-                    <div className="flex flex-wrap gap-3 text-xs">
-                      <div className="border border-white/10 bg-black px-3 py-2 text-white/65">
-                        Total: {formatDuration(group.totalSeconds)}
+                    return (
+                      <button
+                        key={u.id}
+                        type="button"
+                        onClick={() => setSelectedUserId(active ? null : u.id)}
+                        className={`group flex w-full items-center gap-3 rounded-2xl border px-3.5 py-3 text-left transition-all ${
+                          active
+                            ? "border-orange-400/30 bg-orange-500/8"
+                            : "border-white/8 bg-black/40 hover:border-white/15 hover:bg-white/3"
+                        }`}
+                      >
+                        {/* Color dot */}
+                        <div
+                          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-xs font-bold text-white"
+                          style={{
+                            backgroundColor: `${accent}25`,
+                            color: accent,
+                          }}
+                        >
+                          {u.name.charAt(0).toUpperCase()}
+                        </div>
+
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-semibold text-white">
+                            {u.name}
+                          </p>
+                          <p className="mt-0.5 truncate text-xs text-white/35">
+                            {u.recentBoard || "No board"}
+                          </p>
+                        </div>
+
+                        <div className="flex flex-col items-end gap-1 shrink-0">
+                          <span
+                            className="text-xs font-mono font-semibold"
+                            style={{ color: accent }}
+                          >
+                            {formatHours(periodH)}
+                          </span>
+                          {u.running && (
+                            <span className="flex items-center gap-1 text-[10px] text-green-400">
+                              <CircleDot size={9} className="animate-pulse" />
+                              live
+                            </span>
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+        
+              <div className="rounded-3xl border border-white/10 bg-[#080808] p-5">
+                <p className="text-[10px] uppercase tracking-[0.35em] text-orange-400/70">
+                  Summary
+                </p>
+                <h2 className="mt-1 mb-4 text-base font-semibold text-white">
+                  Team totals
+                </h2>
+                <div className="space-y-2">
+                  <StatPill
+                    label="Total tracked (2 weeks)"
+                    value={formatDuration(totalTeamSeconds)}
+                  />
+                  <StatPill
+                    label="Active right now"
+                    value={String(activeUsers)}
+                    accent="#4ade80"
+                  />
+                  <StatPill
+                    label="Team members"
+                    value={String(users.length)}
+                    accent="#f97316"
+                  />
+                </div>
+              </div>
+
+              {/* Active Timers Section */}
+              <div className="rounded-3xl border border-white/10 bg-[#080808] p-5">
+                <div className="mb-4 flex items-center gap-2">
+                  <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-green-500/20">
+                    <CircleDot size={12} className="text-green-400 animate-pulse" />
+                  </div>
+                  <p className="text-[10px] uppercase tracking-[0.35em] text-green-400/70">
+                    Active now
+                  </p>
+                  <span className="ml-auto rounded-full bg-green-500/10 px-2 py-0.5 text-[10px] text-green-400">
+                    {activeUsers}
+                  </span>
+                </div>
+                <div className="space-y-2">
+                  {users.filter(u => u.running).length === 0 ? (
+                    <div className="rounded-2xl border border-white/8 bg-black/40 p-4 text-center text-sm text-white/35">
+                      No active timers
+                    </div>
+                  ) : (
+                    users.filter(u => u.running).map(u => (
+                      <div key={u.id} className="flex items-center gap-3 rounded-xl border border-green-500/20 bg-green-500/5 p-3">
+                        <div
+                          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-xs font-bold text-white"
+                          style={{
+                            backgroundColor: `${getUserAccent(u.id)}25`,
+                            color: getUserAccent(u.id),
+                          }}
+                        >
+                          {u.name.charAt(0).toUpperCase()}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-semibold text-white">
+                            {u.name}
+                          </p>
+                          <p className="truncate text-xs text-white/40">
+                            {u.recentBoard || "No board"}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className="flex items-center gap-1 text-[10px] text-green-400">
+                            <CircleDot size={8} className="animate-pulse" />
+                            tracking
+                          </span>
+                        </div>
                       </div>
-                      <div className="border border-orange-500/20 bg-orange-500/10 px-3 py-2 text-orange-300">
-                        Billable: {formatDuration(group.billableSeconds)}
-                      </div>
-                      <div className="border border-white/10 bg-black px-3 py-2 text-white/65">
-                        Cost: {formatMoney(group.totalCost)}
-                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </aside>
+
+            <section className="space-y-4">
+
+              {activeTab === "grid" && (
+                <div className="rounded-3xl border border-white/10 bg-[#080808] p-5">
+                  <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-[10px] uppercase tracking-[0.35em] text-orange-400/70">
+                        Team calendar
+                      </p>
+                      <h2 className="mt-1 text-base font-semibold text-white">
+                        Two-week view
+                      </h2>
                     </div>
                   </div>
 
                   <div className="overflow-x-auto">
-                    <table className="min-w-full border-collapse text-sm">
-                      <thead>
-                        <tr className="border-b border-white/10 bg-black/40 text-left text-white/45">
-                          <th className="px-4 py-3">Description</th>
-                          <th className="px-4 py-3">Task</th>
-                          <th className="px-4 py-3">Project</th>
-                          <th className="px-4 py-3">Started</th>
-                          <th className="px-4 py-3">Duration</th>
-                          <th className="px-4 py-3">Billing</th>
-                          <th className="px-4 py-3">Cost</th>
-                          <th className="px-4 py-3">Status</th>
-                        </tr>
-                      </thead>
+                    <div className="min-w-175 rounded-2xl border border-white/8 bg-black/60 overflow-hidden">
+                      <div className="grid grid-cols-[180px_repeat(14,minmax(40px,1fr))] border-b border-white/8">
+                        <div />
+                        <div className="col-span-7 border-l border-white/8 px-2 py-2 text-[10px] uppercase tracking-widest text-white/30">
+                          Last week
+                        </div>
+                        <div className="col-span-7 border-l border-white/8 px-2 py-2 text-[10px] uppercase tracking-widest text-white/30">
+                          This week
+                        </div>
+                      </div>
 
-                      <tbody>
-                        {group.entries.map((entry) => (
-                          <tr
-                            key={entry.id}
-                            className="border-b border-white/5 transition hover:bg-white/3"
+                      {/* Day headers */}
+                      <div className="grid grid-cols-[180px_repeat(14,minmax(40px,1fr))] border-b border-white/8">
+                        <div className="px-3 py-2 text-[10px] uppercase tracking-widest text-white/25">
+                          Member
+                        </div>
+                        {calendarDays.map((day) => (
+                          <div
+                            key={day.key}
+                            className="border-l border-white/6 px-1 py-2 text-center text-[10px] uppercase tracking-wide text-white/30"
                           >
-                            <td className="px-4 py-4 text-white">
-                              {entry.description || "No description"}
-                            </td>
-                            <td className="px-4 py-4 text-white/70">
-                              {entry.task_title || "—"}
-                            </td>
-                            <td className="px-4 py-4 text-white/70">
-                              {entry.project_name || "—"}
-                            </td>
-                            <td className="px-4 py-4 text-white/70">
-                              {formatDateTime(entry.started_at)}
-                            </td>
-                            <td className="px-4 py-4 text-white">
-                              {formatDuration(entry.duration_seconds ?? 0)}
-                            </td>
-                            <td className="px-4 py-4">
-                              <span
-                                className={`inline-flex px-3 py-2 text-xs ${
-                                  entry.is_billable
-                                    ? "border border-orange-500/20 bg-orange-500/10 text-orange-300"
-                                    : "border border-white/10 bg-white/5 text-white/60"
-                                }`}
-                              >
-                                {entry.is_billable
-                                  ? "Billable"
-                                  : "Non-billable"}
-                              </span>
-                            </td>
-                            <td className="px-4 py-4 text-white/70">
-                              {formatMoney(entry.cost_amount ?? 0)}
-                            </td>
-                            <td className="px-4 py-4">
-                              <span
-                                className={`inline-flex px-3 py-2 text-xs ${
-                                  entry.approval_status === "approved"
-                                    ? "border border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
-                                    : entry.approval_status === "rejected"
-                                      ? "border border-red-500/20 bg-red-500/10 text-red-300"
-                                      : "border border-orange-500/20 bg-orange-500/10 text-orange-300"
-                                }`}
-                              >
-                                {entry.approval_status}
-                              </span>
-                            </td>
-                          </tr>
+                            {day.label}
+                          </div>
                         ))}
-                      </tbody>
-                    </table>
+                      </div>
+
+                      {/* User rows */}
+                      {users.map((u) => {
+                        const accent = getUserAccent(u.id);
+                        const isActive = selectedUserId === u.id;
+                        return (
+                          <button
+                            key={u.id}
+                            type="button"
+                            onClick={() =>
+                              setSelectedUserId(isActive ? null : u.id)
+                            }
+                            className={`grid w-full cursor-pointer grid-cols-[180px_repeat(14,minmax(40px,1fr))] border-t border-white/6 text-left transition-all ${
+                              isActive ? "bg-orange-500/6" : "hover:bg-white/3"
+                            }`}
+                          >
+                            <div className="flex items-center gap-2 border-r border-white/6 px-3 py-2.5">
+                              <div
+                                className="h-2 w-2 shrink-0 rounded-full"
+                                style={{ backgroundColor: accent }}
+                              />
+                              <span className="truncate text-sm font-medium text-white/80">
+                                {u.name.split(" ")[0]}
+                              </span>
+                              {u.running && (
+                                <CircleDot
+                                  size={10}
+                                  className="shrink-0 animate-pulse text-green-400"
+                                />
+                              )}
+                            </div>
+                            {calendarDays.map((day) => {
+                              const h = u.dailyHours[day.key] ?? 0;
+                              const intensity =
+                                h > 8 ? 0.3 : h > 5 ? 0.18 : h > 2 ? 0.1 : 0;
+                              return (
+                                <div
+                                  key={`${u.id}-${day.key}`}
+                                  className="border-l border-white/5 px-1 py-2.5 text-center font-mono text-xs transition"
+                                  style={{
+                                    backgroundColor:
+                                      h > 0
+                                        ? `${accent}${Math.round(
+                                            intensity * 255,
+                                          )
+                                            .toString(16)
+                                            .padStart(2, "0")}`
+                                        : "transparent",
+                                    color:
+                                      h > 0 ? accent : "rgba(255,255,255,0.18)",
+                                    fontWeight: h > 0 ? 600 : 400,
+                                  }}
+                                >
+                                  {h > 0 ? `${h.toFixed(1)}` : "—"}
+                                </div>
+                              );
+                            })}
+                          </button>
+                        );
+                      })}
+
+                      {/* Totals row */}
+                      <div className="grid grid-cols-[180px_repeat(14,minmax(40px,1fr))] border-t border-white/10 bg-black/40">
+                        <div className="px-3 py-2.5 text-[10px] font-semibold uppercase tracking-widest text-white/40">
+                          Total
+                        </div>
+                        {calendarDays.map((day, i) => (
+                          <div
+                            key={`total-${day.key}`}
+                            className="border-l border-white/6 px-1 py-2.5 text-center font-mono text-xs text-orange-400/70"
+                          >
+                            {calendarTotals[i] > 0
+                              ? `${calendarTotals[i].toFixed(1)}`
+                              : "—"}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
                   </div>
-                </section>
-              ))}
-            </div>
-          )}
+                </div>
+              )}
+
+              {/* Calendar view */}
+              {activeTab === "calendar" && (
+                <div className="rounded-3xl border border-white/10 bg-[#080808] p-5">
+                  <div className="mb-5">
+                    <p className="text-[10px] uppercase tracking-[0.35em] text-orange-400/70">
+                      Monthly calendar
+                    </p>
+                    <h2 className="mt-1 text-base font-semibold text-white">
+                      Time entries by user
+                    </h2>
+                    <p className="mt-1 text-xs text-white/35">
+                      Each event shows a team member and their hours for that
+                      day. Click to select.
+                    </p>
+                  </div>
+                  <EverhourCalendar
+                    entries={entries}
+                    selectedUserId={selectedUserId}
+                    onSelectEvent={handleCalendarEvent}
+                    onSelectUser={setSelectedUserId}
+                  />
+                </div>
+              )}
+
+              {/* ── Detail panel ── */}
+              {selectedUser ? (
+                <div className="rounded-3xl border border-white/10 bg-[#080808] p-5">
+                  {/* User header */}
+                  <div className="mb-5 flex items-start justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                      <div
+                        className="flex h-11 w-11 items-center justify-center rounded-2xl text-lg font-bold text-white"
+                        style={{
+                          backgroundColor: `${getUserAccent(selectedUser.id)}20`,
+                          color: getUserAccent(selectedUser.id),
+                        }}
+                      >
+                        {selectedUser.name.charAt(0)}
+                      </div>
+                      <div>
+                        <h2 className="text-xl font-bold text-white">
+                          {selectedUser.name}
+                        </h2>
+                        <p className="text-xs text-white/40">
+                          {selectedUser.email ??
+                            selectedUser.recentBoard ??
+                            "No board"}
+                        </p>
+                      </div>
+                      {selectedUser.running && (
+                        <span className="flex items-center gap-1.5 rounded-full border border-green-500/20 bg-green-500/10 px-2.5 py-1 text-xs font-medium text-green-400">
+                          <CircleDot size={10} className="animate-pulse" />
+                          Tracking now
+                        </span>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedUserId(null)}
+                      className="rounded-xl border border-white/10 bg-white/5 p-1.5 text-white/40 transition hover:bg-white/10 hover:text-white"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+
+                  {/* Stats row */}
+                  <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                    <StatPill
+                      label="14-day total"
+                      value={formatDuration(selectedUserPeriodSeconds)}
+                    />
+                    <StatPill
+                      label="Active timers"
+                      value={String(selectedUser.activeTimers)}
+                      accent={selectedUser.running ? "#4ade80" : undefined}
+                    />
+                    <StatPill
+                      label="Avg daily"
+                      value={formatHours(selectedUserPeriodSeconds / 14 / 3600)}
+                      accent={getUserAccent(selectedUser.id)}
+                    />
+                    <StatPill
+                      label="Boards"
+                      value={String(selectedUserBoardDetails.length)}
+                    />
+                  </div>
+
+                  {/* Boards + Tasks two-column */}
+                  <div className="grid gap-5 lg:grid-cols-2">
+                    {/* Boards */}
+                    <div>
+                      <div className="mb-3 flex items-center gap-2">
+                        <Layers size={14} className="text-orange-400" />
+                        <h3 className="text-sm font-semibold text-white">
+                          Boards
+                        </h3>
+                        <span className="ml-auto rounded-full bg-white/8 px-2 py-0.5 text-[10px] text-white/40">
+                          {selectedUserBoardDetails.length}
+                        </span>
+                      </div>
+
+                      <div className="space-y-2.5">
+                        {selectedUserBoardDetails.length === 0 ? (
+                          <div className="rounded-2xl border border-white/8 bg-black/40 p-4 text-center text-sm text-white/35">
+                            No board data
+                          </div>
+                        ) : (
+                          selectedUserBoardDetails.map((b) => (
+                            <BoardBar
+                              key={b.board}
+                              name={b.board}
+                              seconds={b.seconds}
+                              totalSeconds={selectedUserPeriodSeconds}
+                              dailyHours={b.dailyHours}
+                              calendarDays={calendarDays}
+                              accent={getUserAccent(selectedUser.id)}
+                            />
+                          ))
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Tasks / Cards */}
+                    <div>
+                      <div className="mb-3 flex items-center gap-2">
+                        <ListTodo size={14} className="text-orange-400" />
+                        <h3 className="text-sm font-semibold text-white">
+                          Tasks &amp; cards
+                        </h3>
+                        <span className="ml-auto rounded-full bg-white/8 px-2 py-0.5 text-[10px] text-white/40">
+                          top {Math.min(selectedUserTaskDetails.length, 10)}
+                        </span>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        {selectedUserTaskDetails.length === 0 ? (
+                          <div className="rounded-2xl border border-white/8 bg-black/40 p-4 text-center text-sm text-white/35">
+                            No task data
+                          </div>
+                        ) : (
+                          selectedUserTaskDetails.map((t, i) => (
+                            <div
+                              key={t.task}
+                              className={`flex items-center gap-3 rounded-xl border px-3 py-2.5 transition ${
+                                t.isRunning
+                                  ? "border-green-500/20 bg-green-500/5"
+                                  : "border-white/6 bg-black/40 hover:border-white/12"
+                              }`}
+                            >
+                              <span
+                                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg text-[10px] font-bold"
+                                style={{
+                                  backgroundColor: `${getUserAccent(selectedUser.id)}20`,
+                                  color: getUserAccent(selectedUser.id),
+                                }}
+                              >
+                                {i + 1}
+                              </span>
+
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-sm text-white/80">
+                                  {t.task}
+                                </p>
+                                {t.board && (
+                                  <p className="mt-0.5 truncate text-[10px] text-white/30">
+                                    {t.board}
+                                  </p>
+                                )}
+                              </div>
+
+                              <div className="flex items-center gap-2 shrink-0">
+                                {t.isRunning && (
+                                  <span className="flex items-center gap-1 text-[10px] text-green-400">
+                                    <CircleDot
+                                      size={9}
+                                      className="animate-pulse"
+                                    />
+                                    live
+                                  </span>
+                                )}
+                                <span className="font-mono text-xs font-semibold text-white/60">
+                                  {formatDuration(t.seconds)}
+                                </span>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex h-48 items-center justify-center rounded-3xl border-2 border-dashed border-white/8 bg-black/30">
+                  <div className="text-center">
+                    <TrendingUp
+                      size={28}
+                      className="mx-auto mb-3 text-white/15"
+                    />
+                    <p className="text-sm text-white/30">
+                      Select a team member to see their full breakdown
+                    </p>
+                  </div>
+                </div>
+              )}
+            </section>
+          </div>
         </main>
       </div>
     </div>

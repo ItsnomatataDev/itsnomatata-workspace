@@ -9,6 +9,7 @@ import {
 import type {
   TaskAssigneeItem,
   TaskItem,
+  TaskWatcherItem,
 } from "../../../lib/supabase/queries/tasks";
 
 function formatDueDate(value?: string | null) {
@@ -46,6 +47,7 @@ type TrelloTaskCard = TaskItem & {
   tracked_seconds_cache?: number | null;
   is_billable?: boolean;
   assignees?: TaskAssigneeItem[];
+  watchers?: TaskWatcherItem[];
   comments_count?: number;
 };
 
@@ -55,12 +57,14 @@ export default function TaskCard({
   onOpen,
   hasRunningTimer,
   invitedCount,
+  watchers,
 }: {
   task: TrelloTaskCard;
   onTrack: (taskId: string, title: string) => void;
   onOpen: (taskId: string) => void;
   hasRunningTimer?: boolean;
   invitedCount?: number;
+  watchers?: TaskWatcherItem[];
 }) {
   const assignees = task.assignees ?? [];
   const visibleAssignees = assignees.slice(0, 3);
@@ -173,20 +177,44 @@ export default function TaskCard({
         </span>
       </div>
 
-      <div className="mt-4 flex items-center gap-2">
+      <div className="flex items-center gap-2">
         <div
           title={
             task.created_by_full_name || task.created_by_email
               ? `Created by ${task.created_by_full_name ?? task.created_by_email}`
               : "Created by unknown"
           }
-          className="flex h-9 min-w-[2.25rem] items-center justify-center rounded-full border border-white/10 bg-white/5 text-xs font-semibold text-white/80"
+          className="flex h-9 min-w-9 items-center justify-center rounded-full border border-white/10 bg-white/5 text-xs font-semibold text-white/80"
         >
           {getInitials(
             task.created_by_full_name ?? task.created_by,
             task.created_by_email,
           )}
         </div>
+
+        {task.watchers && task.watchers.length > 0 && (
+          <div className="flex -space-x-1">
+            {task.watchers.slice(0, 2).map((watcher, idx) => (
+              <div
+                key={idx}
+                title={`Invited: ${watcher.full_name || watcher.email}`}
+                className="
+                  flex h-7 w-7 items-center justify-center
+                  rounded-full bg-gray-500/50 border border-white/20
+                  text-[10px] font-bold text-white
+                  ring-1 ring-background
+                "
+              >
+                {getInitials(watcher.full_name, watcher.email)}
+              </div>
+            ))}
+            {task.watchers.length > 2 && (
+              <div className="flex h-7 w-7 items-center justify-center rounded-full bg-gray-500/30 border border-white/20 text-[10px] font-bold text-white/70 ring-1 ring-background">
+                +{task.watchers.length - 2}
+              </div>
+            )}
+          </div>
+        )}
 
         <button
           onClick={(event) => {

@@ -37,11 +37,11 @@ export default function NotificationBell() {
       <button
         type="button"
         onClick={() => setOpen((prev) => !prev)}
-        className="relative border border-white/10 bg-white/5 p-3 text-white transition hover:bg-white/10"
+        className="relative border border-white/10 bg-white/5 rounded-full p-3 text-white transition hover:bg-white/10"
       >
         <Bell size={18} />
         {unreadCount > 0 ? (
-          <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center bg-orange-500 px-1 text-[10px] font-bold text-black">
+          <span className="absolute -right-1 -top-1 flex h-5 rounded-2xl min-w-5 items-center justify-center bg-orange-500 px-1 text-[10px] font-bold text-black">
             {unreadCount > 99 ? "99+" : unreadCount}
           </span>
         ) : null}
