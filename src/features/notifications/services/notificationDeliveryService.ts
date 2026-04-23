@@ -5,6 +5,8 @@ import {
   type NotificationType,
 } from "../../../lib/supabase/mutations/notifications";
 import { supabase } from "../../../lib/supabase/client";
+import { EmailPreferencesService } from "./emailPreferencesService";
+import { EmailTemplateService, type EmailContext } from "./emailTemplates";
 
 export type DeliverNotificationParams = {
   organizationId: string;
@@ -95,33 +97,10 @@ async function getUserEmailPreferences(userId: string, type: NotificationType) {
   if (profileError) throw profileError;
   if (!profile?.email) return { profile: null, canEmail: false };
 
-  const { data: prefRow, error: prefsError } = await supabase
-    .from("notification_preferences")
-    .select("*")
-    .eq("user_id", userId)
-    .maybeSingle();
+  // Use new email preferences service
+  const canEmail = await EmailPreferencesService.shouldSendEmail(userId, type, 'medium');
 
-  if (prefsError) {
-    console.warn(
-      "NOTIFICATION PREFS QUERY ERROR (allowing email):",
-      prefsError.message,
-    );
-    return { profile, canEmail: true };
-  }
-
-  // No preferences row → user hasn't opted out → allow email
-  if (!prefRow) return { profile, canEmail: true };
-
-  // Global email kill-switch
-  if (prefRow.email_enabled === false) return { profile, canEmail: false };
-
-  // Check type-specific column
-  const column = EMAIL_PREF_COLUMN[type];
-  if (column && column in prefRow && prefRow[column] === false) {
-    return { profile, canEmail: false };
-  }
-
-  return { profile, canEmail: true };
+  return { profile, canEmail };
 }
 
 async function triggerNotificationEmail(payload: {
@@ -133,6 +112,9 @@ async function triggerNotificationEmail(payload: {
   type: NotificationType;
   priority: NotificationPriority;
   metadata?: Record<string, unknown>;
+  organizationId?: string;
+  userId?: string;
+  notificationId?: string;
 }) {
   if (!EMAIL_WEBHOOK_URL) {
     console.warn("VITE_N8N_NOTIFICATION_WEBHOOK_URL is not set — skipping email");
@@ -140,6 +122,43 @@ async function triggerNotificationEmail(payload: {
   }
 
   try {
+    const fullName = payload.fullName ?? "Team Member";
+    const firstName = fullName.split(' ')[0];
+
+    // Generate email template
+    const context: EmailContext = {
+      fullName,
+      firstName,
+      title: payload.title,
+      message: payload.message ?? "",
+      actionUrl: payload.actionUrl ?? "/",
+      metadata: payload.metadata ?? {},
+      appName: "Nomatata",
+      appUrl: "https://itsnomatata.com"
+    };
+
+    const emailTemplate = EmailTemplateService.generateTemplate(payload.type, context);
+
+    // Track email before sending
+    let trackingId: string | null = null;
+    if (payload.organizationId && payload.userId) {
+      try {
+        const tracking = await EmailPreferencesService.trackEmail({
+          organizationId: payload.organizationId,
+          userId: payload.userId,
+          notificationId: payload.notificationId,
+          emailTo: payload.to,
+          emailSubject: emailTemplate.subject,
+          emailType: payload.type,
+          metadata: payload.metadata,
+        });
+        trackingId = tracking.id;
+      } catch (trackingError) {
+        console.error("EMAIL TRACKING ERROR:", trackingError);
+        // Continue with email send even if tracking fails
+      }
+    }
+
     const response = await fetch(EMAIL_WEBHOOK_URL, {
       method: "POST",
       headers: {
@@ -150,18 +169,34 @@ async function triggerNotificationEmail(payload: {
       },
       body: JSON.stringify({
         to: payload.to,
-        fullName: payload.fullName ?? "Team Member",
+        fullName,
+        firstName,
         title: payload.title,
         message: payload.message ?? "",
         actionUrl: payload.actionUrl ?? "/",
         type: payload.type,
         priority: payload.priority,
-        metadata: payload.metadata ?? {},
+        metadata: {
+          ...payload.metadata,
+          trackingId,
+        },
+        emailHtml: emailTemplate.html,
+        subject: emailTemplate.subject,
       }),
     });
 
     if (!response.ok) {
       console.error("EMAIL WEBHOOK FAILED:", response.status, await response.text());
+      
+      // Update tracking status to failed
+      if (trackingId) {
+        await EmailPreferencesService.updateEmailStatus(trackingId, 'failed', `Webhook returned ${response.status}`);
+      }
+    } else {
+      // Update tracking status to sent
+      if (trackingId) {
+        await EmailPreferencesService.updateEmailStatus(trackingId, 'sent');
+      }
     }
   } catch (err) {
     console.error("EMAIL WEBHOOK ERROR:", err);
@@ -208,6 +243,9 @@ export async function deliverNotification(params: DeliverNotificationParams) {
       type: params.type,
       priority,
       metadata: params.metadata,
+      organizationId: params.organizationId,
+      userId: params.userId,
+      notificationId: notification.id,
     });
   } catch (error) {
     console.error("NOTIFICATION EMAIL ERROR:", error);

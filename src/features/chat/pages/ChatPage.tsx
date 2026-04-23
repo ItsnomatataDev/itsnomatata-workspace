@@ -189,6 +189,18 @@ export default function ChatPage() {
             }),
         );
       },
+      onUpdate: (updatedMessage) => {
+        setMessages((current) =>
+          current.map((message) =>
+            message.id === updatedMessage.id ? updatedMessage : message,
+          ),
+        );
+      },
+      onDelete: (deletedMessageId) => {
+        setMessages((current) =>
+          current.filter((message) => message.id !== deletedMessageId),
+        );
+      },
     });
 
     if (typingChannelRef.current) {
@@ -683,6 +695,15 @@ export default function ChatPage() {
               loading={loadingMessages}
               hasConversation={Boolean(activeConversationId)}
               conversation={activeConversation}
+              onMessageDeleted={(messageId) => {
+                setMessages((current) =>
+                  current.map((message) =>
+                    message.id === messageId
+                      ? { ...message, is_deleted: true }
+                      : message,
+                  ),
+                );
+              }}
             />
 
             <div ref={bottomRef} />

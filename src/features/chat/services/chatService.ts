@@ -434,6 +434,19 @@ export async function markConversationAsRead(params: {
   if (error) throw error;
 }
 
+export async function deleteMessage(params: {
+  messageId: string;
+  userId: string;
+}) {
+  const { error } = await supabase
+    .from("chat_messages")
+    .update({ is_deleted: true })
+    .eq("id", params.messageId)
+    .eq("sender_id", params.userId);
+
+  if (error) throw error;
+}
+
 export async function getOrganizationUsers(
   organizationId: string,
   currentUserId: string,

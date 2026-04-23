@@ -75,7 +75,20 @@ const commonLinks: LinkItem[] = [
 function getRoleNav(role?: string | null, counts?: SidebarCounts): NavItem[] {
   switch (role) {
     case "social_media":
-      return [{ to: "/social-posts", label: "Social Posts", icon: Megaphone }];
+      return [
+        {
+          type: "group",
+          label: "Social Media",
+          icon: Megaphone,
+          color: "text-pink-400",
+          activePaths: ["/social-media", "/social-media-manager", "/social-posts"],
+          children: [
+            { to: "/social-media", label: "Command Center", icon: BarChart3 },
+            { to: "/social-media-manager", label: "AI Content Manager", icon: Sparkles },
+            { to: "/social-posts", label: "Social Posts", icon: Megaphone },
+          ],
+        },
+      ];
 
     case "media_team":
       return [{ to: "/content-library", label: "Content", icon: Image }];
@@ -147,6 +160,18 @@ function getRoleNav(role?: string | null, counts?: SidebarCounts): NavItem[] {
             { to: "/board-management", label: "Board Management", icon: BriefcaseBusiness },
           ],
         },
+        {
+          type: "group",
+          label: "Social Media",
+          icon: Megaphone,
+          color: "text-pink-400",
+          activePaths: ["/social-media", "/social-media-manager", "/social-posts"],
+          children: [
+            { to: "/social-media", label: "Social Media Dashboard", icon: BarChart3 },
+            { to: "/social-media-manager", label: "AI Content Manager", icon: Sparkles },
+            { to: "/social-posts", label: "Social Posts", icon: Megaphone },
+          ],
+        },
       ];
 
     case "admin":
@@ -203,7 +228,6 @@ function getRoleNav(role?: string | null, counts?: SidebarCounts): NavItem[] {
             },
           ],
         },
-
         { to: "/admin/ai", label: "AI Control", icon: Sparkles },
       ];
 

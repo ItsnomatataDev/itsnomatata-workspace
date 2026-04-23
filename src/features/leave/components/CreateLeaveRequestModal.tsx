@@ -168,6 +168,15 @@ export default function CreateLeaveRequestModal({
         firstOverlap?.requester_name ||
         firstOverlap?.requester_email ||
         "another employee";
+      const overlapRole = firstOverlap?.requester_role || "the same role";
+      
+      // Check if the overlap is due to role-based restriction
+      if (requesterRole && firstOverlap?.requester_role?.toLowerCase() === requesterRole.toLowerCase()) {
+        setError(
+          `You cannot submit leave because ${overlapName} (${overlapRole}) is already on approved leave for this period. Role-based leave restriction applies across all offices.`,
+        );
+        return;
+      }
 
       setError(
         `You cannot submit leave for ${requestOffice} because ${overlapName} is already on approved leave in that office for the selected period.`,
@@ -339,8 +348,9 @@ export default function CreateLeaveRequestModal({
           {overlappingLeaves.length > 0 ? (
             <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4">
               <p className="font-semibold text-amber-300">
-                Leave submission is disabled because someone is already on leave
-                in this period
+                {requesterRole && overlappingLeaves.some(l => l.requester_role?.toLowerCase() === requesterRole.toLowerCase())
+                  ? "Leave submission is disabled due to role-based restriction across all offices"
+                  : "Leave submission is disabled because someone is already on leave in this period"}
               </p>
               <div className="mt-3 space-y-2">
                 {overlappingLeaves.map((leave) => (
@@ -360,6 +370,14 @@ export default function CreateLeaveRequestModal({
                       Office:{" "}
                       {leave.requester_department || requestOffice || "—"}
                     </p>
+                    {leave.requester_role ? (
+                      <p className="mt-1 text-xs text-white/45">
+                        Role: {leave.requester_role}
+                        {requesterRole && leave.requester_role.toLowerCase() === requesterRole.toLowerCase() && (
+                          <span className="ml-2 text-amber-400">(Role-based restriction)</span>
+                        )}
+                      </p>
+                    ) : null}
                   </div>
                 ))}
               </div>

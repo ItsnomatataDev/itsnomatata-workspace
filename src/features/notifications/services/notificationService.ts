@@ -13,6 +13,7 @@ import {
   deliverBulkNotifications,
   deliverNotification,
 } from "./notificationDeliveryService";
+import { EmailTemplateService, type EmailContext } from "./emailTemplates";
 
 export type NotificationItem = NotificationRow;
 
@@ -124,6 +125,22 @@ export async function sendEmailOnly(params: {
   }
 
   try {
+    const fullName = params.fullName ?? "Team Member";
+    const firstName = fullName.split(' ')[0];
+
+    const context: EmailContext = {
+      fullName,
+      firstName,
+      title: params.title,
+      message: params.message ?? "",
+      actionUrl: params.actionUrl ?? "/",
+      metadata: params.metadata ?? {},
+      appName: "Nomatata",
+      appUrl: "https://itsnomatata.com"
+    };
+
+    const emailTemplate = EmailTemplateService.generateTemplate(params.type, context);
+
     const response = await fetch(EMAIL_WEBHOOK_URL, {
       method: "POST",
       headers: {
@@ -134,13 +151,16 @@ export async function sendEmailOnly(params: {
       },
       body: JSON.stringify({
         to: params.to,
-        fullName: params.fullName ?? "Team Member",
+        fullName,
+        firstName,
         title: params.title,
         message: params.message ?? "",
         type: params.type,
         priority: params.priority ?? "medium",
         actionUrl: params.actionUrl ?? "/",
         metadata: params.metadata ?? {},
+        emailHtml: emailTemplate.html,
+        subject: emailTemplate.subject
       }),
     });
 

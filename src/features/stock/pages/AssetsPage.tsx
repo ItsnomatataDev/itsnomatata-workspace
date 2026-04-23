@@ -26,6 +26,8 @@ import { supabase } from "../../../lib/supabase/client";
 import AssetTable from "../components/AssetTable";
 import AssetForm from "../components/AssetForm";
 import AssetImportModal from "../components/AssetImportModal";
+import TotalCostCard from "../components/TotalCostCard";
+import ProductionAssetSearch from "../components/ProductionAssetSearch";
 import { fetchActiveAssetAssignment } from "../services/stockService";
 import { exportAssetsToExcel } from "../services/assetExportService";
 import type { CreateAssetInput } from "../../../lib/supabase/mutations/assets";
@@ -1033,7 +1035,8 @@ export default function AssetsPage() {
             </div>
           </section>
 
-          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+            <TotalCostCard organizationId={organizationId} />
             <StatBox
               title="Total Assets"
               value={stats.total}
@@ -1209,30 +1212,16 @@ export default function AssetsPage() {
           </section>
 
           <section className="border border-white/10 bg-black p-5">
-            <form
-              onSubmit={handleSearchSubmit}
-              className="flex flex-col gap-3 lg:flex-row"
-            >
-              <div className="relative flex-1">
-                <Search
-                  size={16}
-                  className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500"
-                />
-                <input
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  placeholder="Search by asset name, asset tag, serial number, brand, model, invoice, or reference"
-                  className="w-full border border-white/10 bg-black py-3 pl-11 pr-4 text-sm text-white outline-none focus:border-orange-500"
-                />
-              </div>
-
-              <button
-                type="submit"
-                className="border border-orange-500 bg-orange-500 px-5 py-3 text-sm font-medium text-black hover:bg-orange-400"
-              >
-                Search
-              </button>
-            </form>
+            <ProductionAssetSearch
+              onSearch={(query: string) => {
+                // Production search implementation
+                if (search && typeof search === 'function') {
+                  search(query);
+                }
+              }}
+              placeholder="Search assets by name, tag, or serial number..."
+              className="w-full"
+            />
 
             <div className="mt-4 flex flex-wrap items-center gap-2">
               {[

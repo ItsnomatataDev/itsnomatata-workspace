@@ -1,0 +1,382 @@
+{
+  "name": "Nomatata Enhanced Email Automation",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "nomatata-notifications",
+        "options": {
+          "responseMode": "responseNode",
+          "responseNode": "Response Success"
+        }
+      },
+      "id": "webhook-receive",
+      "name": "Receive Notification",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [-1800, 400],
+      "webhookId": "nomatata-notifications"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.body.to ?? $json.to }}",
+              "operation": "isNotEmpty"
+            },
+            {
+              "value1": "={{ $json.body.type ?? $json.type }}",
+              "operation": "isNotEmpty"
+            },
+            {
+              "value1": "={{ $json.body.title ?? $json.title }}",
+              "operation": "isNotEmpty"
+            }
+          ]
+        }
+      },
+      "id": "validate-payload",
+      "name": "Validate Payload",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [-1600, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json;\nconst data = raw.body ?? raw;\n\nconst appUrl = 'https://itsnomatata.com';\nconst appName = 'Nomatata';\n\nconst actionUrl = data.actionUrl\n  ? (data.actionUrl.startsWith('http')\n      ? data.actionUrl\n      : `${appUrl}${data.actionUrl}`)\n  : appUrl;\n\nconst fullName = data.fullName ?? data.full_name ?? 'Team Member';\nconst firstName = fullName.split(' ')[0];\n\n// Extract metadata if present\nconst metadata = data.metadata ?? {};\n\n// Add timestamp to metadata\nmetadata.sentAt = new Date().toISOString();\nmetadata.notificationId = data.referenceId ?? data.entityId ?? 'unknown';\n\nreturn [{\n  json: {\n    to: data.to ?? '',\n    fullName,\n    firstName,\n    title: data.title ?? 'You have a new notification',\n    message: data.message ?? '',\n    type: data.type ?? 'general',\n    priority: data.priority ?? 'medium',\n    actionUrl,\n    metadata,\n    appName,\n    appUrl,\n    originalPayload: data\n  }\n}];"
+      },
+      "id": "normalize-payload",
+      "name": "Normalize Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-1400, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.priority }}",
+              "operation": "equals",
+              "value2": "high"
+            }
+          ]
+        }
+      },
+      "id": "check-priority",
+      "name": "Check Priority",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [-1200, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\n\n// Use the email template service logic\nconst type = data.type;\nconst context = {\n  fullName: data.fullName,\n  firstName: data.firstName,\n  title: data.title,\n  message: data.message,\n  actionUrl: data.actionUrl,\n  metadata: data.metadata,\n  appName: data.appName,\n  appUrl: data.appUrl\n};\n\n// Generate email HTML based on type\nlet emailHtml = '';\nlet subject = `${data.title} — ${data.appName}`;\n\nconst templates = {\n  leave_request_submitted: () => {\n    subject = `Leave Request Submitted — ${data.appName}`;\n    return `<h2>Leave Request Submitted</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">Review Request</a>`;\n  },\n  leave_request_approved: () => {\n    subject = `Leave Request Approved — ${data.appName}`;\n    return `<h2>Leave Request Approved ✅</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">View Details</a>`;\n  },\n  leave_request_rejected: () => {\n    subject = `Leave Request Rejected — ${data.appName}`;\n    return `<h2>Leave Request Rejected ❌</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">View Details</a>`;\n  },\n  meeting_invitation: () => {\n    subject = `Meeting Invitation — ${data.appName}`;\n    return `<h2>Meeting Invitation 📅</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">Accept Invitation</a>`;\n  },\n  meeting_reminder: () => {\n    subject = `Meeting Reminder — ${data.appName}`;\n    return `<h2>Meeting Reminder ⏰</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">Join Meeting</a>`;\n  },\n  approval_required: () => {\n    subject = `Approval Required — ${data.appName}`;\n    return `<h2>Approval Required 📋</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">Review & Approve</a>`;\n  },\n  approval_approved: () => {\n    subject = `Request Approved — ${data.appName}`;\n    return `<h2>Request Approved ✅</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">View Details</a>`;\n  },\n  approval_rejected: () => {\n    subject = `Request Rejected — ${data.appName}`;\n    return `<h2>Request Rejected ❌</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">View Details</a>`;\n  },\n  social_media_post_published: () => {\n    subject = `Social Media Post Published — ${data.appName}`;\n    return `<h2>Social Media Post Published 📱</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">View Post</a>`;\n  },\n  social_media_post_failed: () => {\n    subject = `Social Media Post Failed — ${data.appName}`;\n    return `<h2>Social Media Post Failed ⚠️</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">View Details</a>`;\n  },\n  task_assigned: () => {\n    subject = `New Task Assigned — ${data.appName}`;\n    return `<h2>New Task Assigned 📝</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">View Task</a>`;\n  },\n  task_due_soon: () => {\n    subject = `Task Due Soon — ${data.appName}`;\n    return `<h2>Task Due Soon ⏰</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">View Task</a>`;\n  },\n  task_overdue: () => {\n    subject = `Task Overdue — ${data.appName}`;\n    return `<h2>Task Overdue 🚨</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">View Task</a>`;\n  },\n  welcome: () => {\n    subject = `Welcome to ${data.appName}!`;\n    return `<h2>Welcome to ${data.appName}! 🎉</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">Get Started</a>`;\n  },\n  password_reset: () => {\n    subject = `Password Reset — ${data.appName}`;\n    return `<h2>Password Reset Request 🔐</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">Reset Password</a><p style=\"font-size: 12px; color: #737373;\">If you didn't request this, please ignore this email.</p>`;\n  }\n};\n\nconst templateFn = templates[type] || (() => `<h2>${data.title}</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">View Details</a>`);\n\nconst content = templateFn();\n\n// Build full HTML email\nemailHtml = `\n<!DOCTYPE html>\n<html>\n<head>\n  <meta charset=\"utf-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n  <title>${data.appName}</title>\n  <style>\n    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif; background-color: #0a0a0a; margin: 0; padding: 20px; }\n    .container { max-width: 600px; margin: 0 auto; background: #0a0a0a; border-radius: 16px; overflow: hidden; }\n    .header { background: linear-gradient(135deg, #f97316 0%, #ea580c 100%); padding: 32px; text-align: center; }\n    .header h1 { color: white; margin: 0; font-size: 24px; font-weight: 700; }\n    .content { padding: 32px; color: #ffffff; }\n    .content h2 { color: #ffffff; margin: 0 0 16px; font-size: 20px; font-weight: 600; }\n    .content p { color: #a3a3a3; line-height: 1.6; margin: 0 0 16px; }\n    .button { display: inline-block; background: #f97316; color: white; padding: 14px 32px; border-radius: 8px; text-decoration: none; font-weight: 600; margin: 16px 0; }\n    .button:hover { background: #ea580c; }\n    .footer { padding: 24px; text-align: center; color: #525252; font-size: 12px; border-top: 1px solid #262626; }\n    .footer a { color: #f97316; text-decoration: none; }\n    .metadata { background: #171717; padding: 16px; border-radius: 8px; margin: 16px 0; font-size: 13px; color: #737373; }\n    .priority-high { border-left: 4px solid #ef4444; }\n    .priority-medium { border-left: 4px solid #f97316; }\n    .priority-low { border-left: 4px solid #22c55e; }\n  </style>\n</head>\n<body>\n  <div class=\"container priority-${data.priority}\">\n    <div class=\"header\">\n      <h1>${data.appName}</h1>\n    </div>\n    <div class=\"content\">\n      ${content}\n    </div>\n    <div class=\"footer\">\n      <p>&copy; ${new Date().getFullYear()} ${data.appName}. All rights reserved.</p>\n      <p><a href=\"${data.appUrl}\">Visit ${data.appName}</a></p>\n    </div>\n  </div>\n</body>\n</html>\n`;\n\nreturn [{\n  json: {\n    to: data.to,\n    fullName: data.fullName,\n    firstName: data.firstName,\n    subject,\n    type: data.type,\n    priority: data.priority,\n    actionUrl: data.actionUrl,\n    emailHtml,\n    metadata: data.metadata\n  }\n}];"
+      },
+      "id": "generate-email",
+      "name": "Generate Email Template",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-1000, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.to }}",
+              "operation": "isNotEmpty"
+            },
+            {
+              "value1": "={{ $json.emailHtml }}",
+              "operation": "isNotEmpty"
+            }
+          ]
+        }
+      },
+      "id": "validate-email",
+      "name": "Validate Email",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [-800, 400]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.to }}",
+        "subject": "={{ $json.subject }}",
+        "message": "={{ $json.emailHtml }}",
+        "options": {
+          "senderName": "Nomatata",
+          "replyTo": "noreply@itsnomatata.com",
+          "priority": "={{ $json.priority === 'high' ? 'high' : 'normal' }}"
+        }
+      },
+      "id": "send-email",
+      "name": "Send via Gmail",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [-600, 400],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "YOUR_GMAIL_CREDENTIAL_ID",
+          "name": "Gmail Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { success: true, message: 'Email sent successfully', to: $json.to, type: $json.type } }}"
+      },
+      "id": "response-success",
+      "name": "Response Success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [-400, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconsole.log('EMAIL SENT:', JSON.stringify({ to: data.to, type: data.type, subject: data.subject }));\n\n// Log to external monitoring service (optional)\n// await fetch('https://your-monitoring-service.com/log', {\n//   method: 'POST',\n//   headers: { 'Content-Type': 'application/json' },\n//   body: JSON.stringify({\n//     event: 'email_sent',\n//     to: data.to,\n//     type: data.type,\n//     timestamp: new Date().toISOString()\n//   })\n// });\n\nreturn [{ json: { ...data, logged: true, loggedAt: new Date().toISOString() } }];"
+      },
+      "id": "log-success",
+      "name": "Log Success",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-600, 520]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconsole.log('SKIPPED EMAIL — missing to or html:', JSON.stringify({ to: data.to, hasHtml: !!data.emailHtml }));\nreturn [{ json: { skipped: true, reason: 'missing email or html', to: data.to, type: data.type } }];"
+      },
+      "id": "log-skipped",
+      "name": "Log Skipped",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-600, 600]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { success: false, error: 'Invalid email data', reason: $json.reason } }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "response-error",
+      "name": "Response Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [-400, 600]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconsole.log('INVALID PAYLOAD:', JSON.stringify(data));\nreturn [{ json: { error: true, reason: 'invalid payload', received: data } }];"
+      },
+      "id": "log-invalid",
+      "name": "Log Invalid Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-1600, 520]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { success: false, error: 'Invalid payload', received: $json } }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "response-invalid",
+      "name": "Response Invalid",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [-1400, 520]
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "jsCode": "const data = $input.first().json;\nconsole.log('EMAIL SEND ERROR:', JSON.stringify(data));\n\n// Log error to monitoring service\n// await fetch('https://your-monitoring-service.com/error', {\n//   method: 'POST',\n//   headers: { 'Content-Type': 'application/json' },\n//   body: JSON.stringify({\n//     event: 'email_send_failed',\n//     error: data.error,\n//     to: data.to,\n//     timestamp: new Date().toISOString()\n//   })\n// });\n\nreturn [{ json: { errorLogged: true, error: data.error } }];"
+      },
+      "id": "handle-error",
+      "name": "Handle Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-600, 720]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { success: false, error: 'Failed to send email', details: $json.error } }}",
+        "options": {
+          "responseCode": 500
+        }
+      },
+      "id": "response-failed",
+      "name": "Response Failed",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [-400, 720]
+    }
+  ],
+  "connections": {
+    "Receive Notification": {
+      "main": [
+        [
+          {
+            "node": "Validate Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Payload": {
+      "main": [
+        [
+          {
+            "node": "Normalize Payload",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Invalid Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Invalid Payload": {
+      "main": [
+        [
+          {
+            "node": "Response Invalid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Payload": {
+      "main": [
+        [
+          {
+            "node": "Check Priority",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Priority": {
+      "main": [
+        [
+          {
+            "node": "Generate Email Template",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Generate Email Template",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Email Template": {
+      "main": [
+        [
+          {
+            "node": "Validate Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Email": {
+      "main": [
+        [
+          {
+            "node": "Send via Gmail",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Skipped",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send via Gmail": {
+      "main": [
+        [
+          {
+            "node": "Log Success",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Handle Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Success": {
+      "main": [
+        [
+          {
+            "node": "Response Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Skipped": {
+      "main": [
+        [
+          {
+            "node": "Response Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Handle Error": {
+      "main": [
+        [
+          {
+            "node": "Response Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 0,
+  "updatedAt": "2024-01-01T00:00:00.000Z",
+  "versionId": "1"
+}

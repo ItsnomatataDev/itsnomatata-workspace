@@ -91,6 +91,15 @@ export async function createLeaveRequest(params: {
       firstOverlap?.requester_name ||
       firstOverlap?.requester_email ||
       "another employee";
+    const overlapRole = firstOverlap?.requester_role || "the same role";
+    
+    // Check if the overlap is due to role-based restriction
+    if (params.requestRole && firstOverlap?.requester_role?.toLowerCase() === params.requestRole.toLowerCase()) {
+      throw new Error(
+        `Leave cannot be requested because ${overlapName} (${overlapRole}) is already on approved leave for this period. Role-based leave restriction applies across all offices.`,
+      );
+    }
+    
     const officeLabel = params.requestDepartment || "the selected office";
     throw new Error(
       `Leave cannot be requested for ${officeLabel} because ${overlapName} is already on approved leave for that period.`,

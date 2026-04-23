@@ -1,6 +1,7 @@
-import { Check, CheckCheck } from "lucide-react";
+import { Check, CheckCheck, Trash2 } from "lucide-react";
 import type { ChatConversation } from "../types/chat";
 import type { ChatMessage } from "../types/chat";
+import { deleteMessage } from "../services/chatService";
 
 function isRecentlyOnline(lastSeenAt?: string | null) {
   if (!lastSeenAt) return false;
@@ -43,12 +44,14 @@ export default function MessageList({
   loading,
   hasConversation,
   conversation,
+  onMessageDeleted,
 }: {
   messages: ChatMessage[];
   currentUserId: string | undefined;
   loading: boolean;
   hasConversation: boolean;
   conversation: ChatConversation | null;
+  onMessageDeleted?: (messageId: string) => void;
 }) {
   if (!hasConversation) {
     return (
@@ -83,6 +86,16 @@ export default function MessageList({
           conversation,
           messages,
         });
+
+        const handleDelete = async () => {
+          if (!currentUserId || !isMine) return;
+          try {
+            await deleteMessage({ messageId: message.id, userId: currentUserId });
+            onMessageDeleted?.(message.id);
+          } catch (err) {
+            console.error("Failed to delete message:", err);
+          }
+        };
 
         return (
           <div
@@ -171,21 +184,34 @@ export default function MessageList({
                   {new Date(message.created_at).toLocaleString()}
                 </p>
 
-                {isMine && seenStatus ? (
-                  <span
-                    className={[
-                      "inline-flex items-center",
-                      seenStatus === "seen" ? "text-sky-700" : "text-black/70",
-                    ].join(" ")}
-                    title={seenStatus === "seen" ? "Seen" : "Sent"}
-                  >
-                    {seenStatus === "seen" ? (
-                      <CheckCheck size={14} />
-                    ) : (
-                      <Check size={14} />
-                    )}
-                  </span>
-                ) : null}
+                <div className="flex items-center gap-2">
+                  {isMine && !message.is_deleted ? (
+                    <button
+                      type="button"
+                      onClick={handleDelete}
+                      className="rounded p-1 text-black/50 hover:bg-black/10 hover:text-black"
+                      title="Delete message"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  ) : null}
+
+                  {isMine && seenStatus ? (
+                    <span
+                      className={[
+                        "inline-flex items-center",
+                        seenStatus === "seen" ? "text-sky-700" : "text-black/70",
+                      ].join(" ")}
+                      title={seenStatus === "seen" ? "Seen" : "Sent"}
+                    >
+                      {seenStatus === "seen" ? (
+                        <CheckCheck size={14} />
+                      ) : (
+                        <Check size={14} />
+                      )}
+                    </span>
+                  ) : null}
+                </div>
               </div>
             </div>
           </div>

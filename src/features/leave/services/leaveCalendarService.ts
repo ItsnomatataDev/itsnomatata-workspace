@@ -285,6 +285,15 @@ export async function checkLeaveAvailability(params: {
       requester_department: profilesMap.get(item.user_id)?.department ?? null,
     }))
     .filter((item) => {
+      // Check for role-based overlap across all departments
+      if (normalizedRole) {
+        const itemRole = item.requester_role?.trim().toLowerCase() || null;
+        if (itemRole === normalizedRole) {
+          return true; // Role match - block across all departments
+        }
+      }
+
+      // Check for department-based overlap (existing logic)
       if (!normalizedDepartment) {
         return true;
       }

@@ -14,7 +14,7 @@ import { useAuth } from "../../../app/providers/AuthProvider";
 import { buildAssistantContext } from "../../../lib/api/ai";
 import AIActionHistoryList from "../components/AIActionHistoryList";
 import AIActionLauncher from "../components/AIActionLauncher";
-import AIChatView from "../components/AIChatView";
+import RealTimeChat from "../components/RealTimeChat";
 import AIOutputPreview from "../components/AIOutputPreview";
 import AIQuickSearch from "../components/AIQuickSearch";
 import AIRequestForm from "../components/AIRequestForm";
@@ -221,8 +221,16 @@ export default function AIWorkspacePage() {
 
 
   const handleChatAsk = async (prompt: string) => {
-    const output = await askAssistant(prompt);
-    return { content: output.content };
+    try {
+      // Handle the chat request
+      const output = await askAssistant(prompt);
+      return { content: output.content };
+    } catch (error) {
+      console.error("Chat AI service error:", error);
+      return { 
+        content: "I'm having trouble connecting right now. Please try again in a moment." 
+      };
+    }
   };
 
   return (
@@ -326,7 +334,7 @@ export default function AIWorkspacePage() {
           <>
        
             {extendedViewMode === "chat" && (
-              <AIChatView
+              <RealTimeChat
                 busy={running}
                 userName={profile?.full_name ?? user?.email ?? null}
                 role={roleLabel}
