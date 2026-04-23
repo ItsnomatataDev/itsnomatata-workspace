@@ -87,6 +87,7 @@ export interface AIWorkspaceHistoryItem {
   createdAt: string;
   status: "success" | "failed" | "pending";
   toolId?: string | null;
+  conversationId?: string | null;
 }
 
 export interface AIWorkspaceState {

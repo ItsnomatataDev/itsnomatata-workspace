@@ -463,14 +463,15 @@ export default function AIChatViewEnhanced({
 
   const createNewConversation = async () => {
     if (!userId) return;
-    
+
     try {
       const conversation = await ChatHistoryService.createConversation({
         userId,
+        organizationId: auth?.profile?.organization_id || "",
         title: "New Chat",
         role: role || undefined,
       });
-      
+
       setConversations([conversation, ...conversations]);
       setActiveConversationId(conversation.id);
       setMessages([]);
@@ -526,6 +527,7 @@ export default function AIChatViewEnhanced({
     if (!conversationId) {
       const conversation = await ChatHistoryService.createConversation({
         userId,
+        organizationId: auth?.profile?.organization_id || "",
         title: input.slice(0, 50) || "New Chat",
         role: role || undefined,
       });
@@ -573,14 +575,17 @@ export default function AIChatViewEnhanced({
         role: "user",
         content: userMessage.content,
         userId,
-        attachments: attachments.map(a => ({
-          type: a.type,
-          name: a.name,
-          url: a.url,
-          size: a.size,
-          mimeType: a.mimeType,
-          metadata: a.metadata,
-        })),
+        type: "text",
+        data: {
+          attachments: attachments.map(a => ({
+            type: a.type,
+            name: a.name,
+            url: a.url,
+            size: a.size,
+            mimeType: a.mimeType,
+            metadata: a.metadata,
+          })),
+        },
       });
     } catch (error) {
       console.error("Error saving message:", error);
@@ -624,7 +629,8 @@ export default function AIChatViewEnhanced({
           role: "assistant",
           content: response.content,
           userId,
-          metadata: {
+          type: "text",
+          data: {
             model: "gpt-4",
             tokens: response.content.length,
           },

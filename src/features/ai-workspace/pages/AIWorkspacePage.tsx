@@ -25,7 +25,7 @@ import PendingApprovalsPanel from "../components/PendingApprovalsPanel";
 import RecentOutputsPanel from "../components/RecentOutputsPanel";
 import RoleToolSection from "../components/RoleToolSection";
 import { useAIWorkspace } from "../hooks/useAIWorkspace";
-import type { AIWorkspaceViewMode } from "../types/aiWorkspace";
+import type { AIWorkspaceViewMode, AIWorkspaceHistoryItem } from "../types/aiWorkspace";
 
 // ── Extended view mode to include chat ────────────────────
 type ExtendedViewMode = AIWorkspaceViewMode | "chat";
@@ -150,7 +150,15 @@ export default function AIWorkspacePage() {
     }
   };
 
+  const handleHistoryItemClick = (item: AIWorkspaceHistoryItem) => {
+    if (item.conversationId) {
+      setSelectedConversationId(item.conversationId);
+      setExtendedViewMode("chat");
+    }
+  };
+
   const [selectedOutputId, setSelectedOutputId] = useState<string | null>(null);
+  const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!selectedToolId) {
@@ -339,6 +347,7 @@ export default function AIWorkspacePage() {
                 userName={profile?.full_name ?? user?.email ?? null}
                 role={roleLabel}
                 onAsk={handleChatAsk}
+                initialConversationId={selectedConversationId || undefined}
               />
             )}
             {extendedViewMode === "overview" && (
@@ -418,7 +427,7 @@ export default function AIWorkspacePage() {
             {extendedViewMode === "history" && (
               <div className="grid gap-4 xl:grid-cols-3">
                 <div className="space-y-4 xl:col-span-2">
-                  <AIActionHistoryList items={history} />
+                  <AIActionHistoryList items={history} onItemClick={handleHistoryItemClick} />
                   <RecentOutputsPanel
                     outputs={recentOutputs}
                     selectedOutputId={selectedOutputId}

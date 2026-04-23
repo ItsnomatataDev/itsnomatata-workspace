@@ -134,6 +134,7 @@ function messageToHistoryItem(
     createdAt: msg.created_at,
     status: msg.error ? "failed" : "success",
     toolId: msg.tool_id ?? msg.conversation?.tool_id ?? null,
+    conversationId: msg.conversation_id,
   };
 }
 

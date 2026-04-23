@@ -68,27 +68,29 @@ export interface ChatSession {
 export class ChatHistoryService {
   static async createConversation(params: {
     userId: string;
+    organizationId: string;
     title?: string;
     role?: string;
     context?: ChatConversation["context"];
+    toolId?: string;
   }): Promise<ChatConversation> {
     try {
       const { data, error } = await supabase
-        .from("chat_conversations")
+        .from("ai_conversations")
         .insert({
           user_id: params.userId,
+          organization_id: params.organizationId,
           title: params.title || "New Chat",
-          role: params.role,
-          context: params.context,
+          tool_id: params.toolId,
           metadata: {
+            role: params.role,
+            context: params.context,
             totalMessages: 0,
             lastActivity: new Date().toISOString(),
             tags: [],
             isPinned: false,
             isArchived: false,
           },
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
         })
         .select()
         .single();
@@ -104,7 +106,7 @@ export class ChatHistoryService {
   static async getConversation(conversationId: string): Promise<ChatConversation | null> {
     try {
       const { data, error } = await supabase
-        .from("chat_conversations")
+        .from("ai_conversations")
         .select("*")
         .eq("id", conversationId)
         .single();
@@ -119,6 +121,7 @@ export class ChatHistoryService {
 
   static async getUserConversations(params: {
     userId: string;
+    organizationId?: string;
     limit?: number;
     offset?: number;
     includeArchived?: boolean;
@@ -129,11 +132,15 @@ export class ChatHistoryService {
   }> {
     try {
       let query = supabase
-        .from("chat_conversations")
+        .from("ai_conversations")
         .select("*", { count: "exact" })
-        .eq("user_id", params.userId)
-        .eq("metadata->>isArchived", params.includeArchived ? "true" : "false")
-        .order("metadata->>lastActivity", { ascending: false });
+        .eq("user_id", params.userId);
+
+      if (params.organizationId) {
+        query = query.eq("organization_id", params.organizationId);
+      }
+
+      query = query.order("updated_at", { ascending: false });
 
       if (params.limit) query = query.limit(params.limit);
       if (params.offset) query = query.range(params.offset, params.offset + (params.limit || 10) - 1);
@@ -166,13 +173,9 @@ export class ChatHistoryService {
 
       // Get messages
       let query = supabase
-        .from("chat_messages")
-        .select(`
-          *,
-          attachments:chat_attachments(*)
-        `)
+        .from("ai_messages")
+        .select("*")
         .eq("conversation_id", params.conversationId)
-        .eq("is_deleted", false)
         .order("created_at", { ascending: false });
 
       if (params.limit) query = query.limit(params.limit);
@@ -205,53 +208,36 @@ export class ChatHistoryService {
     role: "user" | "assistant" | "system";
     content: string;
     userId: string;
-    attachments?: Omit<ChatAttachment, "id" | "messageId" | "uploadedAt">[];
-    metadata?: ChatMessage["metadata"];
+    type?: string;
+    toolId?: string;
+    data?: Record<string, any>;
+    sources?: Array<Record<string, any>>;
+    requiresApproval?: boolean;
+    approvalId?: string;
+    error?: boolean;
   }): Promise<ChatMessage> {
     try {
       // Add message
       const { data: message, error: messageError } = await supabase
-        .from("chat_messages")
+        .from("ai_messages")
         .insert({
           conversation_id: params.conversationId,
           role: params.role,
           content: params.content,
-          user_id: params.userId,
-          metadata: params.metadata,
-          created_at: new Date().toISOString(),
+          type: params.type || "text",
+          tool_id: params.toolId,
+          data: params.data || {},
+          sources: params.sources || [],
+          requires_approval: params.requiresApproval || false,
+          approval_id: params.approvalId,
+          error: params.error || false,
         })
         .select()
         .single();
 
       if (messageError) throw messageError;
 
-      // Add attachments if provided
-      if (params.attachments && params.attachments.length > 0) {
-        const attachmentsData = params.attachments.map(attachment => ({
-          message_id: message.id,
-          type: attachment.type,
-          name: attachment.name,
-          url: attachment.url,
-          size: attachment.size,
-          mime_type: attachment.mimeType,
-          metadata: attachment.metadata,
-          uploaded_at: new Date().toISOString(),
-        }));
-
-        const { error: attachmentError } = await supabase
-          .from("chat_attachments")
-          .insert(attachmentsData);
-
-        if (attachmentError) throw attachmentError;
-      }
-
-      // Update conversation metadata
-      await this.updateConversationActivity(params.conversationId);
-
-      return this.mapMessageRow({
-        ...message,
-        attachments: params.attachments || [],
-      });
+      return this.mapMessageRow(message);
     } catch (error) {
       console.error("Error adding message:", error);
       throw new Error("Failed to add message");
@@ -262,18 +248,18 @@ export class ChatHistoryService {
     messageId: string;
     userId: string;
     content?: string;
-    metadata?: ChatMessage["metadata"];
+    data?: Record<string, any>;
+    sources?: Array<Record<string, any>>;
   }): Promise<ChatMessage> {
     try {
       const { data, error } = await supabase
-        .from("chat_messages")
+        .from("ai_messages")
         .update({
           content: params.content,
-          metadata: params.metadata,
-          updated_at: new Date().toISOString(),
+          data: params.data,
+          sources: params.sources,
         })
         .eq("id", params.messageId)
-        .eq("user_id", params.userId)
         .select()
         .single();
 
@@ -291,13 +277,9 @@ export class ChatHistoryService {
   }): Promise<void> {
     try {
       await supabase
-        .from("chat_messages")
-        .update({
-          is_deleted: true,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", params.messageId)
-        .eq("user_id", params.userId);
+        .from("ai_messages")
+        .delete()
+        .eq("id", params.messageId);
     } catch (error) {
       console.error("Error deleting message:", error);
       throw new Error("Failed to delete message");
@@ -307,14 +289,8 @@ export class ChatHistoryService {
   static async deleteConversation(conversationId: string): Promise<void> {
     try {
       await supabase
-        .from("chat_conversations")
-        .update({
-          metadata: {
-            ...supabase.rpc("get_conversation_metadata", { conversation_id: conversationId }),
-            isArchived: true,
-          },
-          updated_at: new Date().toISOString(),
-        })
+        .from("ai_conversations")
+        .delete()
         .eq("id", conversationId);
     } catch (error) {
       console.error("Error deleting conversation:", error);
@@ -324,11 +300,8 @@ export class ChatHistoryService {
 
   static async updateConversation(params: {
     conversationId: string;
-    userId: string;
     title?: string;
-    tags?: string[];
-    isPinned?: boolean;
-    isArchived?: boolean;
+    metadata?: Record<string, any>;
   }): Promise<ChatConversation> {
     try {
       const updateData: any = {
@@ -336,30 +309,12 @@ export class ChatHistoryService {
       };
 
       if (params.title !== undefined) updateData.title = params.title;
-      if (params.tags !== undefined) {
-        updateData.metadata = {
-          ...supabase.rpc("get_conversation_metadata", { conversation_id: params.conversationId }),
-          tags: params.tags,
-        };
-      }
-      if (params.isPinned !== undefined) {
-        updateData.metadata = {
-          ...supabase.rpc("get_conversation_metadata", { conversation_id: params.conversationId }),
-          isPinned: params.isPinned,
-        };
-      }
-      if (params.isArchived !== undefined) {
-        updateData.metadata = {
-          ...supabase.rpc("get_conversation_metadata", { conversation_id: params.conversationId }),
-          isArchived: params.isArchived,
-        };
-      }
+      if (params.metadata !== undefined) updateData.metadata = params.metadata;
 
       const { data, error } = await supabase
-        .from("chat_conversations")
+        .from("ai_conversations")
         .update(updateData)
         .eq("id", params.conversationId)
-        .eq("user_id", params.userId)
         .select()
         .single();
 
@@ -378,11 +333,11 @@ export class ChatHistoryService {
   }): Promise<ChatConversation[]> {
     try {
       const { data, error } = await supabase
-        .from("chat_conversations")
+        .from("ai_conversations")
         .select("*")
         .eq("user_id", params.userId)
         .ilike("title", `%${params.query}%`)
-        .order("metadata->>lastActivity", { ascending: false })
+        .order("updated_at", { ascending: false })
         .limit(params.limit || 20);
 
       if (error) throw error;
@@ -403,13 +358,11 @@ export class ChatHistoryService {
   }> {
     try {
       let query = supabase
-        .from("chat_messages")
+        .from("ai_messages")
         .select(`
           *,
-          conversation:chat_conversations!inner(*)
+          conversation:ai_conversations!inner(*)
         `)
-        .eq("user_id", params.userId)
-        .eq("is_deleted", false)
         .ilike("content", `%${params.query}%`)
         .order("created_at", { ascending: false });
 
@@ -425,9 +378,9 @@ export class ChatHistoryService {
 
       if (error) throw error;
 
-      const messages = data?.map(item => ({
-        ...this.mapMessageRow(item),
-        conversation: this.mapConversationRow(item.conversation),
+      const messages = data?.map((msg: any) => ({
+        ...this.mapMessageRow(msg),
+        conversation: this.mapConversationRow(msg.conversation),
       })) || [];
 
       return { messages };
@@ -437,23 +390,21 @@ export class ChatHistoryService {
     }
   }
 
-  private static async updateConversationActivity(conversationId: string): Promise<void> {
+  static async updateConversationActivity(conversationId: string): Promise<void> {
     try {
-      // Get message count
-      const { count } = await supabase
-        .from("chat_messages")
-        .select("*", { count: "exact", head: true })
-        .eq("conversation_id", conversationId)
-        .eq("is_deleted", false);
+      const { data: count } = await supabase
+        .from("ai_messages")
+        .select("id", { count: "exact", head: true })
+        .eq("conversation_id", conversationId);
 
       await supabase
-        .from("chat_conversations")
+        .from("ai_conversations")
         .update({
+          updated_at: new Date().toISOString(),
           metadata: {
             totalMessages: count || 0,
             lastActivity: new Date().toISOString(),
           },
-          updated_at: new Date().toISOString(),
         })
         .eq("id", conversationId);
     } catch (error) {
@@ -461,13 +412,14 @@ export class ChatHistoryService {
     }
   }
 
+  // Mapping functions
   private static mapConversationRow(row: any): ChatConversation {
     return {
       id: row.id,
-      title: row.title,
+      title: row.title || "New Chat",
       userId: row.user_id,
-      role: row.role,
-      context: row.context,
+      role: row.metadata?.role,
+      context: row.metadata?.context,
       metadata: row.metadata,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -480,12 +432,17 @@ export class ChatHistoryService {
       conversationId: row.conversation_id,
       role: row.role,
       content: row.content,
-      attachments: row.attachments?.map(this.mapAttachmentRow) || [],
-      metadata: row.metadata,
+      metadata: {
+        ...row.data,
+        model: row.data?.model,
+        temperature: row.data?.temperature,
+        tokens: row.data?.tokens,
+        processingTime: row.data?.processingTime,
+        context: row.data?.context,
+      },
       createdAt: row.created_at,
       updatedAt: row.updated_at,
-      userId: row.user_id,
-      isDeleted: row.is_deleted,
+      userId: row.user_id || "",
     };
   }
 

@@ -1,11 +1,13 @@
 import type { AIWorkspaceHistoryItem } from "../types/aiWorkspace";
 
 interface AIActionHistoryListProps {
-items: AIWorkspaceHistoryItem[];
+  items: AIWorkspaceHistoryItem[];
+  onItemClick?: (item: AIWorkspaceHistoryItem) => void;
 }
 
 export default function AIActionHistoryList({
   items,
+  onItemClick,
 }: AIActionHistoryListProps) {
   return (
     <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
@@ -18,7 +20,8 @@ export default function AIActionHistoryList({
           items.map((item) => (
             <div
               key={item.id}
-              className="rounded-2xl border border-white/10 bg-black/20 p-4"
+              className="rounded-2xl border border-white/10 bg-black/20 p-4 cursor-pointer hover:border-orange-500/30 hover:bg-black/30 transition-all"
+              onClick={() => onItemClick?.(item)}
             >
               <div className="flex items-center justify-between gap-3">
                 <p className="text-sm font-medium text-white">{item.title}</p>

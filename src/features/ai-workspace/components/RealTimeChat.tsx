@@ -21,6 +21,7 @@ interface RealTimeChatProps {
   userName?: string | null;
   role?: string | null;
   onAsk: (prompt: string) => Promise<{ content: string }>;
+  initialConversationId?: string;
 }
 
 // Message Bubble Component
@@ -28,13 +29,39 @@ function MessageBubble({
   message,
   userName,
   onDelete,
+  isTyping,
 }: {
   message: ChatMessage;
   userName?: string | null;
   onDelete?: (messageId: string) => void;
+  isTyping?: boolean;
 }) {
   const [copied, setCopied] = useState(false);
+  const [displayedContent, setDisplayedContent] = useState("");
   const isUser = message.role === "user";
+
+  // Typing effect for assistant messages
+  useEffect(() => {
+    if (isUser || isTyping) {
+      setDisplayedContent(message.content);
+      return;
+    }
+
+    let index = 0;
+    const content = message.content;
+    setDisplayedContent("");
+
+    const typeInterval = setInterval(() => {
+      if (index < content.length) {
+        setDisplayedContent((prev) => prev + content[index]);
+        index++;
+      } else {
+        clearInterval(typeInterval);
+      }
+    }, 15); // Adjust typing speed here (lower = faster)
+
+    return () => clearInterval(typeInterval);
+  }, [message.content, isUser, isTyping]);
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(message.content);
@@ -76,13 +103,16 @@ function MessageBubble({
 
   return (
     <div className="flex items-end gap-3 group">
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-linear-to-br from-orange-500/30 to-orange-600/20 ring-1 ring-orange-500/20">
+      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-orange-500/30 to-orange-600/20 ring-1 ring-orange-500/20">
         <Bot size={14} className="text-orange-400" />
       </div>
       <div className="max-w-[80%] space-y-1">
         <div className="rounded-2xl rounded-bl-sm border border-white/8 bg-white/5 px-4 py-3">
-          <div className="text-sm leading-relaxed text-white/90">
-            {message.content}
+          <div className="text-sm leading-relaxed text-white/90 whitespace-pre-wrap">
+            {displayedContent}
+            {!isTyping && displayedContent.length < message.content.length && (
+              <span className="inline-block w-2 h-4 ml-1 bg-orange-400 animate-pulse" />
+            )}
           </div>
         </div>
         <div className="flex items-center gap-2 text-[10px] text-white/25">
@@ -246,17 +276,18 @@ export default function RealTimeChat({
   userName,
   role,
   onAsk,
+  initialConversationId,
 }: RealTimeChatProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [conversations, setConversations] = useState<ChatConversation[]>([]);
-  const [activeConversationId, setActiveConversationId] = useState<string>();
+  const [activeConversationId, setActiveConversationId] = useState<string | undefined>(initialConversationId);
   const [showSidebar, setShowSidebar] = useState(false);
   const [loading, setLoading] = useState(false);
   const [showStarters, setShowStarters] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
-  
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const auth = useAuth();
   const userId = auth?.user?.id;
@@ -268,6 +299,13 @@ export default function RealTimeChat({
     }
   }, [userId]);
 
+  // Load initial conversation if provided
+  useEffect(() => {
+    if (initialConversationId && userId) {
+      loadConversation(initialConversationId);
+    }
+  }, [initialConversationId, userId]);
+
   // Scroll to bottom when new messages arrive
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -275,10 +313,11 @@ export default function RealTimeChat({
 
   const loadConversations = async () => {
     if (!userId) return;
-    
+
     try {
       const { conversations } = await ChatHistoryService.getUserConversations({
         userId,
+        organizationId: auth?.profile?.organization_id || undefined,
         limit: 50,
       });
       setConversations(conversations);
@@ -313,14 +352,15 @@ export default function RealTimeChat({
 
   const createNewConversation = async () => {
     if (!userId) return;
-    
+
     try {
       const conversation = await ChatHistoryService.createConversation({
         userId,
+        organizationId: auth?.profile?.organization_id || "",
         title: "New Chat",
         role: role || undefined,
       });
-      
+
       setConversations([conversation, ...conversations]);
       setActiveConversationId(conversation.id);
       setMessages([]);
@@ -381,6 +421,7 @@ export default function RealTimeChat({
       try {
         const conversation = await ChatHistoryService.createConversation({
           userId,
+          organizationId: auth?.profile?.organization_id || "",
           title: input.slice(0, 50) || "New Chat",
           role: role || undefined,
         });
@@ -448,7 +489,8 @@ export default function RealTimeChat({
             role: "assistant",
             content: response.content,
             userId,
-            metadata: {
+            type: "text",
+            data: {
               model: "gpt-4",
               tokens: response.content.length,
             },
@@ -567,6 +609,7 @@ export default function RealTimeChat({
                 message={message}
                 userName={userName}
                 onDelete={message.role === "user" ? deleteMessage : undefined}
+                isTyping={message.role === "assistant" && message.content === ""}
               />
             ))
           )}
