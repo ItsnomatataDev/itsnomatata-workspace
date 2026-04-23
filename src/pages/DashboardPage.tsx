@@ -12,11 +12,14 @@ import {
   BriefcaseBusiness,
   CheckCircle2,
   TimerReset,
+  Pause,
+  Play,
 } from "lucide-react";
 import { useAuth } from "../app/providers/AuthProvider";
 import Sidebar from "../components/dashboard/components/Siderbar";
 import TimeTrackerCard from "../components/dashboard/components/TimeTrackerCard";
 import { useDashboard } from "../lib/hooks/useDashboard";
+import { supabase } from "../lib/supabase/client";
 
 function formatDuration(totalSeconds: number) {
   const safe = Math.max(0, totalSeconds || 0);
@@ -115,6 +118,7 @@ export default function DashboardPage() {
   });
 
   const [liveSeconds, setLiveSeconds] = useState(0);
+  const [taskTimeMap, setTaskTimeMap] = useState<Record<string, number>>({});
 
   useEffect(() => {
     if (!activeTimer?.started_at) {
@@ -134,6 +138,38 @@ export default function DashboardPage() {
 
     return () => window.clearInterval(interval);
   }, [activeTimer]);
+
+  // Fetch time tracked for each task
+  useEffect(() => {
+    if (!user?.id || !profile?.organization_id || tasks.length === 0) return;
+
+    const fetchTaskTimes = async () => {
+      const taskIds = tasks.map(t => t.id);
+      const startOfToday = new Date(
+        new Date().getFullYear(),
+        new Date().getMonth(),
+        new Date().getDate()
+      ).toISOString();
+
+      const { data: timeEntries } = await supabase
+        .from("time_entries")
+        .select("task_id, duration_seconds")
+        .eq("user_id", user.id)
+        .in("task_id", taskIds)
+        .gte("started_at", startOfToday);
+
+      const timeMap: Record<string, number> = {};
+      (timeEntries || []).forEach((entry: any) => {
+        const taskId = entry.task_id;
+        const seconds = entry.duration_seconds || 0;
+        timeMap[taskId] = (timeMap[taskId] || 0) + seconds;
+      });
+
+      setTaskTimeMap(timeMap);
+    };
+
+    fetchTaskTimes();
+  }, [user?.id, profile?.organization_id, tasks]);
 
   const completedTodaySeconds = useMemo(() => {
     return stats?.todaySeconds ?? 0;
@@ -229,7 +265,7 @@ if (!organizationId) {
             </div>
           ) : (
             <>
-              <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+              <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
                 <StatCard
                   title="Open Tasks"
                   value={stats?.openTasks ?? 0}
@@ -256,11 +292,6 @@ if (!organizationId) {
                   icon={Clock3}
                   subtitle="Hours : Minutes : Seconds"
                 />
-                <StatCard
-                  title="My Projects"
-                  value={stats?.myProjects ?? 0}
-                  icon={BriefcaseBusiness}
-                />
               </section>
 
               <section className="mt-6 grid gap-6 xl:grid-cols-3">
@@ -284,44 +315,117 @@ if (!organizationId) {
                         No assigned tasks found.
                       </p>
                     ) : (
-                      tasks.map((task) => (
-                        <div
-                          key={task.id}
-                          className="flex flex-col gap-3 rounded-xl border border-white/10 bg-black/40 px-4 py-4 md:flex-row md:items-center md:justify-between"
-                        >
-                          <div>
-                            <p className="font-medium text-white">
-                              {task.title}
-                            </p>
-                            <p className="mt-1 text-xs uppercase tracking-wide text-white/45">
-                              {task.status.replaceAll("_", " ")} ·{" "}
-                              {task.priority}
-                            </p>
-                            {task.due_date ? (
-                              <p className="mt-2 text-xs text-white/35">
-                                Due:{" "}
-                                {new Date(task.due_date).toLocaleDateString()}
-                              </p>
-                            ) : null}
-                          </div>
+                      tasks.map((task) => {
+                        const isTrackingThisTask = activeTimer?.task_id === task.id;
+                        const taskTime = taskTimeMap[task.id] || 0;
+                        const totalTaskTime = isTrackingThisTask ? taskTime + liveSeconds : taskTime;
+                        
+                        // Calculate due date urgency
+                        const getDueDateUrgency = () => {
+                          if (!task.due_date || task.status === 'done') return null;
+                          const dueDate = new Date(task.due_date);
+                          const today = new Date();
+                          today.setHours(0, 0, 0, 0);
+                          const diffDays = Math.ceil((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+                          
+                          if (diffDays < 0) return { level: 'overdue', text: `${Math.abs(diffDays)}d overdue`, color: 'text-red-500', bg: 'bg-red-500/10', border: 'border-red-500/30', pulse: true };
+                          if (diffDays === 0) return { level: 'today', text: 'Due today', color: 'text-red-400', bg: 'bg-red-500/10', border: 'border-red-500/30', pulse: true };
+                          if (diffDays === 1) return { level: 'tomorrow', text: 'Due tomorrow', color: 'text-orange-400', bg: 'bg-orange-500/10', border: 'border-orange-500/30', pulse: false };
+                          if (diffDays <= 3) return { level: 'soon', text: `Due in ${diffDays}d`, color: 'text-yellow-400', bg: 'bg-yellow-500/10', border: 'border-yellow-500/30', pulse: false };
+                          return null;
+                        };
+                        
+                        const dueUrgency = getDueDateUrgency();
+                        
+                        return (
+                          <div
+                            key={task.id}
+                            className={`group flex flex-col gap-3 rounded-xl border px-4 py-4 transition-all hover:border-white/20 hover:bg-black/50 md:flex-row md:items-center md:justify-between ${
+                              dueUrgency?.pulse ? 'border-red-500/50 bg-red-500/5 animate-pulse' : 'border-white/10 bg-black/40'
+                            }`}
+                          >
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-start gap-3">
+                                <div className={`mt-1 h-2 w-2 shrink-0 rounded-full ${
+                                  task.priority === 'urgent' ? 'bg-red-500' :
+                                  task.priority === 'high' ? 'bg-orange-500' :
+                                  task.priority === 'medium' ? 'bg-yellow-500' :
+                                  'bg-white/30'
+                                }`} />
+                                <div className="min-w-0 flex-1">
+                                  <p className="font-medium text-white truncate">
+                                    {task.title}
+                                  </p>
+                                  <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-white/45">
+                                    <span className="uppercase tracking-wide">
+                                      {task.status.replaceAll("_", " ")}
+                                    </span>
+                                    <span>·</span>
+                                    <span className="capitalize">{task.priority}</span>
+                                    {dueUrgency ? (
+                                      <>
+                                        <span>·</span>
+                                        <span className={`font-semibold ${dueUrgency.color} ${dueUrgency.pulse ? 'animate-pulse' : ''}`}>
+                                          {dueUrgency.text}
+                                        </span>
+                                      </>
+                                    ) : task.due_date ? (
+                                      <>
+                                        <span>·</span>
+                                        <span>Due: {new Date(task.due_date).toLocaleDateString()}</span>
+                                      </>
+                                    ) : null}
+                                    {totalTaskTime > 0 && (
+                                      <>
+                                        <span>·</span>
+                                        <span className="text-orange-400">
+                                          {formatDuration(totalTaskTime)} today
+                                        </span>
+                                      </>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
 
-                          <div className="flex flex-wrap gap-2">
-                            <button
-                              type="button"
-                              disabled={busy || !!activeTimer}
-                              onClick={() =>
-                                void startTimer(
-                                  task.id,
-                                  `Working on ${task.title}`,
-                                )
-                              }
-                              className="rounded-xl bg-orange-500 px-3 py-2 text-sm font-semibold text-black disabled:cursor-not-allowed disabled:opacity-60"
-                            >
-                              Track time
-                            </button>
+                            <div className="flex items-center gap-2">
+                              {isTrackingThisTask ? (
+                                <div className="flex items-center gap-2 rounded-xl border border-orange-500/30 bg-orange-500/10 px-3 py-2">
+                                  <div className="h-2 w-2 rounded-full bg-orange-500 animate-pulse" />
+                                  <span className="text-sm font-mono font-semibold text-orange-400">
+                                    {formatDuration(liveSeconds)}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    disabled={busy}
+                                    onClick={() => void stopTimer()}
+                                    className="ml-1 rounded-lg p-1 text-orange-400 hover:bg-orange-500/20 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                                    title="Stop timer"
+                                  >
+                                    <Pause size={14} />
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  disabled={busy || !!activeTimer}
+                                  onClick={() =>
+                                    void startTimer(
+                                      task.id,
+                                      `Working on ${task.title}`,
+                                    )
+                                  }
+                                  className="rounded-xl bg-orange-500 px-3 py-2 text-sm font-semibold text-black disabled:cursor-not-allowed disabled:opacity-60 hover:bg-orange-400 transition"
+                                  title={!!activeTimer ? "Another timer is running" : "Start timer"}
+                                >
+                                  <Play size={14} className="inline mr-1" />
+                                  Track
+                                </button>
+                              )}
+                            </div>
                           </div>
-                        </div>
-                      ))
+                        );
+                      })
                     )}
                   </div>
                 </div>

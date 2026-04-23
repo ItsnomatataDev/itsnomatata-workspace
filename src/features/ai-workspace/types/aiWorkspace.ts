@@ -17,7 +17,12 @@ export type AIWorkspaceToolCategory =
   | "audio"
   | "images"
   | "automation"
-  | "admin";
+  | "admin"
+  | "social_media"
+  | "system_control"
+  | "analytics"
+  | "monitoring"
+  | "stock";
 
 export interface AIWorkspaceTool {
   id: string;

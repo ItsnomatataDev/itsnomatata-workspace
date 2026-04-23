@@ -18,6 +18,7 @@ import {
   Settings,
   TrendingUp,
   Calendar,
+  BriefcaseBusiness,
   Briefcase,
   Trash2,
 } from "lucide-react";
@@ -32,6 +33,7 @@ import { getBoardTimeSettings, updateBoardTimeSettings, assignUsersToBoard, getB
 import type { Board } from "../../../types/board";
 
 interface BoardTimeData extends Board {
+  boardType?: "client" | "internal";
   estimatedHours?: number;
   trackedHours?: number;
   assignedUsers?: BoardAssignee[];
@@ -44,6 +46,7 @@ interface BoardTimeData extends Board {
   description?: string;
   originalName?: string;
   originalDescription?: string;
+  originalBoardType?: "client" | "internal";
 }
 
 interface BoardAssignee {
@@ -58,6 +61,7 @@ interface BoardAssignee {
 interface CreateBoardForm {
   name: string;
   description: string;
+  boardType: "client" | "internal";
   estimatedHours: number;
   isBillable: boolean;
   billingType: "hourly" | "fixed";
@@ -84,6 +88,7 @@ export default function BoardTimeManagementPage() {
   const [editForm, setEditForm] = useState<CreateBoardForm>({
     name: "",
     description: "",
+    boardType: "client",
     estimatedHours: 40,
     isBillable: true,
     billingType: "hourly",
@@ -94,6 +99,7 @@ export default function BoardTimeManagementPage() {
   const [createForm, setCreateForm] = useState<CreateBoardForm>({
     name: "",
     description: "",
+    boardType: "client",
     estimatedHours: 40,
     isBillable: true,
     billingType: "hourly",
@@ -103,6 +109,32 @@ export default function BoardTimeManagementPage() {
   const [editFormErrors, setEditFormErrors] = useState<Record<string, string>>({});
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+
+  // Realtime subscription for time entries
+  useEffect(() => {
+    if (!organizationId) return;
+
+    const channel = supabase
+      .channel('time-entries-board-management')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'time_entries',
+          filter: `organization_id=eq.${organizationId}`,
+        },
+        () => {
+          // Reload board data when time entries change
+          loadBoardsWithTimeData();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [organizationId]);
 
   // Load boards with time data
   const loadBoardsWithTimeData = useCallback(async () => {
@@ -150,6 +182,24 @@ export default function BoardTimeManagementPage() {
           
           // Get board assignments
           const assignedUserIds = await getBoardAssignments(board.id, organizationId);
+          
+          // Fetch profiles for assigned users if not in profileMap
+          let assignedUserProfiles = (profiles ?? []).filter(p => assignedUserIds.includes(p.id));
+          
+          // If some assigned users are not in the organization profiles, fetch them separately
+          const missingUserIds = assignedUserIds.filter(id => !profileMap.has(id));
+          if (missingUserIds.length > 0) {
+            const { data: additionalProfiles } = await supabase
+              .from("profiles")
+              .select("id, full_name, email")
+              .in("id", missingUserIds);
+            
+            if (additionalProfiles) {
+              assignedUserProfiles = [...assignedUserProfiles, ...additionalProfiles];
+              additionalProfiles.forEach(p => profileMap.set(p.id, p));
+            }
+          }
+          
           const assignedUsers: BoardAssignee[] = assignedUserIds
             .map((userId) => {
               const profile = profileMap.get(userId);
@@ -322,6 +372,7 @@ export default function BoardTimeManagementPage() {
         organizationId,
         name: createForm.name.trim(),
         notes: createForm.description?.trim() || null,
+        boardType: createForm.boardType,
       });
 
       console.log("Board created successfully:", newBoard.id);
@@ -337,7 +388,19 @@ export default function BoardTimeManagementPage() {
 
       console.log("Time settings created successfully");
 
-      // Assign users if selected
+      // Auto-assign the board creator as a member
+      if (auth?.profile?.id) {
+        await assignUsersToBoard(
+          newBoard.id,
+          organizationId,
+          [auth.profile.id],
+          newBoard.name,
+          auth.profile.id
+        );
+        console.log("Board creator assigned successfully");
+      }
+
+      // Assign additional users if selected
       if (selectedUsers.length > 0) {
         await assignUsersToBoard(
           newBoard.id, 
@@ -346,13 +409,14 @@ export default function BoardTimeManagementPage() {
           newBoard.name, 
           auth?.profile?.id
         );
-        console.log("Users assigned successfully");
+        console.log("Additional users assigned successfully");
       }
 
       // Reset form and reload
       setCreateForm({
         name: "",
         description: "",
+        boardType: "client",
         estimatedHours: 40,
         isBillable: true,
         billingType: "hourly",
@@ -427,14 +491,34 @@ export default function BoardTimeManagementPage() {
     try {
       console.log("Updating board:", editingBoard.id, "for organization:", organizationId);
 
+      // Check if name is being changed and if it conflicts with another board
+      if (editingBoard.name !== editingBoard.originalName) {
+        const trimmedName = editingBoard.name.trim();
+        const { data: existingBoard } = await supabase
+          .from("clients")
+          .select("id, name")
+          .eq("organization_id", organizationId)
+          .eq("name", trimmedName)
+          .single();
+
+        if (existingBoard && existingBoard.id !== editingBoard.id) {
+          setEditFormErrors({
+            name: "A board with this name already exists."
+          });
+          setIsSaving(false);
+          return;
+        }
+      }
+
       // Update board basic info if changed
-      if (editingBoard.name !== editingBoard.originalName || editingBoard.description !== editingBoard.originalDescription) {
+      if (editingBoard.name !== editingBoard.originalName || editingBoard.description !== editingBoard.originalDescription || editingBoard.boardType !== editingBoard.originalBoardType) {
         console.log("Updating board basic info...");
         const { error: boardUpdateError } = await supabase
           .from("clients")
           .update({
             name: editingBoard.name.trim(),
             notes: editingBoard.description?.trim() || null,
+            board_type: editingBoard.boardType,
             updated_at: new Date().toISOString()
           })
           .eq("id", editingBoard.id)
@@ -484,8 +568,6 @@ export default function BoardTimeManagementPage() {
           errorMessage = "You don't have permission to update this board.";
         } else if (error.message.includes("network")) {
           errorMessage = "Network error. Please check your connection.";
-        } else if (error.message.includes("duplicate")) {
-          errorMessage = "A board with this name already exists.";
         } else {
           errorMessage = error.message;
         }
@@ -661,10 +743,13 @@ export default function BoardTimeManagementPage() {
               </thead>
               <tbody>
                 {filteredBoards.map((board) => {
-                  const progressPercentage = getProgressPercentage(
-                    board.trackedHours || 0,
-                    board.estimatedHours || 0,
-                  );
+                  const isInternal = board.boardType === 'internal';
+                  const progressPercentage = isInternal 
+                    ? 0 
+                    : getProgressPercentage(
+                        board.trackedHours || 0,
+                        board.estimatedHours || 0,
+                      );
                   const progressColor = getProgressColor(progressPercentage);
 
                   return (
@@ -673,7 +758,7 @@ export default function BoardTimeManagementPage() {
                       <td className="py-4 px-6">
                         <div>
                           <button
-                            onClick={() => navigate(`/board/${board.id}`)}
+                            onClick={() => navigate(`/board-details/${board.id}`)}
                             className="font-medium text-white hover:text-orange-400 transition-colors text-left"
                           >
                             {board.name}
@@ -686,7 +771,7 @@ export default function BoardTimeManagementPage() {
 
                       {/* Members */}
                       <td className="py-4 px-6">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-3">
                           <div className="flex items-center -space-x-2">
                             {(board.assignedUsers || []).slice(0, 3).map((user) => (
                               <div
@@ -701,17 +786,25 @@ export default function BoardTimeManagementPage() {
                                 +{((board.assignedUsers || []).length || 0) - 3}
                               </div>
                             )}
+                            {(board.assignedUsers || []).length === 0 && (
+                              <div className="w-6 h-6 rounded-full bg-white/5 border border-white/10 flex items-center justify-center">
+                                <Users className="w-3 h-3 text-white/30" />
+                              </div>
+                            )}
                           </div>
-                          <span className="text-sm text-white/60">
-                            {board.memberCount || 0}
-                          </span>
+                          <div className="flex items-center gap-1.5 px-2.5 py-1 bg-white/5 border border-white/10 rounded-lg">
+                            <Users className="w-3.5 h-3.5 text-white/50" />
+                            <span className="text-sm font-semibold text-white">
+                              {(board.assignedUsers || []).length}
+                            </span>
+                          </div>
                         </div>
                       </td>
 
                       {/* Budget */}
                       <td className="py-4 px-6">
                         <div className="text-sm font-medium text-white">
-                          {formatHours(board.estimatedHours || 0)}
+                          {isInternal ? 'Unlimited' : formatHours(board.estimatedHours || 0)}
                         </div>
                       </td>
 
@@ -729,12 +822,23 @@ export default function BoardTimeManagementPage() {
                       <td className="py-4 px-6">
                         <div className="flex items-center gap-2">
                           <div className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium ${
-                            board.isBillable 
-                              ? 'bg-green-500/20 text-green-400 border border-green-500/30'
-                              : 'bg-gray-500/20 text-gray-400 border border-gray-500/30'
+                            board.boardType === 'internal'
+                              ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
+                              : board.isBillable 
+                                ? 'bg-green-500/20 text-green-400 border border-green-500/30'
+                                : 'bg-gray-500/20 text-gray-400 border border-gray-500/30'
                           }`}>
-                            <DollarSign className="w-3 h-3" />
-                            {board.isBillable ? 'Billable' : 'Non-billable'}
+                            {board.boardType === 'internal' ? (
+                              <>
+                                <BriefcaseBusiness className="w-3 h-3" />
+                                Internal
+                              </>
+                            ) : (
+                              <>
+                                <DollarSign className="w-3 h-3" />
+                                {board.isBillable ? 'Billable' : 'Non-billable'}
+                              </>
+                            )}
                           </div>
                           <span className="text-xs text-white/40">
                             {board.billingType === 'hourly' 
@@ -749,17 +853,21 @@ export default function BoardTimeManagementPage() {
 
                       {/* Progress */}
                       <td className="py-4 px-6">
-                        <div className="w-24">
-                          <div className="flex items-center justify-between mb-1">
-                            <span className="text-xs text-white/60">{progressPercentage}%</span>
+                        {isInternal ? (
+                          <span className="text-xs text-blue-400 font-medium">Unlimited</span>
+                        ) : (
+                          <div className="w-24">
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-xs text-white/60">{progressPercentage}%</span>
+                            </div>
+                            <div className="w-full bg-white/10 rounded-full h-1.5">
+                              <div
+                                className={`${progressColor} h-1.5 rounded-full transition-all duration-300`}
+                                style={{ width: `${Math.min(progressPercentage, 100)}%` }}
+                              />
+                            </div>
                           </div>
-                          <div className="w-full bg-white/10 rounded-full h-1.5">
-                            <div
-                              className={`${progressColor} h-1.5 rounded-full transition-all duration-300`}
-                              style={{ width: `${Math.min(progressPercentage, 100)}%` }}
-                            />
-                          </div>
-                        </div>
+                        )}
                       </td>
 
                       {/* Actions */}
@@ -783,7 +891,8 @@ export default function BoardTimeManagementPage() {
                               setEditingBoard({
                                 ...board,
                                 originalName: board.name,
-                                originalDescription: board.description || ""
+                                originalDescription: board.description || "",
+                                originalBoardType: board.boardType || "client"
                               });
                               setIsEditModalOpen(true);
                               setEditFormErrors({});
@@ -796,7 +905,7 @@ export default function BoardTimeManagementPage() {
                           </button>
 
                           <button
-                            onClick={() => navigate(`/board/${board.id}`)}
+                            onClick={() => navigate(`/board-details/${board.id}`)}
                             className="p-1.5 text-white/40 hover:text-white hover:bg-white/10 rounded-lg transition"
                             title="View Details"
                           >
@@ -884,6 +993,25 @@ export default function BoardTimeManagementPage() {
 
               <div>
                 <label className="block text-sm font-medium text-white mb-2">
+                  Board Type
+                </label>
+                <select
+                  value={createForm.boardType}
+                  onChange={(e) => setCreateForm({...createForm, boardType: e.target.value as "client" | "internal", isBillable: e.target.value === "client" ? createForm.isBillable : false})}
+                  className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white focus:outline-none focus:border-orange-400"
+                >
+                  <option value="client">Client Board (Billable)</option>
+                  <option value="internal">Internal Board (Non-billable)</option>
+                </select>
+                <p className="mt-1 text-xs text-white/40">
+                  {createForm.boardType === "client" 
+                    ? "Client boards track billable work for external clients" 
+                    : "Internal boards track company-internal work without billing"}
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-white mb-2">
                   Time Estimate (hours)
                 </label>
                 <input
@@ -895,60 +1023,64 @@ export default function BoardTimeManagementPage() {
                 />
               </div>
 
-              <div>
-                <label className="flex items-center gap-2 mb-4">
-                  <input
-                    type="checkbox"
-                    checked={createForm.isBillable}
-                    onChange={(e) => setCreateForm({...createForm, isBillable: e.target.checked})}
-                    className="rounded border-white/20 bg-white/10 text-orange-500 focus:ring-orange-500"
-                  />
-                  <span className="text-sm text-white">Billable client</span>
-                </label>
-              </div>
-
-              {createForm.isBillable && (
+              {createForm.boardType === "client" && (
                 <>
                   <div>
-                    <label className="block text-sm font-medium text-white mb-2">
-                      Billing Type
+                    <label className="flex items-center gap-2 mb-4">
+                      <input
+                        type="checkbox"
+                        checked={createForm.isBillable}
+                        onChange={(e) => setCreateForm({...createForm, isBillable: e.target.checked})}
+                        className="rounded border-white/20 bg-white/10 text-orange-500 focus:ring-orange-500"
+                      />
+                      <span className="text-sm text-white">Billable client</span>
                     </label>
-                    <select
-                      value={createForm.billingType}
-                      onChange={(e) => setCreateForm({...createForm, billingType: e.target.value as "hourly" | "fixed"})}
-                      className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white focus:outline-none focus:border-orange-400"
-                    >
-                      <option value="hourly">Hourly</option>
-                      <option value="fixed">Fixed Price</option>
-                    </select>
                   </div>
 
-                  {createForm.billingType === "hourly" ? (
-                    <div>
-                      <label className="block text-sm font-medium text-white mb-2">
-                        Hourly Rate ($)
-                      </label>
-                      <input
-                        type="number"
-                        value={createForm.hourlyRate}
-                        onChange={(e) => setCreateForm({...createForm, hourlyRate: parseFloat(e.target.value) || 0})}
-                        className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder:text-white/40 focus:outline-none focus:border-orange-400"
-                        placeholder="100"
-                      />
-                    </div>
-                  ) : (
-                    <div>
-                      <label className="block text-sm font-medium text-white mb-2">
-                        Fixed Price ($)
-                      </label>
-                      <input
-                        type="number"
-                        value={createForm.fixedPrice}
-                        onChange={(e) => setCreateForm({...createForm, fixedPrice: parseFloat(e.target.value) || 0})}
-                        className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder:text-white/40 focus:outline-none focus:border-orange-400"
-                        placeholder="5000"
-                      />
-                    </div>
+                  {createForm.isBillable && (
+                    <>
+                      <div>
+                        <label className="block text-sm font-medium text-white mb-2">
+                          Billing Type
+                        </label>
+                        <select
+                          value={createForm.billingType}
+                          onChange={(e) => setCreateForm({...createForm, billingType: e.target.value as "hourly" | "fixed"})}
+                          className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white focus:outline-none focus:border-orange-400"
+                        >
+                          <option value="hourly">Hourly</option>
+                          <option value="fixed">Fixed Price</option>
+                        </select>
+                      </div>
+
+                      {createForm.billingType === "hourly" ? (
+                        <div>
+                          <label className="block text-sm font-medium text-white mb-2">
+                            Hourly Rate ($)
+                          </label>
+                          <input
+                            type="number"
+                            value={createForm.hourlyRate}
+                            onChange={(e) => setCreateForm({...createForm, hourlyRate: parseFloat(e.target.value) || 0})}
+                            className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder:text-white/40 focus:outline-none focus:border-orange-400"
+                            placeholder="100"
+                          />
+                        </div>
+                      ) : (
+                        <div>
+                          <label className="block text-sm font-medium text-white mb-2">
+                            Fixed Price ($)
+                          </label>
+                          <input
+                            type="number"
+                            value={createForm.fixedPrice}
+                            onChange={(e) => setCreateForm({...createForm, fixedPrice: parseFloat(e.target.value) || 0})}
+                            className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder:text-white/40 focus:outline-none focus:border-orange-400"
+                            placeholder="5000"
+                          />
+                        </div>
+                      )}
+                    </>
                   )}
                 </>
               )}
@@ -1079,6 +1211,31 @@ export default function BoardTimeManagementPage() {
 
               <div>
                 <label className="block text-sm font-medium text-white mb-2">
+                  Board Type
+                </label>
+                <select
+                  value={editingBoard.boardType || "client"}
+                  onChange={(e) => {
+                    setEditingBoard({
+                      ...editingBoard,
+                      boardType: e.target.value as "client" | "internal",
+                      isBillable: e.target.value === "client" ? editingBoard.isBillable : false,
+                    });
+                  }}
+                  className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white focus:outline-none focus:border-orange-400"
+                >
+                  <option value="client">Client Board (Billable)</option>
+                  <option value="internal">Internal Board (Non-billable)</option>
+                </select>
+                <p className="mt-1 text-xs text-white/40">
+                  {editingBoard.boardType === "internal" 
+                    ? "Internal boards track company-internal work without billing" 
+                    : "Client boards track billable work for external clients"}
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-white mb-2">
                   Time Estimate (hours) <span className="text-orange-500">*</span>
                 </label>
                 <input
@@ -1101,94 +1258,96 @@ export default function BoardTimeManagementPage() {
                 )}
               </div>
 
-              <div>
-                <label className="flex items-center gap-2 mb-4">
-                  <input
-                    type="checkbox"
-                    checked={editingBoard.isBillable || false}
-                    onChange={(e) =>
-                      setEditingBoard({
-                        ...editingBoard,
-                        isBillable: e.target.checked,
-                      })
-                    }
-                    className="rounded border-white/20 bg-white/10 text-orange-500 focus:ring-orange-500"
-                  />
-                  <span className="text-sm text-white">Billable client</span>
-                </label>
-              </div>
-
-              {editingBoard.isBillable && (
-                <>
-                  <div>
-                    <label className="block text-sm font-medium text-white mb-2">
-                      Billing Type
-                    </label>
-                    <select
-                      value={editingBoard.billingType || "hourly"}
+              {editingBoard.boardType === "client" && (
+                <div>
+                  <label className="flex items-center gap-2 mb-4">
+                    <input
+                      type="checkbox"
+                      checked={editingBoard.isBillable || false}
                       onChange={(e) =>
                         setEditingBoard({
                           ...editingBoard,
-                          billingType: e.target.value as "hourly" | "fixed",
+                          isBillable: e.target.checked,
                         })
                       }
-                      className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white focus:outline-none focus:border-orange-400"
-                    >
-                      <option value="hourly">Hourly</option>
-                      <option value="fixed">Fixed Price</option>
-                    </select>
-                  </div>
+                      className="rounded border-white/20 bg-white/10 text-orange-500 focus:ring-orange-500"
+                    />
+                    <span className="text-sm text-white">Billable client</span>
+                  </label>
+                </div>
+              )}
 
-                  {editingBoard.billingType === "hourly" ? (
-                    <div>
-                      <label className="block text-sm font-medium text-white mb-2">
-                        Hourly Rate ($) <span className="text-orange-500">*</span>
-                      </label>
-                      <input
-                        type="number"
-                        value={editingBoard.hourlyRate || ""}
-                        onChange={(e) => {
-                          setEditingBoard({
-                            ...editingBoard,
-                            hourlyRate: parseFloat(e.target.value) || 0,
-                          });
-                          setEditFormErrors({ ...editFormErrors, hourlyRate: "" });
-                        }}
-                        className={`w-full px-3 py-2 bg-white/10 border rounded-lg text-white placeholder:text-white/40 focus:outline-none focus:border-orange-400 ${
-                          editFormErrors.hourlyRate ? "border-red-500" : "border-white/20"
-                        }`}
-                        placeholder="100"
-                      />
-                      {editFormErrors.hourlyRate && (
-                        <p className="mt-1 text-xs text-red-400">{editFormErrors.hourlyRate}</p>
-                      )}
-                    </div>
-                  ) : (
-                    <div>
-                      <label className="block text-sm font-medium text-white mb-2">
-                        Fixed Price ($) <span className="text-orange-500">*</span>
-                      </label>
-                      <input
-                        type="number"
-                        value={editingBoard.fixedPrice || ""}
-                        onChange={(e) => {
-                          setEditingBoard({
-                            ...editingBoard,
-                            fixedPrice: parseFloat(e.target.value) || 0,
-                          });
-                          setEditFormErrors({ ...editFormErrors, fixedPrice: "" });
-                        }}
-                        className={`w-full px-3 py-2 bg-white/10 border rounded-lg text-white placeholder:text-white/40 focus:outline-none focus:border-orange-400 ${
-                          editFormErrors.fixedPrice ? "border-red-500" : "border-white/20"
-                        }`}
-                        placeholder="5000"
-                      />
-                      {editFormErrors.fixedPrice && (
-                        <p className="mt-1 text-xs text-red-400">{editFormErrors.fixedPrice}</p>
-                      )}
-                    </div>
+              {editingBoard.boardType === "client" && editingBoard.isBillable && (
+                <div>
+                  <label className="block text-sm font-medium text-white mb-2">
+                    Billing Type
+                  </label>
+                  <select
+                    value={editingBoard.billingType || "hourly"}
+                    onChange={(e) =>
+                      setEditingBoard({
+                        ...editingBoard,
+                        billingType: e.target.value as "hourly" | "fixed",
+                      })
+                    }
+                    className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white focus:outline-none focus:border-orange-400"
+                  >
+                    <option value="hourly">Hourly</option>
+                    <option value="fixed">Fixed Price</option>
+                  </select>
+                </div>
+              )}
+
+              {editingBoard.boardType === "client" && editingBoard.isBillable && editingBoard.billingType === "hourly" && (
+                <div>
+                  <label className="block text-sm font-medium text-white mb-2">
+                    Hourly Rate ($) <span className="text-orange-500">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    value={editingBoard.hourlyRate || ""}
+                    onChange={(e) => {
+                      setEditingBoard({
+                        ...editingBoard,
+                        hourlyRate: parseFloat(e.target.value) || 0,
+                      });
+                      setEditFormErrors({ ...editFormErrors, hourlyRate: "" });
+                    }}
+                    className={`w-full px-3 py-2 bg-white/10 border rounded-lg text-white placeholder:text-white/40 focus:outline-none focus:border-orange-400 ${
+                      editFormErrors.hourlyRate ? "border-red-500" : "border-white/20"
+                    }`}
+                    placeholder="100"
+                  />
+                  {editFormErrors.hourlyRate && (
+                    <p className="mt-1 text-xs text-red-400">{editFormErrors.hourlyRate}</p>
                   )}
-                </>
+                </div>
+              )}
+
+              {editingBoard.boardType === "client" && editingBoard.isBillable && editingBoard.billingType === "fixed" && (
+                <div>
+                  <label className="block text-sm font-medium text-white mb-2">
+                    Fixed Price ($) <span className="text-orange-500">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    value={editingBoard.fixedPrice || ""}
+                    onChange={(e) => {
+                      setEditingBoard({
+                        ...editingBoard,
+                        fixedPrice: parseFloat(e.target.value) || 0,
+                      });
+                      setEditFormErrors({ ...editFormErrors, fixedPrice: "" });
+                    }}
+                    className={`w-full px-3 py-2 bg-white/10 border rounded-lg text-white placeholder:text-white/40 focus:outline-none focus:border-orange-400 ${
+                      editFormErrors.fixedPrice ? "border-red-500" : "border-white/20"
+                    }`}
+                    placeholder="5000"
+                  />
+                  {editFormErrors.fixedPrice && (
+                    <p className="mt-1 text-xs text-red-400">{editFormErrors.fixedPrice}</p>
+                  )}
+                </div>
               )}
             </div>
 
@@ -1196,6 +1355,7 @@ export default function BoardTimeManagementPage() {
               <button
                 onClick={() => setIsEditModalOpen(false)}
                 className="flex-1 px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white hover:bg-white/20 transition"
+                disabled={isSaving}
               >
                 Cancel
               </button>

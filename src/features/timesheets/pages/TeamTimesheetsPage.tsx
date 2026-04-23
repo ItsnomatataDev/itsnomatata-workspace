@@ -14,6 +14,7 @@ import {
 import Sidebar from "../../../components/dashboard/components/Siderbar";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import { useTeamTimesheetsRealtime } from "../../../lib/hooks/useTeamTimesheetsRealtime";
+import { supabase } from "../../../lib/supabase/client";
 import type { AdminTimeEntryRow } from "../../../lib/supabase/queries/adminTime";
 import EverhourCalendar, {
   type EverhourCalendarEvent,
@@ -250,10 +251,37 @@ export default function TeamTimesheetsPage() {
 
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"grid" | "calendar">("grid");
+  const [allMembers, setAllMembers] = useState<any[]>([]);
+  const [calendarDateRange, setCalendarDateRange] = useState<{ start: Date; end: Date } | null>(null);
 
   const { entries, loading, error } = useTeamTimesheetsRealtime({
     organizationId: profile?.organization_id ?? "",
   });
+
+  // Fetch all organization members
+  useEffect(() => {
+    if (!profile?.organization_id) return;
+
+    const fetchMembers = async () => {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("id, full_name, email")
+        .eq("organization_id", profile.organization_id);
+
+      if (!error && data) {
+        setAllMembers(data);
+      }
+    };
+
+    fetchMembers();
+  }, [profile?.organization_id]);
+
+  // Handle calendar date range change
+  const handleCalendarDateRangeChange = (startDate: Date, endDate: Date) => {
+    setCalendarDateRange({ start: startDate, end: endDate });
+    // TODO: Fetch time entries for the selected date range
+    // This would require updating the useTeamTimesheetsRealtime hook to accept date range params
+  };
 
   const calendarDays = useMemo(() => buildTwoWeekDays(), []);
   const calendarKeys = useMemo(
@@ -267,21 +295,28 @@ export default function TeamTimesheetsPage() {
   const users = useMemo(() => {
     const map = new Map<string, UserSummary>();
 
-    for (const entry of entries) {
-      const userId = entry.user_id;
-      const current = map.get(userId) ?? {
-        id: userId,
-        name: entry.user_name || entry.full_name || "Unknown",
-        email: entry.user_email || null,
+    // Initialize with all members
+    for (const member of allMembers) {
+      map.set(member.id, {
+        id: member.id,
+        name: member.full_name || "Unknown",
+        email: member.email || null,
         totalSeconds: 0,
         running: false,
-        recentBoard: entry.board_name || null,
-        lastEntryAt: entry.started_at || "1970-01-01T00:00:00.000Z",
+        recentBoard: null,
+        lastEntryAt: "1970-01-01T00:00:00.000Z",
         activeTimers: 0,
         boardTotals: {},
         taskTotals: {},
         dailyHours: Object.fromEntries(calendarKeys.map((k) => [k, 0])),
-      };
+      });
+    }
+
+    // Add time entry data
+    for (const entry of entries) {
+      const userId = entry.user_id;
+      const current = map.get(userId);
+      if (!current) continue;
 
       const dur = Number(entry.duration_seconds ?? 0);
       current.totalSeconds += dur;
@@ -313,7 +348,7 @@ export default function TeamTimesheetsPage() {
         return b.activeTimers - a.activeTimers;
       return b.totalSeconds - a.totalSeconds;
     });
-  }, [entries, calendarKeySet, calendarKeys]);
+  }, [entries, calendarKeySet, calendarKeys, allMembers]);
 
   const selectedUser = useMemo(
     () => users.find((u) => u.id === selectedUserId) ?? null,
@@ -707,6 +742,7 @@ export default function TeamTimesheetsPage() {
                             </div>
                             {calendarDays.map((day) => {
                               const h = u.dailyHours[day.key] ?? 0;
+                              const isBelowTarget = h > 0 && h < 8;
                               const intensity =
                                 h > 8 ? 0.3 : h > 5 ? 0.18 : h > 2 ? 0.1 : 0;
                               return (
@@ -714,16 +750,20 @@ export default function TeamTimesheetsPage() {
                                   key={`${u.id}-${day.key}`}
                                   className="border-l border-white/5 px-1 py-2.5 text-center font-mono text-xs transition"
                                   style={{
-                                    backgroundColor:
-                                      h > 0
+                                    backgroundColor: isBelowTarget
+                                      ? "rgba(239,68,68,0.15)"
+                                      : h > 0
                                         ? `${accent}${Math.round(
                                             intensity * 255,
                                           )
                                             .toString(16)
                                             .padStart(2, "0")}`
                                         : "transparent",
-                                    color:
-                                      h > 0 ? accent : "rgba(255,255,255,0.18)",
+                                    color: isBelowTarget
+                                      ? "#ef4444"
+                                      : h > 0
+                                        ? accent
+                                        : "rgba(255,255,255,0.18)",
                                     fontWeight: h > 0 ? 600 : 400,
                                   }}
                                 >
@@ -776,6 +816,7 @@ export default function TeamTimesheetsPage() {
                     selectedUserId={selectedUserId}
                     onSelectEvent={handleCalendarEvent}
                     onSelectUser={setSelectedUserId}
+                    onDateRangeChange={handleCalendarDateRangeChange}
                   />
                 </div>
               )}

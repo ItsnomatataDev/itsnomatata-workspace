@@ -84,6 +84,9 @@ export async function updateBoardTimeSettings(
       appMetadata: user?.app_metadata
     });
     
+    // Check if settings already exist
+    const existing = await getBoardTimeSettings(boardId, organizationId);
+    
     const updateData = {
       board_id: boardId,
       organization_id: organizationId,
@@ -96,12 +99,42 @@ export async function updateBoardTimeSettings(
     };
     
     console.log("Update data:", updateData);
+    console.log("Existing settings:", existing);
     
-    const { data, error } = await supabase
-      .from("board_time_settings")
-      .upsert(updateData)
-      .select()
-      .single();
+    let data, error;
+    
+    if (existing) {
+      // Update existing record
+      console.log("Updating existing record...");
+      const result = await supabase
+        .from("board_time_settings")
+        .update({
+          estimated_hours: settings.estimatedHours,
+          is_billable: settings.isBillable,
+          billing_type: settings.billingType,
+          hourly_rate: settings.hourlyRate,
+          fixed_price: settings.fixedPrice,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("board_id", boardId)
+        .eq("organization_id", organizationId)
+        .select()
+        .single();
+      
+      data = result.data;
+      error = result.error;
+    } else {
+      // Insert new record
+      console.log("Inserting new record...");
+      const result = await supabase
+        .from("board_time_settings")
+        .insert(updateData)
+        .select()
+        .single();
+      
+      data = result.data;
+      error = result.error;
+    }
 
     if (error) {
       console.error("Supabase error details:", {

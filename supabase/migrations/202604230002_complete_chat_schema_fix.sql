@@ -189,3 +189,6 @@ COMMENT ON TABLE chat_conversations IS 'Multi-user chat conversations';
 COMMENT ON TABLE chat_conversation_members IS 'Members of chat conversations';
 COMMENT ON TABLE chat_messages IS 'Messages within conversations';
 COMMENT ON TABLE chat_attachments IS 'File attachments for messages';
+
+COMMENT ON COLUMN chat_conversation_members.user_id IS 'Foreign key to profiles table';
+COMMENT ON COLUMN chat_messages.sender_id IS 'Foreign key to profiles table';

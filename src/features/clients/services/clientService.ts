@@ -65,6 +65,7 @@ export interface CreateClientInput {
   logoUrl?: string | null;
   industry?: string | null;
   notes?: string | null;
+  boardType?: "client" | "internal";
 }
 
 export interface UpdateClientInput {
@@ -76,6 +77,7 @@ export interface UpdateClientInput {
   logo_url?: string | null;
   industry?: string | null;
   notes?: string | null;
+  boardType?: "client" | "internal";
 }
 
 function normalizeOptional(value?: string | null): string | null {
@@ -135,6 +137,7 @@ export async function createClient(
     logo_url: normalizeOptional(input.logoUrl),
     industry: normalizeOptional(input.industry),
     notes: normalizeOptional(input.notes),
+    board_type: input.boardType || "client",
   };
 
   const { data, error } = await supabase
@@ -184,6 +187,9 @@ export async function updateClient(
       : {}),
     ...(input.notes !== undefined
       ? { notes: normalizeOptional(input.notes) }
+      : {}),
+    ...(input.boardType !== undefined
+      ? { board_type: input.boardType }
       : {}),
     updated_at: new Date().toISOString(),
   };

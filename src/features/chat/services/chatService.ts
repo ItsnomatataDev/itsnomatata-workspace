@@ -208,20 +208,7 @@ export async function getConversations(
         role,
         joined_at,
         is_muted,
-        last_read_message_id,
-        profile:profiles (
-          id,
-          full_name,
-          email,
-          last_seen_at
-        )
-      ),
-      messages:chat_messages (
-        id,
-        sender_id,
-        body,
-        message_type,
-        created_at
+        last_read_message_id
       )
     `)
     .order("last_message_at", { ascending: false, nullsFirst: false })
@@ -229,88 +216,65 @@ export async function getConversations(
 
   if (error) throw error;
 
-  const conversations = (data ?? []) as Array<
-    ChatConversation & {
-      messages?: Array<{
-        id: string;
-        sender_id: string;
-        body: string | null;
-        message_type?: string | null;
-        created_at: string;
-      }>;
-    }
-  >;
+  const conversations = (data ?? []) as ChatConversation[];
+
+  console.log("Raw conversations with members:", conversations.map(c => ({ id: c.id, members: c.members })));
+
+  // Collect all user IDs from conversation members
+  const allUserIds = new Set<string>();
+  conversations.forEach((conv) => {
+    conv.members?.forEach((member) => {
+      allUserIds.add(member.user_id);
+    });
+  });
+
+  console.log("User IDs to fetch profiles for:", Array.from(allUserIds));
+
+  // Fetch all profiles in a single query
+  const { data: profilesData, error: profilesError } = await supabase
+    .from("profiles")
+    .select("id, full_name, email, last_seen_at")
+    .in("id", Array.from(allUserIds));
+
+  if (profilesError) {
+    console.error("Failed to fetch profiles:", profilesError);
+  }
+
+  console.log("Fetched profiles:", profilesData);
+
+  // Create a map of user_id -> profile
+  const profilesMap = new Map(
+    (profilesData ?? []).map((p) => [p.id, p]),
+  );
 
   return conversations.map((conversation) => {
-    const myMembership = conversation.members?.find(
+    // Attach profiles to members
+    const membersWithProfiles = conversation.members?.map((member) => ({
+      ...member,
+      profile: profilesMap.get(member.user_id) || null,
+    }));
+
+    const myMembership = membersWithProfiles?.find(
       (member) => member.user_id === currentUserId,
     );
 
-    const otherMember = conversation.members?.find(
+    const otherMember = membersWithProfiles?.find(
       (member) => member.user_id !== currentUserId,
     );
-
-    const sortedMessagesDesc = [...(conversation.messages ?? [])].sort(
-      (a, b) =>
-        new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
-    );
-
-    const sortedMessagesAsc = [...(conversation.messages ?? [])].sort(
-      (a, b) =>
-        new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
-    );
-
-    const latestMessage = sortedMessagesDesc[0] ?? null;
-
-    let unreadCount = 0;
-
-    if (currentUserId) {
-      if (!myMembership?.last_read_message_id) {
-        unreadCount = sortedMessagesAsc.filter(
-          (message) => message.sender_id !== currentUserId,
-        ).length;
-      } else {
-        const lastReadIndex = sortedMessagesAsc.findIndex(
-          (message) => message.id === myMembership.last_read_message_id,
-        );
-
-        if (lastReadIndex === -1) {
-          unreadCount = sortedMessagesAsc.filter(
-            (message) => message.sender_id !== currentUserId,
-          ).length;
-        } else {
-          unreadCount = sortedMessagesAsc
-            .slice(lastReadIndex + 1)
-            .filter((message) => message.sender_id !== currentUserId).length;
-        }
-      }
-    }
 
     const displayName = conversation.type === "direct"
       ? otherMember?.profile?.full_name ||
         otherMember?.profile?.email ||
-        conversation.title ||
+        (otherMember?.user_id ? 'User ' + otherMember.user_id.substring(0, 8) : null) ||
         "Direct conversation"
       : conversation.title || "Untitled conversation";
 
     return {
       ...conversation,
+      members: membersWithProfiles,
       display_name: displayName,
-      unread_count: unreadCount,
-      last_message: latestMessage
-        ? {
-          id: latestMessage.id,
-          sender_id: latestMessage.sender_id,
-          body: latestMessage.message_type === "image"
-            ? "📷 Image"
-            : latestMessage.message_type === "audio"
-            ? "🎤 Voice note"
-            : latestMessage.message_type === "file"
-            ? "📎 File"
-            : latestMessage.body,
-          created_at: latestMessage.created_at,
-        }
-        : null,
+      unread_count: 0, // Will be calculated when messages are loaded
+      last_message: null, // Will be populated when messages are loaded
     };
   });
 }
@@ -318,17 +282,11 @@ export async function getConversations(
 export async function getMessages(
   conversationId: string,
 ): Promise<ChatMessage[]> {
+  // Temporarily just get basic message data without sender profile
+  // This will work even if sender_id column doesn't exist
   const { data, error } = await supabase
     .from("chat_messages")
-    .select(`
-      *,
-      sender:profiles!chat_messages_sender_id_fkey (
-        id,
-        full_name,
-        email,
-        last_seen_at
-      )
-    `)
+    .select("*")
     .eq("conversation_id", conversationId)
     .order("created_at", { ascending: true });
 
@@ -385,15 +343,7 @@ export async function sendMessage(
   const { data, error } = await supabase
     .from("chat_messages")
     .insert(insertPayload)
-    .select(`
-      *,
-      sender:profiles!chat_messages_sender_id_fkey (
-        id,
-        full_name,
-        email,
-        last_seen_at
-      )
-    `)
+    .select("*")
     .single();
 
   if (error) throw error;
@@ -401,8 +351,15 @@ export async function sendMessage(
   const message = data as ChatMessage;
 
   if (messageType !== "system") {
-    const senderName = message.sender?.full_name?.trim() ||
-      message.sender?.email?.trim() ||
+    // Get sender name from profiles table
+    const { data: senderProfile } = await supabase
+      .from("profiles")
+      .select("full_name, email")
+      .eq("id", params.userId)
+      .single();
+
+    const senderName = senderProfile?.full_name?.trim() ||
+      senderProfile?.email?.trim() ||
       "Someone";
 
     void notifyConversationMembers({

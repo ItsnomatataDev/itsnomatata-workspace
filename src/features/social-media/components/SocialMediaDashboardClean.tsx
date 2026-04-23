@@ -89,29 +89,33 @@ export default function SocialMediaDashboard() {
         .limit(10);
 
       // Transform account data to metrics
-      const accountMetrics = accounts?.map((account: any) => ({
-        platform: account.platform,
-        icon: getPlatformIcon(account.platform),
-        followers: account.follower_count || 0,
-        engagement: account.engagement_rate || 0,
-        reach: calculateReach(account.follower_count, account.engagement_rate),
-        posts: account.posts_count || 0,
-        growth: await calculateGrowth(account.id)
-      })) || [];
+      const accountMetrics = await Promise.all(
+        accounts?.map(async (account: any) => ({
+          platform: account.platform,
+          icon: getPlatformIcon(account.platform),
+          followers: account.follower_count || 0,
+          engagement: account.engagement_rate || 0,
+          reach: calculateReach(account.follower_count, account.engagement_rate),
+          posts: account.posts_count || 0,
+          growth: await calculateGrowth(account.id)
+        })) || []
+      );
 
       // Transform content data to top content
-      const topPerforming = content?.map((item: any) => ({
-        id: item.id,
-        title: item.title,
-        platform: item.social_media_accounts.platform,
-        type: item.post_type,
-        engagement: await calculateEngagement(item.id),
-        reach: await calculateReachFromContent(item.id),
-        likes: await getEngagementCount(item.id, 'like'),
-        comments: await getEngagementCount(item.id, 'comment'),
-        shares: await getEngagementCount(item.id, 'share'),
-        performance: item.performance_score || 0
-      })) || [];
+      const topPerforming = await Promise.all(
+        content?.map(async (item: any) => ({
+          id: item.id,
+          title: item.title,
+          platform: item.social_media_accounts?.platform || 'unknown',
+          type: item.post_type,
+          engagement: await calculateEngagement(item.id),
+          reach: await calculateReachFromContent(item.id),
+          likes: await getEngagementCount(item.id, 'like'),
+          comments: await getEngagementCount(item.id, 'comment'),
+          shares: await getEngagementCount(item.id, 'share'),
+          performance: item.performance_score || 0
+        })) || []
+      );
 
       setMetrics(accountMetrics);
       setTopContent(topPerforming);
@@ -124,7 +128,7 @@ export default function SocialMediaDashboard() {
   };
 
   const getPlatformIcon = (platform: string) => {
-    const icons = {
+    const icons: Record<string, any> = {
       instagram: Camera,
       facebook: Globe2,
       twitter: MessageSquare,

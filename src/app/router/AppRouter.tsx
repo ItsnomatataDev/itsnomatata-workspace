@@ -439,6 +439,56 @@ const AppRouter = () => {
             </ProtectedRoute>
           }
         />
+        <Route
+          path="/timesheets/team"
+          element={
+            <ProtectedRoute>
+              <RoleRoute roles={["admin", "manager", "it"]}>
+                <TeamTimesheetsPage />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/timesheets/reports"
+          element={
+            <ProtectedRoute>
+              <RoleRoute roles={["admin", "manager"]}>
+                <ReportsPage />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/timesheets/everhouradmin"
+          element={
+            <ProtectedRoute>
+              <RoleRoute roles={["admin"]}>
+                <EverhourAdminPage />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/board-management"
+          element={
+            <ProtectedRoute>
+              <RoleRoute roles={["admin", "manager"]}>
+                <BoardTimeManagementPage />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/board-details/:boardId"
+          element={
+            <ProtectedRoute>
+              <RoleRoute roles={["admin", "manager"]}>
+                <BoardDetailView />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
         <Route path="/clients" element={<ClientsPage />} />
         <Route path="/clients/:clientId" element={<ClientDetailsPage />} />
         <Route

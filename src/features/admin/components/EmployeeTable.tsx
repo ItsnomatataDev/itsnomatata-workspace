@@ -1,4 +1,4 @@
-import { Pencil, Trash2 } from "lucide-react";
+import { Pencil, Trash2, Shield, AlertTriangle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import type { EmployeeOverviewRow } from "../services/adminService";
 
@@ -6,6 +6,8 @@ type EmployeeTableProps = {
   employees: EmployeeOverviewRow[];
   onEditRole: (employee: EmployeeOverviewRow) => void;
   onRemove: (employee: EmployeeOverviewRow) => Promise<void>;
+  onSuspend: (employee: EmployeeOverviewRow) => void;
+  onDelete: (employee: EmployeeOverviewRow) => void;
   actionLoadingId?: string | null;
 };
 
@@ -64,6 +66,8 @@ export default function EmployeeTable({
   employees,
   onEditRole,
   onRemove,
+  onSuspend,
+  onDelete,
   actionLoadingId = null,
 }: EmployeeTableProps) {
   const navigate = useNavigate();
@@ -166,13 +170,35 @@ export default function EmployeeTable({
                         className="inline-flex items-center gap-2 rounded-xl border border-white/10 px-3 py-2 text-xs font-medium text-white/80 hover:bg-white/5"
                       >
                         <Pencil size={14} />
-                        Change Role
+                        Role
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => onSuspend(employee)}
+                        className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-medium hover:bg-white/5 ${
+                          employee.is_suspended
+                            ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/15'
+                            : 'border-amber-500/20 bg-amber-500/10 text-amber-300 hover:bg-amber-500/15'
+                        }`}
+                      >
+                        {employee.is_suspended ? (
+                          <>
+                            <Shield size={14} />
+                            Unsuspend
+                          </>
+                        ) : (
+                          <>
+                            <AlertTriangle size={14} />
+                            Suspend
+                          </>
+                        )}
                       </button>
 
                       <button
                         type="button"
                         disabled={actionLoadingId === employee.id}
-                        onClick={() => void onRemove(employee)}
+                        onClick={() => onRemove(employee)}
                         className="inline-flex items-center gap-2 rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs font-medium text-red-300 hover:bg-red-500/15 disabled:opacity-60"
                       >
                         <Trash2 size={14} />

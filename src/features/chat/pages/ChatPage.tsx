@@ -15,7 +15,7 @@ import {
   sendMessage,
   uploadChatAttachment,
 } from "../services/chatService";
-import { subscribeToConversationMessages } from "../services/chatRealtime";
+import { subscribeToConversationMessages, subscribeToUserPresence } from "../services/chatRealtime";
 import { createTypingChannel } from "../services/chatTyping";
 import type { ChatConversation, ChatMessage, ChatUser } from "../types/chat";
 
@@ -39,6 +39,7 @@ export default function ChatPage() {
   const [typingUsers, setTypingUsers] = useState<Record<string, boolean>>({});
 
   const unsubscribeRef = useRef<null | (() => void)>(null);
+  const presenceUnsubscribeRef = useRef<null | (() => void)>(null);
   const typingChannelRef = useRef<ReturnType<
     typeof createTypingChannel
   > | null>(null);
@@ -74,7 +75,12 @@ export default function ChatPage() {
   }, [activeConversation, user?.id]);
 
   const onlineGroupMembers = useMemo(() => {
+    if (!activeConversation) return [];
+
+    const groupMembers = activeConversation.members ?? [];
+
     return groupMembers.filter((member) => {
+      if (member.user_id === user?.id) return false;
       if (!member.profile?.last_seen_at) return false;
       return (
         Date.now() - new Date(member.profile.last_seen_at).getTime() <=
@@ -126,6 +132,51 @@ export default function ChatPage() {
     void loadConversations();
   }, [user?.id]);
 
+  // Temporarily disable presence subscription to prevent overwriting profile data
+  // useEffect(() => {
+  //   if (!conversations.length) return;
+
+  //   const allUserIds = new Set<string>();
+  //   conversations.forEach((conv) => {
+  //     conv.members?.forEach((member) => {
+  //       allUserIds.add(member.user_id);
+  //     });
+  //   });
+
+  //   if (presenceUnsubscribeRef.current) {
+  //     presenceUnsubscribeRef.current();
+  //     presenceUnsubscribeRef.current = null;
+  //   }
+
+  //   presenceUnsubscribeRef.current = subscribeToUserPresence({
+  //     userIds: Array.from(allUserIds),
+  //     onPresenceChange: (userId, isOnline) => {
+  //       setConversations((current) =>
+  //         current.map((conv) => ({
+  //           ...conv,
+  //           members: conv.members?.map((member) =>
+  //             member.user_id === userId
+  //               ? {
+  //                   ...member,
+  //                   profile: member.profile
+  //                     ? { ...member.profile, last_seen_at: isOnline ? new Date().toISOString() : member.profile.last_seen_at }
+  //                     : member.profile,
+  //                 }
+  //               : member,
+  //           ),
+  //         })),
+  //       );
+  //     },
+  //   });
+
+  //   return () => {
+  //     if (presenceUnsubscribeRef.current) {
+  //       presenceUnsubscribeRef.current();
+  //       presenceUnsubscribeRef.current = null;
+  //     }
+  //   };
+  // }, [conversations.length]);
+
   useEffect(() => {
     if (!activeConversationId) {
       setMessages([]);
@@ -156,6 +207,7 @@ export default function ChatPage() {
               conversation.id === activeConversationId
                 ? {
                     ...conversation,
+                    members: conversation.members, // Preserve members with profiles
                     last_message_at: incomingMessage.created_at,
                     updated_at: incomingMessage.created_at,
                     last_message: {
@@ -175,6 +227,7 @@ export default function ChatPage() {
                   }
                 : {
                     ...conversation,
+                    members: conversation.members, // Preserve members with profiles
                     unread_count:
                       incomingMessage.conversation_id === conversation.id &&
                       incomingMessage.sender_id !== user?.id
@@ -279,6 +332,7 @@ export default function ChatPage() {
       setLoadingConversations(true);
 
       const data = await getConversations(user?.id);
+      console.log("Loaded conversations with profiles:", data);
       setConversations(data);
 
       // Intentionally do not auto-open the latest conversation.
@@ -318,6 +372,7 @@ export default function ChatPage() {
           conversation.id === sentMessage.conversation_id
             ? {
                 ...conversation,
+                members: conversation.members, // Preserve members with profiles
                 last_message_at: sentMessage.created_at,
                 updated_at: sentMessage.created_at,
                 last_message: {

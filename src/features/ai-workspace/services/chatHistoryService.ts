@@ -136,7 +136,7 @@ export class ChatHistoryService {
         .order("metadata->>lastActivity", { ascending: false });
 
       if (params.limit) query = query.limit(params.limit);
-      if (params.offset) query = query.offset(params.offset);
+      if (params.offset) query = query.range(params.offset, params.offset + (params.limit || 10) - 1);
 
       const { data, error, count } = await query;
 

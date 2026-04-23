@@ -5,6 +5,8 @@ import {
   MessageSquare,
   Radio,
   Users,
+  Pause,
+  Play,
 } from "lucide-react";
 import type {
   TaskAssigneeItem,
@@ -58,6 +60,9 @@ export default function TaskCard({
   hasRunningTimer,
   invitedCount,
   watchers,
+  isTrackingThisTask,
+  liveSeconds,
+  onPauseTimer,
 }: {
   task: TrelloTaskCard;
   onTrack: (taskId: string, title: string) => void;
@@ -65,6 +70,9 @@ export default function TaskCard({
   hasRunningTimer?: boolean;
   invitedCount?: number;
   watchers?: TaskWatcherItem[];
+  isTrackingThisTask?: boolean;
+  liveSeconds?: number;
+  onPauseTimer?: () => void;
 }) {
   const assignees = task.assignees ?? [];
   const visibleAssignees = assignees.slice(0, 3);
@@ -77,6 +85,15 @@ export default function TaskCard({
 
   const handleClick = () => {
     onOpen(task.id);
+  };
+
+  const formatLiveTime = (seconds: number) => {
+    const hrs = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    const pad = (v: number) => String(v).padStart(2, "0");
+    if (hrs > 0) return `${pad(hrs)}:${pad(mins)}:${pad(secs)}`;
+    return `${pad(mins)}:${pad(secs)}`;
   };
 
   return (
@@ -216,19 +233,38 @@ export default function TaskCard({
           </div>
         )}
 
-        <button
-          onClick={(event) => {
-            event.stopPropagation();
-            onTrack(task.id, task.title);
-          }}
-          className="
-            flex-1 rounded-xl bg-orange-500 px-3 py-2 text-xs font-semibold text-black
-            transition hover:bg-orange-400
-          "
-        >
-          <Clock3 size={12} className="inline mr-1" />
-          Track
-        </button>
+        {isTrackingThisTask ? (
+          <div className="flex items-center gap-2 rounded-xl border border-orange-500/30 bg-orange-500/10 px-2 py-1.5">
+            <div className="h-1.5 w-1.5 rounded-full bg-orange-500 animate-pulse" />
+            <span className="text-xs font-mono font-semibold text-orange-400">
+              {formatLiveTime(liveSeconds || 0)}
+            </span>
+            <button
+              onClick={(event) => {
+                event.stopPropagation();
+                onPauseTimer?.();
+              }}
+              className="rounded-lg p-1 text-orange-400 hover:bg-orange-500/20 transition"
+              title="Pause timer"
+            >
+              <Pause size={12} />
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={(event) => {
+              event.stopPropagation();
+              onTrack(task.id, task.title);
+            }}
+            className="
+              flex-1 rounded-xl bg-orange-500 px-3 py-2 text-xs font-semibold text-black
+              transition hover:bg-orange-400
+            "
+          >
+            <Play size={12} className="inline mr-1" />
+            Track
+          </button>
+        )}
       </div>
       <div className="pointer-events-none absolute inset-0 rounded-2xl bg-[linear-gradient(135deg,rgba(249,115,22,0.08),transparent_35%)] opacity-0 transition group-hover:opacity-100" />
     </article>

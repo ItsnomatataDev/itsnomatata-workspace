@@ -112,12 +112,12 @@ export default function AnalyticsDashboard({ organizationId }: AnalyticsDashboar
       const totalFollowers = accountsData?.reduce((sum, acc) => sum + (acc.follower_count || 0), 0) || 0;
       const totalEngagement = contentData?.reduce((sum, item) => sum + item.count, 0) || 0;
       const totalPosts = accountsData?.reduce((sum, acc) => sum + (acc.posts_count || 0), 0) || 0;
-      
+
       // Calculate platform breakdown
       const platformBreakdown = accountsData?.reduce((acc: any[], account: any) => {
-        const platformEngagement = contentData?.filter(item => 
-          item.content_calendar?.social_media_accounts?.platform === account.platform
-        ).reduce((sum, item) => sum + item.count, 0) || 0;
+        const platformEngagement = contentData?.filter((item: any) =>
+          (item.content_calendar as any)?.social_media_accounts?.platform === account.platform
+        ).reduce((sum: number, item: any) => sum + item.count, 0) || 0;
         
         const existingIndex = acc.findIndex((item: any) => item.platform === account.platform);
         
@@ -461,6 +461,7 @@ export default function AnalyticsDashboard({ organizationId }: AnalyticsDashboar
               )}
             </div>
           </div>
+        </div>
       </div>
     </div>
   );

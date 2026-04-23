@@ -50,6 +50,7 @@ export default function NewChatModal({
         setError("");
 
         const data = await getOrganizationUsers(organizationId, currentUserId);
+        console.log("Loaded users:", data);
         setUsers(data);
       } catch (err: any) {
         console.error("LOAD USERS ERROR:", err);
@@ -275,7 +276,7 @@ export default function NewChatModal({
                   >
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium text-white">
-                        {user.full_name || user.email || "Unnamed user"}
+                        {user.full_name || user.email || user.id || "Unnamed user"}
                       </p>
                       <p className="mt-1 truncate text-xs text-white/45">
                         {user.email || "No email"}

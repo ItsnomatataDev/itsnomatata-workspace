@@ -6,11 +6,13 @@ import EmployeeTable from "../components/EmployeeTable";
 import EmployeeTimesheetTable from "../components/EmployeTimeSheetTable";
 import InviteUserModal from "../components/InviteUserModal";
 import UpdateUserRoleModal from "../components/UpdateUserRoleModal";
+import SuspendUserModal from "../components/SuspendUserModal";
 
 import {
   getAdminPeopleStats,
   getEmployeeOverview,
   removeEmployeeFromOrganization,
+  deleteUserCompletely,
   type AdminPeopleStats,
   type EmployeeOverviewRow,
   type EmployeeTimesheetSummaryRow,
@@ -53,6 +55,10 @@ export default function AdminEmployeesPage() {
   const [search, setSearch] = useState("");
   const [inviteOpen, setInviteOpen] = useState(false);
   const [editingEmployee, setEditingEmployee] =
+    useState<EmployeeOverviewRow | null>(null);
+  const [suspendingEmployee, setSuspendingEmployee] =
+    useState<EmployeeOverviewRow | null>(null);
+  const [deletingEmployee, setDeletingEmployee] =
     useState<EmployeeOverviewRow | null>(null);
 
   const loadPage = useCallback(async () => {
@@ -133,6 +139,33 @@ export default function AdminEmployeesPage() {
     } catch (err: any) {
       console.error("REMOVE EMPLOYEE ERROR:", err);
       setError(err?.message || "Failed to remove employee.");
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
+  const handleDelete = async (employee: EmployeeOverviewRow) => {
+    if (!organizationId) return;
+
+    const confirmed = window.confirm(
+      `This will PERMANENTLY delete ${employee.full_name || employee.email || "this user"} from the system. This action cannot be undone. Are you sure?`,
+    );
+
+    if (!confirmed) return;
+
+    try {
+      setActionLoadingId(employee.id);
+      setError("");
+
+      await deleteUserCompletely({
+        organizationId,
+        userId: employee.id,
+      });
+
+      await loadPage();
+    } catch (err: any) {
+      console.error("DELETE EMPLOYEE ERROR:", err);
+      setError(err?.message || "Failed to delete employee.");
     } finally {
       setActionLoadingId(null);
     }
@@ -242,6 +275,8 @@ export default function AdminEmployeesPage() {
                   employees={filteredEmployees}
                   onEditRole={setEditingEmployee}
                   onRemove={handleRemove}
+                  onSuspend={setSuspendingEmployee}
+                  onDelete={handleDelete}
                   actionLoadingId={actionLoadingId}
                 />
               </section>
@@ -275,6 +310,15 @@ export default function AdminEmployeesPage() {
         onClose={() => setEditingEmployee(null)}
         organizationId={organizationId}
         employee={editingEmployee}
+        onUpdated={loadPage}
+      />
+
+      <SuspendUserModal
+        open={!!suspendingEmployee}
+        onClose={() => setSuspendingEmployee(null)}
+        organizationId={organizationId}
+        employee={suspendingEmployee}
+        currentUserId={profile.id}
         onUpdated={loadPage}
       />
     </div>

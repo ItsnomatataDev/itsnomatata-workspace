@@ -71,9 +71,12 @@ export interface WorkflowExecution {
 export class ResellableWorkflowEngine {
   // Execute a workflow instance
   static async executeWorkflow(instanceId: string): Promise<WorkflowExecution> {
+    let executionId: string | undefined;
+    let instance: any;
+
     try {
       // Get workflow instance
-      const { data: instance, error: instanceError } = await supabase
+      const { data: instanceData, error: instanceError } = await supabase
         .from('workflow_instances')
         .select(`
           *,
@@ -91,12 +94,14 @@ export class ResellableWorkflowEngine {
         .eq('id', instanceId)
         .single();
 
+      instance = instanceData;
+
       if (instanceError || !instance) {
         throw new Error('Workflow instance not found');
       }
 
       // Create execution record
-      const executionId = `exec_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      executionId = `exec_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       const { data: execution, error: execError } = await supabase
         .from('workflow_execution_logs')
         .insert({
@@ -153,22 +158,26 @@ export class ResellableWorkflowEngine {
 
     } catch (error) {
       console.error('Workflow execution error:', error);
-      
-      // Update execution with error
-      await supabase
-        .from('workflow_execution_logs')
-        .update({
-          status: 'failed',
-          error_message: error instanceof Error ? error.message : 'Unknown error',
-        })
-        .eq('execution_id', executionId);
 
-      // Update instance with error
-      await this.updateInstanceStatus(instanceId, {
-        status: 'error',
-        error_count: instance.error_count + 1,
-        last_error: error instanceof Error ? error.message : 'Unknown error',
-      });
+      // Update execution with error if executionId exists
+      if (executionId) {
+        await supabase
+          .from('workflow_execution_logs')
+          .update({
+            status: 'failed',
+            error_message: error instanceof Error ? error.message : 'Unknown error',
+          })
+          .eq('execution_id', executionId);
+      }
+
+      // Update instance with error if instance exists
+      if (instance) {
+        await this.updateInstanceStatus(instanceId, {
+          status: 'error',
+          error_count: (instance.error_count || 0) + 1,
+          last_error: error instanceof Error ? error.message : 'Unknown error',
+        });
+      }
 
       throw error;
     }

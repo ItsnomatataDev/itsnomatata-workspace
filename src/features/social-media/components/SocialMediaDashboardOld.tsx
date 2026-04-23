@@ -170,21 +170,25 @@ export default function SocialMediaDashboard() {
           unit: "followers",
           deadline: "2024-01-31",
           progress: Math.round(((accounts?.find((acc: any) => acc.platform === 'instagram')?.follower_count || 0) / 150000) * 100),
-          status: "on-track",
+          status: "on-track" as const,
         },
         {
           id: "2",
           title: "Improve engagement rate",
-          current: accounts?.reduce((sum: number, acc: any) => 
-            acc.platform === 'instagram' ? sum + (acc.engagement_rate || 0) : sum, 0
-          , 0) / accounts?.filter((acc: any) => acc.platform === 'instagram').length || 1,
+          current: (() => {
+            const filtered = accounts?.filter((acc: any) => acc.platform === 'instagram') || [];
+            const sum = filtered.reduce((s: number, acc: any) => s + (acc.engagement_rate || 0), 0);
+            return filtered.length > 0 ? sum / filtered.length : 0;
+          })(),
           target: 5.0,
           unit: "%",
           deadline: "2024-01-31",
-          progress: Math.round(((accounts?.reduce((sum: number, acc: any) => 
-            acc.platform === 'instagram' ? sum + (acc.engagement_rate || 0) : sum, 0
-          , 0) / accounts?.filter((acc: any) => acc.platform === 'instagram').length || 1) / 5.0) * 100),
-          status: "on-track",
+          progress: Math.round(((() => {
+            const filtered = accounts?.filter((acc: any) => acc.platform === 'instagram') || [];
+            const sum = filtered.reduce((s: number, acc: any) => s + (acc.engagement_rate || 0), 0);
+            return filtered.length > 0 ? sum / filtered.length : 0;
+          })() / 5.0) * 100),
+          status: "on-track" as const,
         },
         {
           id: "3",
@@ -194,7 +198,7 @@ export default function SocialMediaDashboard() {
           unit: "posts",
           deadline: "2024-01-31",
           progress: Math.round(((content?.filter((item: any) => item.status === 'published').length || 0) / 30) * 100),
-          status: "on-track",
+          status: "on-track" as const,
         },
         {
           id: "4",
@@ -203,8 +207,8 @@ export default function SocialMediaDashboard() {
           target: 50000,
           unit: "reach",
           deadline: "2024-01-31",
-          progress: Math.round(((contentAnalytics.reduce((sum: number, content: any) => sum + content.reach, 0) / 50000) * 100),
-          status: "on-track",
+          progress: Math.round(((contentAnalytics.reduce((sum: number, content: any) => sum + content.reach, 0) / 50000) * 100)),
+          status: "on-track" as const,
         }
       ];
 

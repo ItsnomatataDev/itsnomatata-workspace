@@ -115,7 +115,7 @@ export default function SocialMediaDashboard() {
           unit: "accounts",
           deadline: new Date(Date.now() + 30 * 24 * 60 * 1000).toISOString().split('T')[0],
           progress: Math.round(((accounts?.length || 0) / 5) * 100),
-          status: accounts && accounts?.length >= 5 ? "on-track" : "behind",
+          status: (accounts && accounts?.length >= 5 ? "on-track" : "behind") as "on-track" | "behind",
         },
         {
           id: "2",
@@ -125,7 +125,7 @@ export default function SocialMediaDashboard() {
           unit: "posts",
           deadline: new Date(Date.now() + 30 * 24 * 60 * 1000).toISOString().split('T')[0],
           progress: Math.round(((content?.filter((item: any) => item.status === 'published').length || 0) / 20) * 100),
-          status: content && content?.filter((item: any) => item.status === 'published').length >= 20 ? "on-track" : "behind",
+          status: (content && content?.filter((item: any) => item.status === 'published').length >= 20 ? "on-track" : "behind") as "on-track" | "behind",
         },
         {
           id: "3",
@@ -135,7 +135,7 @@ export default function SocialMediaDashboard() {
           unit: "%",
           deadline: new Date(Date.now() + 30 * 24 * 60 * 1000).toISOString().split('T')[0],
           progress: Math.round(((accounts?.reduce((sum: number, acc: any) => sum + (acc.engagement_rate || 0), 0) / (accounts?.length || 1) / 5.0) * 100)),
-          status: "on-track",
+          status: "on-track" as "on-track" | "behind" | "ahead",
         },
         {
           id: "4",
@@ -145,7 +145,7 @@ export default function SocialMediaDashboard() {
           unit: "followers",
           deadline: new Date(Date.now() + 90 * 24 * 60 * 1000).toISOString().split('T')[0],
           progress: Math.round(((accounts?.reduce((sum: number, acc: any) => sum + (acc.follower_count || 0), 0) / 10000) * 100)),
-          status: "on-track",
+          status: "on-track" as "on-track" | "behind" | "ahead",
         }
       ];
 

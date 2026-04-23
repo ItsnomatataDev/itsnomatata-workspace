@@ -5,8 +5,9 @@ import {
   Views,
   type View,
 } from "react-big-calendar";
-import { format, parse, startOfWeek, getDay } from "date-fns";
+import { format, parse, startOfWeek, getDay, addMonths, subMonths } from "date-fns";
 import { enUS } from "date-fns/locale";
+import { ChevronLeft, ChevronRight, Calendar as CalendarIcon } from "lucide-react";
 import "react-big-calendar/lib/css/react-big-calendar.css";
 import type {
   AdminTimeEntryRow,
@@ -66,6 +67,7 @@ type EverhourCalendarProps = {
   selectedUserId?: string | null;
   onSelectEvent: (event: EverhourCalendarEvent) => void;
   onSelectUser?: (userId: string) => void;
+  onDateRangeChange?: (startDate: Date, endDate: Date) => void;
 };
 
 export default function EverhourCalendar({
@@ -74,8 +76,10 @@ export default function EverhourCalendar({
   selectedUserId,
   onSelectEvent,
   onSelectUser,
+  onDateRangeChange,
 }: EverhourCalendarProps) {
   const [currentView, setCurrentView] = useState<View>(Views.MONTH as View);
+  const [currentDate, setCurrentDate] = useState(new Date());
 
   const events = useMemo(() => {
     const grouped = new Map<string, EverhourCalendarEvent>();
@@ -190,8 +194,92 @@ export default function EverhourCalendar({
     onSelectUser?.(event.resource.userId);
   };
 
+  const handleNavigate = (action: 'PREV' | 'NEXT' | 'TODAY') => {
+    let newDate: Date;
+    if (action === 'PREV') {
+      newDate = subMonths(currentDate, 1);
+    } else if (action === 'NEXT') {
+      newDate = addMonths(currentDate, 1);
+    } else {
+      newDate = new Date();
+    }
+    setCurrentDate(newDate);
+    
+    // Calculate date range for the month
+    const startOfMonth = new Date(newDate.getFullYear(), newDate.getMonth(), 1);
+    const endOfMonth = new Date(newDate.getFullYear(), newDate.getMonth() + 1, 0);
+    onDateRangeChange?.(startOfMonth, endOfMonth);
+  };
+
+  const handleViewChange = (view: View) => {
+    setCurrentView(view);
+  };
+
   return (
     <div className="rbc-dark-theme" style={{ height: 600 }}>
+      {/* Custom Navigation Header */}
+      <div className="flex items-center justify-between mb-4 px-2">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => handleNavigate('PREV')}
+            className="rounded-lg p-2 text-white/50 hover:bg-white/10 hover:text-white transition"
+            title="Previous month"
+          >
+            <ChevronLeft size={18} />
+          </button>
+          <button
+            onClick={() => handleNavigate('TODAY')}
+            className="rounded-lg px-3 py-2 text-sm font-medium text-white/70 hover:bg-white/10 hover:text-white transition"
+          >
+            Today
+          </button>
+          <button
+            onClick={() => handleNavigate('NEXT')}
+            className="rounded-lg p-2 text-white/50 hover:bg-white/10 hover:text-white transition"
+            title="Next month"
+          >
+            <ChevronRight size={18} />
+          </button>
+          <div className="flex items-center gap-2 ml-4">
+            <CalendarIcon size={18} className="text-orange-400" />
+            <span className="text-lg font-semibold text-white">
+              {format(currentDate, 'MMMM yyyy')}
+            </span>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => handleViewChange(Views.MONTH)}
+            className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${
+              currentView === Views.MONTH
+                ? 'bg-orange-500 text-black'
+                : 'text-white/50 hover:bg-white/10 hover:text-white'
+            }`}
+          >
+            Month
+          </button>
+          <button
+            onClick={() => handleViewChange(Views.WEEK)}
+            className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${
+              currentView === Views.WEEK
+                ? 'bg-orange-500 text-black'
+                : 'text-white/50 hover:bg-white/10 hover:text-white'
+            }`}
+          >
+            Week
+          </button>
+          <button
+            onClick={() => handleViewChange(Views.DAY)}
+            className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${
+              currentView === Views.DAY
+                ? 'bg-orange-500 text-black'
+                : 'text-white/50 hover:bg-white/10 hover:text-white'
+            }`}
+          >
+            Day
+          </button>
+        </div>
+      </div>
       <style>{`
         /* ── Base overrides for dark theme ── */
         .rbc-dark-theme .rbc-calendar {
@@ -301,16 +389,29 @@ export default function EverhourCalendar({
         style={{ height: "100%" }}
         views={[Views.MONTH, Views.WEEK, Views.DAY]}
         view={currentView}
-        onView={setCurrentView}
+        onView={handleViewChange}
+        date={currentDate}
+        onNavigate={() => {}}
         onSelectEvent={handleSelectEvent}
         eventPropGetter={(event) => {
           const color = getUserColor(event.resource.userId);
           const isSelected = selectedUserId === event.resource.userId;
+          const isBelowTarget = event.resource.totalHours < 8;
           return {
             style: {
-              backgroundColor: isSelected ? color.bg : color.light,
-              color: isSelected ? "#fff" : color.bg,
-              border: `1px solid ${isSelected ? "transparent" : color.bg}`,
+              backgroundColor: isBelowTarget && !isSelected 
+                ? "rgba(239,68,68,0.2)" 
+                : isSelected 
+                  ? color.bg 
+                  : color.light,
+              color: isBelowTarget && !isSelected 
+                ? "#ef4444" 
+                : isSelected 
+                  ? "#fff" 
+                  : color.bg,
+              border: isBelowTarget && !isSelected 
+                ? "1px solid rgba(239,68,68,0.4)" 
+                : `1px solid ${isSelected ? "transparent" : color.bg}`,
               borderRadius: "6px",
               opacity: selectedUserId && !isSelected ? 0.4 : 0.95,
               fontWeight: 600,
@@ -321,54 +422,7 @@ export default function EverhourCalendar({
           };
         }}
         components={{
-          toolbar: ({ label, onNavigate }) => (
-            <div className="mb-4 flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => onNavigate("PREV")}
-                  className="flex h-8 w-8 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-white/60 transition hover:bg-white/10 hover:text-white text-sm"
-                >
-                  ‹
-                </button>
-                <h3 className="min-w-40 text-center text-base font-semibold text-white">
-                  {label}
-                </h3>
-                <button
-                  type="button"
-                  onClick={() => onNavigate("NEXT")}
-                  className="flex h-8 w-8 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-white/60 transition hover:bg-white/10 hover:text-white text-sm"
-                >
-                  ›
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onNavigate("TODAY")}
-                  className="rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-white/60 transition hover:bg-white/10 hover:text-white"
-                >
-                  Today
-                </button>
-              </div>
-
-              <div className="flex gap-1.5">
-                {([Views.MONTH, Views.WEEK, Views.DAY] as View[]).map((v) => (
-                  <button
-                    key={v}
-                    type="button"
-                    onClick={() => setCurrentView(v)}
-                    className={`rounded-xl px-3 py-1.5 text-xs font-medium capitalize transition ${
-                      currentView === v
-                        ? "bg-orange-500 text-white shadow-lg shadow-orange-500/20"
-                        : "border border-white/10 bg-white/5 text-white/50 hover:bg-white/10 hover:text-white"
-                    }`}
-                  >
-                    {v}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ),
-
+          toolbar: () => null,
           event: ({ event }) => {
             const color = getUserColor(event.resource.userId);
             const isSelected = selectedUserId === event.resource.userId;

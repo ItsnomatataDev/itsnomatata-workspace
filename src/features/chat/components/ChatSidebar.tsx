@@ -136,7 +136,9 @@ export default function ChatSidebar({
                       <div className="flex items-start justify-between gap-2">
                         <p className="truncate text-sm font-medium text-white">
                           {conversation.display_name ||
-                            conversation.title ||
+                            otherMember?.profile?.full_name ||
+                            otherMember?.profile?.email ||
+                            (otherMember?.user_id ? 'User ' + otherMember.user_id.substring(0, 8) : null) ||
                             "Direct conversation"}
                         </p>
 

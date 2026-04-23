@@ -50,6 +50,8 @@ export class EmailTemplateService {
         return this.taskDueSoonTemplate(context, appName, appUrl);
       case "task_overdue":
         return this.taskOverdueTemplate(context, appName, appUrl);
+      case "chat_message":
+        return this.chatMessageTemplate(context, appName, appUrl);
       case "welcome":
         return this.welcomeTemplate(context, appName, appUrl);
       case "password_reset":
@@ -280,6 +282,20 @@ export class EmailTemplateService {
     `;
     return {
       subject: `Task Overdue — ${appName}`,
+      html: this.baseTemplate(content, appName, appUrl),
+    };
+  }
+
+  private static chatMessageTemplate(context: EmailContext, appName: string, appUrl: string): EmailTemplate {
+    const content = `
+      <h2>New Message 💬</h2>
+      <p>Hi ${context.firstName},</p>
+      <p>${context.message}</p>
+      <a href="${context.actionUrl}" class="button">Reply to Message</a>
+      ${this.renderMetadata(context)}
+    `;
+    return {
+      subject: `New Message — ${appName}`,
       html: this.baseTemplate(content, appName, appUrl),
     };
   }

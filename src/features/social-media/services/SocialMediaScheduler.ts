@@ -187,17 +187,17 @@ export class SocialMediaScheduler {
         // Schedule retry with exponential backoff
         const retryDelay = Math.pow(2, newAttempts) * 60000; // 1min, 2min, 4min
         const nextAttemptAt = new Date(Date.now() + retryDelay);
-        
+
         await this.updatePostStatus(scheduledPost.id, 'pending', undefined, {
           attempts: newAttempts,
           next_attempt_at: nextAttemptAt.toISOString(),
-          error_message: error.message,
+          error_message: error instanceof Error ? error.message : String(error),
         });
       } else {
         // Mark as failed
         await this.updatePostStatus(scheduledPost.id, 'failed', undefined, {
           attempts: newAttempts,
-          error_message: error.message,
+          error_message: error instanceof Error ? error.message : String(error),
         });
 
         // Update content status
@@ -205,7 +205,7 @@ export class SocialMediaScheduler {
           scheduledPost.content_id,
           null,
           'failed',
-          error.message
+          error instanceof Error ? error.message : String(error)
         );
       }
     }
@@ -231,7 +231,7 @@ export class SocialMediaScheduler {
       } else {
         // Upload images
         postData.attached_media = await Promise.all(
-          content_calendar.media_urls.map(url => this.uploadFacebookImage(url, accessToken))
+          content_calendar.media_urls.map((url: string) => this.uploadFacebookImage(url, accessToken))
         );
       }
     }
@@ -348,7 +348,7 @@ export class SocialMediaScheduler {
     // Add media if present
     if (content_calendar.media_urls && content_calendar.media_urls.length > 0) {
       const mediaIds = await Promise.all(
-        content_calendar.media_urls.map(url => this.uploadTwitterMedia(url, accessToken))
+        content_calendar.media_urls.map((url: string) => this.uploadTwitterMedia(url, accessToken))
       );
       postData.media = { media_ids: mediaIds };
     }
@@ -471,6 +471,10 @@ export class SocialMediaScheduler {
     });
 
     const uploadUrl = response.headers.get('Location');
+    
+    if (!uploadUrl) {
+      throw new Error('No upload URL returned from Twitter');
+    }
     
     // Upload actual video file
     const videoResponse = await fetch(uploadUrl, {

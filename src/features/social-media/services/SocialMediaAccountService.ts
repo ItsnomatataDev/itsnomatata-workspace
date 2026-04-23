@@ -40,43 +40,43 @@ export class SocialMediaAccountService {
   private static readonly PLATFORM_CONFIGS: Record<string, ConnectionConfig> = {
     facebook: {
       platform: 'facebook',
-      client_id: process.env.FACEBOOK_CLIENT_ID || '',
-      client_secret: process.env.FACEBOOK_CLIENT_SECRET || '',
+      client_id: import.meta.env.VITE_FACEBOOK_CLIENT_ID || '',
+      client_secret: import.meta.env.VITE_FACEBOOK_CLIENT_SECRET || '',
       redirect_uri: `${window.location.origin}/auth/facebook/callback`,
       scopes: ['pages_read_engagement', 'pages_manage_posts', 'pages_manage_engagement', 'publish_to_groups']
     },
     instagram: {
       platform: 'instagram',
-      client_id: process.env.INSTAGRAM_CLIENT_ID || '',
-      client_secret: process.env.INSTAGRAM_CLIENT_SECRET || '',
+      client_id: import.meta.env.VITE_INSTAGRAM_CLIENT_ID || '',
+      client_secret: import.meta.env.VITE_INSTAGRAM_CLIENT_SECRET || '',
       redirect_uri: `${window.location.origin}/auth/instagram/callback`,
       scopes: ['basic', 'pages_show_list', 'instagram_basic', 'instagram_content_publish', 'instagram_manage_comments']
     },
     twitter: {
       platform: 'twitter',
-      client_id: process.env.TWITTER_CLIENT_ID || '',
-      client_secret: process.env.TWITTER_CLIENT_SECRET || '',
+      client_id: import.meta.env.VITE_TWITTER_CLIENT_ID || '',
+      client_secret: import.meta.env.VITE_TWITTER_CLIENT_SECRET || '',
       redirect_uri: `${window.location.origin}/auth/twitter/callback`,
       scopes: ['tweet.read', 'tweet.write', 'users.read', 'offline.access']
     },
     linkedin: {
       platform: 'linkedin',
-      client_id: process.env.LINKEDIN_CLIENT_ID || '',
-      client_secret: process.env.LINKEDIN_CLIENT_SECRET || '',
+      client_id: import.meta.env.VITE_LINKEDIN_CLIENT_ID || '',
+      client_secret: import.meta.env.VITE_LINKEDIN_CLIENT_SECRET || '',
       redirect_uri: `${window.location.origin}/auth/linkedin/callback`,
       scopes: ['r_liteprofile', 'r_emailaddress', 'r_organization_admin', 'w_organization_social', 'rw_organization_admin']
     },
     youtube: {
       platform: 'youtube',
-      client_id: process.env.YOUTUBE_CLIENT_ID || '',
-      client_secret: process.env.YOUTUBE_CLIENT_SECRET || '',
+      client_id: import.meta.env.VITE_YOUTUBE_CLIENT_ID || '',
+      client_secret: import.meta.env.VITE_YOUTUBE_CLIENT_SECRET || '',
       redirect_uri: `${window.location.origin}/auth/youtube/callback`,
       scopes: ['https://www.googleapis.com/auth/youtube.readonly', 'https://www.googleapis.com/auth/youtube.upload']
     },
     tiktok: {
       platform: 'tiktok',
-      client_id: process.env.TIKTOK_CLIENT_ID || '',
-      client_secret: process.env.TIKTOK_CLIENT_SECRET || '',
+      client_id: import.meta.env.VITE_TIKTOK_CLIENT_ID || '',
+      client_secret: import.meta.env.VITE_TIKTOK_CLIENT_SECRET || '',
       redirect_uri: `${window.location.origin}/auth/tiktok/callback`,
       scopes: ['user.info.basic', 'video.publish']
     }

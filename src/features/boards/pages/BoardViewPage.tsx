@@ -12,6 +12,8 @@ import {
   User,
   CheckCircle2,
   ChevronDown,
+  Pause,
+  Play,
 } from "lucide-react";
 import CardTimeIndicator from "../components/CardTimeIndicator";
 import { useAuth } from "../../../app/providers/AuthProvider";
@@ -27,6 +29,8 @@ import {
 import CardDetailModal from "../components/Carddetailmodal";
 import type { TaskItem, TaskStatus } from "../../../lib/supabase/queries/tasks";
 import type { Board, BoardStats, Card } from "../../../types/board";
+import { useTimeEntries } from "../../../lib/hooks/useTimeEntries";
+import { supabase } from "../../../lib/supabase/client";
 
 
 type Task = Card;
@@ -166,10 +170,22 @@ function KanbanCard({
   task,
   onOpen,
   onDragStart,
+  onTrack,
+  isTrackingThisTask,
+  liveSeconds,
+  onPauseTimer,
+  hasRunningTimer,
+  timerBusy,
 }: {
   task: Task;
   onOpen: (id: string) => void;
   onDragStart: (e: React.DragEvent, id: string, status: TaskStatus) => void;
+  onTrack: (taskId: string, title: string) => void;
+  isTrackingThisTask?: boolean;
+  liveSeconds?: number;
+  onPauseTimer?: () => void;
+  hasRunningTimer?: boolean;
+  timerBusy?: boolean;
 }) {
   const priority = PRIORITY_COLOR[task.priority] ?? PRIORITY_COLOR.medium;
   const isOverdue =
@@ -185,6 +201,15 @@ function KanbanCard({
       ? `${parts[0][0]}${parts[1][0]}`.toUpperCase()
       : src.slice(0, 2).toUpperCase();
   })();
+
+  const formatLiveTime = (seconds: number) => {
+    const hrs = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    const pad = (v: number) => String(v).padStart(2, "0");
+    if (hrs > 0) return `${pad(hrs)}:${pad(mins)}:${pad(secs)}`;
+    return `${pad(mins)}:${pad(secs)}`;
+  };
 
   return (
     <div
@@ -232,8 +257,39 @@ function KanbanCard({
           )}
         </div>
         <div className="flex items-center gap-2">
-          <CardTimeIndicator 
-            taskId={task.id} 
+          {isTrackingThisTask ? (
+            <div className="flex items-center gap-1.5 rounded-lg border border-orange-500/30 bg-orange-500/10 px-2 py-1">
+              <div className="h-1 w-1 rounded-full bg-orange-500 animate-pulse" />
+              <span className="text-[10px] font-mono font-semibold text-orange-400">
+                {formatLiveTime(liveSeconds || 0)}
+              </span>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onPauseTimer?.();
+                }}
+                disabled={timerBusy}
+                className="rounded p-0.5 text-orange-400 hover:bg-orange-500/20 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Pause timer"
+              >
+                <Pause size={10} />
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onTrack(task.id, task.title);
+              }}
+              disabled={hasRunningTimer || timerBusy}
+              className="rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-[10px] text-white/50 hover:bg-white/10 hover:text-white transition disabled:opacity-50 disabled:cursor-not-allowed"
+              title={hasRunningTimer ? "Another timer is running" : "Start timer"}
+            >
+              <Play size={10} />
+            </button>
+          )}
+          <CardTimeIndicator
+            taskId={task.id}
             className="text-[11px]"
             showTotalTime={false}
           />
@@ -264,6 +320,12 @@ function KanbanColumn({
   onAddCard,
   onDragStart,
   onDrop,
+  onTrack,
+  isTrackingThisTask,
+  liveSeconds,
+  onPauseTimer,
+  hasRunningTimer,
+  timerBusy,
 }: {
   status: TaskStatus;
   label: string;
@@ -274,6 +336,12 @@ function KanbanColumn({
   onAddCard: (status: TaskStatus, title: string) => Promise<void>;
   onDragStart: (e: React.DragEvent, id: string, status: TaskStatus) => void;
   onDrop: (e: React.DragEvent, targetStatus: TaskStatus) => void;
+  onTrack: (taskId: string, title: string) => void;
+  isTrackingThisTask?: (taskId: string) => boolean;
+  liveSeconds?: number;
+  onPauseTimer?: () => void;
+  hasRunningTimer?: boolean;
+  timerBusy?: boolean;
 }) {
   const [adding, setAdding] = useState(false);
   const [isOver, setIsOver] = useState(false);
@@ -318,6 +386,12 @@ function KanbanColumn({
             task={task}
             onOpen={onOpen}
             onDragStart={onDragStart}
+            onTrack={onTrack}
+            isTrackingThisTask={isTrackingThisTask?.(task.id)}
+            liveSeconds={liveSeconds}
+            onPauseTimer={onPauseTimer}
+            hasRunningTimer={hasRunningTimer}
+            timerBusy={timerBusy}
           />
         ))}
 
@@ -359,9 +433,57 @@ export default function BoardViewPage() {
   const [error, setError] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [activeTimer, setActiveTimer] = useState<any>(null);
+  const [liveSeconds, setLiveSeconds] = useState(0);
+  const [timerBusy, setTimerBusy] = useState(false);
 
   // drag state
   const dragRef = useRef<{ id: string; status: TaskStatus } | null>(null);
+
+  // Timer state
+  const { entries } = useTimeEntries({
+    organizationId,
+    userId: auth?.user?.id,
+    startDate: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+    endDate: new Date().toISOString(),
+  });
+
+  const loadActiveTimer = useCallback(async () => {
+    if (!auth?.user?.id || !organizationId) return;
+    
+    const { data: runningEntry } = await supabase
+      .from("time_entries")
+      .select("*")
+      .eq("user_id", auth.user.id)
+      .is("ended_at", null)
+      .order("started_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    
+    setActiveTimer(runningEntry);
+  }, [auth?.user?.id, organizationId]);
+
+  useEffect(() => {
+    loadActiveTimer();
+  }, [loadActiveTimer]);
+
+  useEffect(() => {
+    if (!activeTimer) {
+      setLiveSeconds(0);
+      return;
+    }
+
+    const tick = () => {
+      const startedAtMs = new Date(activeTimer.started_at).getTime();
+      const nowMs = Date.now();
+      const diff = Math.max(0, Math.floor((nowMs - startedAtMs) / 1000));
+      setLiveSeconds(diff);
+    };
+
+    tick();
+    const interval = window.setInterval(tick, 1000);
+    return () => window.clearInterval(interval);
+  }, [activeTimer]);
 
   // ── Load ─────────────────────────────────────────────────────────────────────
 
@@ -396,6 +518,46 @@ export default function BoardViewPage() {
   useEffect(() => {
     void loadBoardData();
   }, [loadBoardData]);
+
+  // Realtime subscription for time entries and cards
+  useEffect(() => {
+    if (!organizationId || !boardId) return;
+
+    const channel = supabase
+      .channel('board-view-updates')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'time_entries',
+          filter: `organization_id=eq.${organizationId}`,
+        },
+        () => {
+          // Reload board data when time entries change
+          loadBoardData();
+          loadActiveTimer();
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'cards',
+          filter: `board_id=eq.${boardId}`,
+        },
+        () => {
+          // Reload board data when cards change
+          loadBoardData();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [organizationId, boardId, loadBoardData, loadActiveTimer]);
 
   function groupByStatus(list: Task[]): Record<string, Task[]> {
     return list.reduce(
@@ -507,6 +669,84 @@ export default function BoardViewPage() {
     },
     [tasks, loadBoardData],
   );
+
+  // ── Timer handlers ─────────────────────────────────────────────────────────────
+
+  const handleTrack = useCallback(async (taskId: string, title: string) => {
+    if (!auth?.user?.id || !organizationId) return;
+    
+    try {
+      setTimerBusy(true);
+
+      // Check if there's already a running timer
+      const { data: existingTimer } = await supabase
+        .from("time_entries")
+        .select("id")
+        .eq("user_id", auth.user.id)
+        .is("ended_at", null)
+        .maybeSingle();
+
+      if (existingTimer) {
+        throw new Error("A timer is already running. Stop it first.");
+      }
+
+      // Start new timer
+      const { error } = await supabase.from("time_entries").insert({
+        organization_id: organizationId,
+        user_id: auth.user.id,
+        task_id: taskId,
+        description: `Working on ${title}`,
+        started_at: new Date().toISOString(),
+        ended_at: null,
+        duration_seconds: 0,
+      });
+
+      if (error) throw error;
+
+      // Reload active timer
+      await loadActiveTimer();
+    } catch (err: any) {
+      console.error("Failed to start timer:", err);
+      alert(err?.message || "Failed to start timer");
+    } finally {
+      setTimerBusy(false);
+    }
+  }, [auth?.user?.id, organizationId, loadActiveTimer]);
+
+  const isTrackingThisTask = useCallback((taskId: string) => {
+    return activeTimer?.task_id === taskId;
+  }, [activeTimer]);
+
+  const handlePauseTimer = useCallback(async () => {
+    if (!activeTimer?.id || !activeTimer?.started_at) return;
+
+    try {
+      setTimerBusy(true);
+
+      const endedAt = new Date().toISOString();
+      const startedAtMs = new Date(activeTimer.started_at).getTime();
+      const endedAtMs = new Date(endedAt).getTime();
+      const durationSeconds = Math.max(0, Math.floor((endedAtMs - startedAtMs) / 1000));
+
+      const { error } = await supabase
+        .from("time_entries")
+        .update({
+          ended_at: endedAt,
+          duration_seconds: durationSeconds,
+        })
+        .eq("id", activeTimer.id);
+
+      if (error) throw error;
+
+      // Reload active timer
+      await loadActiveTimer();
+    } catch (err: any) {
+      console.error("Failed to stop timer:", err);
+      alert(err?.message || "Failed to stop timer");
+    } finally {
+      setTimerBusy(false);
+    }
+  }, [activeTimer, loadActiveTimer]);
 
   // ── Guards ───────────────────────────────────────────────────────────────────
 
@@ -625,6 +865,12 @@ export default function BoardViewPage() {
                     onAddCard={handleAddCard}
                     onDragStart={handleDragStart}
                     onDrop={handleDrop}
+                    onTrack={handleTrack}
+                    isTrackingThisTask={isTrackingThisTask}
+                    liveSeconds={liveSeconds}
+                    onPauseTimer={handlePauseTimer}
+                    hasRunningTimer={!!activeTimer}
+                    timerBusy={timerBusy}
                   />
                 ))}
               </div>

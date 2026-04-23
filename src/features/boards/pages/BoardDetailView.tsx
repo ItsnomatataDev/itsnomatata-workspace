@@ -14,6 +14,10 @@ import {
   User,
   AlertCircle,
   CheckCircle2,
+  BriefcaseBusiness,
+  Sparkles,
+  Target,
+  Zap,
 } from "lucide-react";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import { getBoard, createCard } from "../services/boardService";
@@ -240,6 +244,32 @@ export default function BoardDetailView() {
     loadBoardData();
   }, [loadBoardData]);
 
+  // Realtime subscription for time entries
+  useEffect(() => {
+    if (!organizationId || !boardId) return;
+
+    const channel = supabase
+      .channel('board-detail-updates')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'time_entries',
+          filter: `organization_id=eq.${organizationId}`,
+        },
+        () => {
+          // Reload board data when time entries change
+          loadBoardData();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [organizationId, boardId, loadBoardData]);
+
   // Filter entries by time period
   const getFilteredEntries = () => {
     if (timeFilter === "all") return timeEntries;
@@ -371,25 +401,50 @@ export default function BoardDetailView() {
   const totalTrackedHours = filteredEntries.reduce((sum, entry) => sum + (entry.duration_seconds || 0) / 3600, 0);
 
   return (
-    <div className="min-h-screen bg-black text-white">
+    <div className="min-h-screen bg-gradient-to-br from-black via-gray-900 to-black text-white">
       {/* Header */}
-      <div className="border-b border-white/10 bg-[#0a0a0a] px-6 py-4">
+      <div className="border-b border-white/10 bg-gradient-to-r from-[#0a0a0a] to-[#111] px-6 py-6">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
             <button
               onClick={() => navigate("/board-management")}
-              className="text-white/60 hover:text-white transition"
+              className="flex items-center gap-2 text-white/60 hover:text-white transition group"
             >
-              ← Back to Boards
+              <div className="p-2 rounded-lg bg-white/5 group-hover:bg-white/10 transition">
+                <ChevronDown className="w-5 h-5 rotate-90" />
+              </div>
+              <span>Back to Boards</span>
             </button>
+            <div className="h-8 w-px bg-white/10"></div>
             <div>
-              <h1 className="text-2xl font-bold text-white">{board.name}</h1>
-              <p className="text-white/60">{board.notes}</p>
+              <div className="flex items-center gap-3">
+                <h1 className="text-3xl font-bold text-white bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent">
+                  {board.name}
+                </h1>
+                <div className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border ${
+                  boardSettings?.isBillable 
+                    ? 'bg-green-500/20 text-green-400 border-green-500/30' 
+                    : 'bg-blue-500/20 text-blue-400 border-blue-500/30'
+                }`}>
+                  {boardSettings?.isBillable ? (
+                    <>
+                      <DollarSign className="w-3 h-3" />
+                      Billable
+                    </>
+                  ) : (
+                    <>
+                      <BriefcaseBusiness className="w-3 h-3" />
+                      Internal
+                    </>
+                  )}
+                </div>
+              </div>
+              <p className="text-white/50 mt-1">{board.notes || "No description"}</p>
             </div>
           </div>
           <button 
             onClick={() => setIsCreateTaskModalOpen(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-orange-500 text-black rounded-lg hover:bg-orange-400 transition"
+            className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-orange-500 to-orange-600 text-black rounded-xl hover:from-orange-400 hover:to-orange-500 transition-all shadow-lg shadow-orange-500/20 hover:shadow-orange-500/30"
           >
             <Plus className="w-4 h-4" />
             Create Task
@@ -399,51 +454,61 @@ export default function BoardDetailView() {
 
       {/* Budget Summary */}
       {boardSettings && (
-        <div className="border-b border-white/10 bg-[#0a0a0a] px-6 py-6">
-          <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-            <DollarSign className="w-5 h-5 text-green-400" />
-            Budget Summary
-          </h2>
+        <div className="border-b border-white/10 bg-gradient-to-b from-[#0a0a0a] to-[#0d0d0d] px-6 py-8">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="p-2 rounded-lg bg-gradient-to-br from-green-500/20 to-emerald-500/20 border border-green-500/30">
+              <DollarSign className="w-5 h-5 text-green-400" />
+            </div>
+            <h2 className="text-xl font-semibold text-white">Budget Summary</h2>
+          </div>
           
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="bg-white/5 border border-white/10 rounded-lg p-4">
-              <div className="flex items-center gap-2 mb-2">
-                <Clock className="w-4 h-4 text-orange-400" />
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
+            <div className="bg-gradient-to-br from-orange-500/10 to-orange-600/5 border border-orange-500/20 rounded-xl p-5 hover:border-orange-500/30 transition-all group">
+              <div className="flex items-center gap-2 mb-3">
+                <div className="p-2 rounded-lg bg-orange-500/20 group-hover:bg-orange-500/30 transition">
+                  <Clock className="w-4 h-4 text-orange-400" />
+                </div>
                 <span className="text-sm text-white/60">Estimated Hours</span>
               </div>
-              <div className="text-2xl font-bold text-white">
+              <div className="text-3xl font-bold text-white group-hover:text-orange-400 transition-colors">
                 {formatHours(boardSettings.estimatedHours)}
               </div>
             </div>
 
-            <div className="bg-white/5 border border-white/10 rounded-lg p-4">
-              <div className="flex items-center gap-2 mb-2">
-                <Timer className="w-4 h-4 text-blue-400" />
+            <div className="bg-gradient-to-br from-blue-500/10 to-blue-600/5 border border-blue-500/20 rounded-xl p-5 hover:border-blue-500/30 transition-all group">
+              <div className="flex items-center gap-2 mb-3">
+                <div className="p-2 rounded-lg bg-blue-500/20 group-hover:bg-blue-500/30 transition">
+                  <Timer className="w-4 h-4 text-blue-400" />
+                </div>
                 <span className="text-sm text-white/60">Tracked Hours</span>
               </div>
-              <div className="text-2xl font-bold text-white">
+              <div className="text-3xl font-bold text-white group-hover:text-blue-400 transition-colors">
                 {formatHours(totalTrackedHours)}
               </div>
             </div>
 
-            <div className="bg-white/5 border border-white/10 rounded-lg p-4">
-              <div className="flex items-center gap-2 mb-2">
-                <TrendingUp className="w-4 h-4 text-green-400" />
+            <div className="bg-gradient-to-br from-green-500/10 to-emerald-500/5 border border-green-500/20 rounded-xl p-5 hover:border-green-500/30 transition-all group">
+              <div className="flex items-center gap-2 mb-3">
+                <div className="p-2 rounded-lg bg-green-500/20 group-hover:bg-green-500/30 transition">
+                  <TrendingUp className="w-4 h-4 text-green-400" />
+                </div>
                 <span className="text-sm text-white/60">Progress</span>
               </div>
-              <div className="text-2xl font-bold text-white">
+              <div className="text-3xl font-bold text-white group-hover:text-green-400 transition-colors">
                 {Math.round((totalTrackedHours / boardSettings.estimatedHours) * 100)}%
               </div>
             </div>
 
-            <div className="bg-white/5 border border-white/10 rounded-lg p-4">
-              <div className="flex items-center gap-2 mb-2">
-                <DollarSign className="w-4 h-4 text-green-400" />
+            <div className="bg-gradient-to-br from-purple-500/10 to-purple-600/5 border border-purple-500/20 rounded-xl p-5 hover:border-purple-500/30 transition-all group">
+              <div className="flex items-center gap-2 mb-3">
+                <div className="p-2 rounded-lg bg-purple-500/20 group-hover:bg-purple-500/30 transition">
+                  <DollarSign className="w-4 h-4 text-purple-400" />
+                </div>
                 <span className="text-sm text-white/60">
                   {boardSettings.billingType === "hourly" ? "Hourly Rate" : "Fixed Price"}
                 </span>
               </div>
-              <div className="text-2xl font-bold text-white">
+              <div className="text-3xl font-bold text-white group-hover:text-purple-400 transition-colors">
                 {boardSettings.billingType === "hourly" 
                   ? `$${boardSettings.hourlyRate}/hr`
                   : `$${boardSettings.fixedPrice}`
@@ -453,21 +518,21 @@ export default function BoardDetailView() {
           </div>
 
           {/* Progress Bar */}
-          <div className="mt-4">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-sm text-white/60">Budget Usage</span>
-              <span className="text-sm text-white">
+          <div className="mt-6">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-sm text-white/60 font-medium">Budget Usage</span>
+              <span className="text-sm font-semibold text-white">
                 {Math.round((totalTrackedHours / boardSettings.estimatedHours) * 100)}%
               </span>
             </div>
-            <div className="w-full bg-white/10 rounded-full h-3">
+            <div className="w-full bg-white/10 rounded-full h-4 overflow-hidden">
               <div
-                className={`h-3 rounded-full transition-all duration-300 ${
+                className={`h-4 rounded-full transition-all duration-500 ${
                   totalTrackedHours > boardSettings.estimatedHours
-                    ? "bg-red-500"
+                    ? "bg-gradient-to-r from-red-500 to-red-600"
                     : totalTrackedHours > boardSettings.estimatedHours * 0.8
-                    ? "bg-orange-500"
-                    : "bg-green-500"
+                    ? "bg-gradient-to-r from-orange-500 to-orange-600"
+                    : "bg-gradient-to-r from-green-500 to-emerald-500"
                 }`}
                 style={{ 
                   width: `${Math.min((totalTrackedHours / boardSettings.estimatedHours) * 100, 100)}%` 
@@ -479,14 +544,16 @@ export default function BoardDetailView() {
       )}
 
       {/* Time Filter and Sort Controls */}
-      <div className="border-b border-white/10 bg-[#0a0a0a] px-6 py-4">
+      <div className="border-b border-white/10 bg-gradient-to-b from-[#0d0d0d] to-[#0a0a0a] px-6 py-5">
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2">
-            <Calendar className="w-4 h-4 text-white/60" />
+            <div className="p-2 rounded-lg bg-blue-500/20 border border-blue-500/30">
+              <Calendar className="w-4 h-4 text-blue-400" />
+            </div>
             <select
               value={timeFilter}
               onChange={(e) => setTimeFilter(e.target.value as "all" | "week" | "month")}
-              className="px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white focus:outline-none focus:border-orange-400"
+              className="px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white focus:outline-none focus:border-orange-400 transition"
             >
               <option value="all">All Time</option>
               <option value="week">Last Week</option>
@@ -495,11 +562,13 @@ export default function BoardDetailView() {
           </div>
 
           <div className="flex items-center gap-2">
-            <BarChart3 className="w-4 h-4 text-white/60" />
+            <div className="p-2 rounded-lg bg-purple-500/20 border border-purple-500/30">
+              <BarChart3 className="w-4 h-4 text-purple-400" />
+            </div>
             <select
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value as "hours" | "name" | "entries")}
-              className="px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white focus:outline-none focus:border-orange-400"
+              className="px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white focus:outline-none focus:border-orange-400 transition"
             >
               <option value="hours">Sort by Hours</option>
               <option value="name">Sort by Name</option>
@@ -513,32 +582,34 @@ export default function BoardDetailView() {
       <div className="flex-1 p-6">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Members Time Tracking */}
-          <div className="bg-[#0a0a0a] border border-white/10 rounded-xl p-6">
-            <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-              <Users className="w-5 h-5 text-orange-400" />
-              Member Time Tracking
-            </h2>
+          <div className="bg-gradient-to-br from-[#0a0a0a] to-[#0d0d0d] border border-white/10 rounded-2xl p-6 hover:border-white/20 transition-all">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="p-2.5 rounded-xl bg-gradient-to-br from-orange-500/20 to-orange-600/20 border border-orange-500/30">
+                <Users className="w-5 h-5 text-orange-400" />
+              </div>
+              <h2 className="text-xl font-semibold text-white">Member Time Tracking</h2>
+            </div>
             
             <div className="space-y-3">
               {sortedMembers.map((member, index) => (
                 <div
                   key={member.user_id}
-                  className="flex items-center justify-between p-3 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 transition"
+                  className="flex items-center justify-between p-4 bg-gradient-to-r from-white/5 to-transparent border border-white/10 rounded-xl hover:from-white/10 hover:border-white/20 transition-all group"
                 >
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-full bg-orange-500/20 border border-orange-500/30 flex items-center justify-center text-xs font-medium text-orange-400">
+                  <div className="flex items-center gap-4">
+                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-500/20 to-orange-600/20 border border-orange-500/30 flex items-center justify-center text-sm font-bold text-orange-400 group-hover:scale-110 transition-transform">
                       {member.user_name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2)}
                     </div>
                     <div>
-                      <div className="font-medium text-white">{member.user_name}</div>
-                      <div className="text-sm text-white/60">
+                      <div className="font-semibold text-white">{member.user_name}</div>
+                      <div className="text-sm text-white/50">
                         {member.total_entries} entries • Last: {formatDate(member.last_activity)}
                       </div>
                     </div>
                   </div>
                   <div className="text-right">
-                    <div className="font-semibold text-white">{formatHours(member.total_hours)}</div>
-                    <div className="text-sm text-white/60">
+                    <div className="font-bold text-lg text-white group-hover:text-orange-400 transition-colors">{formatHours(member.total_hours)}</div>
+                    <div className="text-sm text-white/50">
                       Avg: {formatHours(member.average_hours_per_entry)}
                     </div>
                   </div>
@@ -548,69 +619,73 @@ export default function BoardDetailView() {
           </div>
 
           {/* Assigned Team Members */}
-          <div className="bg-[#0a0a0a] border border-white/10 rounded-xl p-6">
-            <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-              <Users className="w-5 h-5 text-purple-400" />
-              Assigned Team Members
-            </h2>
+          <div className="bg-gradient-to-br from-[#0a0a0a] to-[#0d0d0d] border border-white/10 rounded-2xl p-6 hover:border-white/20 transition-all">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="p-2.5 rounded-xl bg-gradient-to-br from-purple-500/20 to-purple-600/20 border border-purple-500/30">
+                <Users className="w-5 h-5 text-purple-400" />
+              </div>
+              <h2 className="text-xl font-semibold text-white">Assigned Team Members</h2>
+            </div>
             
             {assignedUsers.length > 0 ? (
               <div className="space-y-3">
                 {assignedUsers.map((user) => (
                   <div
                     key={user.id}
-                    className="flex items-center justify-between p-3 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 transition"
+                    className="flex items-center justify-between p-4 bg-gradient-to-r from-white/5 to-transparent border border-white/10 rounded-xl hover:from-white/10 hover:border-white/20 transition-all group"
                   >
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-full bg-purple-500/20 border border-purple-500/30 flex items-center justify-center text-sm font-medium text-purple-400">
+                    <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-500/20 to-purple-600/20 border border-purple-500/30 flex items-center justify-center text-sm font-bold text-purple-400 group-hover:scale-110 transition-transform">
                         {user.initials}
                       </div>
                       <div>
-                        <div className="font-medium text-white">{user.full_name || 'Unknown User'}</div>
-                        <div className="text-sm text-white/60">{user.email}</div>
+                        <div className="font-semibold text-white">{user.full_name || 'Unknown User'}</div>
+                        <div className="text-sm text-white/50">{user.email}</div>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2 px-3 py-1 bg-green-500/20 border border-green-500/30 rounded-lg">
-                      <CheckCircle2 className="w-3 h-3 text-green-400" />
-                      <span className="text-xs text-green-400">Assigned</span>
+                    <div className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-green-500/20 to-emerald-500/20 border border-green-500/30 rounded-xl group-hover:from-green-500/30 transition-all">
+                      <CheckCircle2 className="w-4 h-4 text-green-400" />
+                      <span className="text-sm font-medium text-green-400">Assigned</span>
                     </div>
                   </div>
                 ))}
               </div>
             ) : (
-              <div className="text-center py-8">
-                <div className="w-12 h-12 bg-white/10 rounded-full flex items-center justify-center mx-auto mb-3">
-                  <Users className="w-6 h-6 text-white/40" />
+              <div className="text-center py-12">
+                <div className="w-16 h-16 bg-white/5 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-white/10">
+                  <Users className="w-8 h-8 text-white/30" />
                 </div>
-                <p className="text-white/60 text-sm">No team members assigned to this board yet</p>
+                <p className="text-white/50 text-sm">No team members assigned to this board yet</p>
               </div>
             )}
           </div>
 
           {/* Tasks with Most Time */}
-          <div className="bg-[#0a0a0a] border border-white/10 rounded-xl p-6">
-            <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-              <Activity className="w-5 h-5 text-blue-400" />
-              Tasks with Most Time
-            </h2>
+          <div className="bg-gradient-to-br from-[#0a0a0a] to-[#0d0d0d] border border-white/10 rounded-2xl p-6 hover:border-white/20 transition-all lg:col-span-2">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="p-2.5 rounded-xl bg-gradient-to-br from-blue-500/20 to-blue-600/20 border border-blue-500/30">
+                <Activity className="w-5 h-5 text-blue-400" />
+              </div>
+              <h2 className="text-xl font-semibold text-white">Tasks with Most Time</h2>
+            </div>
             
-            <div className="space-y-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {taskTimeData
                 .sort((a, b) => b.total_hours - a.total_hours)
-                .slice(0, 10)
+                .slice(0, 6)
                 .map((task, index) => (
                   <div
                     key={task.task_id}
-                    className="flex items-center justify-between p-3 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 transition"
+                    className="flex items-center justify-between p-4 bg-gradient-to-r from-white/5 to-transparent border border-white/10 rounded-xl hover:from-white/10 hover:border-white/20 transition-all group"
                   >
                     <div className="flex-1">
-                      <div className="font-medium text-white">{task.task_name}</div>
-                      <div className="text-sm text-white/60">
+                      <div className="font-semibold text-white mb-1">{task.task_name}</div>
+                      <div className="text-sm text-white/50">
                         by {task.user_name} • {formatDate(task.last_activity)}
                       </div>
                     </div>
-                    <div className="text-right">
-                      <div className="font-semibold text-white">{formatHours(task.total_hours)}</div>
+                    <div className="ml-4 px-4 py-2 bg-gradient-to-r from-blue-500/20 to-blue-600/20 border border-blue-500/30 rounded-xl group-hover:from-blue-500/30 transition-all">
+                      <div className="font-bold text-white">{formatHours(task.total_hours)}</div>
                     </div>
                   </div>
                 ))}
@@ -619,57 +694,59 @@ export default function BoardDetailView() {
         </div>
 
         {/* Time Sheet by Project */}
-        <div className="mt-6 bg-[#0a0a0a] border border-white/10 rounded-xl p-6">
-          <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-            <BarChart3 className="w-5 h-5 text-green-400" />
-            Time Sheet by Project
-          </h2>
+        <div className="mt-6 bg-gradient-to-br from-[#0a0a0a] to-[#0d0d0d] border border-white/10 rounded-2xl p-6 hover:border-white/20 transition-all">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="p-2.5 rounded-xl bg-gradient-to-br from-green-500/20 to-emerald-500/20 border border-green-500/30">
+              <BarChart3 className="w-5 h-5 text-green-400" />
+            </div>
+            <h2 className="text-xl font-semibold text-white">Time Sheet by Project</h2>
+          </div>
           
           <div className="overflow-x-auto">
             <table className="w-full text-white">
               <thead>
                 <tr className="border-b border-white/10">
-                  <th className="text-left py-3 px-4 text-sm font-medium text-white/60">User</th>
-                  <th className="text-left py-3 px-4 text-sm font-medium text-white/60">Task</th>
-                  <th className="text-left py-3 px-4 text-sm font-medium text-white/60">Duration</th>
-                  <th className="text-left py-3 px-4 text-sm font-medium text-white/60">Date</th>
-                  <th className="text-left py-3 px-4 text-sm font-medium text-white/60">Billable</th>
+                  <th className="text-left py-4 px-4 text-sm font-semibold text-white/60">User</th>
+                  <th className="text-left py-4 px-4 text-sm font-semibold text-white/60">Task</th>
+                  <th className="text-left py-4 px-4 text-sm font-semibold text-white/60">Duration</th>
+                  <th className="text-left py-4 px-4 text-sm font-semibold text-white/60">Date</th>
+                  <th className="text-left py-4 px-4 text-sm font-semibold text-white/60">Billable</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredEntries
                   .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
                   .map((entry) => (
-                    <tr key={entry.id} className="border-b border-white/10 hover:bg-white/5 transition">
-                      <td className="py-3 px-4">
-                        <div className="font-medium">{entry.user_name}</div>
+                    <tr key={entry.id} className="border-b border-white/5 hover:bg-white/5 transition">
+                      <td className="py-4 px-4">
+                        <div className="font-semibold">{entry.user_name}</div>
                       </td>
-                      <td className="py-3 px-4">
+                      <td className="py-4 px-4">
                         <div className="text-white/80">{entry.task_name}</div>
                       </td>
-                      <td className="py-3 px-4">
+                      <td className="py-4 px-4">
                         <div className="flex items-center gap-2">
                           <Clock className="w-4 h-4 text-orange-400" />
-                          <span className="font-medium">{formatHours(entry.duration_seconds / 3600)}</span>
+                          <span className="font-semibold">{formatHours(entry.duration_seconds / 3600)}</span>
                         </div>
                       </td>
-                      <td className="py-3 px-4">
+                      <td className="py-4 px-4">
                         <div className="text-white/60">{formatDate(entry.created_at)}</div>
                       </td>
-                      <td className="py-3 px-4">
-                        <div className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium ${
+                      <td className="py-4 px-4">
+                        <div className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border ${
                           entry.is_billable 
-                            ? 'bg-green-500/20 text-green-400 border border-green-500/30'
-                            : 'bg-red-500/20 text-red-400 border border-red-500/30'
+                            ? 'bg-gradient-to-r from-green-500/20 to-emerald-500/20 text-green-400 border-green-500/30'
+                            : 'bg-gradient-to-r from-red-500/20 to-red-600/20 text-red-400 border-red-500/30'
                         }`}>
                           {entry.is_billable ? (
                             <>
-                              <CheckCircle2 className="w-3 h-3" />
+                              <CheckCircle2 className="w-3.5 h-3.5" />
                               Billable
                             </>
                           ) : (
                             <>
-                              <X className="w-3 h-3" />
+                              <X className="w-3.5 h-3.5" />
                               Non-billable
                             </>
                           )}
