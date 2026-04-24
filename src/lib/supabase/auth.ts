@@ -249,7 +249,7 @@ export async function getWorkspaceOrganization() {
 
 export async function resetPassword(email: string) {
   const { error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `${window.location.origin}/resetpassword`,
+    redirectTo: "https://codex.itsnomatata.com/resetpassword",
   });
 
   if (error) throw error;
