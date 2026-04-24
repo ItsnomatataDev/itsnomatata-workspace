@@ -246,3 +246,11 @@ export async function getCurrentUser() {
 export async function getWorkspaceOrganization() {
   return getOrganizationBySlug(ORGANIZATION_SLUG);
 }
+
+export async function resetPassword(email: string) {
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: `${window.location.origin}/resetpassword`,
+  });
+
+  if (error) throw error;
+}

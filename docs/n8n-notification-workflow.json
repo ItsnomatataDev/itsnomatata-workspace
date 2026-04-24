@@ -11,7 +11,10 @@
       "name": "Receive Notification",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 1,
-      "position": [-1152, 1120],
+      "position": [
+        -1152,
+        1120
+      ],
       "webhookId": "nomatata-email-notifications-v2"
     },
     {
@@ -37,7 +40,10 @@
       "name": "Validate Payload",
       "type": "n8n-nodes-base.if",
       "typeVersion": 1,
-      "position": [-960, 1120]
+      "position": [
+        -960,
+        1120
+      ]
     },
     {
       "parameters": {
@@ -47,7 +53,10 @@
       "name": "Normalize Payload",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [-752, 1104]
+      "position": [
+        -752,
+        1104
+      ]
     },
     {
       "parameters": {
@@ -64,7 +73,10 @@
       "name": "Check Pre-Generated Email",
       "type": "n8n-nodes-base.if",
       "typeVersion": 1,
-      "position": [-560, 1104]
+      "position": [
+        -560,
+        1104
+      ]
     },
     {
       "parameters": {
@@ -74,17 +86,23 @@
       "name": "Use Frontend Email",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [-352, 1040]
+      "position": [
+        -352,
+        1040
+      ]
     },
     {
       "parameters": {
-        "jsCode": "const data = $input.first().json;\n\nconst type = data.type;\nconst context = {\n  fullName: data.fullName,\n  firstName: data.firstName,\n  title: data.title,\n  message: data.message,\n  actionUrl: data.actionUrl,\n  metadata: data.metadata,\n  appName: data.appName,\n  appUrl: data.appUrl\n};\n\n// Generate email HTML based on type (fallback)\nlet emailHtml = '';\nlet subject = `${data.title} — ${data.appName}`;\n\nconst templates = {\n  leave_request_submitted: () => {\n    subject = `Leave Request Submitted — ${data.appName}`;\n    return `<h2>Leave Request Submitted</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">Review Request</a>`;\n  },\n  leave_request_approved: () => {\n    subject = `Leave Request Approved — ${data.appName}`;\n    return `<h2>Leave Request Approved ✅</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">View Details</a>`;\n  },\n  leave_request_rejected: () => {\n    subject = `Leave Request Rejected — ${data.appName}`;\n    return `<h2>Leave Request Rejected ❌</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">View Details</a>`;\n  },\n  meeting_invitation: () => {\n    subject = `Meeting Invitation — ${data.appName}`;\n    return `<h2>Meeting Invitation 📅</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">Accept Invitation</a>`;\n  },\n  meeting_reminder: () => {\n    subject = `Meeting Reminder — ${data.appName}`;\n    return `<h2>Meeting Reminder ⏰</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">Join Meeting</a>`;\n  },\n  meeting: () => {\n    subject = `New Meeting — ${data.appName}`;\n    return `<h2>New Meeting 📅</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">View Meeting</a>`;\n  },\n  approval_needed: () => {\n    subject = `Approval Required — ${data.appName}`;\n    return `<h2>Approval Required 📋</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">Review & Approve</a>`;\n  },\n  approval_approved: () => {\n    subject = `Request Approved — ${data.appName}`;\n    return `<h2>Request Approved ✅</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">View Details</a>`;\n  },\n  approval_rejected: () => {\n    subject = `Request Rejected — ${data.appName}`;\n    return `<h2>Request Rejected ❌</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">View Details</a>`;\n  },\n  approval_decision: () => {\n    subject = `Approval Decision — ${data.appName}`;\n    return `<h2>Approval Decision</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">View Details</a>`;\n  },\n  social_media_post_published: () => {\n    subject = `Social Media Post Published — ${data.appName}`;\n    return `<h2>Social Media Post Published 📱</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">View Post</a>`;\n  },\n  social_media_post_failed: () => {\n    subject = `Social Media Post Failed — ${data.appName}`;\n    return `<h2>Social Media Post Failed ⚠️</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">View Details</a>`;\n  },\n  task_assigned: () => {\n    subject = `New Task Assigned — ${data.appName}`;\n    return `<h2>New Task Assigned 📝</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">View Task</a>`;\n  },\n  task_updated: () => {\n    subject = `Task Updated — ${data.appName}`;\n    return `<h2>Task Updated 📝</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">View Task</a>`;\n  },\n  task_comment: () => {\n    subject = `New Task Comment — ${data.appName}`;\n    return `<h2>New Task Comment 💬</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">View Comment</a>`;\n  },\n  task_collaboration_invite: () => {\n    subject = `Task Collaboration Invite — ${data.appName}`;\n    return `<h2>Task Collaboration Invite 🤝</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">Accept Invite</a>`;\n  },\n  task_due_soon: () => {\n    subject = `Task Due Soon — ${data.appName}`;\n    return `<h2>Task Due Soon ⏰</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">View Task</a>`;\n  },\n  task_overdue: () => {\n    subject = `Task Overdue — ${data.appName}`;\n    return `<h2>Task Overdue 🚨</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">View Task</a>`;\n  },\n  chat_message: () => {\n    subject = `New Message — ${data.appName}`;\n    return `<h2>New Message 💬</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">Reply to Message</a>`;\n  },\n  announcement: () => {\n    subject = `New Announcement — ${data.appName}`;\n    return `<h2>New Announcement 📢</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">View Announcement</a>`;\n  },\n  system_alert: () => {\n    subject = `System Alert — ${data.appName}`;\n    return `<h2>System Alert 🚨</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">View Details</a>`;\n  },\n  automation: () => {\n    subject = `Automation Alert — ${data.appName}`;\n    return `<h2>Automation Alert ⚙️</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">View Details</a>`;\n  },\n  welcome: () => {\n    subject = `Welcome to ${data.appName}!`;\n    return `<h2>Welcome to ${data.appName}! 🎉</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">Get Started</a>`;\n  },\n  password_reset: () => {\n    subject = `Password Reset — ${data.appName}`;\n    return `<h2>Password Reset Request 🔐</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">Reset Password</a><p style=\"font-size: 12px; color: #737373;\">If you didn't request this, please ignore this email.</p>`;\n  }\n};\n\nconst templateFn = templates[type] || (() => `<h2>${data.title}</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">View Details</a>`);\n\nconst content = templateFn();\n\n// Build full HTML email\nemailHtml = `\n<!DOCTYPE html>\n<html>\n<head>\n  <meta charset=\"utf-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n  <title>${data.appName}</title>\n  <style>\n    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif; background-color: #0a0a0a; margin: 0; padding: 20px; }\n    .container { max-width: 600px; margin: 0 auto; background: #0a0a0a; border-radius: 16px; overflow: hidden; }\n    .header { background: linear-gradient(135deg, #f97316 0%, #ea580c 100%); padding: 32px; text-align: center; }\n    .header h1 { color: white; margin: 0; font-size: 24px; font-weight: 700; }\n    .content { padding: 32px; color: #ffffff; }\n    .content h2 { color: #ffffff; margin: 0 0 16px; font-size: 20px; font-weight: 600; }\n    .content p { color: #a3a3a3; line-height: 1.6; margin: 0 0 16px; }\n    .button { display: inline-block; background: #f97316; color: white; padding: 14px 32px; border-radius: 8px; text-decoration: none; font-weight: 600; margin: 16px 0; }\n    .button:hover { background: #ea580c; }\n    .footer { padding: 24px; text-align: center; color: #525252; font-size: 12px; border-top: 1px solid #262626; }\n    .footer a { color: #f97316; text-decoration: none; }\n    .metadata { background: #171717; padding: 16px; border-radius: 8px; margin: 16px 0; font-size: 13px; color: #737373; }\n    .metadata-item { margin: 8px 0; }\n    .metadata-label { color: #a3a3a3; font-weight: 500; }\n    .priority-high { border-left: 4px solid #ef4444; }\n    .priority-medium { border-left: 4px solid #f97316; }\n    .priority-low { border-left: 4px solid #22c55e; }\n  </style>\n</head>\n<body>\n  <div class=\"container priority-${data.priority}\">\n    <div class=\"header\">\n      <h1>${data.appName}</h1>\n    </div>\n    <div class=\"content\">\n      ${content}\n      ${renderMetadata(data.metadata)}\n    </div>\n    <div class=\"footer\">\n      <p>&copy; ${new Date().getFullYear()} ${data.appName}. All rights reserved.</p>\n      <p><a href=\"${data.appUrl}\">Visit ${data.appName}</a></p>\n    </div>\n  </div>\n</body>\n</html>\n`;\n\nfunction renderMetadata(metadata) {\n  if (!metadata || Object.keys(metadata).length === 0) return '';\n  \n  const items = Object.entries(metadata)\n    .filter(([_, v]) => v !== undefined && v !== null && v !== '')\n    .map(([k, v]) => `<div class=\"metadata-item\"><span class=\"metadata-label\">${formatKey(k)}:</span> ${formatValue(v)}</div>`)\n    .join('');\n  \n  return items ? `<div class=\"metadata\">${items}</div>` : '';\n}\n\nfunction formatKey(key) {\n  return key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase()).trim();\n}\n\nfunction formatValue(value) {\n  if (typeof value === 'object' && value !== null) return JSON.stringify(value);\n  return String(value);\n}\n\nreturn [{\n  json: {\n    to: data.to,\n    fullName: data.fullName,\n    firstName: data.firstName,\n    subject,\n    type: data.type,\n    priority: data.priority,\n    actionUrl: data.actionUrl,\n    emailHtml,\n    metadata: data.metadata,\n    source: 'n8n-generated'\n  }\n}];"
+        "jsCode": "const data = $input.first().json;\n\nconst type = data.type;\nconst context = {\n  fullName: data.fullName,\n  firstName: data.firstName,\n  title: data.title,\n  message: data.message,\n  actionUrl: data.actionUrl,\n  metadata: data.metadata,\n  appName: data.appName,\n  appUrl: data.appUrl\n};\n\n// Generate email HTML based on type (fallback)\nlet emailHtml = '';\nlet subject = `${data.title} \u2014 ${data.appName}`;\n\nconst templates = {\n  leave_request_submitted: () => {\n    subject = `Leave Request Submitted \u2014 ${data.appName}`;\n    return `<h2>Leave Request Submitted</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">Review Request</a>`;\n  },\n  leave_request_approved: () => {\n    subject = `Leave Request Approved \u2014 ${data.appName}`;\n    return `<h2>Leave Request Approved \u2705</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">View Details</a>`;\n  },\n  leave_request_rejected: () => {\n    subject = `Leave Request Rejected \u2014 ${data.appName}`;\n    return `<h2>Leave Request Rejected \u274c</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">View Details</a>`;\n  },\n  meeting_invitation: () => {\n    subject = `Meeting Invitation \u2014 ${data.appName}`;\n    return `<h2>Meeting Invitation \ud83d\udcc5</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">Accept Invitation</a>`;\n  },\n  meeting_reminder: () => {\n    subject = `Meeting Reminder \u2014 ${data.appName}`;\n    return `<h2>Meeting Reminder \u23f0</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">Join Meeting</a>`;\n  },\n  meeting: () => {\n    subject = `New Meeting \u2014 ${data.appName}`;\n    return `<h2>New Meeting \ud83d\udcc5</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">View Meeting</a>`;\n  },\n  approval_needed: () => {\n    subject = `Approval Required \u2014 ${data.appName}`;\n    return `<h2>Approval Required \ud83d\udccb</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">Review & Approve</a>`;\n  },\n  approval_approved: () => {\n    subject = `Request Approved \u2014 ${data.appName}`;\n    return `<h2>Request Approved \u2705</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">View Details</a>`;\n  },\n  approval_rejected: () => {\n    subject = `Request Rejected \u2014 ${data.appName}`;\n    return `<h2>Request Rejected \u274c</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">View Details</a>`;\n  },\n  approval_decision: () => {\n    subject = `Approval Decision \u2014 ${data.appName}`;\n    return `<h2>Approval Decision</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">View Details</a>`;\n  },\n  social_media_post_published: () => {\n    subject = `Social Media Post Published \u2014 ${data.appName}`;\n    return `<h2>Social Media Post Published \ud83d\udcf1</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">View Post</a>`;\n  },\n  social_media_post_failed: () => {\n    subject = `Social Media Post Failed \u2014 ${data.appName}`;\n    return `<h2>Social Media Post Failed \u26a0\ufe0f</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">View Details</a>`;\n  },\n  task_assigned: () => {\n    subject = `New Task Assigned \u2014 ${data.appName}`;\n    return `<h2>New Task Assigned \ud83d\udcdd</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">View Task</a>`;\n  },\n  task_updated: () => {\n    subject = `Task Updated \u2014 ${data.appName}`;\n    return `<h2>Task Updated \ud83d\udcdd</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">View Task</a>`;\n  },\n  task_comment: () => {\n    subject = `New Task Comment \u2014 ${data.appName}`;\n    return `<h2>New Task Comment \ud83d\udcac</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">View Comment</a>`;\n  },\n  task_collaboration_invite: () => {\n    subject = `Task Collaboration Invite \u2014 ${data.appName}`;\n    return `<h2>Task Collaboration Invite \ud83e\udd1d</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">Accept Invite</a>`;\n  },\n  task_due_soon: () => {\n    subject = `Task Due Soon \u2014 ${data.appName}`;\n    return `<h2>Task Due Soon \u23f0</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">View Task</a>`;\n  },\n  task_overdue: () => {\n    subject = `Task Overdue \u2014 ${data.appName}`;\n    return `<h2>Task Overdue \ud83d\udea8</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">View Task</a>`;\n  },\n  chat_message: () => {\n    subject = `New Message \u2014 ${data.appName}`;\n    return `<h2>New Message \ud83d\udcac</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">Reply to Message</a>`;\n  },\n  announcement: () => {\n    subject = `New Announcement \u2014 ${data.appName}`;\n    return `<h2>New Announcement \ud83d\udce2</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">View Announcement</a>`;\n  },\n  system_alert: () => {\n    subject = `System Alert \u2014 ${data.appName}`;\n    return `<h2>System Alert \ud83d\udea8</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">View Details</a>`;\n  },\n  automation: () => {\n    subject = `Automation Alert \u2014 ${data.appName}`;\n    return `<h2>Automation Alert \u2699\ufe0f</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">View Details</a>`;\n  },\n  welcome: () => {\n    subject = `Welcome to ${data.appName}!`;\n    return `<h2>Welcome to ${data.appName}! \ud83c\udf89</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">Get Started</a>`;\n  },\n  password_reset: () => {\n    subject = `Password Reset \u2014 ${data.appName}`;\n    return `<h2>Password Reset Request \ud83d\udd10</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">Reset Password</a><p style=\"font-size: 12px; color: #737373;\">If you didn't request this, please ignore this email.</p>`;\n  },\n  leave_reminder: () => {\n    subject = `Leave Reminder \u2014 ${data.appName}`;\n    return `<h2>Leave Reminder \ud83d\udcc5</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">View Leave Request</a>`;\n  },\n  task_completed: () => {\n    subject = `Task Completed \u2014 ${data.appName}`;\n    return `<h2>Task Completed \u2705</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">View Task</a>`;\n  },\n  duty_roster_assigned: () => {\n    subject = `Duty Roster Assigned \u2014 ${data.appName}`;\n    return `<h2>Duty Roster Assigned \ud83d\udccb</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">View Roster</a>`;\n  },\n  duty_roster_updated: () => {\n    subject = `Duty Roster Updated \u2014 ${data.appName}`;\n    return `<h2>Duty Roster Updated \ud83d\udccb</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">View Roster</a>`;\n  },\n  shift_reminder: () => {\n    subject = `Shift Reminder \u2014 ${data.appName}`;\n    return `<h2>Shift Reminder \u23f0</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">View Schedule</a>`;\n  },\n  user_signup: () => {\n    subject = `New User Signup \u2014 ${data.appName}`;\n    return `<h2>New User Signup \ud83c\udf89</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">View Profile</a>`;\n  },\n  user_invite: () => {\n    subject = `You're Invited to ${data.appName}!`;\n    return `<h2>You're Invited! \ud83d\udce8</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">Accept Invitation</a>`;\n  },\n  campaign_update: () => {\n    subject = `Campaign Update \u2014 ${data.appName}`;\n    return `<h2>Campaign Update \ud83d\udce2</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">View Campaign</a>`;\n  },\n  campaign_assigned: () => {\n    subject = `Campaign Assigned \u2014 ${data.appName}`;\n    return `<h2>Campaign Assigned \ud83c\udfaf</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">View Campaign</a>`;\n  },\n  timesheet_reminder: () => {\n    subject = `Timesheet Reminder \u2014 ${data.appName}`;\n    return `<h2>Timesheet Reminder \u23f0</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">Submit Timesheet</a>`;\n  },\n  invoice_update: () => {\n    subject = `Invoice Update \u2014 ${data.appName}`;\n    return `<h2>Invoice Update \ud83d\udcb0</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">View Invoice</a>`;\n  },\n  budget_alert: () => {\n    subject = `Budget Alert \u2014 ${data.appName}`;\n    return `<h2>Budget Alert \ud83d\udcb8</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">View Budget</a>`;\n  },\n  expense_submitted: () => {\n    subject = `Expense Submitted \u2014 ${data.appName}`;\n    return `<h2>Expense Submitted \ud83d\udcb3</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">View Expense</a>`;\n  },\n  expense_approved: () => {\n    subject = `Expense Approved \u2014 ${data.appName}`;\n    return `<h2>Expense Approved \u2705</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">View Expense</a>`;\n  },\n  expense_rejected: () => {\n    subject = `Expense Rejected \u2014 ${data.appName}`;\n    return `<h2>Expense Rejected \u274c</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">View Expense</a>`;\n  }\n};\n\nconst templateFn = templates[type] || (() => `<h2>${data.title}</h2><p>Hi ${data.firstName},</p><p>${data.message}</p><a href=\"${data.actionUrl}\" class=\"button\">View Details</a>`);\n\nconst content = templateFn();\n\n// Build full HTML email\nemailHtml = `\n<!DOCTYPE html>\n<html>\n<head>\n  <meta charset=\"utf-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n  <title>${data.appName}</title>\n  <style>\n    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif; background-color: #0a0a0a; margin: 0; padding: 20px; }\n    .container { max-width: 600px; margin: 0 auto; background: #0a0a0a; border-radius: 16px; overflow: hidden; }\n    .header { background: linear-gradient(135deg, #f97316 0%, #ea580c 100%); padding: 32px; text-align: center; }\n    .header h1 { color: white; margin: 0; font-size: 24px; font-weight: 700; }\n    .content { padding: 32px; color: #ffffff; }\n    .content h2 { color: #ffffff; margin: 0 0 16px; font-size: 20px; font-weight: 600; }\n    .content p { color: #a3a3a3; line-height: 1.6; margin: 0 0 16px; }\n    .button { display: inline-block; background: #f97316; color: white; padding: 14px 32px; border-radius: 8px; text-decoration: none; font-weight: 600; margin: 16px 0; }\n    .button:hover { background: #ea580c; }\n    .footer { padding: 24px; text-align: center; color: #525252; font-size: 12px; border-top: 1px solid #262626; }\n    .footer a { color: #f97316; text-decoration: none; }\n    .metadata { background: #171717; padding: 16px; border-radius: 8px; margin: 16px 0; font-size: 13px; color: #737373; }\n    .metadata-item { margin: 8px 0; }\n    .metadata-label { color: #a3a3a3; font-weight: 500; }\n    .priority-high { border-left: 4px solid #ef4444; }\n    .priority-medium { border-left: 4px solid #f97316; }\n    .priority-low { border-left: 4px solid #22c55e; }\n  </style>\n</head>\n<body>\n  <div class=\"container priority-${data.priority}\">\n    <div class=\"header\">\n      <h1>${data.appName}</h1>\n    </div>\n    <div class=\"content\">\n      ${content}\n      ${renderMetadata(data.metadata)}\n    </div>\n    <div class=\"footer\">\n      <p>&copy; ${new Date().getFullYear()} ${data.appName}. All rights reserved.</p>\n      <p><a href=\"${data.appUrl}\">Visit ${data.appName}</a></p>\n    </div>\n  </div>\n</body>\n</html>\n`;\n\nfunction renderMetadata(metadata) {\n  if (!metadata || Object.keys(metadata).length === 0) return '';\n  \n  const items = Object.entries(metadata)\n    .filter(([_, v]) => v !== undefined && v !== null && v !== '')\n    .map(([k, v]) => `<div class=\"metadata-item\"><span class=\"metadata-label\">${formatKey(k)}:</span> ${formatValue(v)}</div>`)\n    .join('');\n  \n  return items ? `<div class=\"metadata\">${items}</div>` : '';\n}\n\nfunction formatKey(key) {\n  return key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase()).trim();\n}\n\nfunction formatValue(value) {\n  if (typeof value === 'object' && value !== null) return JSON.stringify(value);\n  return String(value);\n}\n\nreturn [{\n  json: {\n    to: data.to,\n    fullName: data.fullName,\n    firstName: data.firstName,\n    subject,\n    type: data.type,\n    priority: data.priority,\n    actionUrl: data.actionUrl,\n    emailHtml,\n    metadata: data.metadata,\n    source: 'n8n-generated'\n  }\n}];"
       },
       "id": "b1c2d3e4-5678-90ab-cdef-1234567890ab",
       "name": "Generate Email Template (Fallback)",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [-352, 1168]
+      "position": [
+        -352,
+        1168
+      ]
     },
     {
       "parameters": {
@@ -105,7 +123,10 @@
       "name": "Validate Email",
       "type": "n8n-nodes-base.if",
       "typeVersion": 1,
-      "position": [-160, 1104]
+      "position": [
+        -160,
+        1104
+      ]
     },
     {
       "parameters": {
@@ -121,7 +142,10 @@
       "name": "Send via Gmail",
       "type": "n8n-nodes-base.gmail",
       "typeVersion": 2,
-      "position": [64, 1088],
+      "position": [
+        64,
+        1088
+      ],
       "webhookId": "202d4412-8512-41a5-88ff-30af5ccab0a5",
       "credentials": {
         "gmailOAuth2": {
@@ -140,7 +164,10 @@
       "name": "Response Success",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [272, 1360]
+      "position": [
+        272,
+        1360
+      ]
     },
     {
       "parameters": {
@@ -150,17 +177,23 @@
       "name": "Log Success",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [96, 1360]
+      "position": [
+        96,
+        1360
+      ]
     },
     {
       "parameters": {
-        "jsCode": "const data = $input.first().json;\nconsole.log('SKIPPED EMAIL — missing to or html:', JSON.stringify({ to: data.to, hasHtml: !!data.emailHtml }));\nreturn [{ json: { skipped: true, reason: 'missing email or html', to: data.to, type: data.type } }];"
+        "jsCode": "const data = $input.first().json;\nconsole.log('SKIPPED EMAIL \u2014 missing to or html:', JSON.stringify({ to: data.to, hasHtml: !!data.emailHtml }));\nreturn [{ json: { skipped: true, reason: 'missing email or html', to: data.to, type: data.type } }];"
       },
       "id": "1dc8ffcc-d783-4225-8c3c-e42304259de2",
       "name": "Log Skipped",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [-464, 1392]
+      "position": [
+        -464,
+        1392
+      ]
     },
     {
       "parameters": {
@@ -174,7 +207,10 @@
       "name": "Response Error",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [-208, 1392]
+      "position": [
+        -208,
+        1392
+      ]
     },
     {
       "parameters": {
@@ -184,7 +220,10 @@
       "name": "Log Invalid Payload",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [-960, 1360]
+      "position": [
+        -960,
+        1360
+      ]
     },
     {
       "parameters": {
@@ -198,7 +237,10 @@
       "name": "Response Invalid",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [-800, 1360]
+      "position": [
+        -800,
+        1360
+      ]
     },
     {
       "parameters": {
@@ -208,7 +250,10 @@
       "name": "Handle Error",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [16, 1520]
+      "position": [
+        16,
+        1520
+      ]
     },
     {
       "parameters": {
@@ -222,7 +267,10 @@
       "name": "Response Failed",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [256, 1520]
+      "position": [
+        256,
+        1520
+      ]
     }
   ],
   "connections": {

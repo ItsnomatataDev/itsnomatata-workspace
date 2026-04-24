@@ -1,6 +1,8 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import LoginPage from "../../features/auth/pages/LoginPage";
 import SignupPage from "../../features/auth/pages/SignupPage";
+import ForgotPasswordPage from "../../features/auth/pages/ForgotPasswordPage";
+import ResetPasswordPage from "../../features/auth/pages/ResetPasswordPage";
 import DashboardPage from "../../pages/DashboardPage";
 import ClientsPage from "../../features/clients/pages/ClientsPage";
 import ClientDetailsPage from "../../features/clients/pages/ClientDetailsPage";
@@ -48,7 +50,9 @@ import EverhourHome from "../../features/everhour/pages/EverhourHome";
 import EverhourBoardDetail from "../../features/everhour/pages/EverhourBoardDetail";
 import EverhourAdminPage from "../../features/timesheets/pages/EverhourAdminPage";
 import BoardTimeManagementPage from "../../features/boards/pages/BoardTimeManagementPage";
+import TimeTrackingPage from "../../features/time-tracking/pages/TimeTrackingPage";
 import BoardDetailView from "../../features/boards/pages/BoardDetailView";
+import AttendancePage from "../../features/attendance/pages/AttendancePage";
 const AppRouter = () => {
   return (
     <BrowserRouter>
@@ -57,6 +61,8 @@ const AppRouter = () => {
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/signup" element={<SignupPage />} />
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/resetpassword" element={<ResetPasswordPage />} />
         {"/Public routes"}
         <Route
           path="/dashboard"
@@ -141,6 +147,14 @@ const AppRouter = () => {
           element={
             <ProtectedRoute>
               <TimePage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/time-tracking"
+          element={
+            <ProtectedRoute>
+              <TimeTrackingPage />
             </ProtectedRoute>
           }
         />
@@ -383,6 +397,16 @@ const AppRouter = () => {
             <ProtectedRoute>
               <RoleRoute roles={["it"]}>
                 <ITSupportPage />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/it/attendance"
+          element={
+            <ProtectedRoute>
+              <RoleRoute roles={["it", "admin"]}>
+                <AttendancePage />
               </RoleRoute>
             </ProtectedRoute>
           }

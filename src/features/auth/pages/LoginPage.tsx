@@ -1,12 +1,17 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { Eye, EyeOff } from "lucide-react";
 import { signInUser, signInWithGoogle } from "../../../lib/supabase/auth";
+import { TimeTrackingService } from "../../time-tracking/services/timeTrackingService";
+import { useAuth } from "../../../app/providers/AuthProvider";
 
 export default function LoginPage() {
   const navigate = useNavigate();
+  const auth = useAuth();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
   const [googleBusy, setGoogleBusy] = useState(false);
   const [error, setError] = useState("");
@@ -29,6 +34,23 @@ export default function LoginPage() {
         setWarning(
           'Login succeeded, but the organization with slug "its-nomatata" was not found. Ask an administrator to create it in Supabase.',
         );
+      }
+
+      // Auto clock in on successful login
+      if (auth?.user?.id && auth?.profile?.organization_id) {
+        try {
+          const activeSession = await TimeTrackingService.getActiveSession(auth.user.id);
+          if (!activeSession) {
+            await TimeTrackingService.clockIn({
+              userId: auth.user.id,
+              organizationId: auth.profile.organization_id,
+              notes: "Auto clocked in on login",
+            });
+          }
+        } catch (clockInError) {
+          console.error("Auto clock in failed:", clockInError);
+          // Don't block login if clock in fails
+        }
       }
 
       navigate("/dashboard", { replace: true });
@@ -105,14 +127,32 @@ export default function LoginPage() {
                 required
               />
 
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Password"
-                className="w-full border border-white/10 bg-black px-4 py-3 text-white outline-none transition focus:border-orange-500"
-                required
-              />
+              <div className="relative">
+                <input
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Password"
+                  className="w-full border border-white/10 bg-black px-4 py-3 pr-12 text-white outline-none transition focus:border-orange-500"
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-white/50 hover:text-white"
+                >
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
+
+              <div className="flex justify-end">
+                <Link
+                  to="/forgot-password"
+                  className="text-sm text-orange-400 hover:text-orange-300"
+                >
+                  Forgot password?
+                </Link>
+              </div>
 
               <button
                 type="submit"

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { Eye, EyeOff } from "lucide-react";
 import { signInWithGoogle, signUpUser } from "../../../lib/supabase/auth";
 import type { AppRole } from "../../../lib/constants/roles";
 
@@ -31,6 +32,7 @@ export default function SignupPage() {
     role: "social_media",
   });
 
+  const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
   const [googleBusy, setGoogleBusy] = useState(false);
   const [error, setError] = useState("");
@@ -185,14 +187,23 @@ export default function SignupPage() {
                 Super Admin cannot be selected during public signup.
               </p>
 
-              <input
-                type="password"
-                value={form.password}
-                onChange={(e) => updateForm("password", e.target.value)}
-                placeholder="Password"
-                className="w-full border border-white/10 bg-black px-4 py-3 text-white outline-none transition focus:border-orange-500"
-                required
-              />
+              <div className="relative">
+                <input
+                  type={showPassword ? "text" : "password"}
+                  value={form.password}
+                  onChange={(e) => updateForm("password", e.target.value)}
+                  placeholder="Password"
+                  className="w-full border border-white/10 bg-black px-4 py-3 pr-12 text-white outline-none transition focus:border-orange-500"
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-white/50 hover:text-white"
+                >
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
 
               <button
                 type="submit"
@@ -227,6 +238,15 @@ export default function SignupPage() {
                 className="font-semibold text-orange-400 hover:text-orange-300"
               >
                 Login
+              </Link>
+            </p>
+
+            <p className="mt-2 text-center text-sm text-white/60">
+              <Link
+                to="/forgot-password"
+                className="text-orange-400 hover:text-orange-300"
+              >
+                Forgot password?
               </Link>
             </p>
           </div>
