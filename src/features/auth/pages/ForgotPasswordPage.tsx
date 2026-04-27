@@ -22,7 +22,8 @@ export default function ForgotPasswordPage() {
       setEmail("");
     } catch (err) {
       console.error("RESET PASSWORD ERROR:", err);
-      setError(err instanceof Error ? err.message : "Failed to send reset email");
+      const errorMessage = err instanceof Error ? err.message : JSON.stringify(err);
+      setError(errorMessage || "Failed to send reset email");
     } finally {
       setBusy(false);
     }

@@ -1,11 +1,6 @@
--- Refactor Time Tracking Tables to separate from Attendance
--- Time tracking should be for project/task-based work logging, NOT presence tracking
--- Attendance (clock in/out) is now handled by attendance_sessions table
 
--- Drop the old time_sessions table (it was mixing attendance with time tracking)
 drop table if exists public.time_sessions cascade;
 
--- Recreate time_entries with proper project/task focus (no clock in/out)
 drop table if exists public.time_entries cascade;
 
 create table public.time_entries (
@@ -13,11 +8,9 @@ create table public.time_entries (
   user_id       uuid        not null references auth.users(id) on delete cascade,
   organization_id uuid     not null references public.organizations(id) on delete cascade,
   
-  -- Project and task tracking
   project_id    uuid        null references public.projects(id) on delete set null,
   task_id       uuid        null references public.tasks(id) on delete set null,
-  
-  -- Work details
+
   description   text        null,
   started_at    timestamptz not null default now(),
   ended_at      timestamptz null,

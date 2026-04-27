@@ -11,7 +11,7 @@ import {
   Shield,
 } from "lucide-react";
 import { useAuth } from "../../../app/providers/AuthProvider";
-import Sidebar from "../../../components/dashboard/components/Siderbar";
+import Sidebar from "../../../components/dashboard/components/Sidebar";
 import ITStatsCard from "../components/ITStatsCard";
 import ITProjectCard from "../components/ITProjectCard";
 import InviteMemberModal from "../components/InviteMemberModal";

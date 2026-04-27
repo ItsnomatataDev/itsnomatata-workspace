@@ -36,7 +36,6 @@ export default function LoginPage() {
         );
       }
 
-      // Auto clock in on successful login
       if (auth?.user?.id && auth?.profile?.organization_id) {
         try {
           const activeSession = await TimeTrackingService.getActiveSession(auth.user.id);
@@ -49,7 +48,6 @@ export default function LoginPage() {
           }
         } catch (clockInError) {
           console.error("Auto clock in failed:", clockInError);
-          // Don't block login if clock in fails
         }
       }
 
@@ -81,8 +79,8 @@ export default function LoginPage() {
       <div className="grid min-h-screen lg:grid-cols-2">
         <div className="hidden lg:flex flex-col justify-between border-r border-orange-500/20 bg-linear-to-br from-black via-black to-orange-950/20 p-10">
           <div>
-            <div className="inline-flex items-center border border-orange-500/40 px-4 py-2 text-sm text-orange-400">
-              ITsNomatata Workspace
+            <div className="w-20 h-20">
+             <img src="https://res.cloudinary.com/dnqjax5ut/image/upload/v1776754504/Itsnomatata-Logo-White-with-tagline-2-768x643_u3n4j0.png" alt="IT's Nomatata" />
             </div>
 
             <h1 className="mt-8 max-w-md text-5xl font-bold leading-tight">
@@ -93,6 +91,14 @@ export default function LoginPage() {
               Login to continue managing clients, campaigns, tasks, reports,
               assets, and collaboration.
             </p>
+
+            <div className="flex justify-start bg-white p-0">
+              <img
+                src="https://res.cloudinary.com/dnqjax5ut/image/upload/v1777033073/Screenshot_2026-04-24_at_14.16.29_blesyp.png"
+                alt="codex home"
+                className="w-full max-w-lg h-[320px] object-contain drop-shadow-2xl border-2 border-orange-500"
+              />
+            </div>
           </div>
         </div>
 

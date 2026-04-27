@@ -62,7 +62,6 @@ type SidebarCounts = {
 const commonLinks: LinkItem[] = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { to: "/boards", label: "Boards", icon: BriefcaseBusiness },
-  { to: "/time", label: "Time Tracking", icon: Clock3 },
   { to: "/leave", label: "Leave", icon: CalendarDays },
   { to: "/roster", label: "Duty Roster", icon: CalendarClock },
   { to: "/chat", label: "Team Chat", icon: MessageSquare },

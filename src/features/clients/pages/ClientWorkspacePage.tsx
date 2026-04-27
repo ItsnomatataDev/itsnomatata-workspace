@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Clock3, Eye, FileText } from "lucide-react";
-import Sidebar from "../../../components/dashboard/components/Siderbar";
+import Sidebar from "../../../components/dashboard/components/Sidebar";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import {
   getClientById,

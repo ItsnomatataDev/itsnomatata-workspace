@@ -24,7 +24,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import { useNavigate } from "react-router-dom";
-import Sidebar from "../../../components/dashboard/components/Siderbar";
+import Sidebar from "../../../components/dashboard/components/Sidebar";
 import { getBoards, createCard, updateCard, createBoard, deleteBoard } from "../services/boardService";
 import { createClient } from "../../clients/services/clientService";
 import { getAdminTimeEntries } from "../../../lib/supabase/queries/adminTime";

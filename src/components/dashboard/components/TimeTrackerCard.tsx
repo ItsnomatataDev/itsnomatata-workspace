@@ -4,6 +4,8 @@ import { Clock3, Play, Square } from "lucide-react";
 type ActiveTimeEntry = {
   id: string;
   started_at: string;
+  task_id?: string | null;
+  description?: string | null;
 } | null;
 
 type TimeTrackerCardProps = {
@@ -78,9 +80,16 @@ export default function TimeTrackerCard({
       <p className="mt-1 text-sm text-white/50">Tracked today</p>
 
       {activeTimeEntry ? (
-        <p className="mt-2 text-sm text-orange-400">
-          Running now: {formatDuration(liveSeconds)}
-        </p>
+        <div className="mt-2 space-y-1">
+          <p className="text-sm text-orange-400">
+            Running now: {formatDuration(liveSeconds)}
+          </p>
+          {activeTimeEntry.description && (
+            <p className="text-xs text-white/60 truncate">
+              {activeTimeEntry.description}
+            </p>
+          )}
+        </div>
       ) : (
         <p className="mt-2 text-sm text-white/40">No active timer</p>
       )}

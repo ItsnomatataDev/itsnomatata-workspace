@@ -3,7 +3,7 @@ ALTER TABLE profiles
 ADD COLUMN email_preferences JSONB DEFAULT '{"all": true, "types": []}'::jsonb;
 
 
--- Create email tracking table
+
 CREATE TABLE IF NOT EXISTS email_tracking (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE,

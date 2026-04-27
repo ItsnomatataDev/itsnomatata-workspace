@@ -18,7 +18,7 @@ import {
 import { createClient } from "../../clients/services/clientService";
 import { deleteBoard } from "../services/boardService";
 import DeleteBoardModal from "../components/DeleteBoardModal";
-import Sidebar from "../../../components/dashboard/components/Siderbar";
+import Sidebar from "../../../components/dashboard/components/Sidebar";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import { getBoards, getBoardStats } from "../services/boardService";
 import { supabase } from "../../../lib/supabase/client";

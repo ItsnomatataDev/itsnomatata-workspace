@@ -8,7 +8,7 @@ import {
   Timer,
   TriangleAlert,
 } from "lucide-react";
-import Sidebar from "../../../components/dashboard/components/Siderbar";
+import Sidebar from "../../../components/dashboard/components/Sidebar";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import {
   getAdminTimeEntries,

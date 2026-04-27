@@ -18,7 +18,7 @@ import {
   AlertTriangle,
   LayoutGrid,
 } from "lucide-react";
-import Sidebar from "../../../components/dashboard/components/Siderbar";
+import Sidebar from "../../../components/dashboard/components/Sidebar";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import { getBoards } from "../../boards/services/boardService";
 import { useTeamTimesheetsRealtime } from "../../../lib/hooks/useTeamTimesheetsRealtime";

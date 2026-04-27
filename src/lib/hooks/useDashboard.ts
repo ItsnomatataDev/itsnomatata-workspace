@@ -216,6 +216,35 @@ export function useDashboard(params: {
       setLoading(true);
       setError("");
 
+      // Get task IDs from task_assignees junction table
+      const { data: taskAssignments } = await supabase
+        .from("task_assignees")
+        .select("task_id")
+        .eq("user_id", userId);
+
+      const assignedTaskIds = taskAssignments?.map((a) => a.task_id) || [];
+
+      // Also get task IDs from active time entries (tasks user is tracking but not assigned to)
+      const { data: timeEntryTasks } = await supabase
+        .from("time_entries")
+        .select("task_id")
+        .eq("user_id", userId)
+        .is("ended_at", null)
+        .not("task_id", "is", null);
+
+      const trackedTaskIds = timeEntryTasks?.map((t) =>
+        t.task_id
+      ).filter(Boolean) || [];
+
+      // Combine all task IDs the user cares about
+      const allTaskIds = Array.from(
+        new Set([...assignedTaskIds, ...trackedTaskIds]),
+      );
+
+      const assignmentFilter = allTaskIds.length > 0
+        ? `,id.in.(${allTaskIds.join(",")})`
+        : "";
+
       const [
         openRes,
         progressRes,
@@ -233,25 +262,25 @@ export function useDashboard(params: {
         supabase
           .from("tasks")
           .select("id", { head: true, count: "exact" })
-          .eq("assigned_to", userId)
+          .or(`assigned_to.eq.${userId}${assignmentFilter}`)
           .in("status", ["todo", "backlog", "blocked"]),
 
         supabase
           .from("tasks")
           .select("id", { head: true, count: "exact" })
-          .eq("assigned_to", userId)
+          .or(`assigned_to.eq.${userId}${assignmentFilter}`)
           .eq("status", "in_progress"),
 
         supabase
           .from("tasks")
           .select("id", { head: true, count: "exact" })
-          .eq("assigned_to", userId)
+          .or(`assigned_to.eq.${userId}${assignmentFilter}`)
           .eq("status", "review"),
 
         supabase
           .from("tasks")
           .select("id", { head: true, count: "exact" })
-          .eq("assigned_to", userId)
+          .or(`assigned_to.eq.${userId}${assignmentFilter}`)
           .eq("status", "done"),
 
         supabase
@@ -283,7 +312,7 @@ export function useDashboard(params: {
             id,title,status,priority,due_date,created_at,created_by,
             profiles:created_by(full_name,email)
           `)
-          .eq("assigned_to", userId)
+          .or(`assigned_to.eq.${userId}${assignmentFilter}`)
           .order("updated_at", { ascending: false })
           .limit(6),
 

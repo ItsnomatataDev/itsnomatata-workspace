@@ -1,6 +1,6 @@
 import { supabase } from "../../../lib/supabase/client";
 import type { RealtimeChannel } from "@supabase/supabase-js";
-import type { ChatMessage } from "../types/chat";
+import type { ChatConversationMember, ChatMessage } from "../types/chat";
 
 export function subscribeToConversationMessages(params: {
   conversationId: string;
@@ -46,7 +46,53 @@ export function subscribeToConversationMessages(params: {
         params.onDelete?.(payload.old.id as string);
       },
     )
-    .subscribe();
+    .subscribe((status) => {
+      if (status === "SUBSCRIBED") {
+        console.log(
+          `[chat] realtime active for conversation ${params.conversationId}`,
+        );
+      } else if (status === "CHANNEL_ERROR") {
+        console.error(
+          `[chat] realtime error for conversation ${params.conversationId}`,
+        );
+      }
+    });
+
+  return () => {
+    void supabase.removeChannel(channel);
+  };
+}
+
+export function subscribeToConversationMembers(params: {
+  conversationId: string;
+  currentUserId: string;
+  onMemberUpdate: (member: ChatConversationMember) => void;
+}) {
+  const channel: RealtimeChannel = supabase
+    .channel(`chat:members:${params.conversationId}`)
+    .on(
+      "postgres_changes",
+      {
+        event: "UPDATE",
+        schema: "public",
+        table: "chat_conversation_members",
+        filter: `conversation_id=eq.${params.conversationId}`,
+      },
+      (payload) => {
+        const member = payload.new as ChatConversationMember;
+        // Only notify when OTHER members update (e.g. read receipts)
+        if (member.user_id !== params.currentUserId) {
+          params.onMemberUpdate(member);
+        }
+      },
+    )
+    .subscribe((status) => {
+      if (status === "SUBSCRIBED") {
+        console.log(
+          `[chat] member realtime active for conversation ${params.conversationId}`,
+        );
+      }
+    });
 
   return () => {
     void supabase.removeChannel(channel);

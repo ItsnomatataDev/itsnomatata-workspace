@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { CalendarDays, Plus } from "lucide-react";
-import Sidebar from "../../../components/dashboard/components/Siderbar";
+import Sidebar from "../../../components/dashboard/components/Sidebar";
 import { useAuth } from "../../../../src/app/providers/AuthProvider";
 import CreateLeaveRequestModal from "../components/CreateLeaveRequestModal";
 import MyLeaveRequestsTable from "../components/MyLeaveRequestsTable";

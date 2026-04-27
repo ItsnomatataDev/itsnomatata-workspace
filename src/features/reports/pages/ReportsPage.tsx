@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { FileText, Plus } from "lucide-react";
-import Sidebar from "../../../components/dashboard/components/Siderbar";
+import Sidebar from "../../../components/dashboard/components/Sidebar";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import { getReports } from "../../../lib/supabase/queries/reports";
 import { createReport } from "../../../lib/supabase/mutations/reports";

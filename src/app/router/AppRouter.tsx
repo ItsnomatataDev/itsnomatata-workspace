@@ -37,7 +37,6 @@ import ChatPage from "../../features/chat/pages/ChatPage";
 import MeetingsPage from "../../features/meetings/pages/MeetingsPage";
 import MeetingRoomPage from "../../features/meetings/pages/MeetingRoomPage";
 import SocialPostsPage from "../../features/social-posts/pages/SocialPostsPage";
-import SocialMediaManagerPage from "../../features/social-media/pages/SocialMediaManagerPage";
 import SocialMediaDashboardPage from "../../features/social-media/pages/SocialMediaDashboardPage";
 import AssetsPage from "../../features/stock/pages/AssetsPage";
 import AssetDetailsPage from "../../features/stock/pages/AssetDetailsPage";
@@ -199,23 +198,6 @@ const AppRouter = () => {
                 ]}
               >
                 <SocialPostsPage />
-              </RoleRoute>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/social-media-manager"
-          element={
-            <ProtectedRoute>
-              <RoleRoute
-                roles={[
-                  "social_media",
-                  "media_team",
-                  "admin",
-                  "manager",
-                ]}
-              >
-                <SocialMediaManagerPage />
               </RoleRoute>
             </ProtectedRoute>
           }

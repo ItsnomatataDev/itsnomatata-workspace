@@ -12,7 +12,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { useAuth } from "../../../app/providers/AuthProvider";
-import Sidebar from "../../../components/dashboard/components/Siderbar";
+import Sidebar from "../../../components/dashboard/components/Sidebar";
 import SupportTicketsFeed from "../components/SupportTicketsFeed";
 import {
   getSupportTickets,

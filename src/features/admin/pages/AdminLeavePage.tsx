@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CalendarDays, Plus, ShieldCheck, Lock, Unlock } from "lucide-react";
-import Sidebar from "../../../components/dashboard/components/Siderbar";
+import Sidebar from "../../../components/dashboard/components/Sidebar";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import LeaveRequestTable from "../components/LeaveRequestTable";
 import CreateLeaveTypeModal from "../components/CreateLeaveTypeModal";

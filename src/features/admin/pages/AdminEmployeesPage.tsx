@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Clock3, UserPlus, Users } from "lucide-react";
-import Sidebar from "../../../components/dashboard/components/Siderbar";
+import Sidebar from "../../../components/dashboard/components/Sidebar";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import EmployeeTable from "../components/EmployeeTable";
 import EmployeeTimesheetTable from "../components/EmployeTimeSheetTable";

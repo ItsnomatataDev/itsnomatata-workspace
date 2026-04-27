@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Brain, Clock3, Sparkles } from "lucide-react";
-import Sidebar from "../../../components/dashboard/components/Siderbar";
+import Sidebar from "../../../components/dashboard/components/Sidebar";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import { useTimeEntries } from "../../../lib/hooks/useTimeEntries";
 import type { TimeEntryItem } from "../../../lib/supabase/mutations/timeEntries";

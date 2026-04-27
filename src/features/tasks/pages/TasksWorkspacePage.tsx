@@ -8,7 +8,7 @@ import {
   Users,
 } from "lucide-react";
 import { useAuth } from "../../../app/providers/AuthProvider";
-import Sidebar from "../../../components/dashboard/components/Siderbar";
+import Sidebar from "../../../components/dashboard/components/Sidebar";
 import TaskBoard from "../components/TaskBoard";
 import TaskForm, { type TaskFormValues } from "../components/TaskForm";
 import TaskDetailsModal from "./TaskDetailsPage";

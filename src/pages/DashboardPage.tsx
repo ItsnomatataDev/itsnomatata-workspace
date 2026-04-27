@@ -16,7 +16,7 @@ import {
   Play,
 } from "lucide-react";
 import { useAuth } from "../app/providers/AuthProvider";
-import Sidebar from "../components/dashboard/components/Siderbar";
+import Sidebar from "../components/dashboard/components/Sidebar";
 import TimeTrackerCard from "../components/dashboard/components/TimeTrackerCard";
 import { useDashboard } from "../lib/hooks/useDashboard";
 import { supabase } from "../lib/supabase/client";
@@ -242,15 +242,6 @@ if (!organizationId) {
               <p className="mt-2 text-sm text-white/50">
                 Real-time workspace dashboard for tasks, approvals, time
                 tracking, announcements and operations.
-              </p>
-            </div>
-
-            <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
-              <p className="text-xs uppercase tracking-[0.3em] text-white/40">
-                AI Workspace
-              </p>
-              <p className="mt-1 text-sm text-white/70">
-                Ready for n8n assistant integration
               </p>
             </div>
           </div>

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Image, Plus } from "lucide-react";
-import Sidebar from "../../../components/dashboard/components/Siderbar";
+import Sidebar from "../../../components/dashboard/components/Sidebar";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import { getContentAssets } from "../../../lib/supabase/queries/contentAssets";
 import { createContentAsset } from "../../../lib/supabase/mutations/contentAssets";

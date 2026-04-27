@@ -15,7 +15,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { Link } from "react-router-dom";
-import Sidebar from "../../../components/dashboard/components/Siderbar";
+import Sidebar from "../../../components/dashboard/components/Sidebar";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import { useNotifications } from "../../../lib/hooks/useNotifications";
 import { sendNotification } from "../services/notificationService";

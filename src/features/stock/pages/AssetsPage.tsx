@@ -18,7 +18,7 @@ import {
   ShieldAlert,
   Upload,
 } from "lucide-react";
-import Sidebar from "../../../components/dashboard/components/Siderbar";
+import Sidebar from "../../../components/dashboard/components/Sidebar";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import { useAssets } from "../../../lib/hooks/useAssets";
 import { askAssistant, buildAssistantContext } from "../../../lib/api/ai";

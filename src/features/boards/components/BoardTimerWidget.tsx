@@ -21,6 +21,7 @@ export default function BoardTimerWidget({
   const [loading, setLoading] = useState(false);
   const [liveSeconds, setLiveSeconds] = useState(0);
   const [activeEntry, setActiveEntry] = useState<any>(null);
+  const [hasGlobalActiveTimer, setHasGlobalActiveTimer] = useState(false);
 
   const organizationId = auth?.profile?.organization_id;
   const userId = auth?.user?.id;
@@ -37,9 +38,16 @@ export default function BoardTimerWidget({
           (boardId && active.client_id === boardId)
         );
         
+        if (active) {
+          setHasGlobalActiveTimer(true);
+        }
+        
         if (isRelevant) {
           setActiveEntry(active);
           setIsTracking(true);
+        } else {
+          setActiveEntry(null);
+          setIsTracking(false);
         }
       } catch (error) {
         console.error("Failed to load active timer:", error);
@@ -131,11 +139,21 @@ export default function BoardTimerWidget({
     );
   }
 
+  if (hasGlobalActiveTimer) {
+    return (
+      <div className={`flex items-center gap-2 text-xs ${className}`}>
+        <CircleDot size={8} className="text-orange-400 animate-pulse fill-orange-400" />
+        <span className="text-orange-400 text-xs">Timer active elsewhere</span>
+      </div>
+    );
+  }
+
   return (
     <button
       onClick={handleToggleTimer}
-      disabled={loading}
+      disabled={loading || hasGlobalActiveTimer}
       className={`flex items-center gap-2 text-xs text-white/50 hover:text-white/80 transition ${className}`}
+      title={hasGlobalActiveTimer ? "Stop the active timer first" : "Start timer"}
     >
       {loading ? (
         <div className="w-3 h-3 border border-white/50 border-t-transparent animate-spin" />

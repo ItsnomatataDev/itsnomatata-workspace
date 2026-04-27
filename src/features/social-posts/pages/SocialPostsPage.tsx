@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../../../app/providers/AuthProvider";
-import Sidebar from "../../../components/dashboard/components/Siderbar";
+import Sidebar from "../../../components/dashboard/components/Sidebar";
 import type { AssistantContextInput } from "../../../lib/api/n8n";
 import type {
   SocialPlatform,

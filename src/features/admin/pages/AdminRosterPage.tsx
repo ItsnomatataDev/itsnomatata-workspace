@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CalendarClock, Plus, Users } from "lucide-react";
-import Sidebar from "../../../components/dashboard/components/Siderbar";
+import Sidebar from "../../../components/dashboard/components/Sidebar";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import CreateRosterModal from "../components/CreateRosterModal";
 import CreateRosterEntryModal from "../components/CreateRosterEntryModal";

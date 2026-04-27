@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Plus, Pencil } from "lucide-react";
-import Sidebar from "../../../components/dashboard/components/Siderbar";
+import Sidebar from "../../../components/dashboard/components/Sidebar";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import AutomationFlowCard from "../components/AutomationFlowCard";
 import AutomationHealthCard from "../components/AutomationHealthCard";
