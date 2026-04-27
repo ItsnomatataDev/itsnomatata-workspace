@@ -5,6 +5,8 @@ import type { TimeEntryItem } from "../supabase/mutations/timeEntries";
 export interface CardTimeTracking {
   isTracking: boolean;
   activeEntry: TimeEntryItem | null;
+  activeEntryCount: number;
+  activeEntries: TimeEntryItem[];
   totalTrackedSeconds: number;
   liveSeconds: number;
 }
@@ -25,6 +27,8 @@ export function useCardTimeTracking({
   const [tracking, setTracking] = useState<CardTimeTracking>({
     isTracking: false,
     activeEntry: null,
+    activeEntryCount: 0,
+    activeEntries: [],
     totalTrackedSeconds: 0,
     liveSeconds: 0,
   });
@@ -48,10 +52,9 @@ export function useCardTimeTracking({
       if (clientId) activeQuery = activeQuery.eq("client_id", clientId);
 
       const { data: activeData, error: activeError } = await activeQuery
-        .order("started_at", { ascending: false })
-        .maybeSingle();
+        .order("started_at", { ascending: false });
 
-      if (activeError && activeError.code !== "PGRST116") {
+      if (activeError) {
         throw activeError;
       }
 
@@ -74,12 +77,15 @@ export function useCardTimeTracking({
         0,
       );
 
-      const activeEntry = activeData as TimeEntryItem | null;
-      const isTracking = !!activeEntry;
+      const activeEntries = (activeData ?? []) as TimeEntryItem[];
+      const activeEntry = activeEntries[0] ?? null;
+      const isTracking = activeEntries.length > 0;
 
       setTracking({
         isTracking,
         activeEntry,
+        activeEntryCount: activeEntries.length,
+        activeEntries,
         totalTrackedSeconds: totalSeconds,
         liveSeconds: 0,
       });
@@ -96,13 +102,15 @@ export function useCardTimeTracking({
 
   // Live timer update
   useEffect(() => {
-    if (!tracking.activeEntry?.started_at) return;
+    if (!tracking.isTracking) return;
 
     const updateLiveTime = () => {
-      if (!tracking.activeEntry?.started_at) return;
-      const startedAtMs = new Date(tracking.activeEntry.started_at).getTime();
       const nowMs = Date.now();
-      const diffSeconds = Math.max(0, Math.floor((nowMs - startedAtMs) / 1000));
+      const diffSeconds = tracking.activeEntries.reduce((sum, entry) => {
+        const startedAtMs = new Date(entry.started_at).getTime();
+        if (Number.isNaN(startedAtMs)) return sum;
+        return sum + Math.max(0, Math.floor((nowMs - startedAtMs) / 1000));
+      }, 0);
       
       setTracking(prev => ({
         ...prev,
@@ -114,7 +122,7 @@ export function useCardTimeTracking({
     const interval = window.setInterval(updateLiveTime, 1000);
 
     return () => window.clearInterval(interval);
-  }, [tracking.activeEntry?.started_at, tracking.activeEntry]);
+  }, [tracking.activeEntries, tracking.activeEntry?.started_at, tracking.activeEntry, tracking.activeEntryCount, tracking.isTracking]);
 
   // Real-time subscription
   useEffect(() => {
@@ -131,7 +139,8 @@ export function useCardTimeTracking({
           filter: `organization_id=eq.${organizationId}`,
         },
         (payload) => {
-          const entry = payload.new as TimeEntryItem;
+          const entry = (payload.new ?? payload.old) as TimeEntryItem | undefined;
+          if (!entry) return;
           
           // Check if this event is relevant to our card
           const isRelevant = 

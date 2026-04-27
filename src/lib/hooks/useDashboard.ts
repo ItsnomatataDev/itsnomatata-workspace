@@ -436,6 +436,7 @@ export function useDashboard(params: {
           description: description ?? null,
           started_at: new Date().toISOString(),
           ended_at: null,
+          is_running: true,
           duration_seconds: 0,
         });
 
@@ -462,6 +463,7 @@ export function useDashboard(params: {
         .from("time_entries")
         .update({
           ended_at: endedAt,
+          is_running: false,
           duration_seconds: durationSeconds,
         })
         .eq("id", activeTimer.id);

@@ -34,6 +34,8 @@ type UserSummary = {
   boardTotals: Record<string, number>;
   taskTotals: Record<string, number>;
   dailyHours: Record<string, number>;
+  activeTaskName: string | null;
+  activeTaskStartAt: string | null;
 };
 
 type CalendarDay = {
@@ -113,6 +115,32 @@ function getUserAccent(userId: string) {
   return USER_COLORS[Math.abs(hash) % USER_COLORS.length];
 }
 
+// Live elapsed time for a running entry
+function getLiveElapsedSeconds(startedAt: string): number {
+  const startedMs = new Date(startedAt).getTime();
+  const nowMs = Date.now();
+  return Math.max(0, Math.floor((nowMs - startedMs) / 1000));
+}
+
+function LiveTimerDisplay({ startedAt }: { startedAt: string }) {
+  const [elapsed, setElapsed] = useState(() =>
+    getLiveElapsedSeconds(startedAt),
+  );
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setElapsed(getLiveElapsedSeconds(startedAt));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [startedAt]);
+
+  return (
+    <span className="font-mono text-xs text-green-400 animate-pulse">
+      {formatDuration(elapsed)}
+    </span>
+  );
+}
+
 // ── Sub-components ─────────────────────────────────────────
 
 function StatPill({
@@ -140,19 +168,20 @@ function StatPill({
 function BoardBar({
   name,
   seconds,
-  totalSeconds,
+  targetSeconds,
   dailyHours,
   calendarDays,
   accent,
 }: {
   name: string;
   seconds: number;
-  totalSeconds: number;
+  targetSeconds: number;
   dailyHours: Record<string, number>;
   calendarDays: CalendarDay[];
   accent: string;
 }) {
-  const pct = totalSeconds ? Math.round((seconds / totalSeconds) * 100) : 0;
+  const rawPct = targetSeconds ? (seconds / targetSeconds) * 100 : 0;
+  const pct = Math.max(0, Math.min(rawPct, 100));
   const thisWeek = calendarDays.slice(7);
 
   return (
@@ -169,7 +198,9 @@ function BoardBar({
           <span className="text-sm font-mono font-semibold text-white/80">
             {formatDuration(seconds)}
           </span>
-          <span className="ml-1 text-xs text-white/35">({pct}%)</span>
+          <span className="ml-1 text-xs text-white/35">
+            ({pct >= 10 ? pct.toFixed(0) : pct.toFixed(1)}%)
+          </span>
         </div>
       </div>
 
@@ -177,7 +208,8 @@ function BoardBar({
         <div
           className="h-full rounded-full transition-all duration-500"
           style={{
-            width: `${Math.min(pct, 100)}%`,
+            width: `${pct}%`,
+            minWidth: seconds > 0 ? "4px" : undefined,
             backgroundColor: accent,
             boxShadow: `0 0 8px ${accent}60`,
           }}
@@ -252,13 +284,16 @@ export default function TeamTimesheetsPage() {
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"grid" | "calendar">("grid");
   const [allMembers, setAllMembers] = useState<any[]>([]);
-  const [calendarDateRange, setCalendarDateRange] = useState<{ start: Date; end: Date } | null>(null);
+  const [calendarDateRange, setCalendarDateRange] = useState<{
+    start: Date;
+    end: Date;
+  } | null>(null);
 
-  const { entries, loading, error } = useTeamTimesheetsRealtime({
+  const { entries, loading, error, refetch } = useTeamTimesheetsRealtime({
     organizationId: profile?.organization_id ?? "",
+    refreshIntervalMs: 2000,
   });
 
-  // Fetch all organization members
   useEffect(() => {
     if (!profile?.organization_id) return;
 
@@ -276,11 +311,17 @@ export default function TeamTimesheetsPage() {
     fetchMembers();
   }, [profile?.organization_id]);
 
-  // Handle calendar date range change
+  useEffect(() => {
+    if (activeTab !== "calendar") return;
+    const interval = setInterval(() => {
+      refetch();
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [activeTab, refetch]);
+
   const handleCalendarDateRangeChange = (startDate: Date, endDate: Date) => {
     setCalendarDateRange({ start: startDate, end: endDate });
-    // TODO: Fetch time entries for the selected date range
-    // This would require updating the useTeamTimesheetsRealtime hook to accept date range params
+
   };
 
   const calendarDays = useMemo(() => buildTwoWeekDays(), []);
@@ -290,14 +331,12 @@ export default function TeamTimesheetsPage() {
   );
   const calendarKeySet = useMemo(() => new Set(calendarKeys), [calendarKeys]);
 
-  // ── Build per-user summaries ───────────────────────────
 
   const users = useMemo(() => {
     const map = new Map<string, UserSummary>();
 
-    // Initialize with all members
     for (const member of allMembers) {
-      map.set(member.id, {
+      map.set(member.id,{
         id: member.id,
         name: member.full_name || "Unknown",
         email: member.email || null,
@@ -309,23 +348,33 @@ export default function TeamTimesheetsPage() {
         boardTotals: {},
         taskTotals: {},
         dailyHours: Object.fromEntries(calendarKeys.map((k) => [k, 0])),
+        activeTaskName: null,
+        activeTaskStartAt: null,
       });
     }
 
-    // Add time entry data
     for (const entry of entries) {
       const userId = entry.user_id;
       const current = map.get(userId);
       if (!current) continue;
+      const entryIsRunning = !entry.ended_at || entry.is_running;
 
       const dur = Number(entry.duration_seconds ?? 0);
       current.totalSeconds += dur;
-      if (entry.is_running) current.activeTimers += 1;
+      if (entryIsRunning) current.activeTimers += 1;
       if (entry.started_at > current.lastEntryAt) {
         current.lastEntryAt = entry.started_at;
         current.recentBoard = entry.board_name || current.recentBoard;
       }
-      current.running = current.running || entry.is_running;
+      current.running = current.running || entryIsRunning;
+      if (
+        entryIsRunning &&
+        (!current.activeTaskStartAt || entry.started_at > current.activeTaskStartAt)
+      ) {
+        current.activeTaskName =
+          entry.task_title || entry.description || "Untitled work";
+        current.activeTaskStartAt = entry.started_at;
+      }
 
       if (entry.board_name) {
         current.boardTotals[entry.board_name] =
@@ -361,7 +410,7 @@ export default function TeamTimesheetsPage() {
     [entries, selectedUserId],
   );
 
-  // Board details for selected user (with daily breakdown)
+
   const selectedUserBoardDetails = useMemo(() => {
     const map = new Map<
       string,
@@ -405,7 +454,7 @@ export default function TeamTimesheetsPage() {
         isRunning: false,
       };
       cur.seconds += Number(entry.duration_seconds ?? 0);
-      cur.isRunning = cur.isRunning || entry.is_running;
+      cur.isRunning = cur.isRunning || !entry.ended_at || entry.is_running;
       map.set(key, cur);
     }
 
@@ -421,6 +470,14 @@ export default function TeamTimesheetsPage() {
       Object.values(selectedUser.dailyHours).reduce((sum, h) => sum + h, 0) *
       3600
     );
+  }, [selectedUser]);
+
+  const selectedUserBoardTargetSeconds = useMemo(() => {
+    if (!selectedUser) return 8 * 3600;
+    const workedDays = Object.values(selectedUser.dailyHours).filter(
+      (hours) => hours > 0,
+    ).length;
+    return Math.max(workedDays, 1) * 8 * 3600;
   }, [selectedUser]);
 
   const calendarTotals = useMemo(
@@ -441,7 +498,6 @@ export default function TeamTimesheetsPage() {
     [users],
   );
 
-  // Handle calendar event click — select the user
   const handleCalendarEvent = (event: EverhourCalendarEvent) => {
     setSelectedUserId(event.resource.userId);
   };
@@ -468,8 +524,6 @@ export default function TeamTimesheetsPage() {
                 event to inspect their breakdown.
               </p>
             </div>
-
-            {/* View toggle */}
             <div className="flex gap-1.5 rounded-2xl border border-white/10 bg-white/5 p-1">
               <button
                 type="button"
@@ -505,7 +559,6 @@ export default function TeamTimesheetsPage() {
           )}
 
           <div className="grid gap-4 xl:grid-cols-[300px_minmax(0,1fr)]">
-            {/* ── Left: roster + team stats ── */}
             <aside className="space-y-4">
               {/* Roster */}
               <div className="rounded-3xl border border-white/10 bg-[#080808] p-5">
@@ -551,7 +604,6 @@ export default function TeamTimesheetsPage() {
                             : "border-white/8 bg-black/40 hover:border-white/15 hover:bg-white/3"
                         }`}
                       >
-                        {/* Color dot */}
                         <div
                           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-xs font-bold text-white"
                           style={{
@@ -567,7 +619,9 @@ export default function TeamTimesheetsPage() {
                             {u.name}
                           </p>
                           <p className="mt-0.5 truncate text-xs text-white/35">
-                            {u.recentBoard || "No board"}
+                            {u.activeTaskName ||
+                              u.recentBoard ||
+                              "No active task"}
                           </p>
                         </div>
 
@@ -578,12 +632,17 @@ export default function TeamTimesheetsPage() {
                           >
                             {formatHours(periodH)}
                           </span>
-                          {u.running && (
+                          {u.running && u.activeTaskStartAt ? (
+                            <div className="flex items-center gap-1 text-[10px] text-green-400">
+                              <CircleDot size={9} className="animate-pulse" />
+                              <LiveTimerDisplay startedAt={u.activeTaskStartAt} />
+                            </div>
+                          ) : u.running ? (
                             <span className="flex items-center gap-1 text-[10px] text-green-400">
                               <CircleDot size={9} className="animate-pulse" />
                               live
                             </span>
-                          )}
+                          ) : null}
                         </div>
                       </button>
                     );
@@ -591,7 +650,6 @@ export default function TeamTimesheetsPage() {
                 </div>
               </div>
 
-        
               <div className="rounded-3xl border border-white/10 bg-[#080808] p-5">
                 <p className="text-[10px] uppercase tracking-[0.35em] text-orange-400/70">
                   Summary
@@ -616,12 +674,13 @@ export default function TeamTimesheetsPage() {
                   />
                 </div>
               </div>
-
-              {/* Active Timers Section */}
               <div className="rounded-3xl border border-white/10 bg-[#080808] p-5">
                 <div className="mb-4 flex items-center gap-2">
                   <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-green-500/20">
-                    <CircleDot size={12} className="text-green-400 animate-pulse" />
+                    <CircleDot
+                      size={12}
+                      className="text-green-400 animate-pulse"
+                    />
                   </div>
                   <p className="text-[10px] uppercase tracking-[0.35em] text-green-400/70">
                     Active now
@@ -631,45 +690,54 @@ export default function TeamTimesheetsPage() {
                   </span>
                 </div>
                 <div className="space-y-2">
-                  {users.filter(u => u.running).length === 0 ? (
+                  {users.filter((u) => u.running).length === 0 ? (
                     <div className="rounded-2xl border border-white/8 bg-black/40 p-4 text-center text-sm text-white/35">
                       No active timers
                     </div>
                   ) : (
-                    users.filter(u => u.running).map(u => (
-                      <div key={u.id} className="flex items-center gap-3 rounded-xl border border-green-500/20 bg-green-500/5 p-3">
+                    users
+                      .filter((u) => u.running)
+                      .map((u) => (
                         <div
-                          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-xs font-bold text-white"
-                          style={{
-                            backgroundColor: `${getUserAccent(u.id)}25`,
-                            color: getUserAccent(u.id),
-                          }}
+                          key={u.id}
+                          className="flex items-center gap-3 rounded-xl border border-green-500/20 bg-green-500/5 p-3"
                         >
-                          {u.name.charAt(0).toUpperCase()}
+                          <div
+                            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-xs font-bold text-white"
+                            style={{
+                              backgroundColor: `${getUserAccent(u.id)}25`,
+                              color: getUserAccent(u.id),
+                            }}
+                          >
+                            {u.name.charAt(0).toUpperCase()}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-semibold text-white">
+                              {u.name}
+                            </p>
+                            <p className="truncate text-xs text-white/40">
+                              {u.activeTaskName ||
+                                u.recentBoard ||
+                                "No active task"}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            {u.activeTaskStartAt && (
+                              <LiveTimerDisplay startedAt={u.activeTaskStartAt} />
+                            )}
+                            <span className="flex items-center gap-1 text-[10px] text-green-400">
+                              <CircleDot size={8} className="animate-pulse" />
+                              tracking
+                            </span>
+                          </div>
                         </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-semibold text-white">
-                            {u.name}
-                          </p>
-                          <p className="truncate text-xs text-white/40">
-                            {u.recentBoard || "No board"}
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-2 shrink-0">
-                          <span className="flex items-center gap-1 text-[10px] text-green-400">
-                            <CircleDot size={8} className="animate-pulse" />
-                            tracking
-                          </span>
-                        </div>
-                      </div>
-                    ))
+                      ))
                   )}
                 </div>
               </div>
             </aside>
 
             <section className="space-y-4">
-
               {activeTab === "grid" && (
                 <div className="rounded-3xl border border-white/10 bg-[#080808] p-5">
                   <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
@@ -694,8 +762,6 @@ export default function TeamTimesheetsPage() {
                           This week
                         </div>
                       </div>
-
-                      {/* Day headers */}
                       <div className="grid grid-cols-[180px_repeat(14,minmax(40px,1fr))] border-b border-white/8">
                         <div className="px-3 py-2 text-[10px] uppercase tracking-widest text-white/25">
                           Member
@@ -709,8 +775,6 @@ export default function TeamTimesheetsPage() {
                           </div>
                         ))}
                       </div>
-
-                      {/* User rows */}
                       {users.map((u) => {
                         const accent = getUserAccent(u.id);
                         const isActive = selectedUserId === u.id;
@@ -841,10 +905,16 @@ export default function TeamTimesheetsPage() {
                           {selectedUser.name}
                         </h2>
                         <p className="text-xs text-white/40">
-                          {selectedUser.email ??
+                          {selectedUser.activeTaskName ??
+                            selectedUser.email ??
                             selectedUser.recentBoard ??
                             "No board"}
                         </p>
+                        {selectedUser.running && selectedUser.activeTaskStartAt ? (
+                          <div className="mt-2">
+                            <LiveTimerDisplay startedAt={selectedUser.activeTaskStartAt} />
+                          </div>
+                        ) : null}
                       </div>
                       {selectedUser.running && (
                         <span className="flex items-center gap-1.5 rounded-full border border-green-500/20 bg-green-500/10 px-2.5 py-1 text-xs font-medium text-green-400">
@@ -909,7 +979,7 @@ export default function TeamTimesheetsPage() {
                               key={b.board}
                               name={b.board}
                               seconds={b.seconds}
-                              totalSeconds={selectedUserPeriodSeconds}
+                              targetSeconds={selectedUserBoardTargetSeconds}
                               dailyHours={b.dailyHours}
                               calendarDays={calendarDays}
                               accent={getUserAccent(selectedUser.id)}

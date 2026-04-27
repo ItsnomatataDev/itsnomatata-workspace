@@ -28,7 +28,6 @@ import {
   type TaskSubmissionItem,
   type TaskSubmissionType,
 } from "../../../lib/supabase/queries/taskSubmissions";
-import { createCardInviteNotification } from "../../../lib/supabase/mutations/tasks";
 import { useTimeEntries } from "../../../lib/hooks/useTimeEntries";
 import {
   getTaskClientInvites,
@@ -37,6 +36,7 @@ import {
   searchClients,
   type TaskClientInviteItem,
 } from "../services/taskClientInviteService";
+import { notifyTaskCollaborators } from "../services/taskNotificationService";
 
 type BoardMode = "organization" | "mine";
 
@@ -558,11 +558,10 @@ export default function TasksWorkspacePage({
 
       if (currentTask) {
         try {
-          await createCardInviteNotification({
+          await notifyTaskCollaborators({
             organizationId: currentOrganizationId,
-            userId: invitedUserId,
+            userIds: [invitedUserId],
             taskId,
-            invitedBy: currentUserId,
             taskTitle: currentTask.title,
           });
         } catch (notificationError) {

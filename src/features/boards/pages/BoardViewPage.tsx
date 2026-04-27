@@ -698,6 +698,7 @@ export default function BoardViewPage() {
         description: `Working on ${title}`,
         started_at: new Date().toISOString(),
         ended_at: null,
+        is_running: true,
         duration_seconds: 0,
       });
 
@@ -732,6 +733,7 @@ export default function BoardViewPage() {
         .from("time_entries")
         .update({
           ended_at: endedAt,
+          is_running: false,
           duration_seconds: durationSeconds,
         })
         .eq("id", activeTimer.id);

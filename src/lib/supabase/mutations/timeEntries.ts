@@ -1,4 +1,5 @@
 import { supabase } from "../client";
+import { logTaskTimeTracked } from "./taskUpdates";
 
 export type TimeEntryApprovalStatus = "pending" | "approved" | "rejected";
 
@@ -312,14 +313,17 @@ export const startTimeEntry = async (
   return data as TimeEntryItem;
 };
 
-export const stopTimeEntry = async (entryId: string): Promise<TimeEntryItem> => {
+export const stopTimeEntry = async (
+  entryId: string,
+  options?: { userId?: string; organizationId?: string },
+): Promise<TimeEntryItem> => {
   if (!entryId) {
     throw new Error("entryId is required");
   }
 
   const { data: existing, error: existingError } = await supabase
     .from("time_entries")
-    .select("id, started_at")
+    .select("id, started_at, task_id, organization_id, user_id")
     .eq("id", entryId)
     .single();
 
@@ -328,7 +332,10 @@ export const stopTimeEntry = async (entryId: string): Promise<TimeEntryItem> => 
   }
 
   const endedAt = new Date().toISOString();
-  const durationSeconds = calculateDurationSeconds(existing.started_at, endedAt);
+  const durationSeconds = calculateDurationSeconds(
+    existing.started_at,
+    endedAt,
+  );
 
   const { data, error } = await supabase
     .from("time_entries")
@@ -345,7 +352,26 @@ export const stopTimeEntry = async (entryId: string): Promise<TimeEntryItem> => 
     throw new Error(error.message);
   }
 
-  return data as TimeEntryItem;
+  const result = data as TimeEntryItem;
+
+  // Log task update when time is tracked against a task
+  if (result.task_id) {
+    try {
+      await logTaskTimeTracked({
+        organizationId: options?.organizationId ?? result.organization_id,
+        taskId: result.task_id,
+        userId: options?.userId ?? result.user_id,
+        timeEntryId: result.id,
+        durationSeconds,
+        isBillable: result.is_billable,
+      });
+    } catch (logErr) {
+      // Non-fatal: don't fail the stop operation if logging fails
+      console.warn("Failed to log task time tracking:", logErr);
+    }
+  }
+
+  return result;
 };
 
 export const resumeTimeEntry = async ({
@@ -476,7 +502,25 @@ export const createManualTimeEntry = async (
     throw new Error(error.message);
   }
 
-  return data as TimeEntryItem;
+  const result = data as TimeEntryItem;
+
+  // Log task update when time is tracked against a task
+  if (result.task_id) {
+    try {
+      await logTaskTimeTracked({
+        organizationId: payload.organizationId,
+        taskId: result.task_id,
+        userId: payload.userId,
+        timeEntryId: result.id,
+        durationSeconds: result.duration_seconds,
+        isBillable: result.is_billable,
+      });
+    } catch (logErr) {
+      console.warn("Failed to log task time tracking:", logErr);
+    }
+  }
+
+  return result;
 };
 
 export const updateTimeEntry = async ({
@@ -503,8 +547,9 @@ export const updateTimeEntry = async ({
   const current = existing as TimeEntryItem;
 
   const nextStartedAt = payload.started_at ?? current.started_at;
-  const nextEndedAt =
-    payload.ended_at === undefined ? current.ended_at : payload.ended_at;
+  const nextEndedAt = payload.ended_at === undefined
+    ? current.ended_at
+    : payload.ended_at;
 
   if (nextStartedAt && nextEndedAt) {
     ensureValidRange(nextStartedAt, nextEndedAt);
@@ -522,14 +567,22 @@ export const updateTimeEntry = async ({
   }
 
   if (nextEndedAt) {
-    updatePayload.duration_seconds = calculateDurationSeconds(
+    const newDuration = calculateDurationSeconds(
       nextStartedAt,
       nextEndedAt,
     );
+    updatePayload.duration_seconds = newDuration;
     updatePayload.is_running = false;
+    // Recalculate cost if hourly rate snapshot exists
+    if (current.hourly_rate_snapshot) {
+      updatePayload.cost_amount = Math.round(
+        current.hourly_rate_snapshot * (newDuration / 3600) * 100,
+      ) / 100;
+    }
   } else {
     updatePayload.duration_seconds = 0;
     updatePayload.is_running = true;
+    updatePayload.cost_amount = 0;
   }
 
   const { data, error } = await supabase

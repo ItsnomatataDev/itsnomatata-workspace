@@ -74,7 +74,7 @@ export class EmailPreferencesService {
   static async shouldSendEmail(
     userId: string,
     notificationType: string,
-    priority: 'low' | 'medium' | 'high' = 'medium'
+    priority: 'low' | 'medium' | 'high' | 'urgent' = 'medium'
   ): Promise<boolean> {
     const prefs = await this.getUserPreferences(userId);
 
@@ -101,7 +101,7 @@ export class EmailPreferencesService {
 
       if (currentTime >= startTime && currentTime <= endTime) {
         // Only send high priority during quiet hours
-        return priority === 'high';
+        return priority === 'high' || priority === 'urgent';
       }
     }
 

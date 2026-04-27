@@ -22,6 +22,9 @@ export type LeaveCalendarEventRow = {
   leave_type_id: string | null;
   start_date: string;
   end_date: string;
+  requested_days?: number;
+  request_role?: string | null;
+  request_department?: string | null;
   reason: string | null;
   status: string;
   approved_by: string | null;
@@ -132,7 +135,7 @@ export async function getApprovedLeaveCalendarEvents(organizationId: string) {
   const { data, error } = await supabase
     .from("leave_requests")
     .select(
-      "id, organization_id, user_id, leave_type_id, start_date, end_date, reason, status, approved_by, approved_at, rejection_reason, created_at",
+      "id, organization_id, user_id, leave_type_id, start_date, end_date, requested_days, request_role, request_department, reason, status, approved_by, approved_at, rejection_reason, created_at",
     )
     .eq("organization_id", organizationId)
     .eq("status", "approved")
@@ -163,8 +166,8 @@ export async function getApprovedLeaveCalendarEvents(organizationId: string) {
       ...row,
       requester_name: profile?.full_name ?? null,
       requester_email: profile?.email ?? null,
-      requester_role: profile?.primary_role ?? null,
-      requester_department: profile?.department ?? null,
+      requester_role: row.request_role ?? profile?.primary_role ?? null,
+      requester_department: row.request_department ?? profile?.department ?? null,
     };
   });
 }
@@ -213,10 +216,10 @@ export async function checkLeaveAvailability(params: {
     supabase
       .from("leave_requests")
       .select(
-        "id, organization_id, user_id, leave_type_id, start_date, end_date, reason, status, approved_by, approved_at, rejection_reason, created_at",
+        "id, organization_id, user_id, leave_type_id, start_date, end_date, requested_days, request_role, request_department, reason, status, approved_by, approved_at, rejection_reason, created_at",
       )
       .eq("organization_id", params.organizationId)
-      .eq("status", "approved")
+      .in("status", ["pending", "approved"])
       .lte("start_date", params.endDate)
       .gte("end_date", params.startDate),
   ]);
@@ -281,8 +284,12 @@ export async function checkLeaveAvailability(params: {
       ...item,
       requester_name: profilesMap.get(item.user_id)?.full_name ?? null,
       requester_email: profilesMap.get(item.user_id)?.email ?? null,
-      requester_role: profilesMap.get(item.user_id)?.primary_role ?? null,
-      requester_department: profilesMap.get(item.user_id)?.department ?? null,
+      requester_role:
+        item.request_role ?? profilesMap.get(item.user_id)?.primary_role ?? null,
+      requester_department:
+        item.request_department ??
+        profilesMap.get(item.user_id)?.department ??
+        null,
     }))
     .filter((item) => {
       // Check for role-based overlap across all departments

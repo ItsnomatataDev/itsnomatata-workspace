@@ -20,6 +20,7 @@ import Sidebar from "../components/dashboard/components/Sidebar";
 import TimeTrackerCard from "../components/dashboard/components/TimeTrackerCard";
 import { useDashboard } from "../lib/hooks/useDashboard";
 import { supabase } from "../lib/supabase/client";
+import { getAdminTimeSummary } from "../lib/supabase/queries/adminTime";
 
 function formatDuration(totalSeconds: number) {
   const safe = Math.max(0, totalSeconds || 0);
@@ -144,11 +145,11 @@ export default function DashboardPage() {
     if (!user?.id || !profile?.organization_id || tasks.length === 0) return;
 
     const fetchTaskTimes = async () => {
-      const taskIds = tasks.map(t => t.id);
+      const taskIds = tasks.map((t) => t.id);
       const startOfToday = new Date(
         new Date().getFullYear(),
         new Date().getMonth(),
-        new Date().getDate()
+        new Date().getDate(),
       ).toISOString();
 
       const { data: timeEntries } = await supabase
@@ -179,6 +180,38 @@ export default function DashboardPage() {
     return completedTodaySeconds + liveSeconds;
   }, [completedTodaySeconds, liveSeconds]);
 
+  const organizationId = profile?.organization_id ?? null;
+  const isAdminView =
+    profile?.primary_role === "admin" || profile?.primary_role === "manager";
+
+  const [adminSummary, setAdminSummary] = useState<{
+    totalSeconds: number;
+    activeCount: number;
+    totalCost: number;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!organizationId || !isAdminView) {
+      setAdminSummary(null);
+      return;
+    }
+
+    const fetchAdminSummary = async () => {
+      try {
+        const summary = await getAdminTimeSummary({
+          organizationId,
+        });
+        setAdminSummary(summary);
+      } catch (err) {
+        console.warn("Failed to load admin time summary:", err);
+      }
+    };
+
+    fetchAdminSummary();
+    const interval = setInterval(fetchAdminSummary, 10000);
+    return () => clearInterval(interval);
+  }, [organizationId, isAdminView]);
+
   if (authLoading) {
     return (
       <div className="min-h-screen bg-black p-6 text-white">
@@ -203,18 +236,13 @@ export default function DashboardPage() {
     );
   }
 
-const organizationId = profile?.organization_id;
-
-if (!organizationId) {
-  return (
-    <div className="min-h-screen bg-black p-6 text-white">
-      Your account is not linked to an organization yet.
-    </div>
-  );
-}
-
-  const isAdminView =
-    profile.primary_role === "admin" || profile.primary_role === "manager";
+  if (!organizationId) {
+    return (
+      <div className="min-h-screen bg-black p-6 text-white">
+        Your account is not linked to an organization yet.
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-black text-white">
@@ -307,42 +335,87 @@ if (!organizationId) {
                       </p>
                     ) : (
                       tasks.map((task) => {
-                        const isTrackingThisTask = activeTimer?.task_id === task.id;
+                        const isTrackingThisTask =
+                          activeTimer?.task_id === task.id;
                         const taskTime = taskTimeMap[task.id] || 0;
-                        const totalTaskTime = isTrackingThisTask ? taskTime + liveSeconds : taskTime;
-                        
-                        // Calculate due date urgency
+                        const totalTaskTime = isTrackingThisTask
+                          ? taskTime + liveSeconds
+                          : taskTime;
+
                         const getDueDateUrgency = () => {
-                          if (!task.due_date || task.status === 'done') return null;
+                          if (!task.due_date || task.status === "done")
+                            return null;
                           const dueDate = new Date(task.due_date);
                           const today = new Date();
                           today.setHours(0, 0, 0, 0);
-                          const diffDays = Math.ceil((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-                          
-                          if (diffDays < 0) return { level: 'overdue', text: `${Math.abs(diffDays)}d overdue`, color: 'text-red-500', bg: 'bg-red-500/10', border: 'border-red-500/30', pulse: true };
-                          if (diffDays === 0) return { level: 'today', text: 'Due today', color: 'text-red-400', bg: 'bg-red-500/10', border: 'border-red-500/30', pulse: true };
-                          if (diffDays === 1) return { level: 'tomorrow', text: 'Due tomorrow', color: 'text-orange-400', bg: 'bg-orange-500/10', border: 'border-orange-500/30', pulse: false };
-                          if (diffDays <= 3) return { level: 'soon', text: `Due in ${diffDays}d`, color: 'text-yellow-400', bg: 'bg-yellow-500/10', border: 'border-yellow-500/30', pulse: false };
+                          const diffDays = Math.ceil(
+                            (dueDate.getTime() - today.getTime()) /
+                              (1000 * 60 * 60 * 24),
+                          );
+
+                          if (diffDays < 0)
+                            return {
+                              level: "overdue",
+                              text: `${Math.abs(diffDays)}d overdue`,
+                              color: "text-red-500",
+                              bg: "bg-red-500/10",
+                              border: "border-red-500/30",
+                              pulse: true,
+                            };
+                          if (diffDays === 0)
+                            return {
+                              level: "today",
+                              text: "Due today",
+                              color: "text-red-400",
+                              bg: "bg-red-500/10",
+                              border: "border-red-500/30",
+                              pulse: true,
+                            };
+                          if (diffDays === 1)
+                            return {
+                              level: "tomorrow",
+                              text: "Due tomorrow",
+                              color: "text-orange-400",
+                              bg: "bg-orange-500/10",
+                              border: "border-orange-500/30",
+                              pulse: false,
+                            };
+                          if (diffDays <= 3)
+                            return {
+                              level: "soon",
+                              text: `Due in ${diffDays}d`,
+                              color: "text-yellow-400",
+                              bg: "bg-yellow-500/10",
+                              border: "border-yellow-500/30",
+                              pulse: false,
+                            };
                           return null;
                         };
-                        
+
                         const dueUrgency = getDueDateUrgency();
-                        
+
                         return (
                           <div
                             key={task.id}
                             className={`group flex flex-col gap-3 rounded-xl border px-4 py-4 transition-all hover:border-white/20 hover:bg-black/50 md:flex-row md:items-center md:justify-between ${
-                              dueUrgency?.pulse ? 'border-red-500/50 bg-red-500/5 animate-pulse' : 'border-white/10 bg-black/40'
+                              dueUrgency?.pulse
+                                ? "border-red-500/50 bg-red-500/5 animate-pulse"
+                                : "border-white/10 bg-black/40"
                             }`}
                           >
                             <div className="flex-1 min-w-0">
                               <div className="flex items-start gap-3">
-                                <div className={`mt-1 h-2 w-2 shrink-0 rounded-full ${
-                                  task.priority === 'urgent' ? 'bg-red-500' :
-                                  task.priority === 'high' ? 'bg-orange-500' :
-                                  task.priority === 'medium' ? 'bg-yellow-500' :
-                                  'bg-white/30'
-                                }`} />
+                                <div
+                                  className={`mt-1 h-2 w-2 shrink-0 rounded-full ${
+                                    task.priority === "urgent"
+                                      ? "bg-red-500"
+                                      : task.priority === "high"
+                                        ? "bg-orange-500"
+                                        : task.priority === "medium"
+                                          ? "bg-yellow-500"
+                                          : "bg-white/30"
+                                  }`}
+                                />
                                 <div className="min-w-0 flex-1">
                                   <p className="font-medium text-white truncate">
                                     {task.title}
@@ -352,18 +425,27 @@ if (!organizationId) {
                                       {task.status.replaceAll("_", " ")}
                                     </span>
                                     <span>·</span>
-                                    <span className="capitalize">{task.priority}</span>
+                                    <span className="capitalize">
+                                      {task.priority}
+                                    </span>
                                     {dueUrgency ? (
                                       <>
                                         <span>·</span>
-                                        <span className={`font-semibold ${dueUrgency.color} ${dueUrgency.pulse ? 'animate-pulse' : ''}`}>
+                                        <span
+                                          className={`font-semibold ${dueUrgency.color} ${dueUrgency.pulse ? "animate-pulse" : ""}`}
+                                        >
                                           {dueUrgency.text}
                                         </span>
                                       </>
                                     ) : task.due_date ? (
                                       <>
                                         <span>·</span>
-                                        <span>Due: {new Date(task.due_date).toLocaleDateString()}</span>
+                                        <span>
+                                          Due:{" "}
+                                          {new Date(
+                                            task.due_date,
+                                          ).toLocaleDateString()}
+                                        </span>
                                       </>
                                     ) : null}
                                     {totalTaskTime > 0 && (
@@ -407,7 +489,11 @@ if (!organizationId) {
                                     )
                                   }
                                   className="rounded-xl bg-orange-500 px-3 py-2 text-sm font-semibold text-black disabled:cursor-not-allowed disabled:opacity-60 hover:bg-orange-400 transition"
-                                  title={!!activeTimer ? "Another timer is running" : "Start timer"}
+                                  title={
+                                    !!activeTimer
+                                      ? "Another timer is running"
+                                      : "Start timer"
+                                  }
                                 >
                                   <Play size={14} className="inline mr-1" />
                                   Track
@@ -604,16 +690,34 @@ if (!organizationId) {
                           Team Time Visibility
                         </h2>
                         <p className="text-sm text-white/50">
-                          This section is ready for admin timesheets and team
-                          activity records.
+                          Live team time tracking overview.
                         </p>
                       </div>
                     </div>
 
-                    <div className="mt-4 rounded-xl border border-dashed border-white/10 bg-black/20 p-4 text-sm text-white/50">
-                      Next step: load organization time entries here so admin
-                      can see who worked on what, for how long, and against
-                      which task — similar to Trello activity plus timesheets.
+                    <div className="mt-4 grid grid-cols-3 gap-3">
+                      <div className="rounded-xl border border-white/10 bg-black/30 p-4 text-center">
+                        <p className="text-xs text-white/40">
+                          Team tracked today
+                        </p>
+                        <p className="mt-2 text-xl font-bold text-white">
+                          {adminSummary
+                            ? formatDuration(adminSummary.totalSeconds)
+                            : "—"}
+                        </p>
+                      </div>
+                      <div className="rounded-xl border border-white/10 bg-black/30 p-4 text-center">
+                        <p className="text-xs text-white/40">Active timers</p>
+                        <p className="mt-2 text-xl font-bold text-green-400">
+                          {adminSummary?.activeCount ?? "—"}
+                        </p>
+                      </div>
+                      <div className="rounded-xl border border-white/10 bg-black/30 p-4 text-center">
+                        <p className="text-xs text-white/40">Total cost</p>
+                        <p className="mt-2 text-xl font-bold text-white">
+                          ${adminSummary?.totalCost?.toFixed(2) ?? "—"}
+                        </p>
+                      </div>
                     </div>
                   </div>
 
@@ -630,13 +734,28 @@ if (!organizationId) {
 
                     <div className="mt-4 space-y-3 text-sm text-white/70">
                       <div className="rounded-xl border border-white/10 bg-black/30 px-4 py-3">
-                        Monitor team time records
+                        <a
+                          href="/timesheets/team"
+                          className="text-orange-400 hover:underline"
+                        >
+                          Monitor team time records →
+                        </a>
                       </div>
                       <div className="rounded-xl border border-white/10 bg-black/30 px-4 py-3">
-                        Review task-linked work logs
+                        <a
+                          href="/timesheets/everhouradmin"
+                          className="text-orange-400 hover:underline"
+                        >
+                          Review task-linked work logs →
+                        </a>
                       </div>
                       <div className="rounded-xl border border-white/10 bg-black/30 px-4 py-3">
-                        Prepare downloadable employee timesheets
+                        <a
+                          href="/timesheets/reports"
+                          className="text-orange-400 hover:underline"
+                        >
+                          Prepare employee timesheets →
+                        </a>
                       </div>
                     </div>
                   </div>

@@ -9,6 +9,7 @@ import {
   type LeaveCalendarEventRow,
   type LeaveCalendarRuleRow,
 } from "../services/leaveCalendarService";
+import { calculateLeaveDays, formatLeaveDaysLabel } from "../utils/leaveDays";
 
 type CreateLeaveRequestModalProps = {
   open: boolean;
@@ -19,6 +20,8 @@ type CreateLeaveRequestModalProps = {
   officeOptions?: string[];
   defaultOffice?: string;
   requesterRole?: string | null;
+  remainingLeaveDays?: number;
+  totalLeaveDays?: number;
   onCreated: () => Promise<void> | void;
 };
 
@@ -31,6 +34,8 @@ export default function CreateLeaveRequestModal({
   officeOptions = [],
   defaultOffice = "",
   requesterRole = null,
+  remainingLeaveDays = 22,
+  totalLeaveDays = 22,
   onCreated,
 }: CreateLeaveRequestModalProps) {
   const resolvedOfficeOptions = Array.from(
@@ -60,6 +65,7 @@ export default function CreateLeaveRequestModal({
 
   const hasAvailabilityConflict =
     blockedRules.length > 0 || overlappingLeaves.length > 0;
+  const requestedDays = calculateLeaveDays(startDate, endDate);
 
   const resetForm = () => {
     setRequestOffice(defaultOffice.trim());
@@ -169,17 +175,34 @@ export default function CreateLeaveRequestModal({
         firstOverlap?.requester_email ||
         "another employee";
       const overlapRole = firstOverlap?.requester_role || "the same role";
-      
-      // Check if the overlap is due to role-based restriction
-      if (requesterRole && firstOverlap?.requester_role?.toLowerCase() === requesterRole.toLowerCase()) {
+      const overlapStatus = firstOverlap?.status === "pending"
+        ? "already has a pending leave request"
+        : "is already on approved leave";
+
+      if (
+        requesterRole &&
+        firstOverlap?.requester_role?.toLowerCase() === requesterRole.toLowerCase()
+      ) {
         setError(
-          `You cannot submit leave because ${overlapName} (${overlapRole}) is already on approved leave for this period. Role-based leave restriction applies across all offices.`,
+          `You cannot submit leave because ${overlapName} (${overlapRole}) ${overlapStatus} for this period. Role-based leave restriction applies across all offices.`,
         );
         return;
       }
 
       setError(
-        `You cannot submit leave for ${requestOffice} because ${overlapName} is already on approved leave in that office for the selected period.`,
+        `You cannot submit leave for ${requestOffice} because ${overlapName} ${overlapStatus} in that office for the selected period.`,
+      );
+      return;
+    }
+
+    if (requestedDays <= 0) {
+      setError("End date cannot be earlier than start date.");
+      return;
+    }
+
+    if (requestedDays > remainingLeaveDays) {
+      setError(
+        `This request needs ${formatLeaveDaysLabel(requestedDays)}, but only ${formatLeaveDaysLabel(remainingLeaveDays)} remain.`,
       );
       return;
     }
@@ -248,6 +271,33 @@ export default function CreateLeaveRequestModal({
         ) : null}
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+              <p className="text-xs uppercase tracking-[0.2em] text-white/40">
+                Total Leave
+              </p>
+              <p className="mt-2 text-2xl font-semibold text-white">
+                {totalLeaveDays}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+              <p className="text-xs uppercase tracking-[0.2em] text-white/40">
+                Remaining
+              </p>
+              <p className="mt-2 text-2xl font-semibold text-emerald-300">
+                {remainingLeaveDays}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+              <p className="text-xs uppercase tracking-[0.2em] text-white/40">
+                This Request
+              </p>
+              <p className="mt-2 text-2xl font-semibold text-orange-300">
+                {requestedDays || 0}
+              </p>
+            </div>
+          </div>
+
           <div>
             <label className="mb-2 block text-sm text-white/70">Office</label>
             <select
@@ -317,6 +367,12 @@ export default function CreateLeaveRequestModal({
             </div>
           ) : null}
 
+          {requestedDays > 0 ? (
+            <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-white/65">
+              This request will use {formatLeaveDaysLabel(requestedDays)}.
+            </div>
+          ) : null}
+
           {blockedRules.length > 0 ? (
             <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-4">
               <p className="font-semibold text-red-300">
@@ -350,7 +406,7 @@ export default function CreateLeaveRequestModal({
               <p className="font-semibold text-amber-300">
                 {requesterRole && overlappingLeaves.some(l => l.requester_role?.toLowerCase() === requesterRole.toLowerCase())
                   ? "Leave submission is disabled due to role-based restriction across all offices"
-                  : "Leave submission is disabled because someone is already on leave in this period"}
+                  : "Leave submission is disabled because another active leave request already exists in this period"}
               </p>
               <div className="mt-3 space-y-2">
                 {overlappingLeaves.map((leave) => (
@@ -363,13 +419,18 @@ export default function CreateLeaveRequestModal({
                         leave.requester_email ||
                         "Employee"}
                     </p>
-                    <p className="mt-1 text-xs text-white/60">
-                      {leave.start_date} → {leave.end_date}
-                    </p>
+                  <p className="mt-1 text-xs text-white/60">
+                    {leave.start_date} → {leave.end_date}
+                  </p>
+                  {typeof leave.requested_days === "number" ? (
                     <p className="mt-1 text-xs text-white/45">
-                      Office:{" "}
-                      {leave.requester_department || requestOffice || "—"}
+                      Requested: {formatLeaveDaysLabel(leave.requested_days)}
                     </p>
+                  ) : null}
+                  <p className="mt-1 text-xs text-white/45">
+                    Office:{" "}
+                    {leave.requester_department || requestOffice || "—"}
+                  </p>
                     {leave.requester_role ? (
                       <p className="mt-1 text-xs text-white/45">
                         Role: {leave.requester_role}
@@ -401,6 +462,7 @@ export default function CreateLeaveRequestModal({
               busy ||
               checkingAvailability ||
               hasAvailabilityConflict ||
+              requestedDays > remainingLeaveDays ||
               !requestOffice
             }
             className="w-full rounded-2xl bg-orange-500 px-4 py-3 font-semibold text-black transition hover:bg-orange-400 disabled:cursor-not-allowed disabled:opacity-60"
@@ -411,6 +473,8 @@ export default function CreateLeaveRequestModal({
                 ? "Checking availability..."
                 : !requestOffice
                   ? "Choose office first"
+                  : requestedDays > remainingLeaveDays
+                    ? "Not enough leave days remaining"
                   : hasAvailabilityConflict
                     ? "Leave unavailable for selected dates"
                     : "Submit Leave Request"}

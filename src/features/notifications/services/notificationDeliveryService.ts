@@ -59,6 +59,8 @@ function shouldEmailByDefault(
     "leave_request_rejected",
     "leave_request_submitted",
     "task_assigned",
+    "task_collaboration_invite",
+    "user_invite",
     "automation",
     "system_alert",
   ].includes(type);
@@ -87,7 +89,11 @@ const EMAIL_PREF_COLUMN: Partial<Record<NotificationType, string>> = {
   chat_message: "chat_message_email",
 };
 
-async function getUserEmailPreferences(userId: string, type: NotificationType) {
+async function getUserEmailPreferences(
+  userId: string,
+  type: NotificationType,
+  priority: NotificationPriority,
+) {
   const { data: profile, error: profileError } = await supabase
     .from("profiles")
     .select("id, full_name, email")
@@ -98,7 +104,11 @@ async function getUserEmailPreferences(userId: string, type: NotificationType) {
   if (!profile?.email) return { profile: null, canEmail: false };
 
   // Use new email preferences service
-  const canEmail = await EmailPreferencesService.shouldSendEmail(userId, type, 'medium');
+  const canEmail = await EmailPreferencesService.shouldSendEmail(
+    userId,
+    type,
+    priority,
+  );
 
   return { profile, canEmail };
 }
@@ -230,6 +240,7 @@ export async function deliverNotification(params: DeliverNotificationParams) {
     const { profile, canEmail } = await getUserEmailPreferences(
       params.userId,
       params.type,
+      priority,
     );
 
     if (!profile?.email || !canEmail) return notification;
@@ -283,11 +294,12 @@ export async function deliverBulkNotifications(
   if (!shouldEmail) return notifications;
 
   await Promise.allSettled(
-    uniqueUserIds.map(async (userId) => {
+    notifications.map(async (notification) => {
       try {
         const { profile, canEmail } = await getUserEmailPreferences(
-          userId,
+          notification.user_id,
           params.type,
+          priority,
         );
 
         if (!profile?.email || !canEmail) return;
@@ -301,9 +313,15 @@ export async function deliverBulkNotifications(
           type: params.type,
           priority,
           metadata: params.metadata,
+          organizationId: params.organizationId,
+          userId: notification.user_id,
+          notificationId: notification.id,
         });
       } catch (error) {
-        console.error(`BULK NOTIFICATION EMAIL ERROR for ${userId}:`, error);
+        console.error(
+          `BULK NOTIFICATION EMAIL ERROR for ${notification.user_id}:`,
+          error,
+        );
       }
     }),
   );

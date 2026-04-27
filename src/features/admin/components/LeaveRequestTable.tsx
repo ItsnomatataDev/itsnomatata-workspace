@@ -42,6 +42,7 @@ export default function LeaveRequestTable({
             <tr>
               <th className="px-4 py-3 font-medium">Requester</th>
               <th className="px-4 py-3 font-medium">Dates</th>
+              <th className="px-4 py-3 font-medium">Days</th>
               <th className="px-4 py-3 font-medium">Reason</th>
               <th className="px-4 py-3 font-medium">Status</th>
               <th className="px-4 py-3 font-medium">Submitted</th>
@@ -65,12 +66,17 @@ export default function LeaveRequestTable({
                     <p className="text-xs text-white/45">
                       Office: {request.requester_department || "—"}
                     </p>
+                    <p className="text-xs text-white/45">
+                      Role: {request.requester_role || "—"}
+                    </p>
                   </div>
                 </td>
 
                 <td className="px-4 py-3">
                   {request.start_date} → {request.end_date}
                 </td>
+
+                <td className="px-4 py-3">{request.requested_days ?? "—"}</td>
 
                 <td className="px-4 py-3 text-white/65">
                   <p>{request.reason || "No reason provided"}</p>

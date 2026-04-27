@@ -179,18 +179,32 @@ export async function createBulkNotifications(params: {
     is_read: false,
   }));
 
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from("notifications")
-    .insert(payload);
+    .insert(payload)
+    .select(
+      `
+      id,
+      organization_id,
+      user_id,
+      type,
+      title,
+      message,
+      entity_type,
+      entity_id,
+      action_url,
+      is_read,
+      read_at,
+      priority,
+      metadata,
+      reference_id,
+      reference_type,
+      created_at
+      `,
+    );
 
   if (error) throw error;
-  return payload.map((row) => ({
-    ...row,
-    id: "",
-    is_read: false,
-    read_at: null,
-    created_at: new Date().toISOString(),
-  })) as unknown as NotificationRow[];
+  return (data ?? []) as NotificationRow[];
 }
 
 /**

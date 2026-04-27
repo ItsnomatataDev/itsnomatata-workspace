@@ -3,6 +3,12 @@ import {
   isAppRole,
   isSuperAdminAllowedEmail,
 } from "../../../lib/constants/roles";
+import {
+  getEntrySeconds,
+  startOfTodayISO,
+  startOfWeekISO,
+} from "../../../lib/utils/timeMath";
+import { notifyLeaveRequestDecision } from "../../notifications/services/notificationOrchestrationService";
 
 export type AdminDashboardStats = {
   totalEmployees: number;
@@ -20,15 +26,20 @@ export type LeaveRequestRow = {
   leave_type_id: string | null;
   start_date: string;
   end_date: string;
+  requested_days: number;
+  request_department?: string | null;
+  request_role?: string | null;
   reason: string | null;
   status: string;
   approved_by: string | null;
   approved_at: string | null;
   rejection_reason: string | null;
+  balance_deducted_at?: string | null;
   created_at: string;
   requester_name?: string | null;
   requester_email?: string | null;
   requester_department?: string | null;
+  requester_role?: string | null;
 };
 
 export type LeaveTypeRow = {
@@ -166,50 +177,6 @@ export type CRMDealRow = {
   updated_at?: string;
 };
 
-function startOfTodayISO() {
-  const now = new Date();
-  return new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    now.getDate(),
-  ).toISOString();
-}
-
-function startOfWeekISO() {
-  const now = new Date();
-  const day = now.getDay();
-  const diff = day === 0 ? 6 : day - 1;
-  const monday = new Date(now);
-  monday.setDate(now.getDate() - diff);
-  monday.setHours(0, 0, 0, 0);
-  return monday.toISOString();
-}
-
-function secondsBetween(start: string, end?: string | null) {
-  const startMs = new Date(start).getTime();
-  const endMs = end ? new Date(end).getTime() : Date.now();
-
-  if (Number.isNaN(startMs) || Number.isNaN(endMs)) return 0;
-
-  return Math.max(0, Math.floor((endMs - startMs) / 1000));
-}
-
-function getEntrySeconds(entry: {
-  started_at: string;
-  ended_at?: string | null;
-  duration_seconds?: number | null;
-}) {
-  if (
-    typeof entry.duration_seconds === "number" &&
-    entry.duration_seconds >= 0 &&
-    entry.ended_at
-  ) {
-    return entry.duration_seconds;
-  }
-
-  return secondsBetween(entry.started_at, entry.ended_at);
-}
-
 export async function getEmployeeById(userId: string) {
   const { data, error } = await supabase
     .from("profiles")
@@ -244,7 +211,7 @@ export async function getLeaveRequests(organizationId: string) {
   const { data, error } = await supabase
     .from("leave_requests")
     .select(
-      "id, organization_id, user_id, leave_type_id, start_date, end_date, reason, status, approved_by, approved_at, rejection_reason, created_at",
+      "id, organization_id, user_id, leave_type_id, start_date, end_date, requested_days, request_department, request_role, reason, status, approved_by, approved_at, rejection_reason, balance_deducted_at, created_at",
     )
     .eq("organization_id", organizationId)
     .order("created_at", { ascending: false });
@@ -261,7 +228,7 @@ export async function getLeaveRequests(organizationId: string) {
 
   const { data: profilesData, error: profilesError } = await supabase
     .from("profiles")
-    .select("id, full_name, email, department")
+    .select("id, full_name, email, department, primary_role")
     .in("id", userIds);
 
   if (profilesError) throw profilesError;
@@ -277,7 +244,9 @@ export async function getLeaveRequests(organizationId: string) {
       ...request,
       requester_name: requester?.full_name ?? null,
       requester_email: requester?.email ?? null,
-      requester_department: requester?.department ?? null,
+      requester_department:
+        request.request_department ?? requester?.department ?? null,
+      requester_role: request.request_role ?? requester?.primary_role ?? null,
     };
   });
 }
@@ -288,7 +257,7 @@ export async function getRecentLeaveRequests(
   const { data, error } = await supabase
     .from("leave_requests")
     .select(
-      "id, organization_id, user_id, leave_type_id, start_date, end_date, reason, status, approved_by, approved_at, rejection_reason, created_at",
+      "id, organization_id, user_id, leave_type_id, start_date, end_date, requested_days, request_department, request_role, reason, status, approved_by, approved_at, rejection_reason, balance_deducted_at, created_at",
     )
     .eq("organization_id", organizationId)
     .order("created_at", { ascending: false })
@@ -306,7 +275,7 @@ export async function getRecentLeaveRequests(
 
   const { data: profilesData, error: profilesError } = await supabase
     .from("profiles")
-    .select("id, full_name, email, department")
+    .select("id, full_name, email, department, primary_role")
     .in("id", userIds);
 
   if (profilesError) throw profilesError;
@@ -322,7 +291,9 @@ export async function getRecentLeaveRequests(
       ...request,
       requester_name: requester?.full_name ?? null,
       requester_email: requester?.email ?? null,
-      requester_department: requester?.department ?? null,
+      requester_department:
+        request.request_department ?? requester?.department ?? null,
+      requester_role: request.request_role ?? requester?.primary_role ?? null,
     };
   });
 }
@@ -360,7 +331,7 @@ export async function updateLeaveRequestStatus(params: {
     .eq("id", params.leaveRequestId)
     .eq("organization_id", params.organizationId)
     .select(
-      "id, organization_id, user_id, leave_type_id, start_date, end_date, reason, status, approved_by, approved_at, rejection_reason, created_at",
+      "id, organization_id, user_id, leave_type_id, start_date, end_date, requested_days, request_department, request_role, reason, status, approved_by, approved_at, rejection_reason, balance_deducted_at, created_at",
     )
     .single();
 
@@ -370,7 +341,7 @@ export async function updateLeaveRequestStatus(params: {
   }
 
   try {
-    const request = updatedRequest;
+    const request = updatedRequest as LeaveRequestRow;
 
     const [{ data: approver }, { data: leaveType }] = await Promise.all([
       supabase
@@ -387,34 +358,27 @@ export async function updateLeaveRequestStatus(params: {
         : Promise.resolve({ data: null }),
     ]);
 
-    const approverLabel = approver?.full_name?.trim() ||
-      approver?.email?.trim() ||
-      "An administrator";
-
-    const leaveTypeName = leaveType?.name || "General Leave";
-
-    const notificationTitle = params.status === "approved"
-      ? "Leave Request Approved"
-      : "Leave Request Rejected";
-
-    const notificationMessage = params.status === "approved"
-      ? `${leaveTypeName} from ${request.start_date} to ${request.end_date} was approved by ${approverLabel}.`
-      : `${leaveTypeName} from ${request.start_date} to ${request.end_date} was rejected by ${approverLabel}.${
-        params.rejectionReason ? ` Reason: ${params.rejectionReason}` : ""
-      }`;
-
-    await supabase.from("notifications").insert({
-      organization_id: params.organizationId,
-      user_id: request.user_id,
-      type: params.status === "approved"
-        ? "leave_request_approved"
-        : "leave_request_rejected",
-      title: notificationTitle,
-      message: notificationMessage,
-      reference_id: request.id,
-      reference_type: "leave_request",
-      is_read: false,
+    await notifyLeaveRequestDecision({
+      organizationId: params.organizationId,
+      requesterId: request.user_id,
+      leaveRequestId: request.id,
+      status: params.status,
+      leaveTypeId: request.leave_type_id,
+      startDate: request.start_date,
+      endDate: request.end_date,
+      rejectionReason: params.rejectionReason ?? null,
+      decidedByUserId: params.approvedBy,
+      sendEmail: true,
     });
+
+    if (params.status === "approved") {
+      console.info(
+        "LEAVE APPROVED:",
+        `${leaveType?.name || "General Leave"} for ${request.requested_days} day(s) approved by ${
+          approver?.full_name?.trim() || approver?.email?.trim() || "an administrator"
+        }.`,
+      );
+    }
   } catch (notifyErr) {
     console.error("LEAVE APPROVAL/REJECTION NOTIFY ERROR:", notifyErr);
   }
@@ -616,7 +580,6 @@ export async function getEmployeeOverview(
   });
 }
 
-
 export async function updateEmployeeRole(params: {
   organizationId: string;
   userId: string;
@@ -637,7 +600,9 @@ export async function updateEmployeeRole(params: {
 
   if (targetUserError) throw targetUserError;
 
-  if (normalizedRole === "admin" && !isSuperAdminAllowedEmail(targetUser.email)) {
+  if (
+    normalizedRole === "admin" && !isSuperAdminAllowedEmail(targetUser.email)
+  ) {
     throw new Error(
       "This email is not allowed to receive the Super Admin role.",
     );
@@ -762,10 +727,15 @@ export async function deleteUserCompletely(params: {
 
   // Finally, delete the auth user (requires service role key, so this might need to be done via edge function)
   // For now, we'll just mark the profile as deleted
-  const { error: authDeleteError } = await supabase.auth.admin.deleteUser(params.userId);
+  const { error: authDeleteError } = await supabase.auth.admin.deleteUser(
+    params.userId,
+  );
 
   if (authDeleteError) {
-    console.warn("Failed to delete auth user (may require service role):", authDeleteError);
+    console.warn(
+      "Failed to delete auth user (may require service role):",
+      authDeleteError,
+    );
     // Don't throw - profile deletion is sufficient for most cases
   }
 
@@ -785,7 +755,9 @@ export async function inviteEmployeeToOrganization(params: {
     throw new Error("Invalid role selected.");
   }
 
-  if (normalizedRole === "admin" && !isSuperAdminAllowedEmail(normalizedEmail)) {
+  if (
+    normalizedRole === "admin" && !isSuperAdminAllowedEmail(normalizedEmail)
+  ) {
     throw new Error(
       "This email is not allowed to be invited as Super Admin.",
     );

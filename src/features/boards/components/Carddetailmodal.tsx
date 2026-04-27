@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
   X,
   Clock3,
@@ -80,6 +80,12 @@ interface InvitableUser {
   primary_role: string | null;
 }
 
+interface TimeEntryProfile {
+  id: string;
+  full_name: string | null;
+  email: string | null;
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function formatDurationHms(seconds?: number | null) {
@@ -120,6 +126,16 @@ function timeAgo(dateStr: string) {
   if (hrs > 0) return `${hrs}h ago`;
   if (mins > 0) return `${mins}m ago`;
   return "just now";
+}
+
+function getLiveEntrySeconds(entry: TimeEntryItem, nowMs: number) {
+  if (entry.ended_at) {
+    return entry.duration_seconds ?? 0;
+  }
+
+  const startedMs = new Date(entry.started_at).getTime();
+  if (Number.isNaN(startedMs)) return 0;
+  return Math.max(0, Math.floor((nowMs - startedMs) / 1000));
 }
 
 function getInitials(name?: string | null, email?: string | null) {
@@ -163,8 +179,16 @@ const PRIORITY_COLORS: Record<string, string> = {
 
 interface TimeEntriesPanelProps {
   entries: TimeEntryItem[];
-  activeEntry: TimeEntryItem | null;
-  activeLiveSeconds: number;
+  activeEntries: Array<
+    TimeEntryItem & {
+      liveSeconds: number;
+      userName: string;
+      userEmail: string | null;
+      isCurrentUser: boolean;
+    }
+  >;
+  currentUserActiveEntry: TimeEntryItem | null;
+  currentUserLiveSeconds: number;
   totalSeconds: number;
   loading: boolean;
   mutating: boolean;
@@ -173,14 +197,16 @@ interface TimeEntriesPanelProps {
 
 function TimeEntriesPanel({
   entries,
-  activeEntry,
-  activeLiveSeconds,
+  activeEntries,
+  currentUserActiveEntry,
+  currentUserLiveSeconds,
   totalSeconds,
   loading,
   mutating,
   onToggle,
 }: TimeEntriesPanelProps) {
   const completedEntries = entries.filter((e) => e.ended_at);
+  const activeCount = activeEntries.length;
 
   return (
     <div className="rounded-xl border border-white/10 bg-black/40 overflow-hidden">
@@ -193,10 +219,10 @@ function TimeEntriesPanel({
           </span>
         </div>
         <div className="flex items-center gap-3">
-          {activeEntry && (
+          {activeCount > 0 && (
             <span className="flex items-center gap-1.5 text-xs text-orange-400">
               <Circle size={7} className="fill-orange-400 animate-pulse" />
-              Running
+              Running x{activeCount}
             </span>
           )}
           <span className="text-xs font-mono text-white/60">
@@ -205,37 +231,78 @@ function TimeEntriesPanel({
         </div>
       </div>
 
-      {/* Live session banner */}
-      {activeEntry && (
-        <div className="flex items-center justify-between gap-3 px-4 py-3 bg-orange-500/8 border-b border-orange-500/20">
-          <div>
-            <p className="text-[10px] uppercase tracking-wider text-orange-400/70 mb-0.5">
-              Active session
-            </p>
-            <p className="text-2xl font-mono font-bold text-orange-400 tabular-nums">
-              {formatDurationHms(activeLiveSeconds)}
-            </p>
-            <p className="text-[10px] text-white/40 mt-0.5">
-              Started {formatDateTime(activeEntry.started_at)}
-            </p>
+      {/* Active sessions */}
+      {activeCount > 0 && (
+        <div className="border-b border-orange-500/20 bg-orange-500/8 px-4 py-3">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-orange-400/70 mb-0.5">
+                Active sessions
+              </p>
+              <p className="text-xs text-white/45">
+                Multiple teammates can track this card at the same time.
+              </p>
+              {currentUserActiveEntry && (
+                <p className="mt-1 text-xs font-mono text-orange-300">
+                  Your live time: {formatDurationHms(currentUserLiveSeconds)}
+                </p>
+              )}
+            </div>
+            <button
+              onClick={onToggle}
+              disabled={mutating || loading}
+              className="flex items-center gap-2 rounded-xl bg-orange-500 px-4 py-2.5 text-sm font-semibold text-black hover:bg-orange-400 disabled:opacity-50 transition-all"
+            >
+              {mutating ? (
+                <Loader2 size={14} className="animate-spin" />
+              ) : currentUserActiveEntry ? (
+                <Square size={14} />
+              ) : (
+                <Play size={14} />
+              )}
+              {currentUserActiveEntry ? "Stop my timer" : "Start my timer"}
+            </button>
           </div>
-          <button
-            onClick={onToggle}
-            disabled={mutating || loading}
-            className="flex items-center gap-2 rounded-xl bg-orange-500 px-4 py-2.5 text-sm font-semibold text-black hover:bg-orange-400 disabled:opacity-50 transition-all"
-          >
-            {mutating ? (
-              <Loader2 size={14} className="animate-spin" />
-            ) : (
-              <Square size={14} />
-            )}
-            Stop
-          </button>
+
+          <div className="space-y-2">
+            {activeEntries.map((entry) => (
+              <div
+                key={entry.id}
+                className={`flex items-center justify-between gap-3 rounded-xl border px-3 py-2 ${
+                  entry.isCurrentUser
+                    ? "border-orange-500/30 bg-orange-500/10"
+                    : "border-white/10 bg-black/30"
+                }`}
+              >
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="truncate text-sm font-semibold text-white">
+                      {entry.userName}
+                    </span>
+                    {entry.isCurrentUser && (
+                      <span className="rounded-full border border-orange-500/30 bg-orange-500/10 px-2 py-0.5 text-[10px] text-orange-300">
+                        You
+                      </span>
+                    )}
+                  </div>
+                  <p className="truncate text-[11px] text-white/40">
+                    {entry.description || "Timer session"}
+                  </p>
+                  <p className="text-[10px] text-white/30 mt-0.5">
+                    Started {formatDateTime(entry.started_at)}
+                  </p>
+                </div>
+                <span className="shrink-0 text-sm font-mono font-bold text-orange-400 tabular-nums">
+                  {formatDurationHms(entry.liveSeconds)}
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
-      {/* Start button when idle */}
-      {!activeEntry && (
+      {/* Start button when nobody is tracking yet */}
+      {activeCount === 0 && (
         <div className="px-4 py-3 border-b border-white/10">
           <button
             onClick={onToggle}
@@ -373,22 +440,58 @@ export default function CardDetailModal({
 
   // ── Time tracking state ──────────────────────────────────────────────────────
   const [taskTimeEntries, setTaskTimeEntries] = useState<TimeEntryItem[]>([]);
-  const [taskActiveEntry, setTaskActiveEntry] = useState<TimeEntryItem | null>(
-    null,
-  );
+  const [timeEntryProfiles, setTimeEntryProfiles] = useState<
+    Record<string, TimeEntryProfile>
+  >({});
   const [taskTimeLoading, setTaskTimeLoading] = useState(false);
   const [taskTimeMutating, setTaskTimeMutating] = useState(false);
+  const [liveNow, setLiveNow] = useState(Date.now());
 
-  // Live seconds for the active session only
-  const [activeLiveSeconds, setActiveLiveSeconds] = useState(0);
+  const taskActiveEntries = useMemo(
+    () => taskTimeEntries.filter((entry) => !entry.ended_at),
+    [taskTimeEntries],
+  );
 
-  // Total = sum of all completed entries + live active session
-  const totalTrackedSeconds = (() => {
-    const completed = taskTimeEntries
-      .filter((e) => e.ended_at)
-      .reduce((sum, e) => sum + (e.duration_seconds ?? 0), 0);
-    return completed + activeLiveSeconds;
-  })();
+  const currentUserActiveEntry = useMemo(
+    () =>
+      taskActiveEntries.find((entry) => entry.user_id === currentUserId) ?? null,
+    [taskActiveEntries, currentUserId],
+  );
+
+  const currentUserLiveSeconds = useMemo(
+    () =>
+      currentUserActiveEntry
+        ? getLiveEntrySeconds(currentUserActiveEntry, liveNow)
+        : 0,
+    [currentUserActiveEntry, liveNow],
+  );
+
+  const activeSessionEntries = useMemo(
+    () =>
+      taskActiveEntries
+        .map((entry) => {
+          const profile = timeEntryProfiles[entry.user_id];
+          return {
+            ...entry,
+            liveSeconds: getLiveEntrySeconds(entry, liveNow),
+            userName:
+              profile?.full_name || profile?.email || "Team member",
+            userEmail: profile?.email ?? null,
+            isCurrentUser: entry.user_id === currentUserId,
+          };
+        })
+        .sort((a, b) => b.started_at.localeCompare(a.started_at)),
+    [taskActiveEntries, timeEntryProfiles, liveNow, currentUserId],
+  );
+
+  const totalTrackedSeconds = useMemo(
+    () =>
+      taskTimeEntries.reduce(
+        (sum, entry) => sum + getLiveEntrySeconds(entry, liveNow),
+        0,
+      ),
+    [taskTimeEntries, liveNow],
+  );
 
   // ── Load time entries for this card ─────────────────────────────────────────
   const loadTaskTime = useCallback(async () => {
@@ -407,21 +510,22 @@ export default function CardDetailModal({
       const entries = (allEntries ?? []) as TimeEntryItem[];
       setTaskTimeEntries(entries);
 
-      // Active entry = one with no ended_at
-      const active = entries.find((e) => !e.ended_at) ?? null;
-      setTaskActiveEntry(active);
+      const userIds = [...new Set(entries.map((entry) => entry.user_id))];
+      if (userIds.length === 0) {
+        setTimeEntryProfiles({});
+      } else {
+        const { data: profiles, error: profilesError } = await supabase
+          .from("profiles")
+          .select("id, full_name, email")
+          .in("id", userIds);
 
-      // Seed live seconds from DB if there's an active entry
-      if (active?.started_at) {
-        const diff = Math.max(
-          0,
-          Math.floor(
-            (Date.now() - new Date(active.started_at).getTime()) / 1000,
+        if (profilesError) throw profilesError;
+
+        setTimeEntryProfiles(
+          Object.fromEntries(
+            (profiles ?? []).map((profile) => [profile.id, profile]),
           ),
         );
-        setActiveLiveSeconds(diff);
-      } else {
-        setActiveLiveSeconds(0);
       }
     } catch (e) {
       console.error("loadTaskTime error:", e);
@@ -435,35 +539,53 @@ export default function CardDetailModal({
     if (isOpen) loadTaskTime();
   }, [isOpen, loadTaskTime]);
 
-  // ── Live ticker for active session ──────────────────────────────────────────
+  // ── Live ticker for active sessions ─────────────────────────────────────────
   useEffect(() => {
-    if (!taskActiveEntry?.started_at) {
-      setActiveLiveSeconds(0);
+    if (taskActiveEntries.length === 0) {
       return;
     }
 
     const tick = () => {
-      const diff = Math.max(
-        0,
-        Math.floor(
-          (Date.now() - new Date(taskActiveEntry.started_at).getTime()) / 1000,
-        ),
-      );
-      setActiveLiveSeconds(diff);
+      setLiveNow(Date.now());
     };
 
     tick();
     const id = window.setInterval(tick, 1000);
     return () => window.clearInterval(id);
-  }, [taskActiveEntry]);
+  }, [taskActiveEntries.length]);
+
+  // ── Realtime updates while modal is open ────────────────────────────────────
+  useEffect(() => {
+    if (!isOpen || !organizationId || !cardId) return;
+
+    const channel = supabase
+      .channel(`card-time-${cardId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "time_entries",
+          filter: `task_id=eq.${cardId}`,
+        },
+        () => {
+          void loadTaskTime();
+        },
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [isOpen, organizationId, cardId, loadTaskTime]);
 
   // ── Toggle timer ─────────────────────────────────────────────────────────────
   const handleToggleTimer = async () => {
     if (!organizationId || !currentUserId || taskTimeMutating) return;
     setTaskTimeMutating(true);
     try {
-      if (taskActiveEntry?.id) {
-        await stopTimeEntry(taskActiveEntry.id);
+      if (currentUserActiveEntry?.id) {
+        await stopTimeEntry(currentUserActiveEntry.id);
       } else {
         await startTimeEntry({
           organizationId,
@@ -826,8 +948,9 @@ export default function CardDetailModal({
               {/* ── Time Tracking Panel ── */}
               <TimeEntriesPanel
                 entries={taskTimeEntries}
-                activeEntry={taskActiveEntry}
-                activeLiveSeconds={activeLiveSeconds}
+                activeEntries={activeSessionEntries}
+                currentUserActiveEntry={currentUserActiveEntry}
+                currentUserLiveSeconds={currentUserLiveSeconds}
                 totalSeconds={totalTrackedSeconds}
                 loading={taskTimeLoading}
                 mutating={taskTimeMutating}
@@ -1179,10 +1302,10 @@ export default function CardDetailModal({
             >
               ● {priority}
             </span>
-            {taskActiveEntry && (
+            {currentUserActiveEntry && (
               <span className="flex items-center gap-1 text-xs text-orange-400 font-mono">
                 <Clock3 size={11} />
-                {formatDurationHms(activeLiveSeconds)}
+                {formatDurationHms(currentUserLiveSeconds)}
               </span>
             )}
           </div>

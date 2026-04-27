@@ -113,25 +113,8 @@ export async function getAdminTimeEntries(params: {
   const taskIds = [
     ...new Set(items.map((i) => i.task_id).filter(Boolean)),
   ] as string[];
-  const projectIds = [
-    ...new Set(items.map((i) => i.project_id).filter(Boolean)),
-  ] as string[];
-  const boardIds = [
-    ...new Set(items.map((i) => i.client_id).filter(Boolean)),
-  ] as string[];
-  const clientIds = boardIds; // Boards are clients in this system
-  const campaignIds = [
-    ...new Set(items.map((i) => i.campaign_id).filter(Boolean)),
-  ] as string[];
 
-  const [
-    profilesResult,
-    tasksResult,
-    projectsResult,
-    boardsResult,
-    clientsResult,
-    campaignsResult,
-  ] = await Promise.all([
+  const [profilesResult, tasksResult] = await Promise.all([
     userIds.length
       ? supabase.from("profiles").select("id, full_name, email").in(
         "id",
@@ -139,13 +122,45 @@ export async function getAdminTimeEntries(params: {
       )
       : Promise.resolve({ data: [], error: null }),
     taskIds.length
-      ? supabase.from("tasks").select("id, title").in("id", taskIds)
+      ? supabase
+        .from("tasks")
+        .select("id, title, project_id, client_id, campaign_id")
+        .in("id", taskIds)
       : Promise.resolve({ data: [], error: null }),
+  ]);
+
+  if (profilesResult.error) throw profilesResult.error;
+  if (tasksResult.error) throw tasksResult.error;
+
+  const taskMap = new Map((tasksResult.data ?? []).map((row) => [row.id, row]));
+
+  const projectIds = [
+    ...new Set(
+      items
+        .map((item) => item.project_id ?? taskMap.get(item.task_id ?? "")?.project_id)
+        .filter(Boolean),
+    ),
+  ] as string[];
+  const clientIds = [
+    ...new Set(
+      items
+        .map((item) => item.client_id ?? taskMap.get(item.task_id ?? "")?.client_id)
+        .filter(Boolean),
+    ),
+  ] as string[];
+  const campaignIds = [
+    ...new Set(
+      items
+        .map(
+          (item) => item.campaign_id ?? taskMap.get(item.task_id ?? "")?.campaign_id,
+        )
+        .filter(Boolean),
+    ),
+  ] as string[];
+
+  const [projectsResult, clientsResult, campaignsResult] = await Promise.all([
     projectIds.length
       ? supabase.from("projects").select("id, name").in("id", projectIds)
-      : Promise.resolve({ data: [], error: null }),
-    boardIds.length
-      ? supabase.from("clients").select("id, name").in("id", boardIds)
       : Promise.resolve({ data: [], error: null }),
     clientIds.length
       ? supabase.from("clients").select("id, name").in("id", clientIds)
@@ -155,8 +170,6 @@ export async function getAdminTimeEntries(params: {
       : Promise.resolve({ data: [], error: null }),
   ]);
 
-  if (profilesResult.error) throw profilesResult.error;
-  if (tasksResult.error) throw tasksResult.error;
   if (projectsResult.error) throw projectsResult.error;
   if (clientsResult.error) throw clientsResult.error;
   if (campaignsResult.error) throw campaignsResult.error;
@@ -164,12 +177,8 @@ export async function getAdminTimeEntries(params: {
   const profileMap = new Map(
     (profilesResult.data ?? []).map((row) => [row.id, row]),
   );
-  const taskMap = new Map((tasksResult.data ?? []).map((row) => [row.id, row]));
   const projectMap = new Map(
     (projectsResult.data ?? []).map((row) => [row.id, row]),
-  );
-  const boardMap = new Map(
-    (boardsResult.data ?? []).map((row) => [row.id, row]),
   );
   const clientMap = new Map(
     (clientsResult.data ?? []).map((row) => [row.id, row]),
@@ -180,21 +189,39 @@ export async function getAdminTimeEntries(params: {
 
   return items.map((item) => ({
     ...item,
+    ...(item.task_id ? {
+      project_id: item.project_id ?? taskMap.get(item.task_id)?.project_id ?? null,
+      client_id: item.client_id ?? taskMap.get(item.task_id)?.client_id ?? null,
+      campaign_id:
+        item.campaign_id ?? taskMap.get(item.task_id)?.campaign_id ?? null,
+    } : {}),
     user_name: profileMap.get(item.user_id)?.full_name ?? null,
     user_email: profileMap.get(item.user_id)?.email ?? null,
     task_title: item.task_id ? taskMap.get(item.task_id)?.title ?? null : null,
-    project_name: item.project_id
-      ? projectMap.get(item.project_id)?.name ?? null
-      : null,
-    board_name: item.client_id
-      ? boardMap.get(item.client_id)?.name ?? null
-      : null,
-    client_name: item.client_id
-      ? clientMap.get(item.client_id)?.name ?? null
-      : null,
-    campaign_name: item.campaign_id
-      ? campaignMap.get(item.campaign_id)?.name ?? null
-      : null,
+    project_name:
+      (item.project_id
+        ? projectMap.get(item.project_id)?.name
+        : item.task_id
+          ? projectMap.get(taskMap.get(item.task_id)?.project_id ?? "")?.name
+          : null) ?? null,
+    board_name:
+      (item.client_id
+        ? clientMap.get(item.client_id)?.name
+        : item.task_id
+          ? clientMap.get(taskMap.get(item.task_id)?.client_id ?? "")?.name
+          : null) ?? null,
+    client_name:
+      (item.client_id
+        ? clientMap.get(item.client_id)?.name
+        : item.task_id
+          ? clientMap.get(taskMap.get(item.task_id)?.client_id ?? "")?.name
+          : null) ?? null,
+    campaign_name:
+      (item.campaign_id
+        ? campaignMap.get(item.campaign_id)?.name
+        : item.task_id
+          ? campaignMap.get(taskMap.get(item.task_id)?.campaign_id ?? "")?.name
+          : null) ?? null,
   })) as AdminTimeEntryRow[];
 }
 
@@ -209,7 +236,7 @@ export async function getAdminTimeSummary(params: {
   let query = supabase
     .from("time_entries")
     .select(
-      "duration_seconds, approval_status, is_billable, cost_amount, is_running",
+      "duration_seconds, approval_status, is_billable, cost_amount, is_running, ended_at",
     )
     .eq("organization_id", organizationId);
 
@@ -234,7 +261,7 @@ export async function getAdminTimeSummary(params: {
     if (row.approval_status === "pending") pendingCount += 1;
     if (row.approval_status === "approved") approvedSeconds += seconds;
     if (row.is_billable) billableSeconds += seconds;
-    if (row.is_running) activeCount += 1;
+    if (row.is_running || !row.ended_at) activeCount += 1;
     totalCost += Number(row.cost_amount ?? 0);
   }
 

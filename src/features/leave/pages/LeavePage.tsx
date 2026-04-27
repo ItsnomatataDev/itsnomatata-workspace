@@ -6,8 +6,10 @@ import CreateLeaveRequestModal from "../components/CreateLeaveRequestModal";
 import MyLeaveRequestsTable from "../components/MyLeaveRequestsTable";
 import LeaveCalendar from "../components/leaveCalender";
 import {
+  getLeaveBalance,
   getLeaveTypes,
   getMyLeaveRequests,
+  type LeaveBalanceRow,
   type LeaveTypeRow,
   type MyLeaveRequestRow,
 } from "../services/leaveService";
@@ -33,6 +35,11 @@ export default function LeavePage() {
   const [error, setError] = useState("");
   const [leaveTypes, setLeaveTypes] = useState<LeaveTypeRow[]>([]);
   const [requests, setRequests] = useState<MyLeaveRequestRow[]>([]);
+  const [leaveBalance, setLeaveBalance] = useState<LeaveBalanceRow>({
+    totalDays: 22,
+    remainingDays: 22,
+    usedDays: 0,
+  });
   const [approvedLeaves, setApprovedLeaves] = useState<LeaveCalendarEventRow[]>(
     [],
   );
@@ -45,16 +52,24 @@ export default function LeavePage() {
       setLoading(true);
       setError("");
 
-      const [leaveTypesData, requestsData, approvedLeavesData, rulesData] =
+      const [
+        leaveTypesData,
+        requestsData,
+        leaveBalanceData,
+        approvedLeavesData,
+        rulesData,
+      ] =
         await Promise.all([
           getLeaveTypes(organizationId),
           getMyLeaveRequests(organizationId, userId),
+          getLeaveBalance(organizationId, userId),
           getApprovedLeaveCalendarEvents(organizationId),
           getLeaveCalendarRules(organizationId),
         ]);
 
       setLeaveTypes(leaveTypesData);
       setRequests(requestsData);
+      setLeaveBalance(leaveBalanceData);
       setApprovedLeaves(approvedLeavesData);
       setRules(rulesData);
     } catch (err: any) {
@@ -83,8 +98,10 @@ export default function LeavePage() {
       <div className="min-h-screen bg-black p-6 text-white">
         Missing leave workspace context.
       </div>
-    );}
-return (
+    );
+  }
+
+  return (
     <div className="min-h-screen bg-black text-white">
       <div className="flex min-h-screen">
         <Sidebar role={profile.primary_role} />
@@ -121,6 +138,35 @@ return (
             </div>
           ) : (
             <div className="space-y-6">
+              <div className="grid gap-4 md:grid-cols-3">
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+                  <p className="text-xs uppercase tracking-[0.2em] text-white/45">
+                    Total Leave
+                  </p>
+                  <p className="mt-3 text-3xl font-semibold text-white">
+                    {leaveBalance.totalDays}
+                  </p>
+                </div>
+
+                <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-5">
+                  <p className="text-xs uppercase tracking-[0.2em] text-emerald-200/70">
+                    Remaining Days
+                  </p>
+                  <p className="mt-3 text-3xl font-semibold text-emerald-200">
+                    {leaveBalance.remainingDays}
+                  </p>
+                </div>
+
+                <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-5">
+                  <p className="text-xs uppercase tracking-[0.2em] text-amber-200/70">
+                    Used Days
+                  </p>
+                  <p className="mt-3 text-3xl font-semibold text-amber-200">
+                    {leaveBalance.usedDays}
+                  </p>
+                </div>
+              </div>
+
               <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
                 <div className="mb-4 flex items-center gap-3">
                   <CalendarDays size={18} className="text-orange-500" />
@@ -159,6 +205,8 @@ return (
         requesterRole={
           typeof profile.primary_role === "string" ? profile.primary_role : null
         }
+        remainingLeaveDays={leaveBalance.remainingDays}
+        totalLeaveDays={leaveBalance.totalDays}
         onCreated={loadPage}
       />
     </div>

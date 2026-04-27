@@ -16,9 +16,14 @@ export default function CardTimeIndicator({
   showTotalTime = true,
 }: CardTimeIndicatorProps) {
   const auth = useAuth();
-  const { isTracking, liveSeconds, totalTrackedSeconds, loading } = useCardTimeTracking({
+  const {
+    isTracking,
+    liveSeconds,
+    totalTrackedSeconds,
+    activeEntryCount,
+    loading,
+  } = useCardTimeTracking({
     organizationId: auth?.profile?.organization_id ?? "",
-    userId: auth?.user?.id,
     taskId,
     clientId,
   });
@@ -44,7 +49,9 @@ export default function CardTimeIndicator({
     return (
       <div className={`flex items-center gap-1.5 text-xs text-green-400 ${className}`}>
         <CircleDot size={10} className="animate-pulse fill-green-400" />
-        <span className="font-medium">Live</span>
+        <span className="font-medium">
+          {activeEntryCount > 1 ? `Live x${activeEntryCount}` : "Live"}
+        </span>
         {showTotalTime && (
           <span className="text-white/60">
             {formatTime(liveSeconds)}

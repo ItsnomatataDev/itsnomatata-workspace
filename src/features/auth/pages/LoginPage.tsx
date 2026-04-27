@@ -38,7 +38,9 @@ export default function LoginPage() {
 
       if (auth?.user?.id && auth?.profile?.organization_id) {
         try {
-          const activeSession = await TimeTrackingService.getActiveSession(auth.user.id);
+          const activeSession = await TimeTrackingService.getActiveSession(
+            auth.user.id,
+          );
           if (!activeSession) {
             await TimeTrackingService.clockIn({
               userId: auth.user.id,
@@ -77,10 +79,13 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen bg-black text-white">
       <div className="grid min-h-screen lg:grid-cols-2">
-        <div className="hidden lg:flex flex-col justify-between border-r border-orange-500/20 bg-linear-to-br from-black via-black to-orange-950/20 p-10">
-          <div>
+        <div className="hidden lg:flex flex-col items-start justify-between border-r border-orange-500/20 bg-linear-to-br from-black via-black to-orange-950/20 p-10">
+          <div className="flex flex-col items-start">
             <div className="w-20 h-20">
-             <img src="https://res.cloudinary.com/dnqjax5ut/image/upload/v1776754504/Itsnomatata-Logo-White-with-tagline-2-768x643_u3n4j0.png" alt="IT's Nomatata" />
+              <img
+                src="https://res.cloudinary.com/dnqjax5ut/image/upload/v1776754504/Itsnomatata-Logo-White-with-tagline-2-768x643_u3n4j0.png"
+                alt="IT's Nomatata"
+              />
             </div>
 
             <h1 className="mt-8 max-w-md text-5xl font-bold leading-tight">
@@ -92,12 +97,9 @@ export default function LoginPage() {
               assets, and collaboration.
             </p>
 
-            <div className="flex justify-start bg-white p-0">
-              <img
-                src="https://res.cloudinary.com/dnqjax5ut/image/upload/v1777033073/Screenshot_2026-04-24_at_14.16.29_blesyp.png"
-                alt="codex home"
-                className="w-full max-w-lg h-[320px] object-contain drop-shadow-2xl border-2 border-orange-500"
-              />
+            <div className="relative mt-8 flex justify-start self-start">
+              <div className="absolute -inset-20 z-0 rounded-full bg-black blur-[100px] opacity-90 animate-pulse" />
+           
             </div>
           </div>
         </div>

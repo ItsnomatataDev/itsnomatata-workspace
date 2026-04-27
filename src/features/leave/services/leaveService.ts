@@ -4,6 +4,7 @@ import {
   notifyAndEmailUser,
   notifyAndEmailUsers,
 } from "../../notifications/services/notificationService";
+import { calculateLeaveDays } from "../utils/leaveDays";
 
 export type LeaveTypeRow = {
   id: string;
@@ -21,13 +22,44 @@ export type MyLeaveRequestRow = {
   leave_type_id: string | null;
   start_date: string;
   end_date: string;
+  requested_days: number;
+  request_department: string | null;
+  request_role: string | null;
   reason: string | null;
   status: string;
   approved_by: string | null;
   approved_at: string | null;
   rejection_reason: string | null;
+  balance_deducted_at?: string | null;
   created_at: string;
 };
+
+export type LeaveBalanceRow = {
+  totalDays: number;
+  remainingDays: number;
+  usedDays: number;
+};
+
+function buildOverlapMessage(params: {
+  overlapName: string;
+  overlapRole?: string | null;
+  overlapStatus?: string | null;
+  requestRole?: string | null;
+  requestDepartment?: string | null;
+}) {
+  const normalizedRequestRole = params.requestRole?.trim().toLowerCase() || null;
+  const normalizedOverlapRole = params.overlapRole?.trim().toLowerCase() || null;
+  const requestStatus = params.overlapStatus === "pending"
+    ? "already has a pending leave request"
+    : "is already on approved leave";
+
+  if (normalizedRequestRole && normalizedRequestRole === normalizedOverlapRole) {
+    return `Leave cannot be requested because ${params.overlapName} (${params.overlapRole || "the same role"}) ${requestStatus} for this period. Role-based leave restriction applies across all offices.`;
+  }
+
+  const officeLabel = params.requestDepartment || "the selected office";
+  return `Leave cannot be requested for ${officeLabel} because ${params.overlapName} ${requestStatus} for that period.`;
+}
 
 export async function getLeaveTypes(organizationId: string) {
   const { data, error } = await supabase
@@ -47,7 +79,7 @@ export async function getMyLeaveRequests(
   const { data, error } = await supabase
     .from("leave_requests")
     .select(
-      "id, organization_id, user_id, leave_type_id, start_date, end_date, reason, status, approved_by, approved_at, rejection_reason, created_at",
+      "id, organization_id, user_id, leave_type_id, start_date, end_date, requested_days, request_department, request_role, reason, status, approved_by, approved_at, rejection_reason, balance_deducted_at, created_at",
     )
     .eq("organization_id", organizationId)
     .eq("user_id", userId)
@@ -55,6 +87,29 @@ export async function getMyLeaveRequests(
 
   if (error) throw error;
   return (data ?? []) as MyLeaveRequestRow[];
+}
+
+export async function getLeaveBalance(
+  organizationId: string,
+  userId: string,
+): Promise<LeaveBalanceRow> {
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("leave_days_total, leave_days_remaining")
+    .eq("organization_id", organizationId)
+    .eq("id", userId)
+    .maybeSingle();
+
+  if (error) throw error;
+
+  const totalDays = Number(data?.leave_days_total ?? 22);
+  const remainingDays = Number(data?.leave_days_remaining ?? totalDays);
+
+  return {
+    totalDays,
+    remainingDays,
+    usedDays: Math.max(totalDays - remainingDays, 0),
+  };
 }
 
 export async function createLeaveRequest(params: {
@@ -67,7 +122,20 @@ export async function createLeaveRequest(params: {
   requestDepartment?: string | null;
   requestRole?: string | null;
 }) {
-  // — availability checks unchanged —
+  const requestedDays = calculateLeaveDays(params.startDate, params.endDate);
+
+  if (requestedDays <= 0) {
+    throw new Error("Leave end date cannot be earlier than the start date.");
+  }
+
+  const leaveBalance = await getLeaveBalance(params.organizationId, params.userId);
+
+  if (requestedDays > leaveBalance.remainingDays) {
+    throw new Error(
+      `This request needs ${requestedDays} day${requestedDays === 1 ? "" : "s"}, but only ${leaveBalance.remainingDays} leave day${leaveBalance.remainingDays === 1 ? "" : "s"} remain.`,
+    );
+  }
+
   const availability = await checkLeaveAvailability({
     organizationId: params.organizationId,
     startDate: params.startDate,
@@ -91,22 +159,17 @@ export async function createLeaveRequest(params: {
       firstOverlap?.requester_name ||
       firstOverlap?.requester_email ||
       "another employee";
-    const overlapRole = firstOverlap?.requester_role || "the same role";
-    
-    // Check if the overlap is due to role-based restriction
-    if (params.requestRole && firstOverlap?.requester_role?.toLowerCase() === params.requestRole.toLowerCase()) {
-      throw new Error(
-        `Leave cannot be requested because ${overlapName} (${overlapRole}) is already on approved leave for this period. Role-based leave restriction applies across all offices.`,
-      );
-    }
-    
-    const officeLabel = params.requestDepartment || "the selected office";
     throw new Error(
-      `Leave cannot be requested for ${officeLabel} because ${overlapName} is already on approved leave for that period.`,
+      buildOverlapMessage({
+        overlapName,
+        overlapRole: firstOverlap?.requester_role,
+        overlapStatus: firstOverlap?.status,
+        requestRole: params.requestRole,
+        requestDepartment: params.requestDepartment,
+      }),
     );
   }
 
-  // — insert the leave request —
   const { data, error } = await supabase
     .from("leave_requests")
     .insert({
@@ -115,11 +178,14 @@ export async function createLeaveRequest(params: {
       leave_type_id: params.leaveTypeId ?? null,
       start_date: params.startDate,
       end_date: params.endDate,
+      requested_days: requestedDays,
+      request_department: params.requestDepartment?.trim() || null,
+      request_role: params.requestRole?.trim() || null,
       reason: params.reason?.trim() || "",
       status: "pending",
     })
     .select(
-      "id, organization_id, user_id, leave_type_id, start_date, end_date, reason, status, approved_by, approved_at, rejection_reason, created_at",
+      "id, organization_id, user_id, leave_type_id, start_date, end_date, requested_days, request_department, request_role, reason, status, approved_by, approved_at, rejection_reason, balance_deducted_at, created_at",
     )
     .single();
 
@@ -185,6 +251,7 @@ export async function createLeaveRequest(params: {
       requesterName,
       requesterEmail,
       leaveTypeName,
+      requestedDays,
       office: officeLabel,
       startDate: params.startDate,
       endDate: params.endDate,
@@ -228,7 +295,7 @@ export async function approveLeaveRequest(params: {
     .eq("id", params.leaveRequestId)
     .eq("organization_id", params.organizationId)
     .select(
-      "id, organization_id, user_id, leave_type_id, start_date, end_date, reason, status, approved_by, approved_at, rejection_reason, created_at",
+      "id, organization_id, user_id, leave_type_id, start_date, end_date, requested_days, request_department, request_role, reason, status, approved_by, approved_at, rejection_reason, balance_deducted_at, created_at",
     )
     .single();
 
@@ -285,6 +352,7 @@ export async function approveLeaveRequest(params: {
       metadata: {
         leaveRequestId: leaveRequest.id,
         leaveTypeName,
+        requestedDays: leaveRequest.requested_days,
         startDate: leaveRequest.start_date,
         endDate: leaveRequest.end_date,
         approvedByUserId: params.approvedByUserId,
@@ -314,7 +382,7 @@ export async function rejectLeaveRequest(params: {
     .eq("id", params.leaveRequestId)
     .eq("organization_id", params.organizationId)
     .select(
-      "id, organization_id, user_id, leave_type_id, start_date, end_date, reason, status, approved_by, approved_at, rejection_reason, created_at",
+      "id, organization_id, user_id, leave_type_id, start_date, end_date, requested_days, request_department, request_role, reason, status, approved_by, approved_at, rejection_reason, balance_deducted_at, created_at",
     )
     .single();
 
@@ -374,6 +442,7 @@ export async function rejectLeaveRequest(params: {
       metadata: {
         leaveRequestId: leaveRequest.id,
         leaveTypeName,
+        requestedDays: leaveRequest.requested_days,
         startDate: leaveRequest.start_date,
         endDate: leaveRequest.end_date,
         rejectedByUserId: params.rejectedByUserId,

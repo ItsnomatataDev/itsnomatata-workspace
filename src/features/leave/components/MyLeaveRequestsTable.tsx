@@ -39,6 +39,7 @@ export default function MyLeaveRequestsTable({
             <tr>
               <th className="px-4 py-3 font-medium">Type</th>
               <th className="px-4 py-3 font-medium">Dates</th>
+              <th className="px-4 py-3 font-medium">Days</th>
               <th className="px-4 py-3 font-medium">Reason</th>
               <th className="px-4 py-3 font-medium">Status</th>
               <th className="px-4 py-3 font-medium">Submitted</th>
@@ -55,8 +56,14 @@ export default function MyLeaveRequestsTable({
                 <td className="px-4 py-3">
                   {request.start_date} → {request.end_date}
                 </td>
+                <td className="px-4 py-3">{request.requested_days ?? "—"}</td>
                 <td className="px-4 py-3 text-white/65">
                   <p>{request.reason || "No reason provided"}</p>
+                  {request.request_department ? (
+                    <p className="mt-2 text-xs text-white/45">
+                      Office: {request.request_department}
+                    </p>
+                  ) : null}
                   {request.status === "rejected" && request.rejection_reason ? (
                     <p className="mt-2 text-xs text-red-300">
                       Rejection reason: {request.rejection_reason}

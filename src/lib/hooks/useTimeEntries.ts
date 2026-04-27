@@ -1,16 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { supabase } from "../supabase/client";
 import {
   createManualTimeEntry,
   deleteTimeEntry,
   getActiveTimeEntry,
   getTimeEntriesForUser,
+  type ManualTimeEntryInput,
   resumeTimeEntry,
   startTimeEntry,
-  stopTimeEntry,
-  updateTimeEntry,
-  type ManualTimeEntryInput,
   type StartTimeEntryInput,
+  stopTimeEntry,
   type TimeEntryItem,
+  updateTimeEntry,
   type UpdateTimeEntryInput,
 } from "../supabase/mutations/timeEntries";
 
@@ -65,8 +66,9 @@ export function useTimeEntries({
       setEntries(entriesData);
       setActiveEntry(activeData);
     } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "Failed to load time entries.";
+      const message = err instanceof Error
+        ? err.message
+        : "Failed to load time entries.";
       setError(message);
     } finally {
       setLoading(false);
@@ -77,6 +79,31 @@ export function useTimeEntries({
     if (!autoLoad) return;
     void loadEntries();
   }, [autoLoad, loadEntries]);
+
+  // Realtime subscription so cross-session timer changes reflect immediately
+  useEffect(() => {
+    if (!organizationId || !userId) return;
+
+    const channel = supabase
+      .channel("my-time-entries")
+      .on(
+        "postgres_changes" as any,
+        {
+          event: "*",
+          schema: "public",
+          table: "time_entries",
+          filter: `organization_id=eq.${organizationId}`,
+        },
+        () => {
+          loadEntries();
+        },
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [organizationId, userId, loadEntries]);
 
   const handleStart = useCallback(
     async (payload: Omit<StartTimeEntryInput, "organizationId" | "userId">) => {
@@ -95,11 +122,14 @@ export function useTimeEntries({
         });
 
         setActiveEntry(entry);
-        setEntries((prev) => [entry, ...prev.filter((item) => item.id !== entry.id)]);
+        setEntries((
+          prev,
+        ) => [entry, ...prev.filter((item) => item.id !== entry.id)]);
         return entry;
       } catch (err) {
-        const message =
-          err instanceof Error ? err.message : "Failed to start timer.";
+        const message = err instanceof Error
+          ? err.message
+          : "Failed to start timer.";
         setError(message);
         throw err;
       } finally {
@@ -118,14 +148,20 @@ export function useTimeEntries({
     setError(null);
 
     try {
-      const entry = await stopTimeEntry(activeEntry.id);
+      const entry = await stopTimeEntry(activeEntry.id, {
+        userId: activeEntry.user_id,
+        organizationId: activeEntry.organization_id,
+      });
 
       setActiveEntry(null);
-      setEntries((prev) => prev.map((item) => (item.id === entry.id ? entry : item)));
+      setEntries((prev) =>
+        prev.map((item) => (item.id === entry.id ? entry : item))
+      );
       return entry;
     } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "Failed to stop timer.";
+      const message = err instanceof Error
+        ? err.message
+        : "Failed to stop timer.";
       setError(message);
       throw err;
     } finally {
@@ -150,11 +186,14 @@ export function useTimeEntries({
         });
 
         setActiveEntry(entry);
-        setEntries((prev) => [entry, ...prev.filter((item) => item.id !== entry.id)]);
+        setEntries((
+          prev,
+        ) => [entry, ...prev.filter((item) => item.id !== entry.id)]);
         return entry;
       } catch (err) {
-        const message =
-          err instanceof Error ? err.message : "Failed to resume timer.";
+        const message = err instanceof Error
+          ? err.message
+          : "Failed to resume timer.";
         setError(message);
         throw err;
       } finally {
@@ -185,8 +224,9 @@ export function useTimeEntries({
         setEntries((prev) => [entry, ...prev]);
         return entry;
       } catch (err) {
-        const message =
-          err instanceof Error ? err.message : "Failed to create manual time entry.";
+        const message = err instanceof Error
+          ? err.message
+          : "Failed to create manual time entry.";
         setError(message);
         throw err;
       } finally {
@@ -207,7 +247,9 @@ export function useTimeEntries({
           payload,
         });
 
-        setEntries((prev) => prev.map((item) => (item.id === entry.id ? entry : item)));
+        setEntries((prev) =>
+          prev.map((item) => (item.id === entry.id ? entry : item))
+        );
 
         if (activeEntry?.id === entry.id) {
           setActiveEntry(entry);
@@ -215,8 +257,9 @@ export function useTimeEntries({
 
         return entry;
       } catch (err) {
-        const message =
-          err instanceof Error ? err.message : "Failed to update time entry.";
+        const message = err instanceof Error
+          ? err.message
+          : "Failed to update time entry.";
         setError(message);
         throw err;
       } finally {
@@ -240,8 +283,9 @@ export function useTimeEntries({
           setActiveEntry(null);
         }
       } catch (err) {
-        const message =
-          err instanceof Error ? err.message : "Failed to delete time entry.";
+        const message = err instanceof Error
+          ? err.message
+          : "Failed to delete time entry.";
         setError(message);
         throw err;
       } finally {
