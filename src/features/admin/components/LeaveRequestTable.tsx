@@ -1,10 +1,12 @@
-import { Check, X } from "lucide-react";
+import { Check, X, Edit, Wallet } from "lucide-react";
 import type { LeaveRequestRow } from "../services/adminService";
 
 type LeaveRequestTableProps = {
   requests: LeaveRequestRow[];
   onApprove: (request: LeaveRequestRow) => Promise<void>;
   onReject: (request: LeaveRequestRow) => Promise<void>;
+  onModifyDates?: (request: LeaveRequestRow) => void;
+  onModifyBalance?: (request: LeaveRequestRow) => void;
   actionLoadingId?: string | null;
 };
 
@@ -24,6 +26,8 @@ export default function LeaveRequestTable({
   requests,
   onApprove,
   onReject,
+  onModifyDates,
+  onModifyBalance,
   actionLoadingId = null,
 }: LeaveRequestTableProps) {
   if (requests.length === 0) {
@@ -102,30 +106,52 @@ export default function LeaveRequestTable({
                 </td>
 
                 <td className="px-4 py-3">
-                  {request.status === "pending" ? (
-                    <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
+                    {request.status === "pending" && (
+                      <>
+                        <button
+                          type="button"
+                          disabled={actionLoadingId === request.id}
+                          onClick={() => void onApprove(request)}
+                          className="inline-flex items-center gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-xs font-medium text-emerald-300 hover:bg-emerald-500/15 disabled:opacity-60"
+                        >
+                          <Check size={14} />
+                          Approve
+                        </button>
+                        <button
+                          type="button"
+                          disabled={actionLoadingId === request.id}
+                          onClick={() => void onReject(request)}
+                          className="inline-flex items-center gap-2 rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs font-medium text-red-300 hover:bg-red-500/15 disabled:opacity-60"
+                        >
+                          <X size={14} />
+                          Reject
+                        </button>
+                      </>
+                    )}
+                    {onModifyDates && (
                       <button
                         type="button"
-                        disabled={actionLoadingId === request.id}
-                        onClick={() => void onApprove(request)}
-                        className="inline-flex items-center gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-xs font-medium text-emerald-300 hover:bg-emerald-500/15 disabled:opacity-60"
+                        onClick={() => onModifyDates(request)}
+                        className="inline-flex items-center gap-2 rounded-xl border border-orange-500/20 bg-orange-500/10 px-3 py-2 text-xs font-medium text-orange-300 hover:bg-orange-500/15"
+                        title="Modify leave dates"
                       >
-                        <Check size={14} />
-                        Approve
+                        <Edit size={14} />
+                        Dates
                       </button>
+                    )}
+                    {onModifyBalance && (
                       <button
                         type="button"
-                        disabled={actionLoadingId === request.id}
-                        onClick={() => void onReject(request)}
-                        className="inline-flex items-center gap-2 rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs font-medium text-red-300 hover:bg-red-500/15 disabled:opacity-60"
+                        onClick={() => onModifyBalance(request)}
+                        className="inline-flex items-center gap-2 rounded-xl border border-blue-500/20 bg-blue-500/10 px-3 py-2 text-xs font-medium text-blue-300 hover:bg-blue-500/15"
+                        title="Modify leave balance"
                       >
-                        <X size={14} />
-                        Reject
+                        <Wallet size={14} />
+                        Balance
                       </button>
-                    </div>
-                  ) : (
-                    <span className="text-xs text-white/45">Completed</span>
-                  )}
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}

@@ -136,7 +136,7 @@ export async function sendEmailOnly(params: {
       actionUrl: params.actionUrl ?? "/",
       metadata: params.metadata ?? {},
       appName: "Nomatata",
-      appUrl: "https://itsnomatata.com"
+      appUrl: "https://codex.itsnomatata.com"
     };
 
     const emailTemplate = EmailTemplateService.generateTemplate(params.type, context);

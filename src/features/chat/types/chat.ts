@@ -66,7 +66,7 @@ export type ChatMessage = {
   is_deleted: boolean;
   created_at: string;
   updated_at: string;
-  sender?: ChatMessageSender | null;
+  sender_profile?: ChatMessageSender | null;
 };
 
 export type ChatUser = {

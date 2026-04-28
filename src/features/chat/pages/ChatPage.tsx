@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, MessageSquareX } from "lucide-react";
 import { useAuth } from "../../../lib/hooks/useAuth";
+import { supabase } from "../../../lib/supabase/client";
 import ChatSidebar from "../components/ChatSidebar";
 import MessageInput from "../components/MessageInput";
 import MessageList from "../components/MessageList";
@@ -192,7 +193,18 @@ export default function ChatPage() {
 
     unsubscribeRef.current = subscribeToConversationMessages({
       conversationId: activeConversationId,
-      onMessage: (incomingMessage) => {
+      onMessage: async (incomingMessage) => {
+        // Fetch sender profile for the incoming message
+        if (incomingMessage.sender_id) {
+          const { data: senderProfile } = await supabase
+            .from("profiles")
+            .select("id, full_name, email, last_seen_at")
+            .eq("id", incomingMessage.sender_id)
+            .single();
+
+          incomingMessage.sender_profile = senderProfile;
+        }
+
         setMessages((current) => {
           const exists = current.some(
             (message) => message.id === incomingMessage.id,

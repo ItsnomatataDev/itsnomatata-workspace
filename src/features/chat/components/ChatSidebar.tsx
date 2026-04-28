@@ -40,6 +40,10 @@ function getMessagePreview(
   const isMine = conversation.last_message.sender_id === currentUserId;
   const prefix = isMine ? "You: " : "";
 
+  if (conversation.last_message.body === "This message was deleted.") {
+    return `${prefix}This message was deleted.`;
+  }
+
   return `${prefix}${conversation.last_message.body || "Sent a message"}`;
 }
 

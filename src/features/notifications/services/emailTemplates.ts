@@ -17,93 +17,84 @@ export interface EmailContext {
 
 export class EmailTemplateService {
   private static readonly DEFAULT_APP_NAME = "Nomatata";
-  private static readonly DEFAULT_APP_URL = "https://itsnomatata.com";
+  private static readonly DEFAULT_APP_URL = "https://codex.itsnomatata.com";
 
   static generateTemplate(type: string, context: EmailContext): EmailTemplate {
     const appName = context.appName || this.DEFAULT_APP_NAME;
     const appUrl = context.appUrl || this.DEFAULT_APP_URL;
 
+    // Convert relative actionUrl to absolute URL
+    const fullActionUrl = context.actionUrl?.startsWith('http')
+      ? context.actionUrl
+      : `${appUrl}${context.actionUrl || ''}`;
+
+    const contextWithFullUrl = { ...context, actionUrl: fullActionUrl };
+
     switch (type) {
       case "leave_request_submitted":
-        return this.leaveRequestTemplate(context, appName, appUrl);
+        return this.leaveRequestTemplate(contextWithFullUrl, appName, appUrl);
       case "leave_request_approved":
-        return this.leaveApprovedTemplate(context, appName, appUrl);
+        return this.leaveApprovedTemplate(contextWithFullUrl, appName, appUrl);
       case "leave_request_rejected":
-        return this.leaveRejectedTemplate(context, appName, appUrl);
+        return this.leaveRejectedTemplate(contextWithFullUrl, appName, appUrl);
       case "leave_reminder":
-        return this.leaveReminderTemplate(context, appName, appUrl);
+        return this.leaveReminderTemplate(contextWithFullUrl, appName, appUrl);
       case "meeting_invitation":
-        return this.meetingInvitationTemplate(context, appName, appUrl);
+        return this.meetingInvitationTemplate(contextWithFullUrl, appName, appUrl);
       case "meeting_reminder":
-        return this.meetingReminderTemplate(context, appName, appUrl);
-      case "meeting":
-        return this.meetingTemplate(context, appName, appUrl);
-      case "approval_required":
-        return this.approvalRequiredTemplate(context, appName, appUrl);
-      case "approval_approved":
-        return this.approvalApprovedTemplate(context, appName, appUrl);
-      case "approval_rejected":
-        return this.approvalRejectedTemplate(context, appName, appUrl);
-      case "approval_decision":
-        return this.approvalDecisionTemplate(context, appName, appUrl);
-      case "social_media_post_published":
-        return this.socialMediaPublishedTemplate(context, appName, appUrl);
-      case "social_media_post_failed":
-        return this.socialMediaFailedTemplate(context, appName, appUrl);
-      case "task_assigned":
-        return this.taskAssignedTemplate(context, appName, appUrl);
-      case "task_updated":
-        return this.taskUpdatedTemplate(context, appName, appUrl);
-      case "task_completed":
-        return this.taskCompletedTemplate(context, appName, appUrl);
-      case "task_due_soon":
-        return this.taskDueSoonTemplate(context, appName, appUrl);
-      case "task_overdue":
-        return this.taskOverdueTemplate(context, appName, appUrl);
-      case "task_comment":
-        return this.taskCommentTemplate(context, appName, appUrl);
-      case "task_collaboration_invite":
-        return this.taskCollaborationInviteTemplate(context, appName, appUrl);
-      case "chat_message":
-        return this.chatMessageTemplate(context, appName, appUrl);
+        return this.meetingReminderTemplate(contextWithFullUrl, appName, appUrl);
       case "announcement":
-        return this.announcementTemplate(context, appName, appUrl);
-      case "system_alert":
-        return this.systemAlertTemplate(context, appName, appUrl);
-      case "automation":
-        return this.automationTemplate(context, appName, appUrl);
-      case "welcome":
-        return this.welcomeTemplate(context, appName, appUrl);
-      case "password_reset":
-        return this.passwordResetTemplate(context, appName, appUrl);
-      case "user_signup":
-        return this.userSignupTemplate(context, appName, appUrl);
+        return this.announcementTemplate(contextWithFullUrl, appName, appUrl);
+      case "task_assigned":
+        return this.taskAssignedTemplate(contextWithFullUrl, appName, appUrl);
+      case "task_updated":
+        return this.taskUpdatedTemplate(contextWithFullUrl, appName, appUrl);
+      case "task_comment":
+        return this.taskCommentTemplate(contextWithFullUrl, appName, appUrl);
+      case "chat_message":
+        return this.chatMessageTemplate(contextWithFullUrl, appName, appUrl);
       case "user_invite":
-        return this.userInviteTemplate(context, appName, appUrl);
+        return this.userInviteTemplate(contextWithFullUrl, appName, appUrl);
+      case "password_reset":
+        return this.passwordResetTemplate(contextWithFullUrl, appName, appUrl);
+      case "approval_needed":
+        return this.approvalRequiredTemplate(contextWithFullUrl, appName, appUrl);
+      case "approval_decision":
+        return this.approvalDecisionTemplate(contextWithFullUrl, appName, appUrl);
+      case "system_alert":
+        return this.systemAlertTemplate(contextWithFullUrl, appName, appUrl);
+      case "leave_update":
+        return this.defaultTemplate(contextWithFullUrl, appName, appUrl);
+      case "meeting":
+        return this.meetingTemplate(contextWithFullUrl, appName, appUrl);
+      case "task_completed":
+        return this.taskCompletedTemplate(contextWithFullUrl, appName, appUrl);
+      case "task_collaboration_invite":
+        return this.taskCollaborationInviteTemplate(contextWithFullUrl, appName, appUrl);
       case "duty_roster_assigned":
-        return this.dutyRosterAssignedTemplate(context, appName, appUrl);
+        return this.dutyRosterAssignedTemplate(contextWithFullUrl, appName, appUrl);
       case "duty_roster_updated":
-        return this.dutyRosterUpdatedTemplate(context, appName, appUrl);
+        return this.dutyRosterUpdatedTemplate(contextWithFullUrl, appName, appUrl);
       case "shift_reminder":
-        return this.shiftReminderTemplate(context, appName, appUrl);
+        return this.shiftReminderTemplate(contextWithFullUrl, appName, appUrl);
       case "campaign_update":
-        return this.campaignUpdateTemplate(context, appName, appUrl);
+        return this.campaignUpdateTemplate(contextWithFullUrl, appName, appUrl);
       case "campaign_assigned":
-        return this.campaignAssignedTemplate(context, appName, appUrl);
+        return this.campaignAssignedTemplate(contextWithFullUrl, appName, appUrl);
       case "timesheet_reminder":
-        return this.timesheetReminderTemplate(context, appName, appUrl);
+        return this.timesheetReminderTemplate(contextWithFullUrl, appName, appUrl);
       case "invoice_update":
-        return this.invoiceUpdateTemplate(context, appName, appUrl);
+        return this.invoiceUpdateTemplate(contextWithFullUrl, appName, appUrl);
       case "budget_alert":
-        return this.budgetAlertTemplate(context, appName, appUrl);
+        return this.budgetAlertTemplate(contextWithFullUrl, appName, appUrl);
       case "expense_submitted":
-        return this.expenseSubmittedTemplate(context, appName, appUrl);
+        return this.expenseSubmittedTemplate(contextWithFullUrl, appName, appUrl);
       case "expense_approved":
-        return this.expenseApprovedTemplate(context, appName, appUrl);
+        return this.expenseApprovedTemplate(contextWithFullUrl, appName, appUrl);
       case "expense_rejected":
-        return this.expenseRejectedTemplate(context, appName, appUrl);
+        return this.expenseRejectedTemplate(contextWithFullUrl, appName, appUrl);
       default:
-        return this.defaultTemplate(context, appName, appUrl);
+        return this.defaultTemplate(contextWithFullUrl, appName, appUrl);
     }
   }
 

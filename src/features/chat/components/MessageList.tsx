@@ -78,8 +78,10 @@ export default function MessageList({
       {messages.map((message) => {
         const isMine = message.sender_id === currentUserId;
         const senderName =
-          message.sender?.full_name || message.sender?.email || "Unknown user";
-        const online = isRecentlyOnline(message.sender?.last_seen_at);
+          message.sender_profile?.full_name ||
+          message.sender_profile?.email ||
+          "Unknown user";
+        const online = isRecentlyOnline(message.sender_profile?.last_seen_at);
         const seenStatus = getSeenStatus({
           message,
           currentUserId,

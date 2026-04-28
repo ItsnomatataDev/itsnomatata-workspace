@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CalendarDays, Plus, ShieldCheck, Lock, Unlock } from "lucide-react";
+import { CalendarDays, Plus, ShieldCheck, Lock, Unlock, Edit, Wallet } from "lucide-react";
 import Sidebar from "../../../components/dashboard/components/Sidebar";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import LeaveRequestTable from "../components/LeaveRequestTable";
@@ -7,6 +7,8 @@ import CreateLeaveTypeModal from "../components/CreateLeaveTypeModal";
 import CreateLeaveRuleModal from "../../leave/components/CreateLeaveRuleModal";
 import LeaveCalendar from "../../leave/components/leaveCalender";
 import LeaveRuleList from "../../leave/components/LeaveRuleList";
+import ModifyLeaveRequestModal from "../components/ModifyLeaveRequestModal";
+import ModifyLeaveBalanceModal from "../components/ModifyLeaveBalanceModal";
 import {
   getLeaveRequests,
   getLeaveTypes,
@@ -22,6 +24,12 @@ import {
   type LeaveCalendarEventRow,
   type LeaveCalendarRuleRow,
 } from "../../leave/services/leaveCalendarService";
+import {
+  modifyLeaveRequestDates,
+  modifyUserLeaveBalance,
+  getPublicHolidays,
+} from "../../leave/services/leaveService";
+import type { PublicHolidayRow } from "../../leave/components/leaveCalender";
 
 function formatDateForDb(date: Date) {
   const year = date.getFullYear();
@@ -50,8 +58,13 @@ export default function AdminLeavePage() {
     [],
   );
   const [rules, setRules] = useState<LeaveCalendarRuleRow[]>([]);
+  const [holidays, setHolidays] = useState<PublicHolidayRow[]>([]);
   const [createTypeOpen, setCreateTypeOpen] = useState(false);
   const [createRuleOpen, setCreateRuleOpen] = useState(false);
+  const [modifyLeaveOpen, setModifyLeaveOpen] = useState(false);
+  const [modifyBalanceOpen, setModifyBalanceOpen] = useState(false);
+  const [selectedLeaveForModify, setSelectedLeaveForModify] = useState<LeaveRequestRow | null>(null);
+  const [selectedUserForBalance, setSelectedUserForBalance] = useState<LeaveRequestRow | null>(null);
   const [activeFilter, setActiveFilter] = useState<
     "all" | "pending" | "approved" | "rejected"
   >("all");
@@ -63,18 +76,20 @@ export default function AdminLeavePage() {
       setLoading(true);
       setError("");
 
-      const [requestsData, leaveTypesData, approvedLeavesData, rulesData] =
+      const [requestsData, leaveTypesData, approvedLeavesData, rulesData, holidaysData] =
         await Promise.all([
           getLeaveRequests(organizationId),
           getLeaveTypes(organizationId),
           getApprovedLeaveCalendarEvents(organizationId),
           getLeaveCalendarRules(organizationId),
+          getPublicHolidays({ organizationId }),
         ]);
 
       setRequests(requestsData);
       setLeaveTypes(leaveTypesData);
       setApprovedLeaves(approvedLeavesData);
       setRules(rulesData);
+      setHolidays(holidaysData);
     } catch (err: any) {
       console.error("ADMIN LEAVE LOAD ERROR:", err);
       setError(err?.message || "Failed to load leave management.");
@@ -175,7 +190,7 @@ export default function AdminLeavePage() {
     start: Date;
     end: Date;
   }) => {
-    if (!organizationId) return;
+    if (!organizationId || !userId) return;
 
     try {
       setError("");
@@ -184,18 +199,90 @@ export default function AdminLeavePage() {
       const startDate = formatDateForDb(params.start);
       const endDate = formatDateForDb(params.end);
 
-      await updateApprovedLeaveEventDates({
-        leaveRequestId: params.eventId,
+      await modifyLeaveRequestDates({
         organizationId,
-        startDate,
-        endDate,
+        leaveRequestId: params.eventId,
+        modifiedByUserId: userId,
+        newStartDate: startDate,
+        newEndDate: endDate,
+        reason: "Admin calendar adjustment",
       });
 
-      setSuccessMessage("Approved leave dates updated on the calendar.");
+      setSuccessMessage("Leave dates updated successfully.");
       await loadPage();
     } catch (err: any) {
-      console.error("MOVE APPROVED LEAVE ERROR:", err);
-      setError(err?.message || "Failed to move approved leave event.");
+      console.error("MOVE LEAVE ERROR:", err);
+      setError(err?.message || "Failed to update leave dates.");
+    }
+  };
+
+  const handleModifyLeaveDates = async (request: LeaveRequestRow) => {
+    setSelectedLeaveForModify(request);
+    setModifyLeaveOpen(true);
+  };
+
+  const handleModifyLeaveBalance = async (request: LeaveRequestRow) => {
+    setSelectedUserForBalance(request);
+    setModifyBalanceOpen(true);
+  };
+
+  const handleSaveLeaveModification = async (params: {
+    newStartDate: string;
+    newEndDate: string;
+    reason: string;
+  }) => {
+    if (!selectedLeaveForModify || !userId || !organizationId) return;
+
+    try {
+      setError("");
+      setSuccessMessage("");
+
+      await modifyLeaveRequestDates({
+        organizationId,
+        leaveRequestId: selectedLeaveForModify.id,
+        modifiedByUserId: userId,
+        newStartDate: params.newStartDate,
+        newEndDate: params.newEndDate,
+        reason: params.reason,
+      });
+
+      setSuccessMessage("Leave dates modified successfully.");
+      setModifyLeaveOpen(false);
+      setSelectedLeaveForModify(null);
+      await loadPage();
+    } catch (err: any) {
+      console.error("MODIFY LEAVE ERROR:", err);
+      setError(err?.message || "Failed to modify leave dates.");
+    }
+  };
+
+  const handleSaveBalanceModification = async (params: {
+    newTotal?: number;
+    newRemaining?: number;
+    reason: string;
+  }) => {
+    if (!selectedUserForBalance || !userId || !organizationId) return;
+
+    try {
+      setError("");
+      setSuccessMessage("");
+
+      await modifyUserLeaveBalance({
+        organizationId,
+        userId: selectedUserForBalance.user_id,
+        modifiedByUserId: userId,
+        newTotal: params.newTotal,
+        newRemaining: params.newRemaining,
+        reason: params.reason,
+      });
+
+      setSuccessMessage("Leave balance updated successfully.");
+      setModifyBalanceOpen(false);
+      setSelectedUserForBalance(null);
+      await loadPage();
+    } catch (err: any) {
+      console.error("MODIFY BALANCE ERROR:", err);
+      setError(err?.message || "Failed to modify leave balance.");
     }
   };
 
@@ -379,7 +466,8 @@ export default function AdminLeavePage() {
                 <LeaveCalendar
                   approvedLeaves={approvedLeaves}
                   rules={rules}
-                  canManage
+                  holidays={holidays}
+                  canManage={true}
                   onMoveEvent={handleMoveApprovedLeave}
                 />
               </section>
@@ -436,6 +524,8 @@ export default function AdminLeavePage() {
                       requests={filteredRequests}
                       onApprove={handleApprove}
                       onReject={handleReject}
+                      onModifyDates={handleModifyLeaveDates}
+                      onModifyBalance={handleModifyLeaveBalance}
                       actionLoadingId={actionLoadingId}
                     />
                   )}
@@ -487,6 +577,26 @@ export default function AdminLeavePage() {
         organizationId={organizationId}
         userId={userId}
         onCreated={loadPage}
+      />
+
+      <ModifyLeaveRequestModal
+        open={modifyLeaveOpen}
+        onClose={() => {
+          setModifyLeaveOpen(false);
+          setSelectedLeaveForModify(null);
+        }}
+        leaveRequest={selectedLeaveForModify}
+        onSave={handleSaveLeaveModification}
+      />
+
+      <ModifyLeaveBalanceModal
+        open={modifyBalanceOpen}
+        onClose={() => {
+          setModifyBalanceOpen(false);
+          setSelectedUserForBalance(null);
+        }}
+        userRequest={selectedUserForBalance}
+        onSave={handleSaveBalanceModification}
       />
     </div>
   );

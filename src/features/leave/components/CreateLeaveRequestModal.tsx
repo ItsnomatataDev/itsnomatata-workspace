@@ -56,15 +56,8 @@ export default function CreateLeaveRequestModal({
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [blockedRules, setBlockedRules] = useState<LeaveCalendarRuleRow[]>([]);
-  const [overlappingLeaves, setOverlappingLeaves] = useState<
-    (LeaveCalendarEventRow & {
-      requester_name?: string | null;
-      requester_email?: string | null;
-    })[]
-  >([]);
 
-  const hasAvailabilityConflict =
-    blockedRules.length > 0 || overlappingLeaves.length > 0;
+  const hasAvailabilityConflict = blockedRules.length > 0;
   const requestedDays = calculateLeaveDays(startDate, endDate);
 
   const resetForm = () => {
@@ -76,7 +69,6 @@ export default function CreateLeaveRequestModal({
     setError("");
     setSuccessMessage("");
     setBlockedRules([]);
-    setOverlappingLeaves([]);
   };
 
   useEffect(() => {
@@ -97,7 +89,6 @@ export default function CreateLeaveRequestModal({
       ) {
         if (active) {
           setBlockedRules([]);
-          setOverlappingLeaves([]);
           setCheckingAvailability(false);
         }
         return;
@@ -117,12 +108,10 @@ export default function CreateLeaveRequestModal({
         if (!active) return;
 
         setBlockedRules(result.blockedRules);
-        setOverlappingLeaves(result.overlappingApprovedLeaves);
       } catch (err) {
         console.error("CHECK LEAVE AVAILABILITY ERROR:", err);
         if (!active) return;
         setBlockedRules([]);
-        setOverlappingLeaves([]);
       } finally {
         if (active) {
           setCheckingAvailability(false);
@@ -164,33 +153,6 @@ export default function CreateLeaveRequestModal({
         blockedRules[0]?.title
           ? `This leave period is closed: ${blockedRules[0].title}.`
           : "This leave period is closed.",
-      );
-      return;
-    }
-
-    if (overlappingLeaves.length > 0) {
-      const firstOverlap = overlappingLeaves[0];
-      const overlapName =
-        firstOverlap?.requester_name ||
-        firstOverlap?.requester_email ||
-        "another employee";
-      const overlapRole = firstOverlap?.requester_role || "the same role";
-      const overlapStatus = firstOverlap?.status === "pending"
-        ? "already has a pending leave request"
-        : "is already on approved leave";
-
-      if (
-        requesterRole &&
-        firstOverlap?.requester_role?.toLowerCase() === requesterRole.toLowerCase()
-      ) {
-        setError(
-          `You cannot submit leave because ${overlapName} (${overlapRole}) ${overlapStatus} for this period. Role-based leave restriction applies across all offices.`,
-        );
-        return;
-      }
-
-      setError(
-        `You cannot submit leave for ${requestOffice} because ${overlapName} ${overlapStatus} in that office for the selected period.`,
       );
       return;
     }
@@ -401,56 +363,13 @@ export default function CreateLeaveRequestModal({
             </div>
           ) : null}
 
-          {overlappingLeaves.length > 0 ? (
-            <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4">
-              <p className="font-semibold text-amber-300">
-                {requesterRole && overlappingLeaves.some(l => l.requester_role?.toLowerCase() === requesterRole.toLowerCase())
-                  ? "Leave submission is disabled due to role-based restriction across all offices"
-                  : "Leave submission is disabled because another active leave request already exists in this period"}
-              </p>
-              <div className="mt-3 space-y-2">
-                {overlappingLeaves.map((leave) => (
-                  <div
-                    key={leave.id}
-                    className="rounded-xl border border-white/10 bg-black/30 px-4 py-3"
-                  >
-                    <p className="text-sm font-medium text-white">
-                      {leave.requester_name ||
-                        leave.requester_email ||
-                        "Employee"}
-                    </p>
-                  <p className="mt-1 text-xs text-white/60">
-                    {leave.start_date} → {leave.end_date}
-                  </p>
-                  {typeof leave.requested_days === "number" ? (
-                    <p className="mt-1 text-xs text-white/45">
-                      Requested: {formatLeaveDaysLabel(leave.requested_days)}
-                    </p>
-                  ) : null}
-                  <p className="mt-1 text-xs text-white/45">
-                    Office:{" "}
-                    {leave.requester_department || requestOffice || "—"}
-                  </p>
-                    {leave.requester_role ? (
-                      <p className="mt-1 text-xs text-white/45">
-                        Role: {leave.requester_role}
-                        {requesterRole && leave.requester_role.toLowerCase() === requesterRole.toLowerCase() && (
-                          <span className="ml-2 text-amber-400">(Role-based restriction)</span>
-                        )}
-                      </p>
-                    ) : null}
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : null}
-
           <div>
             <label className="mb-2 block text-sm text-white/70">Reason</label>
             <textarea
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               rows={4}
+              maxLength={200}
               className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 text-white outline-none focus:border-orange-500"
               placeholder="Optional reason for leave"
             />

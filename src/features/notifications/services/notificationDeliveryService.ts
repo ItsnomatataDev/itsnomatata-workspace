@@ -48,22 +48,12 @@ function shouldEmailByDefault(
   type: NotificationType,
   priority: NotificationPriority,
 ) {
+  // Send email for all high/urgent priority
   if (priority === "urgent" || priority === "high") return true;
 
-  return [
-    "chat_message",
-    "approval_needed",
-    "approval_decision",
-    "meeting",
-    "leave_request_approved",
-    "leave_request_rejected",
-    "leave_request_submitted",
-    "task_assigned",
-    "task_collaboration_invite",
-    "user_invite",
-    "automation",
-    "system_alert",
-  ].includes(type);
+  // Send email for all notification types by default
+  // User can opt-out via notification_preferences table
+  return true;
 }
 
 /**
@@ -144,7 +134,7 @@ async function triggerNotificationEmail(payload: {
       actionUrl: payload.actionUrl ?? "/",
       metadata: payload.metadata ?? {},
       appName: "Nomatata",
-      appUrl: "https://itsnomatata.com"
+      appUrl: "https://codex.itsnomatata.com"
     };
 
     const emailTemplate = EmailTemplateService.generateTemplate(payload.type, context);

@@ -17,12 +17,21 @@ import {
   endOfWeek,
 } from "date-fns";
 import { enUS } from "date-fns/locale";
-import { User, ClipboardList, X } from "lucide-react";
+import { User, ClipboardList, X, Calendar as CalendarIcon } from "lucide-react";
 import "react-big-calendar/lib/css/react-big-calendar.css";
 import type {
   LeaveCalendarEventRow,
   LeaveCalendarRuleRow,
 } from "../services/leaveCalendarService";
+
+export type PublicHolidayRow = {
+  id: string;
+  organization_id: string;
+  date: string;
+  name: string;
+  description: string | null;
+  is_recurring: boolean;
+};
 
 const locales = {
   "en-US": enUS,
@@ -42,8 +51,8 @@ const localizer = dateFnsLocalizer({
 
 export type LeaveCalendarEvent = RBCEvent & {
   id: string;
-  type: "leave" | "rule";
-  raw?: LeaveCalendarEventRow | LeaveCalendarRuleRow;
+  type: "leave" | "rule" | "holiday";
+  raw?: LeaveCalendarEventRow | LeaveCalendarRuleRow | PublicHolidayRow;
 };
 
 function toStartDate(dateString: string) {
@@ -98,6 +107,7 @@ function normalizeSlotRange(start: Date, end: Date) {
 export default function LeaveCalendar({
   approvedLeaves,
   rules,
+  holidays,
   canManage = false,
   onSelectEvent,
   onSelectSlot,
@@ -107,6 +117,7 @@ export default function LeaveCalendar({
 }: {
   approvedLeaves: LeaveCalendarEventRow[];
   rules: LeaveCalendarRuleRow[];
+  holidays?: PublicHolidayRow[];
   canManage?: boolean;
   onSelectEvent?: (event: LeaveCalendarEvent) => void;
   onSelectSlot?: (params: { start: Date; end: Date }) => void;
@@ -146,8 +157,18 @@ export default function LeaveCalendar({
       raw: rule,
     }));
 
-    return [...leaveEvents, ...ruleEvents];
-  }, [approvedLeaves, rules]);
+    const holidayEvents: LeaveCalendarEvent[] = (holidays || []).map((holiday) => ({
+      id: holiday.id,
+      title: holiday.name,
+      start: toStartDate(holiday.date),
+      end: toEndInclusive(holiday.date),
+      allDay: true,
+      type: "holiday",
+      raw: holiday,
+    }));
+
+    return [...leaveEvents, ...ruleEvents, ...holidayEvents];
+  }, [approvedLeaves, rules, holidays]);
 
   const visibleLeaveCount = useMemo(() => {
     if (currentView === Views.DAY) {
@@ -222,6 +243,11 @@ export default function LeaveCalendar({
       ? (selectedEvent.raw as LeaveCalendarRuleRow)
       : null;
 
+  const selectedHoliday =
+    selectedEvent?.type === "holiday"
+      ? (selectedEvent.raw as PublicHolidayRow)
+      : null;
+
   async function handleApplySelectedRangeToLeave() {
     if (!selectedLeave || !selectedRange || !onMoveEvent) return;
 
@@ -255,6 +281,12 @@ export default function LeaveCalendar({
             <span className="inline-block h-3 w-3 rounded-full bg-green-900" />
             <span>Open rule</span>
           </div>
+          {holidays && holidays.length > 0 && (
+            <div className="flex items-center gap-2">
+              <span className="inline-block h-3 w-3 rounded-full bg-purple-600" />
+              <span>Public holiday</span>
+            </div>
+          )}
         </div>
 
         <div className="flex flex-wrap gap-2">
@@ -337,6 +369,18 @@ export default function LeaveCalendar({
               };
             }
 
+            if (event.type === "holiday") {
+              return {
+                style: {
+                  backgroundColor: "#9333ea",
+                  color: "white",
+                  borderRadius: "8px",
+                  border: "none",
+                  padding: "2px 6px",
+                },
+              };
+            }
+
             return {
               style: {
                 backgroundColor: "#ea580c",
@@ -364,6 +408,8 @@ export default function LeaveCalendar({
               <div className="text-lg font-semibold">
                 {selectedEvent.type === "leave"
                   ? "Leave Details"
+                  : selectedEvent.type === "holiday"
+                  ? "Public Holiday Details"
                   : "Rule Details"}
               </div>
               <p className="mt-1 text-sm text-white/60">
@@ -457,6 +503,36 @@ export default function LeaveCalendar({
                     {selectedRule.description || "No description"}
                   </p>
                 </div>
+              </>
+            ) : null}
+
+            {selectedHoliday ? (
+              <>
+                <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                  <p className="flex items-center gap-2 text-sm text-white/60">
+                    <CalendarIcon size={14} />
+                    Holiday Date
+                  </p>
+                  <p className="mt-2 font-medium text-white">
+                    {selectedHoliday.date}
+                  </p>
+                </div>
+
+                <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                  <p className="text-sm text-white/60">Recurring</p>
+                  <p className="mt-2 font-medium text-white">
+                    {selectedHoliday.is_recurring ? "Yes (Annual)" : "No"}
+                  </p>
+                </div>
+
+                {selectedHoliday.description && (
+                  <div className="rounded-2xl border border-white/10 bg-black/30 p-4 md:col-span-2">
+                    <p className="text-sm text-white/60">Description</p>
+                    <p className="mt-2 text-white/85">
+                      {selectedHoliday.description}
+                    </p>
+                  </div>
+                )}
               </>
             ) : null}
           </div>

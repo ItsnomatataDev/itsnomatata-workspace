@@ -247,6 +247,46 @@ export async function getConversations(
     (profilesData ?? []).map((p) => [p.id, p]),
   );
 
+  // Fetch last messages for all conversations
+  const conversationIds = conversations.map(c => c.id);
+  const { data: lastMessagesData, error: lastMessagesError } = await supabase
+    .from("chat_messages")
+    .select("conversation_id, id, sender_id, body, message_type, attachment_name, created_at, is_deleted")
+    .in("conversation_id", conversationIds);
+
+  if (lastMessagesError) {
+    console.error("Failed to fetch last messages:", lastMessagesError);
+  }
+
+  // Create a map of conversation_id -> last message
+  const lastMessagesMap = new Map<string, any>();
+  (lastMessagesData ?? []).forEach((msg) => {
+    const existing = lastMessagesMap.get(msg.conversation_id);
+    if (!existing || new Date(msg.created_at) > new Date(existing.created_at)) {
+      lastMessagesMap.set(msg.conversation_id, msg);
+    }
+  });
+
+  // Fetch all messages to calculate unread counts
+  const { data: allMessagesData, error: allMessagesError } = await supabase
+    .from("chat_messages")
+    .select("conversation_id, id, sender_id, created_at")
+    .in("conversation_id", conversationIds)
+    .order("created_at", { ascending: true });
+
+  if (allMessagesError) {
+    console.error("Failed to fetch all messages for unread count:", allMessagesError);
+  }
+
+  // Create a map of conversation_id -> array of messages
+  const messagesByConversation = new Map<string, any[]>();
+  (allMessagesData ?? []).forEach((msg) => {
+    if (!messagesByConversation.has(msg.conversation_id)) {
+      messagesByConversation.set(msg.conversation_id, []);
+    }
+    messagesByConversation.get(msg.conversation_id)!.push(msg);
+  });
+
   return conversations.map((conversation) => {
     // Attach profiles to members
     const membersWithProfiles = conversation.members?.map((member) => ({
@@ -269,12 +309,50 @@ export async function getConversations(
         "Direct conversation"
       : conversation.title || "Untitled conversation";
 
+    // Get last message for this conversation
+    const lastMessage = lastMessagesMap.get(conversation.id) || null;
+
+    // Build message preview text
+    let messageBody = lastMessage?.body || null;
+    if (lastMessage?.is_deleted) {
+      messageBody = "This message was deleted.";
+    } else if (lastMessage?.message_type === "image") {
+      messageBody = "📷 Image";
+    } else if (lastMessage?.message_type === "audio") {
+      messageBody = "🎤 Voice note";
+    } else if (lastMessage?.message_type === "file") {
+      messageBody = "📎 File";
+    }
+
+    // Calculate unread count
+    let unreadCount = 0;
+    const myLastReadId = myMembership?.last_read_message_id;
+    const conversationMessages = messagesByConversation.get(conversation.id) || [];
+    
+    if (myLastReadId) {
+      // Count messages after the last read message that were sent by others
+      const lastReadIndex = conversationMessages.findIndex(m => m.id === myLastReadId);
+      if (lastReadIndex !== -1) {
+        unreadCount = conversationMessages
+          .slice(lastReadIndex + 1)
+          .filter(m => m.sender_id !== currentUserId).length;
+      }
+    } else {
+      // No last read message, count all messages from others
+      unreadCount = conversationMessages.filter(m => m.sender_id !== currentUserId).length;
+    }
+
     return {
       ...conversation,
       members: membersWithProfiles,
       display_name: displayName,
-      unread_count: 0, // Will be calculated when messages are loaded
-      last_message: null, // Will be populated when messages are loaded
+      unread_count: unreadCount,
+      last_message: lastMessage ? {
+        id: lastMessage.id,
+        sender_id: lastMessage.sender_id,
+        body: messageBody,
+        created_at: lastMessage.created_at,
+      } : null,
     };
   });
 }
@@ -282,8 +360,6 @@ export async function getConversations(
 export async function getMessages(
   conversationId: string,
 ): Promise<ChatMessage[]> {
-  // Temporarily just get basic message data without sender profile
-  // This will work even if sender_id column doesn't exist
   const { data, error } = await supabase
     .from("chat_messages")
     .select("*")
@@ -291,7 +367,35 @@ export async function getMessages(
     .order("created_at", { ascending: true });
 
   if (error) throw error;
-  return (data ?? []) as ChatMessage[];
+
+  const messages = (data ?? []) as ChatMessage[];
+
+  // Collect all unique sender IDs from messages
+  const senderIds = new Set<string>();
+  messages.forEach((msg) => {
+    if (msg.sender_id) senderIds.add(msg.sender_id);
+  });
+
+  // Fetch all sender profiles in a single query
+  const { data: profilesData, error: profilesError } = await supabase
+    .from("profiles")
+    .select("id, full_name, email")
+    .in("id", Array.from(senderIds));
+
+  if (profilesError) {
+    console.error("Failed to fetch sender profiles:", profilesError);
+  }
+
+  // Create a map of user_id -> profile
+  const profilesMap = new Map(
+    (profilesData ?? []).map((p) => [p.id, p]),
+  );
+
+  // Attach sender profile to each message
+  return messages.map((message) => ({
+    ...message,
+    sender_profile: profilesMap.get(message.sender_id) || null,
+  }));
 }
 
 export async function uploadChatAttachment(params: {

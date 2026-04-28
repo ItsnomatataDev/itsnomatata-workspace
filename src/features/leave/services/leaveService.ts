@@ -4,7 +4,8 @@ import {
   notifyAndEmailUser,
   notifyAndEmailUsers,
 } from "../../notifications/services/notificationService";
-import { calculateLeaveDays } from "../utils/leaveDays";
+import { calculateLeaveDays, calculateLeaveDaysWithExclusions } from "../utils/leaveDays";
+import { recordBalanceChange } from "./leaveBalanceAuditService";
 
 export type LeaveTypeRow = {
   id: string;
@@ -122,7 +123,26 @@ export async function createLeaveRequest(params: {
   requestDepartment?: string | null;
   requestRole?: string | null;
 }) {
-  const requestedDays = calculateLeaveDays(params.startDate, params.endDate);
+  // Check for public holidays in the requested date range
+  const { data: holidays } = await supabase
+    .from("public_holidays")
+    .select("date, name")
+    .eq("organization_id", params.organizationId)
+    .gte("date", params.startDate)
+    .lte("date", params.endDate);
+
+  if (holidays && holidays.length > 0) {
+    const holidayNames = holidays.map((h) => `${h.date} (${h.name})`).join(", ");
+    throw new Error(
+      `Cannot request leave on public holidays: ${holidayNames}. Please adjust your dates to exclude these days.`,
+    );
+  }
+
+  const requestedDays = await calculateLeaveDaysWithExclusions({
+    organizationId: params.organizationId,
+    startDate: params.startDate,
+    endDate: params.endDate,
+  });
 
   if (requestedDays <= 0) {
     throw new Error("Leave end date cannot be earlier than the start date.");
@@ -454,4 +474,285 @@ export async function rejectLeaveRequest(params: {
   }
 
   return leaveRequest;
+}
+
+export async function modifyLeaveRequestDates(params: {
+  organizationId: string;
+  leaveRequestId: string;
+  modifiedByUserId: string;
+  newStartDate: string;
+  newEndDate: string;
+  reason?: string;
+}) {
+  // Check for public holidays in the requested date range
+  const { data: holidays } = await supabase
+    .from("public_holidays")
+    .select("date, name")
+    .eq("organization_id", params.organizationId)
+    .gte("date", params.newStartDate)
+    .lte("date", params.newEndDate);
+
+  if (holidays && holidays.length > 0) {
+    const holidayNames = holidays.map((h) => `${h.date} (${h.name})`).join(", ");
+    throw new Error(
+      `Cannot modify leave to include public holidays: ${holidayNames}. Please adjust your dates to exclude these days.`,
+    );
+  }
+
+  // Calculate new days
+  const newRequestedDays = await calculateLeaveDaysWithExclusions({
+    organizationId: params.organizationId,
+    startDate: params.newStartDate,
+    endDate: params.newEndDate,
+  });
+
+  if (newRequestedDays <= 0) {
+    throw new Error("Leave end date cannot be earlier than the start date.");
+  }
+
+  // Get current leave request
+  const { data: currentRequest, error: fetchError } = await supabase
+    .from("leave_requests")
+    .select("*")
+    .eq("id", params.leaveRequestId)
+    .eq("organization_id", params.organizationId)
+    .single();
+
+  if (fetchError || !currentRequest) {
+    throw new Error("Leave request not found.");
+  }
+
+  // Check if already approved - need to handle balance adjustment
+  const wasApproved = currentRequest.status === "approved";
+  const oldRequestedDays = currentRequest.requested_days;
+
+  // Update the leave request
+  const { data, error } = await supabase
+    .from("leave_requests")
+    .update({
+      start_date: params.newStartDate,
+      end_date: params.newEndDate,
+      requested_days: newRequestedDays,
+      metadata: {
+        ...currentRequest.metadata,
+        modified_by: params.modifiedByUserId,
+        modified_at: new Date().toISOString(),
+        modification_reason: params.reason,
+        previous_start_date: currentRequest.start_date,
+        previous_end_date: currentRequest.end_date,
+        previous_requested_days: oldRequestedDays,
+      },
+    })
+    .eq("id", params.leaveRequestId)
+    .eq("organization_id", params.organizationId)
+    .select(
+      "id, organization_id, user_id, leave_type_id, start_date, end_date, requested_days, request_department, request_role, reason, status, approved_by, approved_at, rejection_reason, balance_deducted_at, created_at",
+    )
+    .single();
+
+  if (error) throw error;
+
+  const leaveRequest = data as MyLeaveRequestRow;
+
+  // If approved, adjust balance
+  if (wasApproved) {
+    const balanceDelta = newRequestedDays - oldRequestedDays;
+
+    if (balanceDelta > 0) {
+      // Need more days - check if available
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("leave_days_remaining")
+        .eq("id", leaveRequest.user_id)
+        .single();
+
+      if (!profile || profile.leave_days_remaining < balanceDelta) {
+        throw new Error(
+          `Not enough leave days to extend this request. Need ${balanceDelta} more days.`,
+        );
+      }
+
+      await supabase
+        .from("profiles")
+        .update({ leave_days_remaining: profile.leave_days_remaining - balanceDelta })
+        .eq("id", leaveRequest.user_id);
+    } else if (balanceDelta < 0) {
+      // Return days
+      const { data: profileForUpdate } = await supabase
+        .from("profiles")
+        .select("leave_days_total, leave_days_remaining")
+        .eq("id", leaveRequest.user_id)
+        .single();
+
+      if (profileForUpdate) {
+        const newRemaining = Math.min(
+          profileForUpdate.leave_days_total,
+          profileForUpdate.leave_days_remaining + Math.abs(balanceDelta),
+        );
+        await supabase
+          .from("profiles")
+          .update({ leave_days_remaining: newRemaining })
+          .eq("id", leaveRequest.user_id);
+      }
+    }
+  }
+
+  // Send notification to user
+  try {
+    const { data: requester } = await supabase
+      .from("profiles")
+      .select("id, full_name, email")
+      .eq("id", leaveRequest.user_id)
+      .maybeSingle();
+
+    if (requester) {
+      await notifyAndEmailUser({
+        organizationId: params.organizationId,
+        userId: leaveRequest.user_id,
+        userEmail: requester.email ?? "",
+        fullName: requester.full_name ?? "Team Member",
+        type: "leave_request_approved",
+        title: "Leave Dates Modified",
+        message: `Your leave request has been modified from ${currentRequest.start_date} - ${currentRequest.end_date} (${oldRequestedDays} days) to ${params.newStartDate} - ${params.newEndDate} (${newRequestedDays} days).${params.reason ? ` Reason: ${params.reason}` : ""}`,
+        actionUrl: "/leave",
+        priority: "high",
+        entityType: "leave_request",
+        entityId: leaveRequest.id,
+        referenceId: leaveRequest.id,
+        referenceType: "leave_request",
+        metadata: {
+          leaveRequestId: leaveRequest.id,
+          previousStartDate: currentRequest.start_date,
+          previousEndDate: currentRequest.end_date,
+          previousDays: oldRequestedDays,
+          newStartDate: params.newStartDate,
+          newEndDate: params.newEndDate,
+          newDays: newRequestedDays,
+          modifiedBy: params.modifiedByUserId,
+        },
+      });
+    }
+  } catch (notificationError) {
+    console.error("LEAVE MODIFICATION NOTIFICATION ERROR:", notificationError);
+  }
+
+  return leaveRequest;
+}
+
+export async function modifyUserLeaveBalance(params: {
+  organizationId: string;
+  userId: string;
+  modifiedByUserId: string;
+  newTotal?: number;
+  newRemaining?: number;
+  reason: string;
+}) {
+  // Get current balance
+  const { data: profile, error: fetchError } = await supabase
+    .from("profiles")
+    .select("leave_days_total, leave_days_remaining")
+    .eq("id", params.userId)
+    .eq("organization_id", params.organizationId)
+    .single();
+
+  if (fetchError || !profile) {
+    throw new Error("User profile not found.");
+  }
+
+  const previousTotal = profile.leave_days_total;
+  const previousRemaining = profile.leave_days_remaining;
+  const newTotal = params.newTotal ?? previousTotal;
+  const newRemaining = params.newRemaining ?? previousRemaining;
+
+  // Update profile
+  const { error: updateError } = await supabase
+    .from("profiles")
+    .update({
+      leave_days_total: newTotal,
+      leave_days_remaining: newRemaining,
+    })
+    .eq("id", params.userId)
+    .eq("organization_id", params.organizationId);
+
+  if (updateError) throw updateError;
+
+  // Record audit trail
+  await recordBalanceChange({
+    organizationId: params.organizationId,
+    userId: params.userId,
+    modifiedBy: params.modifiedByUserId,
+    previousTotal,
+    newTotal,
+    previousRemaining,
+    newRemaining,
+    reason: params.reason,
+  });
+
+  // Send notification to user
+  try {
+    const { data: requester } = await supabase
+      .from("profiles")
+      .select("id, full_name, email")
+      .eq("id", params.userId)
+      .maybeSingle();
+
+    if (requester) {
+      await notifyAndEmailUser({
+        organizationId: params.organizationId,
+        userId: params.userId,
+        userEmail: requester.email ?? "",
+        fullName: requester.full_name ?? "Team Member",
+        type: "system_alert",
+        title: "Leave Balance Updated",
+        message: `Your leave balance has been updated. Total: ${previousTotal} → ${newTotal} days. Remaining: ${previousRemaining} → ${newRemaining} days. Reason: ${params.reason}`,
+        actionUrl: "/leave",
+        priority: "high",
+        entityType: "leave_balance",
+        entityId: params.userId,
+        referenceId: params.userId,
+        referenceType: "leave_balance",
+        metadata: {
+          userId: params.userId,
+          previousTotal,
+          newTotal,
+          previousRemaining,
+          newRemaining,
+          modifiedBy: params.modifiedByUserId,
+          reason: params.reason,
+        },
+      });
+    }
+  } catch (notificationError) {
+    console.error("LEAVE BALANCE MODIFICATION NOTIFICATION ERROR:", notificationError);
+  }
+
+  return {
+    previousTotal,
+    newTotal,
+    previousRemaining,
+    newRemaining,
+  };
+}
+
+export async function getPublicHolidays(params: {
+  organizationId: string;
+  startDate?: string;
+  endDate?: string;
+}) {
+  let query = supabase
+    .from("public_holidays")
+    .select("*")
+    .eq("organization_id", params.organizationId);
+
+  if (params.startDate) {
+    query = query.gte("date", params.startDate);
+  }
+  if (params.endDate) {
+    query = query.lte("date", params.endDate);
+  }
+
+  const { data, error } = await query.order("date", { ascending: true });
+
+  if (error) throw error;
+  return data;
 }

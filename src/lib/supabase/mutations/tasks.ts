@@ -6,6 +6,7 @@ import {
 import type { TaskStatus } from "../queries/tasks";
 import type { TaskSubmissionItem } from "../queries/taskSubmissions";
 import { getTrackedTimeByTask } from "../queries/tasks";
+import { notifyTaskEvent } from "../mutations/notifications";
 
 export interface CreateTaskCommentPayload {
   organizationId: string;
@@ -374,6 +375,22 @@ export async function createTask(payload: CreateTaskPayload): Promise<TaskRow> {
         user_id: userId,
       })),
     );
+
+    // Send notifications to assignees
+    try {
+      await notifyTaskEvent({
+        organizationId,
+        userIds: assigneeIds,
+        taskId: data.id,
+        event: "assigned",
+        title: "New task assigned",
+        message: `You were assigned to "${insertPayload.title}"`,
+        priority: "high",
+        actionUrl: `/tasks/${data.id}`,
+      });
+    } catch (notifError) {
+      console.error("Failed to send task assignment notification:", notifError);
+    }
   }
 
   return data as TaskRow;
