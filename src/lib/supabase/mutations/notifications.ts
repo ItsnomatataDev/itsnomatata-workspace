@@ -102,6 +102,8 @@ export async function createNotification(params: {
   referenceId?: string | null;
   referenceType?: string | null;
 }) {
+  console.log("Creating notification:", params);
+
   const { data, error } = await supabase
     .from("notifications")
     .insert({
@@ -141,7 +143,18 @@ export async function createNotification(params: {
     )
     .single();
 
-  if (error) throw error;
+  if (error) {
+    console.error("NOTIFICATION INSERT ERROR:", error);
+    console.error("Error details:", {
+      code: error.code,
+      message: error.message,
+      details: error.details,
+      hint: error.hint,
+    });
+    throw error;
+  }
+
+  console.log("Notification created successfully:", data);
   return data as NotificationRow;
 }
 

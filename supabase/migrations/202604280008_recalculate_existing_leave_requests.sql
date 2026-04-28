@@ -1,5 +1,3 @@
--- Recalculate existing leave requests with new weekend and holiday exclusion logic
--- This will update requested_days for all existing leave requests based on organization settings
 
 do $$
 declare

@@ -123,7 +123,10 @@ export async function createLeaveRequest(params: {
   requestDepartment?: string | null;
   requestRole?: string | null;
 }) {
+  console.log("[createLeaveRequest] Starting with params:", params);
+
   // Check for public holidays in the requested date range
+  console.log("[createLeaveRequest] Checking for public holidays...");
   const { data: holidays } = await supabase
     .from("public_holidays")
     .select("date, name")
@@ -131,31 +134,43 @@ export async function createLeaveRequest(params: {
     .gte("date", params.startDate)
     .lte("date", params.endDate);
 
+  console.log("[createLeaveRequest] Holidays found:", holidays);
+
   if (holidays && holidays.length > 0) {
     const holidayNames = holidays.map((h) => `${h.date} (${h.name})`).join(", ");
+    console.error("[createLeaveRequest] Public holiday conflict:", holidayNames);
     throw new Error(
       `Cannot request leave on public holidays: ${holidayNames}. Please adjust your dates to exclude these days.`,
     );
   }
 
+  console.log("[createLeaveRequest] Calculating leave days with exclusions...");
   const requestedDays = await calculateLeaveDaysWithExclusions({
     organizationId: params.organizationId,
     startDate: params.startDate,
     endDate: params.endDate,
   });
 
+  console.log("[createLeaveRequest] Requested days:", requestedDays);
+
   if (requestedDays <= 0) {
+    console.error("[createLeaveRequest] Invalid date range");
     throw new Error("Leave end date cannot be earlier than the start date.");
   }
 
+  console.log("[createLeaveRequest] Getting leave balance...");
   const leaveBalance = await getLeaveBalance(params.organizationId, params.userId);
 
+  console.log("[createLeaveRequest] Leave balance:", leaveBalance);
+
   if (requestedDays > leaveBalance.remainingDays) {
+    console.error("[createLeaveRequest] Insufficient leave balance");
     throw new Error(
       `This request needs ${requestedDays} day${requestedDays === 1 ? "" : "s"}, but only ${leaveBalance.remainingDays} leave day${leaveBalance.remainingDays === 1 ? "" : "s"} remain.`,
     );
   }
 
+  console.log("[createLeaveRequest] Checking leave availability...");
   const availability = await checkLeaveAvailability({
     organizationId: params.organizationId,
     startDate: params.startDate,
@@ -164,8 +179,11 @@ export async function createLeaveRequest(params: {
     requestRole: params.requestRole,
   });
 
+  console.log("[createLeaveRequest] Availability check result:", availability);
+
   if (availability.blockedRules.length > 0) {
     const firstBlockedRule = availability.blockedRules[0];
+    console.error("[createLeaveRequest] Blocked rules:", firstBlockedRule);
     throw new Error(
       firstBlockedRule.title
         ? `Leave requests are closed for this period: ${firstBlockedRule.title}.`
@@ -179,6 +197,7 @@ export async function createLeaveRequest(params: {
       firstOverlap?.requester_name ||
       firstOverlap?.requester_email ||
       "another employee";
+    console.error("[createLeaveRequest] Overlapping leave:", firstOverlap);
     throw new Error(
       buildOverlapMessage({
         overlapName,
@@ -190,6 +209,7 @@ export async function createLeaveRequest(params: {
     );
   }
 
+  console.log("[createLeaveRequest] Inserting leave request into database...");
   const { data, error } = await supabase
     .from("leave_requests")
     .insert({
@@ -209,7 +229,18 @@ export async function createLeaveRequest(params: {
     )
     .single();
 
-  if (error) throw error;
+  if (error) {
+    console.error("[createLeaveRequest] Database insert error:", error);
+    console.error("[createLeaveRequest] Error details:", {
+      code: error.code,
+      message: error.message,
+      details: error.details,
+      hint: error.hint,
+    });
+    throw error;
+  }
+
+  console.log("[createLeaveRequest] Leave request inserted successfully:", data);
 
   const leaveRequest = data as MyLeaveRequestRow;
 

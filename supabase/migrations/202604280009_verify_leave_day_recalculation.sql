@@ -1,8 +1,4 @@
--- Verification query to check recalculated leave days
--- This shows the before/after comparison for leave requests
--- Run this to verify the recalculation worked correctly
 
--- View to show recalculated leave days
 create or replace view leave_day_recalculation_verification as
 select 
   lr.id,
@@ -24,10 +20,10 @@ join public.profiles p on lr.user_id = p.id
 where lr.status in ('pending', 'approved')
 order by lr.created_at desc;
 
--- Show results
+
 select * from leave_day_recalculation_verification;
 
--- Show summary statistics
+
 select 
   organization_name,
   status,

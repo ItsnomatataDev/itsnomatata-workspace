@@ -1,14 +1,14 @@
 import { supabase } from "../../../lib/supabase/client";
-import type {
-  CreateMeetingInput,
-  Meeting,
-  MeetingMessage,
-  MeetingParticipant,
-  MeetingWithParticipants,
-} from "../types/meeting";
 import {
   notifyAndEmailUsers,
 } from "../../notifications/services/notificationService";
+import type {
+  Meeting,
+  MeetingWithParticipants,
+  MeetingParticipant,
+  MeetingMessage,
+  CreateMeetingInput,
+} from "../types/meeting";
 
 function generateRoomCode() {
   return Math.random().toString(36).slice(2, 8).toUpperCase();
@@ -228,6 +228,57 @@ export async function joinMeeting(params: {
     );
 
   if (error) throw error;
+
+  // Notify other participants that someone joined
+  try {
+    const { data: meetingData } = await supabase
+      .from("meetings")
+      .select("id, title, organization_id")
+      .eq("id", params.meetingId)
+      .single();
+
+    if (meetingData) {
+      const { data: joinerProfile } = await supabase
+        .from("profiles")
+        .select("full_name, email")
+        .eq("id", params.userId)
+        .single();
+
+      const { data: otherParticipants } = await supabase
+        .from("meeting_participants")
+        .select("user_id")
+        .eq("meeting_id", params.meetingId)
+        .neq("user_id", params.userId);
+
+      const otherUserIds = otherParticipants?.map(p => p.user_id) || [];
+
+      if (otherUserIds.length > 0 && joinerProfile) {
+        const joinerName = joinerProfile.full_name?.trim() || joinerProfile.email?.trim() || "Someone";
+
+        await notifyAndEmailUsers({
+          organizationId: meetingData.organization_id,
+          userIds: otherUserIds,
+          type: "meeting",
+          title: `${joinerName} joined the meeting`,
+          message: `${joinerName} has joined "${meetingData.title}".`,
+          actionUrl: `/meetings/${params.meetingId}`,
+          priority: "medium",
+          entityType: "meeting",
+          entityId: params.meetingId,
+          referenceId: params.meetingId,
+          referenceType: "meeting",
+          metadata: {
+            meetingId: params.meetingId,
+            meetingTitle: meetingData.title,
+            joinerId: params.userId,
+            joinerName,
+          },
+        });
+      }
+    }
+  } catch (notificationError) {
+    console.error("MEETING JOIN NOTIFICATION ERROR:", notificationError);
+  }
 }
 
 export async function leaveMeeting(params: {

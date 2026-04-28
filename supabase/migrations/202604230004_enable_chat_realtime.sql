@@ -1,8 +1,4 @@
 
--- Enable realtime for chat tables
--- This allows the frontend to receive real-time updates for messages, conversations, and user presence
--- Use IF NOT EXISTS to handle cases where tables are already in the publication
-
 DO $$
 BEGIN
     IF NOT EXISTS (

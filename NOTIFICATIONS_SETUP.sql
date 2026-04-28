@@ -186,3 +186,4 @@ create policy "users_manage_own_prefs"
   with check (user_id = auth.uid());
 
 
+//notificatoins

@@ -6,6 +6,7 @@ import {
   useMemo,
   useState,
 } from "react";
+import { toast } from "react-toastify";
 import { supabase } from "../../lib/supabase/client";
 import {
   getUserNotifications,
@@ -103,6 +104,16 @@ export function NotificationProvider({
 
           if (!incoming.is_read) {
             setUnreadCount((prev) => prev + 1);
+
+            // Show toast notification for new notification
+            toast.info(incoming.message || incoming.title, {
+              onClick: () => {
+                // Navigate to action URL if available
+                if (incoming.action_url) {
+                  window.location.href = incoming.action_url;
+                }
+              },
+            });
           }
         },
       )

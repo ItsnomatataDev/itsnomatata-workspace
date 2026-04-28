@@ -205,116 +205,79 @@ async function triggerNotificationEmail(payload: {
 
 export async function deliverNotification(params: DeliverNotificationParams) {
   const priority = params.priority ?? "medium";
-
-  const notification = await createNotification({
+  console.log("[deliverNotification] Called with params:", {
     organizationId: params.organizationId,
     userId: params.userId,
     type: params.type,
     title: params.title,
-    message: params.message,
-    entityType: params.entityType,
-    entityId: params.entityId,
-    actionUrl: params.actionUrl,
     priority,
-    metadata: params.metadata,
-    referenceId: params.referenceId,
-    referenceType: params.referenceType,
   });
-  console.log("NOTIFICATION INSERTED:", notification);
-  const shouldEmail = params.sendEmail ??
-    shouldEmailByDefault(params.type, priority);
-
-  if (!shouldEmail) return notification;
 
   try {
-    const { profile, canEmail } = await getUserEmailPreferences(
-      params.userId,
-      params.type,
-      priority,
-    );
-
-    if (!profile?.email || !canEmail) return notification;
-
-    await triggerNotificationEmail({
-      to: profile.email,
-      fullName: profile.full_name,
-      title: params.title,
-      message: params.message,
-      actionUrl: params.actionUrl,
-      type: params.type,
-      priority,
-      metadata: params.metadata,
+    const notification = await createNotification({
       organizationId: params.organizationId,
       userId: params.userId,
-      notificationId: notification.id,
+      type: params.type,
+      title: params.title,
+      message: params.message,
+      entityType: params.entityType,
+      entityId: params.entityId,
+      actionUrl: params.actionUrl,
+      priority,
+      metadata: params.metadata,
+      referenceId: params.referenceId,
+      referenceType: params.referenceType,
     });
-  } catch (error) {
-    console.error("NOTIFICATION EMAIL ERROR:", error);
-  }
+    console.log("NOTIFICATION INSERTED:", notification);
 
-  return notification;
+    // Temporarily disable email to isolate in-system notification issues
+    return notification;
+  } catch (error) {
+    console.error("NOTIFICATION INSERT ERROR:", error);
+    throw error;
+  }
 }
 
 export async function deliverBulkNotifications(
   params: DeliverBulkNotificationsParams,
 ) {
   const uniqueUserIds = [...new Set(params.userIds.filter(Boolean))];
-  if (uniqueUserIds.length === 0) return [];
-
-  const priority = params.priority ?? "medium";
-
-  const notifications = await createBulkNotifications({
+  console.log("[deliverBulkNotifications] Called with params:", {
     organizationId: params.organizationId,
     userIds: uniqueUserIds,
     type: params.type,
     title: params.title,
-    message: params.message,
-    entityType: params.entityType,
-    entityId: params.entityId,
-    actionUrl: params.actionUrl,
-    priority,
-    metadata: params.metadata,
-    referenceId: params.referenceId,
-    referenceType: params.referenceType,
+    priority: params.priority ?? "medium",
   });
 
-  const shouldEmail = params.sendEmail ??
-    shouldEmailByDefault(params.type, priority);
+  if (uniqueUserIds.length === 0) {
+    console.warn("[deliverBulkNotifications] No valid user IDs provided");
+    return [];
+  }
 
-  if (!shouldEmail) return notifications;
+  const priority = params.priority ?? "medium";
 
-  await Promise.allSettled(
-    notifications.map(async (notification) => {
-      try {
-        const { profile, canEmail } = await getUserEmailPreferences(
-          notification.user_id,
-          params.type,
-          priority,
-        );
+  try {
+    const notifications = await createBulkNotifications({
+      organizationId: params.organizationId,
+      userIds: uniqueUserIds,
+      type: params.type,
+      title: params.title,
+      message: params.message,
+      entityType: params.entityType,
+      entityId: params.entityId,
+      actionUrl: params.actionUrl,
+      priority,
+      metadata: params.metadata,
+      referenceId: params.referenceId,
+      referenceType: params.referenceType,
+    });
+    console.log("BULK NOTIFICATIONS INSERTED:", notifications);
 
-        if (!profile?.email || !canEmail) return;
-
-        await triggerNotificationEmail({
-          to: profile.email,
-          fullName: profile.full_name,
-          title: params.title,
-          message: params.message,
-          actionUrl: params.actionUrl,
-          type: params.type,
-          priority,
-          metadata: params.metadata,
-          organizationId: params.organizationId,
-          userId: notification.user_id,
-          notificationId: notification.id,
-        });
-      } catch (error) {
-        console.error(
-          `BULK NOTIFICATION EMAIL ERROR for ${notification.user_id}:`,
-          error,
-        );
-      }
-    }),
-  );
-
-  return notifications;
+    // Temporarily disable email to isolate in-system notification issues
+    return notifications;
+  } catch (error) {
+    console.error("BULK NOTIFICATION INSERT ERROR:", error);
+    throw error;
+  }
 }
