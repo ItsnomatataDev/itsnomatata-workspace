@@ -34,6 +34,8 @@ export interface AssetImportInvalidRow {
   rowNumber: number;
   errors: string[];
   warnings: string[];
+  skipped: boolean;
+  skipReason?: string;
   row: Record<string, unknown>;
 }
 
@@ -281,6 +283,7 @@ export async function parseAssetImportFile(
         rowNumber: index + 2,
         errors,
         warnings,
+        skipped: false,
         row,
       });
       return;
@@ -401,6 +404,7 @@ export async function buildCreateAssetInputsFromImport(params: {
         rowNumber: index + 2,
         errors,
         warnings: [],
+        skipped: false,
         row: row as unknown as Record<string, unknown>,
       });
       continue;

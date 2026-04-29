@@ -765,47 +765,54 @@ export default function AssetsPage() {
     setImportingAssets(true);
 
     try {
-      // Note: We allow duplicate serial numbers now, but still check for duplicate asset tags
-      // since asset tags are unique per organization
-      const assetTags = rows
-        .map((row) => row.asset_tag?.trim())
-        .filter((tag): tag is string => Boolean(tag));
+      // Check for existing assets by serial number to skip duplicates
+      const serialNumbers = rows
+        .map((row) => row.serial_number?.trim())
+        .filter((serial): serial is string => Boolean(serial));
 
-      if (assetTags.length > 0) {
-        const { data: existingTags, error: existingTagsError } = await supabase
+      let existingSerialSet = new Set<string>();
+
+      if (serialNumbers.length > 0) {
+        const { data: existingAssets, error: existingAssetsError } = await supabase
           .from("assets")
-          .select("asset_tag")
+          .select("serial_number")
           .eq("organization_id", organizationId)
-          .in("asset_tag", assetTags);
+          .in("serial_number", serialNumbers);
 
-        if (existingTagsError) {
-          throw new Error(existingTagsError.message);
+        if (existingAssetsError) {
+          throw new Error(existingAssetsError.message);
         }
 
-        const existingSet = new Set(
-          (existingTags ?? [])
-            .map((item) => item.asset_tag?.trim().toLowerCase())
+        existingSerialSet = new Set(
+          (existingAssets ?? [])
+            .map((item) => item.serial_number?.trim().toLowerCase())
             .filter(Boolean),
         );
-
-        const conflicting = assetTags.filter((tag) =>
-          existingSet.has(tag.trim().toLowerCase()),
-        );
-
-        if (conflicting.length > 0) {
-          throw new Error(
-            `These asset tags already exist: ${conflicting.join(", ")}`,
-          );
-        }
       }
 
-      for (const row of rows) {
+      // Filter out rows with existing serial numbers
+      const newRows = rows.filter((row) => {
+        const serial = row.serial_number?.trim().toLowerCase();
+        return !serial || !existingSerialSet.has(serial);
+      });
+
+      const skippedCount = rows.length - newRows.length;
+
+      if (skippedCount > 0) {
+        console.log(`Skipping ${skippedCount} assets that already exist in the database.`);
+      }
+
+      for (const row of newRows) {
         await addAsset(row);
       }
 
       await reload();
       await loadLookups();
       setImportModalOpen(false);
+
+      if (skippedCount > 0) {
+        alert(`Imported ${newRows.length} assets. Skipped ${skippedCount} assets that already exist.`);
+      }
     } catch (err) {
       throw err instanceof Error ? err : new Error("Failed to import assets.");
     } finally {
