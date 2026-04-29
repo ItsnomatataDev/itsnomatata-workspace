@@ -90,7 +90,7 @@ export default function MessageInput({
         <input
           ref={genericFileInputRef}
           type="file"
-          accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar"
+          accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,.json,.zip,.rar"
           hidden
           onChange={(event) => {
             const file = event.target.files?.[0];
