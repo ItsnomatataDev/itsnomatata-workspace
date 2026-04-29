@@ -597,7 +597,7 @@ export default function AssetsPage() {
   const [assetAIError, setAssetAIError] = useState("");
   const [assetAIloading, setAssetAILoading] = useState(false);
   const [viewFilter, setViewFilter] = useState<
-    "all" | "available" | "assigned" | "repair" | "attention"
+    "all" | "available" | "assigned" | "repair" | "attention" | "duplicate_serial"
   >("all");
 
   useEffect(() => {
@@ -680,6 +680,26 @@ export default function AssetsPage() {
     [attentionAssets],
   );
 
+  const duplicateSerialAssets = useMemo(() => {
+    const serialCounts = new Map<string, number>();
+    assetRows.forEach((asset) => {
+      const serial = asset.serial_number?.trim().toLowerCase();
+      if (serial) {
+        serialCounts.set(serial, (serialCounts.get(serial) || 0) + 1);
+      }
+    });
+
+    return assetRows.filter((asset) => {
+      const serial = asset.serial_number?.trim().toLowerCase();
+      return serial && (serialCounts.get(serial) || 0) > 1;
+    });
+  }, [assetRows]);
+
+  const duplicateSerialCount = useMemo(
+    () => duplicateSerialAssets.length,
+    [duplicateSerialAssets],
+  );
+
   const displayedAssets = useMemo(() => {
     switch (viewFilter) {
       case "available":
@@ -690,10 +710,12 @@ export default function AssetsPage() {
         return assetRows.filter((asset) => asset.status === "in_repair");
       case "attention":
         return assetRows.filter((asset) => assetNeedsAttention(asset));
+      case "duplicate_serial":
+        return duplicateSerialAssets;
       default:
         return assetRows;
     }
-  }, [assetRows, viewFilter]);
+  }, [assetRows, viewFilter, duplicateSerialAssets]);
 
   async function createPurchaseBatch(label: string) {
     const trimmed = label.trim();
@@ -743,6 +765,8 @@ export default function AssetsPage() {
     setImportingAssets(true);
 
     try {
+      // Note: We allow duplicate serial numbers now, but still check for duplicate asset tags
+      // since asset tags are unique per organization
       const assetTags = rows
         .map((row) => row.asset_tag?.trim())
         .filter((tag): tag is string => Boolean(tag));
@@ -1233,6 +1257,10 @@ export default function AssetsPage() {
                   id: "attention",
                   label: `Needs Attention (${attentionCount})`,
                 },
+                {
+                  id: "duplicate_serial",
+                  label: `Duplicate Serial (${duplicateSerialCount})`,
+                },
               ].map((filter) => {
                 const active = viewFilter === filter.id;
 
@@ -1247,7 +1275,8 @@ export default function AssetsPage() {
                           | "available"
                           | "assigned"
                           | "repair"
-                          | "attention",
+                          | "attention"
+                          | "duplicate_serial",
                       )
                     }
                     className={`px-3 py-2 text-sm transition ${

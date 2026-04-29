@@ -305,6 +305,13 @@ export default function AssetImportModal({
                           <li key={message}>• {message}</li>
                         ))}
                       </ul>
+                      {item.warnings.length > 0 && (
+                        <ul className="mt-2 space-y-1 text-sm text-amber-200">
+                          {item.warnings.map((message) => (
+                            <li key={message}>⚠ {message}</li>
+                          ))}
+                        </ul>
+                      )}
                     </div>
                   ))}
                 </div>

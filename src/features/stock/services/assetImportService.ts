@@ -33,6 +33,7 @@ export interface ImportedAssetRow {
 export interface AssetImportInvalidRow {
   rowNumber: number;
   errors: string[];
+  warnings: string[];
   row: Record<string, unknown>;
 }
 
@@ -216,6 +217,24 @@ function validateImportedRow(row: ImportedAssetRow): string[] {
   return errors;
 }
 
+function validateImportedRowWarnings(row: ImportedAssetRow, seenSerials: Map<string, number>, rowIndex: number): string[] {
+  const warnings: string[] = [];
+
+  const normalizedSerial = row.serial_number?.trim().toLowerCase();
+  if (normalizedSerial) {
+    const existingRowNumber = seenSerials.get(normalizedSerial);
+    if (existingRowNumber) {
+      warnings.push(
+        `Serial number "${row.serial_number}" is duplicated in this file. It already appears on row ${existingRowNumber}.`
+      );
+    } else {
+      seenSerials.set(normalizedSerial, rowIndex);
+    }
+  }
+
+  return warnings;
+}
+
 export async function parseAssetImportFile(
   file: File,
 ): Promise<AssetImportParseResult> {
@@ -236,10 +255,12 @@ export async function parseAssetImportFile(
   const invalidRows: AssetImportInvalidRow[] = [];
   const headers = rows.length ? Object.keys(rows[0]) : [];
   const seenTags = new Map<string, number>();
+  const seenSerials = new Map<string, number>();
 
   rows.forEach((row, index) => {
     const normalized = buildImportedRow(row);
     const errors = validateImportedRow(normalized);
+    const warnings = validateImportedRowWarnings(normalized, seenSerials, index + 2);
 
     const normalizedTag = normalizeAssetTag(normalized.asset_tag);
 
@@ -259,11 +280,13 @@ export async function parseAssetImportFile(
       invalidRows.push({
         rowNumber: index + 2,
         errors,
+        warnings,
         row,
       });
       return;
     }
 
+    // Even if there are warnings (like duplicate serial), still add to valid rows
     validRows.push(normalized);
   });
 
@@ -377,6 +400,7 @@ export async function buildCreateAssetInputsFromImport(params: {
       unresolvedRows.push({
         rowNumber: index + 2,
         errors,
+        warnings: [],
         row: row as unknown as Record<string, unknown>,
       });
       continue;

@@ -3,6 +3,7 @@ import type {
   CreateAssetInput,
   UpdateAssetInput,
 } from "../../../lib/supabase/mutations/assets";
+import { uploadAssetImage } from "../../../lib/supabase/storage";
 
 interface EditableAsset {
   id: string;
@@ -103,6 +104,9 @@ export default function AssetForm({
   const [error, setError] = useState("");
   const [customBatchMode, setCustomBatchMode] = useState(false);
   const [customBatchLabel, setCustomBatchLabel] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const [assetImageFile, setAssetImageFile] = useState<File | null>(null);
+  const [siteImageFile, setSiteImageFile] = useState<File | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -149,6 +153,8 @@ export default function AssetForm({
       setForm(INITIAL_FORM);
       setCustomBatchMode(false);
       setCustomBatchLabel("");
+      setAssetImageFile(null);
+      setSiteImageFile(null);
     }
 
     setError("");
@@ -159,6 +165,28 @@ export default function AssetForm({
       ...current,
       [name]: value,
     }));
+  }
+
+  function handleAssetImageFileChange(file: File | null) {
+    setAssetImageFile(file);
+    if (file) {
+      // Create preview URL
+      const previewUrl = URL.createObjectURL(file);
+      setForm((current) => ({ ...current, asset_image_url: previewUrl }));
+    } else {
+      setForm((current) => ({ ...current, asset_image_url: "" }));
+    }
+  }
+
+  function handleSiteImageFileChange(file: File | null) {
+    setSiteImageFile(file);
+    if (file) {
+      // Create preview URL
+      const previewUrl = URL.createObjectURL(file);
+      setForm((current) => ({ ...current, site_image_url: previewUrl }));
+    } else {
+      setForm((current) => ({ ...current, site_image_url: "" }));
+    }
   }
 
   const selectedLocation = locations.find(
@@ -207,8 +235,14 @@ export default function AssetForm({
     }
 
     try {
+      setUploading(true);
       const resolvedPurchaseBatchId = await resolvePurchaseBatchId();
 
+      // Upload images if files are selected
+      let assetImageUrl = form.asset_image_url || null;
+      let siteImageUrl = form.site_image_url || null;
+
+      // For create mode, we need to create the asset first to get the ID
       if (mode === "create") {
         const payload: CreateAssetInput = {
           organization_id: organizationId,
@@ -240,13 +274,38 @@ export default function AssetForm({
           sub_location: form.sub_location.trim() || null,
           barcode_value: form.barcode_value.trim() || null,
           qr_code_value: form.qr_code_value.trim() || null,
-          asset_image_url: form.asset_image_url.trim() || null,
-          site_image_url: form.site_image_url.trim() || null,
+          asset_image_url: null, // Will be set after upload
+          site_image_url: null, // Will be set after upload
           notes: form.notes.trim() || null,
         };
 
         await onCreate(payload);
+        
+        // Note: We need the asset ID to upload images, but onCreate doesn't return it
+        // For now, we'll skip image upload on create and require re-edit to add images
+        // Or we could modify onCreate to return the created asset
       } else if (asset?.id) {
+        // Upload images for edit mode
+        if (assetImageFile) {
+          const assetImageResult = await uploadAssetImage(
+            organizationId,
+            asset.id,
+            assetImageFile,
+            'asset'
+          );
+          assetImageUrl = assetImageResult.public_url;
+        }
+
+        if (siteImageFile) {
+          const siteImageResult = await uploadAssetImage(
+            organizationId,
+            asset.id,
+            siteImageFile,
+            'site'
+          );
+          siteImageUrl = siteImageResult.public_url;
+        }
+
         const payload: UpdateAssetInput = {
           asset_name: form.asset_name.trim(),
           asset_tag: form.asset_tag.trim() || null,
@@ -275,8 +334,8 @@ export default function AssetForm({
           sub_location: form.sub_location.trim() || null,
           barcode_value: form.barcode_value.trim() || null,
           qr_code_value: form.qr_code_value.trim() || null,
-          asset_image_url: form.asset_image_url.trim() || null,
-          site_image_url: form.site_image_url.trim() || null,
+          asset_image_url: assetImageUrl,
+          site_image_url: siteImageUrl,
           notes: form.notes.trim() || null,
         };
 
@@ -286,6 +345,8 @@ export default function AssetForm({
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save asset.");
+    } finally {
+      setUploading(false);
     }
   }
 
@@ -581,14 +642,12 @@ export default function AssetForm({
               </label>
 
               <label className="space-y-2">
-                <span className="text-sm text-zinc-300">Site Picture URL</span>
+                <span className="text-sm text-zinc-300">Site Picture</span>
                 <input
-                  value={form.site_image_url}
-                  onChange={(e) =>
-                    updateField("site_image_url", e.target.value)
-                  }
-                  className="w-full border border-white/10 bg-black px-4 py-3 text-sm text-white outline-none focus:border-orange-500"
-                  placeholder="https://..."
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => handleSiteImageFileChange(e.target.files?.[0] ?? null)}
+                  className="w-full border border-white/10 bg-black px-4 py-3 text-sm text-white outline-none file:mr-3 file:border-0 file:bg-orange-500 file:px-3 file:py-2 file:text-black"
                 />
               </label>
             </div>
@@ -615,14 +674,12 @@ export default function AssetForm({
 
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
               <label className="space-y-2 xl:col-span-2">
-                <span className="text-sm text-zinc-300">Asset Photo URL</span>
+                <span className="text-sm text-zinc-300">Asset Photo</span>
                 <input
-                  value={form.asset_image_url}
-                  onChange={(e) =>
-                    updateField("asset_image_url", e.target.value)
-                  }
-                  className="w-full border border-white/10 bg-black px-4 py-3 text-sm text-white outline-none focus:border-orange-500"
-                  placeholder="https://..."
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => handleAssetImageFileChange(e.target.files?.[0] ?? null)}
+                  className="w-full border border-white/10 bg-black px-4 py-3 text-sm text-white outline-none file:mr-3 file:border-0 file:bg-orange-500 file:px-3 file:py-2 file:text-black"
                 />
               </label>
 
@@ -738,16 +795,18 @@ export default function AssetForm({
           <div className="flex flex-wrap gap-3">
             <button
               type="submit"
-              disabled={saving}
+              disabled={saving || uploading}
               className="border border-orange-500 bg-orange-500 px-5 py-3 text-sm font-medium text-black transition hover:bg-orange-400 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {saving
-                ? mode === "create"
-                  ? "Saving..."
-                  : "Updating..."
-                : mode === "create"
-                  ? "Save Asset"
-                  : "Update Asset"}
+              {uploading
+                ? "Uploading images..."
+                : saving
+                  ? mode === "create"
+                    ? "Saving..."
+                    : "Updating..."
+                  : mode === "create"
+                    ? "Save Asset"
+                    : "Update Asset"}
             </button>
 
             <button
