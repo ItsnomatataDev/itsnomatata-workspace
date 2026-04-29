@@ -6,6 +6,7 @@ type InviteUserModalProps = {
   open: boolean;
   onClose: () => void;
   organizationId: string;
+  invitedBy: string;
   onInvited: () => Promise<void> | void;
 };
 
@@ -17,6 +18,7 @@ const ROLE_OPTIONS = [
   { value: "media_team", label: "Media Team" },
   { value: "seo_specialist", label: "SEO Specialist" },
 ];
+
 
 function normalizeEmail(value: string) {
   return value.trim().toLowerCase();
@@ -48,6 +50,7 @@ export default function InviteUserModal({
   open,
   onClose,
   organizationId,
+  invitedBy,
   onInvited,
 }: InviteUserModalProps) {
   const [fullName, setFullName] = useState("");
@@ -98,14 +101,15 @@ export default function InviteUserModal({
     try {
       setBusy(true);
 
-      await inviteEmployeeToOrganization({
+      const result = await inviteEmployeeToOrganization({
         organizationId,
         email: normalizedEmail,
         fullName: fullName.trim(),
         role,
+        invitedBy,
       });
 
-      setSuccessMessage("User added to the organization successfully.");
+      setSuccessMessage(result.message);
       await onInvited();
 
       window.setTimeout(() => {
@@ -213,5 +217,4 @@ export default function InviteUserModal({
     </div>
   );
 }
-
 

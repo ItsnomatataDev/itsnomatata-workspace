@@ -15,6 +15,7 @@ type UpdateUserRoleModalProps = {
   onClose: () => void;
   organizationId: string;
   employee: EmployeeOverviewRow | null;
+  currentUserId: string;
   onUpdated: () => Promise<void> | void;
 };
 
@@ -23,6 +24,7 @@ export default function UpdateUserRoleModal({
   onClose,
   organizationId,
   employee,
+  currentUserId,
   onUpdated,
 }: UpdateUserRoleModalProps) {
   const defaultRole = "social_media";
@@ -77,6 +79,7 @@ export default function UpdateUserRoleModal({
         organizationId,
         userId: employee.id,
         role,
+        updatedBy: currentUserId,
       });
 
       setSuccessMessage("User role updated successfully.");

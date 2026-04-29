@@ -11,13 +11,22 @@ type AppRole =
   | "media_team"
   | "seo_specialist";
 
+export type AccountStatus =
+  | "pending"
+  | "active"
+  | "suspended"
+  | "rejected"
+  | "deleted";
+
 type AuthProfile = {
   id: string;
   email?: string | null;
   full_name?: string | null;
   organization_id?: string | null;
   primary_role?: AppRole | null;
+  account_status?: AccountStatus | null;
   is_active?: boolean | null;
+  is_suspended?: boolean | null;
   last_seen_at?: string | null;
   organization?: Record<string, unknown> | null;
   [key: string]: unknown;
@@ -58,6 +67,20 @@ function resolveUserRole(
   if (isValidRole(profileRole)) return profileRole;
 
   return "social_media";
+}
+
+function isCompanyEmail(email?: string | null) {
+  return Boolean(email?.trim().toLowerCase().endsWith("@itsnomatata.com"));
+}
+
+function resolveAccountStatus(user: User, profile?: AuthProfile | null) {
+  if (isCompanyEmail(user.email) && profile?.account_status === "pending") {
+    return "active";
+  }
+  if (profile?.account_status) return profile.account_status;
+  if (profile?.is_suspended) return "suspended";
+  if (profile?.is_active) return "active";
+  return isCompanyEmail(user.email) ? "active" : "pending";
 }
 
 async function getOrganization() {
@@ -125,8 +148,21 @@ async function ensureProfile(user: User | null): Promise<AuthProfile | null> {
     full_name: user.user_metadata?.full_name ?? existing?.full_name ?? null,
     organization_id: existing?.organization_id ?? organizationId,
     primary_role: resolvedRole,
-    is_active: true,
-    last_seen_at: new Date().toISOString(),
+    account_status: resolveAccountStatus(
+      user,
+      (existing as AuthProfile | null) ?? null,
+    ),
+    is_active:
+      resolveAccountStatus(user, (existing as AuthProfile | null) ?? null) ===
+      "active",
+    is_suspended:
+      resolveAccountStatus(user, (existing as AuthProfile | null) ?? null) ===
+      "suspended",
+    last_seen_at:
+      resolveAccountStatus(user, (existing as AuthProfile | null) ?? null) ===
+      "active"
+        ? new Date().toISOString()
+        : existing?.last_seen_at ?? null,
   };
 
   if (!existing) {
@@ -169,6 +205,7 @@ async function ensureOrganizationMembership(
   profile: AuthProfile | null,
 ) {
   if (!user?.id || !profile?.organization_id) return null;
+  if (profile.account_status !== "active" || profile.is_suspended) return null;
 
   const resolvedRole = resolveUserRole(user, profile);
 
@@ -178,6 +215,7 @@ async function ensureOrganizationMembership(
       user_id: user.id,
       role: resolvedRole,
       status: "active",
+      joined_at: new Date().toISOString(),
     },
     {
       onConflict: "organization_id,user_id",

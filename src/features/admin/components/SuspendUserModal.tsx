@@ -93,6 +93,7 @@ export default function SuspendUserModal({
       await unsuspendUser({
         organizationId,
         userId: employee.id,
+        unsuspendedBy: currentUserId,
       });
 
       setSuccessMessage("User unsuspended successfully.");
@@ -110,7 +111,8 @@ export default function SuspendUserModal({
     }
   };
 
-  const isSuspended = employee.is_suspended;
+  const isSuspended = employee.account_status === "suspended" ||
+    employee.is_suspended;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">

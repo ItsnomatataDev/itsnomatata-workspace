@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Clock3, UserPlus, Users } from "lucide-react";
+import { Clock3, UserCheck, UserPlus, Users } from "lucide-react";
 import Sidebar from "../../../components/dashboard/components/Sidebar";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import EmployeeTable from "../components/EmployeeTable";
@@ -7,16 +7,19 @@ import EmployeeTimesheetTable from "../components/EmployeTimeSheetTable";
 import InviteUserModal from "../components/InviteUserModal";
 import UpdateUserRoleModal from "../components/UpdateUserRoleModal";
 import SuspendUserModal from "../components/SuspendUserModal";
+import ApproveRejectUserModal from "../components/ApproveRejectUserModal";
 
 import {
   getAdminPeopleStats,
   getEmployeeOverview,
   removeEmployeeFromOrganization,
-  deleteUserCompletely,
+  softDeleteUser,
+  type AccountStatus,
   type AdminPeopleStats,
   type EmployeeOverviewRow,
   type EmployeeTimesheetSummaryRow,
 } from "../services/adminService";
+
 
 function StatCard({
   title,
@@ -53,6 +56,7 @@ export default function AdminEmployeesPage() {
   const [employees, setEmployees] = useState<EmployeeOverviewRow[]>([]);
   const [stats, setStats] = useState<AdminPeopleStats | null>(null);
   const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<AccountStatus>("active");
   const [inviteOpen, setInviteOpen] = useState(false);
   const [editingEmployee, setEditingEmployee] =
     useState<EmployeeOverviewRow | null>(null);
@@ -60,6 +64,11 @@ export default function AdminEmployeesPage() {
     useState<EmployeeOverviewRow | null>(null);
   const [deletingEmployee, setDeletingEmployee] =
     useState<EmployeeOverviewRow | null>(null);
+  const [approvalEmployee, setApprovalEmployee] =
+    useState<EmployeeOverviewRow | null>(null);
+  const [approvalMode, setApprovalMode] = useState<"approve" | "reject">(
+    "approve",
+  );
 
   const loadPage = useCallback(async () => {
     if (!organizationId) return;
@@ -69,7 +78,7 @@ export default function AdminEmployeesPage() {
       setError("");
 
       const [employeesData, statsData] = await Promise.all([
-        getEmployeeOverview(organizationId),
+        getEmployeeOverview(organizationId, "all"),
         getAdminPeopleStats(organizationId),
       ]);
 
@@ -90,9 +99,19 @@ export default function AdminEmployeesPage() {
 
   const filteredEmployees = useMemo(() => {
     const term = search.trim().toLowerCase();
-    if (!term) return employees;
+    const byStatus = employees.filter((employee) => {
+      if (statusFilter === "deleted") {
+        return (
+          employee.account_status === "deleted" ||
+          employee.account_status === "rejected"
+        );
+      }
+      return employee.account_status === statusFilter;
+    });
 
-    return employees.filter((employee) => {
+    if (!term) return byStatus;
+
+    return byStatus.filter((employee) => {
       return (
         (employee.full_name || "").toLowerCase().includes(term) ||
         (employee.email || "").toLowerCase().includes(term) ||
@@ -100,7 +119,23 @@ export default function AdminEmployeesPage() {
         (employee.department || "").toLowerCase().includes(term)
       );
     });
-  }, [employees, search]);
+  }, [employees, search, statusFilter]);
+
+  const statusCounts = useMemo(() => {
+    return employees.reduce<Record<AccountStatus, number>>(
+      (acc, employee) => {
+        acc[employee.account_status] += 1;
+        return acc;
+      },
+      {
+        pending: 0,
+        active: 0,
+        suspended: 0,
+        rejected: 0,
+        deleted: 0,
+      },
+    );
+  }, [employees]);
 
   const filteredTimesheets = useMemo(() => {
     return filteredEmployees.map(
@@ -133,6 +168,7 @@ export default function AdminEmployeesPage() {
       await removeEmployeeFromOrganization({
         organizationId,
         userId: employee.id,
+        removedBy: profile?.id,
       });
 
       await loadPage();
@@ -157,9 +193,10 @@ export default function AdminEmployeesPage() {
       setActionLoadingId(employee.id);
       setError("");
 
-      await deleteUserCompletely({
+      await softDeleteUser({
         organizationId,
         userId: employee.id,
+        deletedBy: profile?.id,
       });
 
       await loadPage();
@@ -271,13 +308,56 @@ export default function AdminEmployeesPage() {
               ) : null}
 
               <section className="mb-6">
+                <div className="mb-4 flex flex-wrap gap-2">
+                  {[
+                    ["active", "Active", statusCounts.active],
+                    ["pending", "Pending", statusCounts.pending],
+                    ["suspended", "Suspended", statusCounts.suspended],
+                    [
+                      "deleted",
+                      "Removed / Deleted",
+                      statusCounts.deleted + statusCounts.rejected,
+                    ],
+                  ].map(([value, label, count]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setStatusFilter(value as AccountStatus)}
+                      className={`inline-flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-medium transition ${
+                        statusFilter === value
+                          ? "bg-orange-500 text-black"
+                          : "border border-white/10 bg-white/5 text-white/70 hover:bg-white/10"
+                      }`}
+                    >
+                      {value === "pending" ? (
+                        <UserCheck size={16} />
+                      ) : (
+                        <Users size={16} />
+                      )}
+                      {label}
+                      <span className="rounded-full bg-black/20 px-2 py-0.5 text-xs">
+                        {count}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+
                 <EmployeeTable
                   employees={filteredEmployees}
                   onEditRole={setEditingEmployee}
+                  onApprove={(employee) => {
+                    setApprovalMode("approve");
+                    setApprovalEmployee(employee);
+                  }}
+                  onReject={(employee) => {
+                    setApprovalMode("reject");
+                    setApprovalEmployee(employee);
+                  }}
                   onRemove={handleRemove}
                   onSuspend={setSuspendingEmployee}
                   onDelete={handleDelete}
                   actionLoadingId={actionLoadingId}
+                  currentUserId={profile.id}
                 />
               </section>
 
@@ -302,6 +382,7 @@ export default function AdminEmployeesPage() {
         open={inviteOpen}
         onClose={() => setInviteOpen(false)}
         organizationId={organizationId}
+        invitedBy={profile.id}
         onInvited={loadPage}
       />
 
@@ -310,6 +391,7 @@ export default function AdminEmployeesPage() {
         onClose={() => setEditingEmployee(null)}
         organizationId={organizationId}
         employee={editingEmployee}
+        currentUserId={profile.id}
         onUpdated={loadPage}
       />
 
@@ -318,6 +400,16 @@ export default function AdminEmployeesPage() {
         onClose={() => setSuspendingEmployee(null)}
         organizationId={organizationId}
         employee={suspendingEmployee}
+        currentUserId={profile.id}
+        onUpdated={loadPage}
+      />
+
+      <ApproveRejectUserModal
+        open={!!approvalEmployee}
+        mode={approvalMode}
+        onClose={() => setApprovalEmployee(null)}
+        organizationId={organizationId}
+        employee={approvalEmployee}
         currentUserId={profile.id}
         onUpdated={loadPage}
       />
