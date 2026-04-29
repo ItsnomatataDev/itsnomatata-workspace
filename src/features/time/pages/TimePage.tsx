@@ -9,22 +9,17 @@ import MyTimeSummaryCards from "../components/MyTimeSummaryCards";
 import MyTimeEntriesTable from "../components/MyTimeEntriesTable";
 import TimeEntryFormModal from "../components/TimeEntryFormModal";
 import { updateTimeEntry } from "../../../lib/supabase/mutations/timeEntries";
+import {
+  getZimbabweDateKey,
+  startOfZimbabweWeek,
+} from "../../../lib/utils/zimbabweCalendar";
 
 function sameDay(a: Date, b: Date) {
-  return (
-    a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() &&
-    a.getDate() === b.getDate()
-  );
+  return getZimbabweDateKey(a) === getZimbabweDateKey(b);
 }
 
 function startOfWeek(date: Date) {
-  const clone = new Date(date);
-  const day = clone.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  clone.setDate(clone.getDate() + diff);
-  clone.setHours(0, 0, 0, 0);
-  return clone;
+  return startOfZimbabweWeek(date);
 }
 
 function getEntrySeconds(entry: TimeEntryItem) {

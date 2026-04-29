@@ -101,7 +101,10 @@ export async function getTaskTime(
     const summaries = entries.map((entry) => ({
         id: entry.id,
         duration: entry.duration_seconds || 0,
-        type: (entry as any).entry_type as "timer" | "manual",
+        type: (entry as any).entry_type ??
+            (entry.source === "manual" || entry.source?.includes("manual")
+                ? "manual"
+                : "timer"),
         user_name: profileMap.get(entry.user_id!) || "Unknown",
         created_at: entry.created_at,
         description: entry.description || undefined,

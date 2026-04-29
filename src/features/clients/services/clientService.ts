@@ -11,6 +11,7 @@ export interface ClientItem {
   logo_url?: string | null;
   industry?: string | null;
   notes?: string | null;
+  board_type?: "client" | "internal" | null;
   created_at: string;
   updated_at: string;
 }

@@ -29,6 +29,10 @@ import {
   type AdminTimeEntryRow,
   type TimeApprovalStatus,
 } from "../../../lib/supabase/queries/adminTime";
+import {
+  formatZimbabweDate,
+  getZimbabweDateKey,
+} from "../../../lib/utils/zimbabweCalendar";
 
 function formatDuration(seconds: number) {
   const total = Math.max(0, Number(seconds || 0));
@@ -297,11 +301,11 @@ export default function ReportsPage() {
     >();
 
     for (const entry of entries) {
-      const raw = entry.started_at?.slice(0, 10) || "unknown";
+      const raw = entry.started_at ? getZimbabweDateKey(entry.started_at) : "unknown";
       const date = new Date(entry.started_at);
       const label = Number.isNaN(date.getTime())
         ? raw
-        : date.toLocaleDateString(undefined, {
+        : formatZimbabweDate(date, {
             month: "short",
             day: "numeric",
           });

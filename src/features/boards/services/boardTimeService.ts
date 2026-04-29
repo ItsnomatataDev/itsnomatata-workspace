@@ -1,11 +1,12 @@
 import { supabase } from "../../../lib/supabase/client";
+import { getZimbabweMonthRangeIso } from "../../../lib/utils/zimbabweCalendar";
 import { sendBoardAssignmentNotification } from "./boardNotificationService";
 
 export interface BoardTimeSettings {
   id: string;
   boardId: string;
   organizationId: string;
-  estimatedHours?: number;
+  estimatedHours?: number | null;
   isBillable?: boolean;
   billingType?: "hourly" | "fixed";
   hourlyRate?: number;
@@ -18,6 +19,8 @@ export interface BoardTimeSummary {
   boardId: string;
   trackedHours: number;
   estimatedHours: number;
+  isUnlimited: boolean;
+  periodLabel: string;
   remainingHours: number;
   progressPercentage: number;
   isOverBudget: boolean;
@@ -49,7 +52,7 @@ export async function getBoardTimeSettings(
         id: data.id,
         boardId: data.board_id,
         organizationId: data.organization_id,
-        estimatedHours: data.estimated_hours,
+        estimatedHours: data.estimated_hours === null ? null : Number(data.estimated_hours),
         isBillable: data.is_billable,
         billingType: data.billing_type,
         hourlyRate: data.hourly_rate,
@@ -90,7 +93,7 @@ export async function updateBoardTimeSettings(
     const updateData = {
       board_id: boardId,
       organization_id: organizationId,
-      estimated_hours: settings.estimatedHours,
+      estimated_hours: settings.estimatedHours ?? null,
       is_billable: settings.isBillable,
       billing_type: settings.billingType,
       hourly_rate: settings.hourlyRate,
@@ -109,7 +112,7 @@ export async function updateBoardTimeSettings(
       const result = await supabase
         .from("board_time_settings")
         .update({
-          estimated_hours: settings.estimatedHours,
+          estimated_hours: settings.estimatedHours ?? null,
           is_billable: settings.isBillable,
           billing_type: settings.billingType,
           hourly_rate: settings.hourlyRate,
@@ -166,7 +169,7 @@ export async function updateBoardTimeSettings(
       id: data.id,
       boardId: data.board_id,
       organizationId: data.organization_id,
-      estimatedHours: data.estimated_hours,
+      estimatedHours: data.estimated_hours === null ? null : Number(data.estimated_hours),
       isBillable: data.is_billable,
       billingType: data.billing_type,
       hourlyRate: data.hourly_rate,
@@ -191,12 +194,23 @@ export async function getBoardTimeSummary(
   organizationId: string,
 ): Promise<BoardTimeSummary> {
   try {
-    // Get time entries for this board
+    const period = getZimbabweMonthRangeIso();
+    const { data: board } = await supabase
+      .from("clients")
+      .select("board_type")
+      .eq("id", boardId)
+      .eq("organization_id", organizationId)
+      .maybeSingle();
+    const isInternal = board?.board_type === "internal";
+
+    // Get current-month time entries for this board
     const { data: timeEntries, error: timeError } = await supabase
       .from("time_entries")
       .select("duration_seconds, is_billable")
       .eq("client_id", boardId)
       .eq("organization_id", organizationId)
+      .gte("started_at", period.start)
+      .lt("started_at", period.end)
       .not("duration_seconds", "is", null);
 
     if (timeError) throw timeError;
@@ -221,13 +235,14 @@ export async function getBoardTimeSummary(
     });
 
     const trackedHours = trackedSeconds / 3600;
-    const estimatedHours = settings?.estimatedHours || 40;
-    const remainingHours = Math.max(0, estimatedHours - trackedHours);
-    const progressPercentage = estimatedHours > 0 ? (trackedHours / estimatedHours) * 100 : 0;
-    const isOverBudget = trackedHours > estimatedHours;
+    const isUnlimited = isInternal || settings?.estimatedHours === null;
+    const estimatedHours = isUnlimited ? 0 : Number(settings?.estimatedHours ?? 40);
+    const remainingHours = isUnlimited ? 0 : Math.max(0, estimatedHours - trackedHours);
+    const progressPercentage = !isUnlimited && estimatedHours > 0 ? (trackedHours / estimatedHours) * 100 : 0;
+    const isOverBudget = !isUnlimited && trackedHours > estimatedHours;
 
     let totalCost = 0;
-    if (settings?.isBillable) {
+    if (!isUnlimited && settings?.isBillable) {
       if (settings.billingType === "hourly" && settings.hourlyRate) {
         totalCost = billableSeconds / 3600 * settings.hourlyRate;
       } else if (settings.billingType === "fixed" && settings.fixedPrice) {
@@ -239,6 +254,8 @@ export async function getBoardTimeSummary(
       boardId,
       trackedHours,
       estimatedHours,
+      isUnlimited,
+      periodLabel: period.label,
       remainingHours,
       progressPercentage,
       isOverBudget,

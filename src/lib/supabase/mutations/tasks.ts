@@ -179,12 +179,16 @@ export interface CreateTaskPayload {
   campaign_id?: string | null;
   isBillable?: boolean;
   is_billable?: boolean;
+  estimatedSeconds?: number | null;
+  estimated_seconds?: number | null;
   dueDate?: string | null;
   due_date?: string | null;
   priority?: string | null;
   status?: TaskStatus;
   department?: string | null;
   completed_at?: string | null;
+  archived_at?: string | null;
+  archived_by?: string | null;
   metadata?: Record<string, unknown>;
 }
 
@@ -209,11 +213,15 @@ export interface UpdateTaskPayload {
   campaign_id?: string | null;
   isBillable?: boolean;
   is_billable?: boolean;
+  estimatedSeconds?: number | null;
+  estimated_seconds?: number | null;
   dueDate?: string | null;
   due_date?: string | null;
   priority?: string | null;
   department?: string | null;
   completed_at?: string | null;
+  archived_at?: string | null;
+  archived_by?: string | null;
   metadata?: Record<string, unknown>;
 }
 
@@ -245,8 +253,11 @@ export interface TaskRow {
   department: string | null;
   position: number;
   is_billable?: boolean;
+  estimated_seconds?: number | null;
   due_date: string | null;
   completed_at: string | null;
+  archived_at?: string | null;
+  archived_by?: string | null;
   client_id: string | null;
   campaign_id: string | null;
   metadata: Record<string, unknown> | null;
@@ -313,6 +324,11 @@ function buildTaskMutationPayload(
     mutationPayload.is_billable = isBillable;
   }
 
+  const estimatedSeconds = payload.estimatedSeconds ?? payload.estimated_seconds;
+  if (estimatedSeconds !== undefined) {
+    mutationPayload.estimated_seconds = estimatedSeconds;
+  }
+
   if (payload.assigned_to !== undefined) {
     mutationPayload.assigned_to = payload.assigned_to;
   }
@@ -335,6 +351,14 @@ function buildTaskMutationPayload(
 
   if (payload.completed_at !== undefined) {
     mutationPayload.completed_at = payload.completed_at;
+  }
+
+  if (payload.archived_at !== undefined) {
+    mutationPayload.archived_at = payload.archived_at;
+  }
+
+  if (payload.archived_by !== undefined) {
+    mutationPayload.archived_by = payload.archived_by;
   }
 
   if (payload.metadata !== undefined) {

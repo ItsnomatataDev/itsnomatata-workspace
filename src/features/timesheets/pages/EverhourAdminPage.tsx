@@ -17,6 +17,7 @@ import {
   Check,
   AlertTriangle,
   LayoutGrid,
+  Upload,
 } from "lucide-react";
 import Sidebar from "../../../components/dashboard/components/Sidebar";
 import { useAuth } from "../../../app/providers/AuthProvider";
@@ -25,6 +26,11 @@ import { useTeamTimesheetsRealtime } from "../../../lib/hooks/useTeamTimesheetsR
 import { supabase } from "../../../lib/supabase/client";
 import type { Board } from "../../../types/board";
 import type { AdminTimeEntryRow } from "../../../lib/supabase/queries/adminTime";
+import { importEverhourJson, type EverhourImportResult } from "../services/everhourImportService";
+import {
+  getZimbabweDateKey,
+  makeZimbabweLocalIso,
+} from "../../../lib/utils/zimbabweCalendar";
 
 
 
@@ -489,7 +495,7 @@ function AddHoursModal({
   const [minutes, setMinutes] = useState("0");
   const [isBillable, setIsBillable] = useState(true);
   const [note, setNote] = useState("");
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(getZimbabweDateKey(new Date()));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const auth = useAuth();
@@ -508,9 +514,9 @@ function AddHoursModal({
     setError("");
 
     try {
-      const startedAt = new Date(`${date}T09:00:00`).toISOString();
+      const startedAt = makeZimbabweLocalIso(date, "09:00:00");
       const endedAt = new Date(
-        new Date(`${date}T09:00:00`).getTime() + totalSeconds * 1000,
+        new Date(startedAt).getTime() + totalSeconds * 1000,
       ).toISOString();
 
       const { error: dbError } = await supabase.from("time_entries").insert({
@@ -715,6 +721,9 @@ export default function EverhourAdminPage() {
   >({});
   const [searchValue, setSearchValue] = useState("");
   const [showAddHours, setShowAddHours] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<EverhourImportResult | null>(null);
+  const [importError, setImportError] = useState("");
 
   const {
     entries,
@@ -919,6 +928,36 @@ export default function EverhourAdminPage() {
     [],
   );
 
+  const handleImportJson = useCallback(
+    async (file: File | null) => {
+      if (!file || !organizationId || !auth?.user?.id) return;
+
+      setImporting(true);
+      setImportError("");
+      setImportResult(null);
+
+      try {
+        const raw = await file.text();
+        const parsed = JSON.parse(raw);
+        const result = await importEverhourJson({
+          organizationId,
+          importedBy: auth.user.id,
+          json: parsed,
+          boards,
+        });
+        setImportResult(result);
+        await Promise.all([refetch(), getBoards(organizationId).then(setBoards)]);
+      } catch (error) {
+        setImportError(
+          error instanceof Error ? error.message : "Failed to import Everhour JSON.",
+        );
+      } finally {
+        setImporting(false);
+      }
+    },
+    [auth?.user?.id, boards, organizationId, refetch],
+  );
+
   const loading = loadingBoards || loadingEntries;
 
   if (!auth?.user || !profile) return null;
@@ -944,15 +983,64 @@ export default function EverhourAdminPage() {
                 </p>
               </div>
 
-              <button
-                type="button"
-                onClick={() => setShowAddHours(true)}
-                className="flex items-center gap-2 rounded-xl bg-orange-500 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-orange-500/20 transition hover:bg-orange-400"
-              >
-                <Plus size={15} />
-                Add Hours
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-semibold text-white/70 transition hover:bg-white/10 hover:text-white">
+                  <Upload size={15} />
+                  {importing ? "Importing..." : "Import Everhour JSON"}
+                  <input
+                    type="file"
+                    accept="application/json,.json"
+                    className="hidden"
+                    disabled={importing}
+                    onChange={(event) => {
+                      void handleImportJson(event.target.files?.[0] ?? null);
+                      event.currentTarget.value = "";
+                    }}
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setShowAddHours(true)}
+                  className="flex items-center gap-2 rounded-xl bg-orange-500 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-orange-500/20 transition hover:bg-orange-400"
+                >
+                  <Plus size={15} />
+                  Add Hours
+                </button>
+              </div>
             </div>
+
+            {(importResult || importError) && (
+              <div
+                className={`mt-4 rounded-2xl border px-4 py-3 text-sm ${
+                  importError
+                    ? "border-red-500/25 bg-red-500/10 text-red-200"
+                    : "border-emerald-500/20 bg-emerald-500/10 text-emerald-100"
+                }`}
+              >
+                {importError ? (
+                  <p>{importError}</p>
+                ) : importResult ? (
+                  <div className="space-y-1">
+                    <p className="font-semibold">
+                      Everhour import complete: {importResult.imported} imported,
+                      {" "}{importResult.duplicates} duplicates, {importResult.skipped} skipped.
+                    </p>
+                    <p className="text-xs text-white/55">
+                      Scanned {importResult.scanned} records · created{" "}
+                      {importResult.boardsCreated} boards and {importResult.tasksCreated} tasks.
+                      {importResult.unmatchedUsers.length > 0
+                        ? ` ${importResult.unmatchedUsers.length} records need matching profiles by email or full name.`
+                        : ""}
+                    </p>
+                    {importResult.errors.length > 0 && (
+                      <p className="text-xs text-amber-200">
+                        {importResult.errors.slice(0, 2).join(" ")}
+                      </p>
+                    )}
+                  </div>
+                ) : null}
+              </div>
+            )}
 
             {/* Summary strip */}
             <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">

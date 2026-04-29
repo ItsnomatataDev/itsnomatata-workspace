@@ -17,7 +17,7 @@ export interface TimeEntryItem {
   is_running: boolean;
   duration_seconds: number;
   source: string | null;
-  entry_type: "timer" | "manual";
+  entry_type?: "timer" | "manual";
   is_billable: boolean;
   hourly_rate_snapshot: number | null;
   cost_amount: number | null;
@@ -120,7 +120,6 @@ const TIME_ENTRY_SELECT = `
   is_running,
   duration_seconds,
   source,
-  entry_type,
   is_billable,
   hourly_rate_snapshot,
   cost_amount,
@@ -165,6 +164,42 @@ function calculateDurationSeconds(startedAt: string, endedAt: string) {
   const start = new Date(startedAt).getTime();
   const end = new Date(endedAt).getTime();
   return Math.max(0, Math.floor((end - start) / 1000));
+}
+
+export async function syncTaskTrackedSecondsCache(params: {
+  organizationId: string;
+  taskId: string;
+}) {
+  const { data: rows, error: timeError } = await supabase
+    .from("time_entries")
+    .select("duration_seconds")
+    .eq("organization_id", params.organizationId)
+    .eq("task_id", params.taskId)
+    .not("duration_seconds", "is", null);
+
+  if (timeError) {
+    throw new Error(timeError.message);
+  }
+
+  const totalSeconds = (rows ?? []).reduce(
+    (sum, row) => sum + Number(row.duration_seconds ?? 0),
+    0,
+  );
+
+  const { error: taskError } = await supabase
+    .from("tasks")
+    .update({
+      tracked_seconds_cache: totalSeconds,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("organization_id", params.organizationId)
+    .eq("id", params.taskId);
+
+  if (taskError) {
+    throw new Error(taskError.message);
+  }
+
+  return totalSeconds;
 }
 
 async function ensureNoOtherRunningEntry(params: {
@@ -303,7 +338,6 @@ export const startTimeEntry = async (
       duration_seconds: 0,
       is_billable: payload.isBillable ?? false,
       source: payload.source ?? "timer",
-      entry_type: "timer",
       metadata: payload.metadata ?? {},
     })
     .select(TIME_ENTRY_SELECT)
@@ -360,6 +394,11 @@ export const stopTimeEntry = async (
   // Log task update when time is tracked against a task
   if (result.task_id) {
     try {
+      await syncTaskTrackedSecondsCache({
+        organizationId: options?.organizationId ?? result.organization_id,
+        taskId: result.task_id,
+      });
+
       await logTaskTimeTracked({
         organizationId: options?.organizationId ?? result.organization_id,
         taskId: result.task_id,
@@ -433,7 +472,6 @@ export const resumeTimeEntry = async ({
       duration_seconds: 0,
       is_billable: entry.is_billable,
       source: "resume",
-      entry_type: "timer",
       metadata: {
         resumed_from_entry_id: entry.id,
         ...(entry.metadata ?? {}),
@@ -497,7 +535,6 @@ export const createManualTimeEntry = async (
       ),
       is_billable: payload.isBillable ?? false,
       source: payload.source ?? "manual",
-      entry_type: "manual",
       metadata: payload.metadata ?? {},
     })
     .select(TIME_ENTRY_SELECT)
@@ -512,6 +549,11 @@ export const createManualTimeEntry = async (
   // Log task update when time is tracked against a task
   if (result.task_id) {
     try {
+      await syncTaskTrackedSecondsCache({
+        organizationId: payload.organizationId,
+        taskId: result.task_id,
+      });
+
       await logTaskTimeTracked({
         organizationId: payload.organizationId,
         taskId: result.task_id,
@@ -601,12 +643,35 @@ export const updateTimeEntry = async ({
     throw new Error(error.message);
   }
 
-  return data as TimeEntryItem;
+  const result = data as TimeEntryItem;
+
+  if (result.task_id) {
+    try {
+      await syncTaskTrackedSecondsCache({
+        organizationId: result.organization_id,
+        taskId: result.task_id,
+      });
+    } catch (cacheErr) {
+      console.warn("Failed to sync task tracked time cache:", cacheErr);
+    }
+  }
+
+  return result;
 };
 
 export const deleteTimeEntry = async (entryId: string): Promise<void> => {
   if (!entryId) {
     throw new Error("entryId is required");
+  }
+
+  const { data: existing, error: existingError } = await supabase
+    .from("time_entries")
+    .select("organization_id, task_id")
+    .eq("id", entryId)
+    .maybeSingle();
+
+  if (existingError) {
+    throw new Error(existingError.message);
   }
 
   const { error } = await supabase
@@ -616,6 +681,17 @@ export const deleteTimeEntry = async (entryId: string): Promise<void> => {
 
   if (error) {
     throw new Error(error.message);
+  }
+
+  if (existing?.task_id) {
+    try {
+      await syncTaskTrackedSecondsCache({
+        organizationId: existing.organization_id,
+        taskId: existing.task_id,
+      });
+    } catch (cacheErr) {
+      console.warn("Failed to sync task tracked time cache:", cacheErr);
+    }
   }
 };
 

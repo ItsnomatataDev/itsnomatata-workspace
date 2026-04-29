@@ -36,6 +36,9 @@ export interface Card extends TaskItem {
     isRunningTimer?: boolean;
     invitedCount?: number;
     creatorAvatar?: string; 
+    estimated_seconds?: number | null;
+    archived_at?: string | null;
+    archived_by?: string | null;
 }
 
 

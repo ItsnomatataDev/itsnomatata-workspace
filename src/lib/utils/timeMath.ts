@@ -1,3 +1,5 @@
+import { startOfZimbabweWeek } from "./zimbabweCalendar";
+
 export function secondsBetween(start: string, end?: string | null): number {
     const startMs = new Date(start).getTime();
     const endMs = end ? new Date(end).getTime() : Date.now();
@@ -48,13 +50,7 @@ export function startOfTodayISO(): string {
     ).toISOString();
 }
 export function startOfWeekISO(weekStart = 1): string {
-    const now = new Date();
-    const day = now.getDay();
-    const diff = day === 0 ? 6 : day - weekStart;
-    const monday = new Date(now);
-    monday.setDate(now.getDate() - diff);
-    monday.setHours(0, 0, 0, 0);
-    return monday.toISOString();
+    return startOfZimbabweWeek(new Date(), weekStart).toISOString();
 }
 
 export function formatDurationHms(totalSeconds: number): string {

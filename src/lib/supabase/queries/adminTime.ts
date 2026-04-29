@@ -1,4 +1,5 @@
 import { supabase } from "../client";
+import { getZimbabweDateKey } from "../../utils/zimbabweCalendar";
 
 export type TimeApprovalStatus = "pending" | "approved" | "rejected";
 
@@ -380,7 +381,7 @@ async function getCalendarTimeEntriesFallback(params: {
   const grouped = new Map<string, CalendarTimeEntry>();
 
   for (const item of items) {
-    const entryDate = item.started_at.slice(0, 10);
+    const entryDate = getZimbabweDateKey(item.started_at);
     const key = `${item.user_id}-${entryDate}`;
     const projectHours = Number(item.duration_seconds ?? 0) / 3600;
 

@@ -46,6 +46,8 @@ export default function CardTimeIndicator({
   };
 
   if (isTracking) {
+    const combinedSeconds = totalTrackedSeconds + liveSeconds;
+
     return (
       <div className={`flex items-center gap-1.5 text-xs text-green-400 ${className}`}>
         <CircleDot size={10} className="animate-pulse fill-green-400" />
@@ -54,7 +56,7 @@ export default function CardTimeIndicator({
         </span>
         {showTotalTime && (
           <span className="text-white/60">
-            {formatTime(liveSeconds)}
+            {formatTime(combinedSeconds)}
           </span>
         )}
       </div>

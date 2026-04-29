@@ -26,6 +26,11 @@ import {
   Timer,
   History,
   Circle,
+  Tag,
+  Palette,
+  Link2,
+  Archive,
+  Save,
 } from "lucide-react";
 import type {
   TaskItem,
@@ -41,6 +46,9 @@ import { supabase } from "../../../lib/supabase/client";
 import {
   startTimeEntry,
   stopTimeEntry,
+  createManualTimeEntry,
+  updateTimeEntry,
+  deleteTimeEntry,
   type TimeEntryItem,
 } from "../../../lib/supabase/mutations/timeEntries";
 import { uploadTaskSubmissionFile } from "../../../lib/supabase/storage";
@@ -49,6 +57,17 @@ import {
   notifyTaskAssigned,
   notifyTaskCommented,
 } from "../../notifications/services/notificationOrchestrationService";
+import {
+  getTaskChecklists,
+  type TaskChecklistWithItems,
+  type TaskChecklistItem,
+} from "../../../lib/supabase/queries/taskChecklists";
+import {
+  createTaskChecklist,
+  createTaskChecklistItem,
+  deleteTaskChecklistItem,
+  toggleTaskChecklistItem,
+} from "../../../lib/supabase/mutations/taskChecklists";
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -59,6 +78,9 @@ interface CardDetailModalProps {
     commentsCount?: number;
     tracked_seconds_cache?: number | null;
     is_billable?: boolean;
+    estimated_seconds?: number | null;
+    archived_at?: string | null;
+    archived_by?: string | null;
     created_by_full_name?: string | null;
     created_by_email?: string | null;
   };
@@ -96,6 +118,29 @@ interface TimeEntryProfile {
   email: string | null;
 }
 
+type FlatChecklistItem = TaskChecklistItem & {
+  checklistTitle: string;
+};
+
+type TrelloLabel = {
+  id: string;
+  name: string;
+  color: string;
+};
+
+type TrelloCustomField = {
+  id: string;
+  name: string;
+  value: string;
+};
+
+type CardMetadata = Record<string, unknown> & {
+  labels?: TrelloLabel[];
+  coverColor?: string | null;
+  watchedBy?: string[];
+  customFields?: TrelloCustomField[];
+};
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function formatDurationHms(seconds?: number | null) {
@@ -116,6 +161,14 @@ function formatDurationShort(seconds: number) {
   const mins = Math.floor((total % 3600) / 60);
   if (hrs > 0) return `${hrs}h ${mins}m`;
   return `${mins}m`;
+}
+
+function secondsToHoursMinutes(seconds?: number | null) {
+  const totalMinutes = Math.max(0, Math.round(Number(seconds ?? 0) / 60));
+  return {
+    hours: Math.floor(totalMinutes / 60),
+    minutes: totalMinutes % 60,
+  };
 }
 
 function formatDateTime(iso: string) {
@@ -146,6 +199,15 @@ function getLiveEntrySeconds(entry: TimeEntryItem, nowMs: number) {
   const startedMs = new Date(entry.started_at).getTime();
   if (Number.isNaN(startedMs)) return 0;
   return Math.max(0, Math.floor((nowMs - startedMs) / 1000));
+}
+
+function minutesToStartedEnded(minutes: number) {
+  const endedAt = new Date();
+  const startedAt = new Date(endedAt.getTime() - minutes * 60 * 1000);
+  return {
+    startedAt: startedAt.toISOString(),
+    endedAt: endedAt.toISOString(),
+  };
 }
 
 function getInitials(name?: string | null, email?: string | null) {
@@ -203,6 +265,22 @@ interface TimeEntriesPanelProps {
   loading: boolean;
   mutating: boolean;
   onToggle: () => void;
+  onManualLog: (input: {
+    hours: number;
+    minutes: number;
+    description: string;
+    isBillable: boolean;
+  }) => Promise<void>;
+  onUpdateEntry: (
+    entryId: string,
+    input: {
+      hours: number;
+      minutes: number;
+      description: string;
+      isBillable: boolean;
+    },
+  ) => Promise<void>;
+  onDeleteEntry: (entryId: string) => Promise<void>;
 }
 
 function TimeEntriesPanel({
@@ -214,9 +292,70 @@ function TimeEntriesPanel({
   loading,
   mutating,
   onToggle,
+  onManualLog,
+  onUpdateEntry,
+  onDeleteEntry,
 }: TimeEntriesPanelProps) {
   const completedEntries = entries.filter((e) => e.ended_at);
   const activeCount = activeEntries.length;
+  const [manualOpen, setManualOpen] = useState(false);
+  const [manualHours, setManualHours] = useState(0);
+  const [manualMinutes, setManualMinutes] = useState(30);
+  const [manualDescription, setManualDescription] = useState("");
+  const [manualBillable, setManualBillable] = useState(false);
+  const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
+  const [editHours, setEditHours] = useState(0);
+  const [editMinutes, setEditMinutes] = useState(0);
+  const [editDescription, setEditDescription] = useState("");
+  const [editBillable, setEditBillable] = useState(false);
+  const manualTotalMinutes = manualHours * 60 + manualMinutes;
+
+  const submitManualTime = async () => {
+    if (manualTotalMinutes <= 0 || mutating || loading) return;
+    await onManualLog({
+      hours: manualHours,
+      minutes: manualMinutes,
+      description: manualDescription,
+      isBillable: manualBillable,
+    });
+    setManualHours(0);
+    setManualMinutes(30);
+    setManualDescription("");
+    setManualBillable(false);
+    setManualOpen(false);
+  };
+
+  const beginEditEntry = (entry: TimeEntryItem) => {
+    const totalMinutes = Math.max(
+      0,
+      Math.round(Number(entry.duration_seconds ?? 0) / 60),
+    );
+    setEditingEntryId(entry.id);
+    setEditHours(Math.floor(totalMinutes / 60));
+    setEditMinutes(totalMinutes % 60);
+    setEditDescription(entry.description ?? "");
+    setEditBillable(entry.is_billable);
+  };
+
+  const cancelEditEntry = () => {
+    setEditingEntryId(null);
+    setEditHours(0);
+    setEditMinutes(0);
+    setEditDescription("");
+    setEditBillable(false);
+  };
+
+  const saveEditEntry = async (entryId: string) => {
+    const totalMinutes = editHours * 60 + editMinutes;
+    if (totalMinutes <= 0 || mutating || loading) return;
+    await onUpdateEntry(entryId, {
+      hours: editHours,
+      minutes: editMinutes,
+      description: editDescription,
+      isBillable: editBillable,
+    });
+    cancelEditEntry();
+  };
 
   return (
     <div className="rounded-xl border border-white/10 bg-black/40 overflow-hidden">
@@ -311,9 +450,22 @@ function TimeEntriesPanel({
         </div>
       )}
 
+      {activeCount > 0 && (
+        <div className="px-4 py-3 border-b border-white/10">
+          <button
+            type="button"
+            onClick={() => setManualOpen((value) => !value)}
+            className="flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-semibold text-white/60 transition-all hover:bg-white/10 hover:text-white"
+          >
+            <Plus size={14} />
+            {manualOpen ? "Hide manual time" : "Add manual time"}
+          </button>
+        </div>
+      )}
+
       {/* Start button when nobody is tracking yet */}
       {activeCount === 0 && (
-        <div className="px-4 py-3 border-b border-white/10">
+        <div className="space-y-2 px-4 py-3 border-b border-white/10">
           <button
             onClick={onToggle}
             disabled={mutating || loading}
@@ -326,6 +478,82 @@ function TimeEntriesPanel({
             )}
             {mutating ? "Starting…" : "Start timer"}
           </button>
+          <button
+            type="button"
+            onClick={() => setManualOpen((value) => !value)}
+            className="flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-semibold text-white/60 transition-all hover:bg-white/10 hover:text-white"
+          >
+            <Plus size={14} />
+            {manualOpen ? "Hide manual time" : "Add manual time"}
+          </button>
+        </div>
+      )}
+
+      {manualOpen && (
+        <div className="border-b border-white/10 bg-white/3 px-4 py-3">
+          <div className="grid grid-cols-2 gap-2">
+            <label className="space-y-1">
+              <span className="text-[10px] uppercase tracking-wider text-white/35">
+                Hours
+              </span>
+              <input
+                type="number"
+                min={0}
+                max={24}
+                value={manualHours}
+                onChange={(event) =>
+                  setManualHours(Math.max(0, Number(event.target.value)))
+                }
+                className="w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-sm text-white outline-none focus:border-orange-500/50"
+              />
+            </label>
+            <label className="space-y-1">
+              <span className="text-[10px] uppercase tracking-wider text-white/35">
+                Minutes
+              </span>
+              <input
+                type="number"
+                min={0}
+                max={59}
+                value={manualMinutes}
+                onChange={(event) =>
+                  setManualMinutes(
+                    Math.max(0, Math.min(59, Number(event.target.value))),
+                  )
+                }
+                className="w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-sm text-white outline-none focus:border-orange-500/50"
+              />
+            </label>
+          </div>
+
+          <input
+            value={manualDescription}
+            onChange={(event) => setManualDescription(event.target.value)}
+            placeholder="What did you work on?"
+            className="mt-2 w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-sm text-white outline-none placeholder:text-white/25 focus:border-orange-500/50"
+          />
+
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+            <button
+              type="button"
+              onClick={() => setManualBillable((value) => !value)}
+              className={`rounded-xl border px-3 py-2 text-xs font-semibold transition ${
+                manualBillable
+                  ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-300"
+                  : "border-white/10 bg-black/30 text-white/45"
+              }`}
+            >
+              {manualBillable ? "Billable" : "Non-billable"}
+            </button>
+            <button
+              type="button"
+              onClick={() => void submitManualTime()}
+              disabled={manualTotalMinutes <= 0 || mutating || loading}
+              className="rounded-xl bg-orange-500 px-4 py-2 text-xs font-bold text-black transition hover:bg-orange-400 disabled:opacity-50"
+            >
+              Log {manualTotalMinutes} min
+            </button>
+          </div>
         </div>
       )}
 
@@ -350,36 +578,125 @@ function TimeEntriesPanel({
           <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
             {completedEntries.map((entry) => {
               const dur = entry.duration_seconds ?? 0;
+              const isEditing = editingEntryId === entry.id;
               return (
                 <div
                   key={entry.id}
-                  className="flex items-center justify-between gap-3 rounded-lg bg-white/4 border border-white/8 px-3 py-2"
+                  className="rounded-lg bg-white/4 border border-white/8 px-3 py-2"
                 >
-                  <div className="min-w-0">
-                    <p className="text-xs text-white/70 truncate">
-                      {entry.description || "Timer session"}
-                    </p>
-                    <p className="text-[10px] text-white/35 mt-0.5">
-                      {formatDateTime(entry.started_at)}
-                      {entry.ended_at && ` → ${formatDateTime(entry.ended_at)}`}
-                    </p>
-                  </div>
-                  <div className="shrink-0 text-right">
-                    <span className="text-xs font-mono font-semibold text-white/80">
-                      {formatDurationShort(dur)}
-                    </span>
-                    <p
-                      className={`text-[10px] mt-0.5 ${
-                        entry.approval_status === "approved"
-                          ? "text-green-400"
-                          : entry.approval_status === "rejected"
-                            ? "text-red-400"
-                            : "text-white/30"
-                      }`}
-                    >
-                      {entry.approval_status}
-                    </p>
-                  </div>
+                  {isEditing ? (
+                    <div className="space-y-2">
+                      <div className="grid grid-cols-2 gap-2">
+                        <input
+                          type="number"
+                          min={0}
+                          max={24}
+                          value={editHours}
+                          onChange={(event) =>
+                            setEditHours(Math.max(0, Number(event.target.value)))
+                          }
+                          className="rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-xs text-white outline-none focus:border-orange-500/50"
+                          aria-label="Edit hours"
+                        />
+                        <input
+                          type="number"
+                          min={0}
+                          max={59}
+                          value={editMinutes}
+                          onChange={(event) =>
+                            setEditMinutes(
+                              Math.max(0, Math.min(59, Number(event.target.value))),
+                            )
+                          }
+                          className="rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-xs text-white outline-none focus:border-orange-500/50"
+                          aria-label="Edit minutes"
+                        />
+                      </div>
+                      <input
+                        value={editDescription}
+                        onChange={(event) => setEditDescription(event.target.value)}
+                        className="w-full rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-xs text-white outline-none focus:border-orange-500/50"
+                        placeholder="Time entry note"
+                      />
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setEditBillable((value) => !value)}
+                          className={`rounded-lg border px-2 py-1 text-[10px] font-semibold ${
+                            editBillable
+                              ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-300"
+                              : "border-white/10 bg-black/30 text-white/45"
+                          }`}
+                        >
+                          {editBillable ? "Billable" : "Non-billable"}
+                        </button>
+                        <div className="flex gap-1">
+                          <button
+                            type="button"
+                            onClick={cancelEditEntry}
+                            className="rounded-lg border border-white/10 px-2 py-1 text-[10px] text-white/50 hover:text-white"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void saveEditEntry(entry.id)}
+                            disabled={mutating}
+                            className="inline-flex items-center gap-1 rounded-lg bg-orange-500 px-2 py-1 text-[10px] font-bold text-black disabled:opacity-50"
+                          >
+                            <Save size={10} />
+                            Save
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-xs text-white/70 truncate">
+                          {entry.description || "Timer session"}
+                        </p>
+                        <p className="text-[10px] text-white/35 mt-0.5">
+                          {formatDateTime(entry.started_at)}
+                          {entry.ended_at && ` -> ${formatDateTime(entry.ended_at)}`}
+                        </p>
+                      </div>
+                      <div className="shrink-0 text-right">
+                        <span className="text-xs font-mono font-semibold text-white/80">
+                          {formatDurationShort(dur)}
+                        </span>
+                        <p
+                          className={`text-[10px] mt-0.5 ${
+                            entry.approval_status === "approved"
+                              ? "text-green-400"
+                              : entry.approval_status === "rejected"
+                                ? "text-red-400"
+                                : "text-white/30"
+                          }`}
+                        >
+                          {entry.is_billable ? "billable" : entry.approval_status}
+                        </p>
+                        <div className="mt-1 flex justify-end gap-1">
+                          <button
+                            type="button"
+                            onClick={() => beginEditEntry(entry)}
+                            className="rounded-md p-1 text-white/30 hover:bg-white/10 hover:text-white"
+                            title="Edit time"
+                          >
+                            <Edit2 size={11} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void onDeleteEntry(entry.id)}
+                            className="rounded-md p-1 text-white/30 hover:bg-red-500/10 hover:text-red-300"
+                            title="Delete time"
+                          >
+                            <Trash2 size={11} />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -417,6 +734,19 @@ export default function CardDetailModal({
   const [dueDate, setDueDate] = useState(
     card.due_date ? card.due_date.split("T")[0] : "",
   );
+  const [startDate, setStartDate] = useState(
+    card.start_date ? card.start_date.split("T")[0] : "",
+  );
+  const [cardMetadata, setCardMetadata] = useState<CardMetadata>(
+    (card.metadata ?? {}) as CardMetadata,
+  );
+  const [newLabelName, setNewLabelName] = useState("");
+  const [newLabelColor, setNewLabelColor] = useState("#f97316");
+  const [newFieldName, setNewFieldName] = useState("");
+  const [newFieldValue, setNewFieldValue] = useState("");
+  const initialEstimate = secondsToHoursMinutes(card.estimated_seconds);
+  const [estimateHours, setEstimateHours] = useState(initialEstimate.hours);
+  const [estimateMinutes, setEstimateMinutes] = useState(initialEstimate.minutes);
 
   // Comments
   const [comments, setComments] = useState<DBComment[]>([]);
@@ -436,9 +766,9 @@ export default function CardDetailModal({
   const [addingUser, setAddingUser] = useState<string | null>(null);
 
   // Checklist
-  const [checklist, setChecklist] = useState<
-    Array<{ id: string; title: string; completed: boolean }>
-  >([]);
+  const [checklists, setChecklists] = useState<TaskChecklistWithItems[]>([]);
+  const [loadingChecklist, setLoadingChecklist] = useState(false);
+  const [savingChecklist, setSavingChecklist] = useState(false);
   const [newCheckItem, setNewCheckItem] = useState("");
 
   // Attachments
@@ -502,10 +832,16 @@ export default function CardDetailModal({
       ),
     [taskTimeEntries, liveNow],
   );
+  const estimatedSeconds = estimateHours * 3600 + estimateMinutes * 60;
+  const remainingEstimateSeconds = estimatedSeconds - totalTrackedSeconds;
+  const estimateProgress = estimatedSeconds > 0
+    ? Math.min(100, Math.round((totalTrackedSeconds / estimatedSeconds) * 100))
+    : 0;
+  const isOverEstimate = estimatedSeconds > 0 && remainingEstimateSeconds < 0;
 
   // ── Load time entries for this card ─────────────────────────────────────────
   const loadTaskTime = useCallback(async () => {
-    if (!cardId || !organizationId) return;
+    if (!cardId || !organizationId) return null;
     setTaskTimeLoading(true);
     try {
       const { data: allEntries, error } = await supabase
@@ -519,6 +855,10 @@ export default function CardDetailModal({
 
       const entries = (allEntries ?? []) as TimeEntryItem[];
       setTaskTimeEntries(entries);
+      const completedSeconds = entries.reduce(
+        (sum, entry) => sum + Number(entry.duration_seconds ?? 0),
+        0,
+      );
 
       const userIds = [...new Set(entries.map((entry) => entry.user_id))];
       if (userIds.length === 0) {
@@ -537,17 +877,36 @@ export default function CardDetailModal({
           ),
         );
       }
+
+      return completedSeconds;
     } catch (e) {
       console.error("loadTaskTime error:", e);
+      return null;
     } finally {
       setTaskTimeLoading(false);
     }
   }, [cardId, organizationId]);
 
+  const refreshTaskTimeAndCache = useCallback(async () => {
+    const completedSeconds = await loadTaskTime();
+    if (completedSeconds !== null) {
+      onUpdate?.({
+        tracked_seconds_cache: completedSeconds,
+      } as Partial<TaskItem>);
+    }
+  }, [loadTaskTime, onUpdate]);
+
   // Load on open
   useEffect(() => {
     if (isOpen) loadTaskTime();
   }, [isOpen, loadTaskTime]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const nextEstimate = secondsToHoursMinutes(card.estimated_seconds);
+    setEstimateHours(nextEstimate.hours);
+    setEstimateMinutes(nextEstimate.minutes);
+  }, [card.estimated_seconds, isOpen]);
 
   // ── Live ticker for active sessions ─────────────────────────────────────────
   useEffect(() => {
@@ -579,7 +938,7 @@ export default function CardDetailModal({
           filter: `task_id=eq.${cardId}`,
         },
         () => {
-          void loadTaskTime();
+          void refreshTaskTimeAndCache();
         },
       )
       .subscribe();
@@ -587,7 +946,7 @@ export default function CardDetailModal({
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [isOpen, organizationId, cardId, loadTaskTime]);
+  }, [isOpen, organizationId, cardId, refreshTaskTimeAndCache]);
 
   // ── Toggle timer ─────────────────────────────────────────────────────────────
   const handleToggleTimer = async () => {
@@ -607,9 +966,93 @@ export default function CardDetailModal({
         });
       }
       // Always refetch to get accurate state from DB
-      await loadTaskTime();
+      await refreshTaskTimeAndCache();
     } catch (e) {
       console.error("Timer toggle error:", e);
+    } finally {
+      setTaskTimeMutating(false);
+    }
+  };
+
+  const handleManualTimeLog = async (input: {
+    hours: number;
+    minutes: number;
+    description: string;
+    isBillable: boolean;
+  }) => {
+    if (!organizationId || !currentUserId || taskTimeMutating) return;
+    const durationSeconds = (input.hours * 60 + input.minutes) * 60;
+    if (durationSeconds <= 0) return;
+
+    setTaskTimeMutating(true);
+    try {
+      const endedAt = new Date();
+      const startedAt = new Date(endedAt.getTime() - durationSeconds * 1000);
+      await createManualTimeEntry({
+        organizationId,
+        userId: currentUserId,
+        taskId: cardId,
+        description:
+          input.description.trim() ||
+          `Manual time entry - ${input.hours}h ${input.minutes}m`,
+        startedAt: startedAt.toISOString(),
+        endedAt: endedAt.toISOString(),
+        isBillable: input.isBillable,
+        source: "card_modal_manual",
+        metadata: {
+          origin: "board_card_detail_modal",
+          reason: "forgot_to_track",
+        },
+      });
+      await refreshTaskTimeAndCache();
+    } catch (e) {
+      console.error("Manual time log error:", e);
+    } finally {
+      setTaskTimeMutating(false);
+    }
+  };
+
+  const handleUpdateTimeEntry = async (
+    entryId: string,
+    input: {
+      hours: number;
+      minutes: number;
+      description: string;
+      isBillable: boolean;
+    },
+  ) => {
+    if (!organizationId || taskTimeMutating) return;
+    const totalMinutes = input.hours * 60 + input.minutes;
+    if (totalMinutes <= 0) return;
+
+    setTaskTimeMutating(true);
+    try {
+      const { startedAt, endedAt } = minutesToStartedEnded(totalMinutes);
+      await updateTimeEntry({
+        entryId,
+        payload: {
+          started_at: startedAt,
+          ended_at: endedAt,
+          description: input.description.trim() || "Manual time entry",
+          is_billable: input.isBillable,
+        },
+      });
+      await refreshTaskTimeAndCache();
+    } catch (e) {
+      console.error("Update time entry error:", e);
+    } finally {
+      setTaskTimeMutating(false);
+    }
+  };
+
+  const handleDeleteTimeEntry = async (entryId: string) => {
+    if (taskTimeMutating) return;
+    setTaskTimeMutating(true);
+    try {
+      await deleteTimeEntry(entryId);
+      await refreshTaskTimeAndCache();
+    } catch (e) {
+      console.error("Delete time entry error:", e);
     } finally {
       setTaskTimeMutating(false);
     }
@@ -628,6 +1071,136 @@ export default function CardDetailModal({
   useEffect(() => {
     commentsEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [comments]);
+
+  // ── Checklist ────────────────────────────────────────────────────────────────
+  const loadChecklist = useCallback(async () => {
+    if (!cardId) return;
+    setLoadingChecklist(true);
+    try {
+      const data = await getTaskChecklists(cardId);
+      setChecklists(data);
+    } catch (e) {
+      console.error("loadChecklist error:", e);
+    } finally {
+      setLoadingChecklist(false);
+    }
+  }, [cardId]);
+
+  useEffect(() => {
+    if (!isOpen || activeTab !== "checklist") return;
+    void loadChecklist();
+  }, [activeTab, isOpen, loadChecklist]);
+
+  useEffect(() => {
+    if (!isOpen || !organizationId || !cardId) return;
+
+    const checklistChannel = supabase
+      .channel(`card-checklists-${cardId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "task_checklists",
+          filter: `task_id=eq.${cardId}`,
+        },
+        () => void loadChecklist(),
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "task_checklist_items",
+          filter: `task_id=eq.${cardId}`,
+        },
+        () => void loadChecklist(),
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(checklistChannel);
+    };
+  }, [cardId, isOpen, loadChecklist, organizationId]);
+
+  const flatChecklistItems = useMemo<FlatChecklistItem[]>(
+    () =>
+      checklists.flatMap((checklist) =>
+        checklist.items.map((item) => ({
+          ...item,
+          checklistTitle: checklist.title,
+        })),
+      ),
+    [checklists],
+  );
+
+  const addCheckItem = async () => {
+    const content = newCheckItem.trim();
+    if (!content || savingChecklist) return;
+
+    setSavingChecklist(true);
+    try {
+      let targetChecklist = checklists[0];
+      if (!targetChecklist) {
+        targetChecklist = {
+          ...(await createTaskChecklist({
+            taskId: cardId,
+            organizationId,
+            title: "Checklist",
+            createdBy: currentUserId,
+            position: 0,
+          })),
+          items: [],
+        };
+      }
+
+      await createTaskChecklistItem({
+        checklistId: targetChecklist.id,
+        taskId: cardId,
+        organizationId,
+        content,
+        createdBy: currentUserId,
+        position: targetChecklist.items.length,
+      });
+
+      setNewCheckItem("");
+      await loadChecklist();
+    } catch (e) {
+      console.error("addCheckItem error:", e);
+    } finally {
+      setSavingChecklist(false);
+    }
+  };
+
+  const handleToggleCheckItem = async (item: FlatChecklistItem) => {
+    if (savingChecklist) return;
+    setSavingChecklist(true);
+    try {
+      await toggleTaskChecklistItem({
+        itemId: item.id,
+        checked: !item.is_completed,
+        userId: currentUserId,
+      });
+      await loadChecklist();
+    } catch (e) {
+      console.error("toggleChecklistItem error:", e);
+    } finally {
+      setSavingChecklist(false);
+    }
+  };
+
+  const handleDeleteCheckItem = async (itemId: string) => {
+    if (savingChecklist) return;
+    setSavingChecklist(true);
+    try {
+      await deleteTaskChecklistItem(itemId);
+      await loadChecklist();
+    } catch (e) {
+      console.error("deleteChecklistItem error:", e);
+    } finally {
+      setSavingChecklist(false);
+    }
+  };
 
   // ── Invite search ─────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -674,6 +1247,117 @@ export default function CardDetailModal({
   const handleDueDateChange = (val: string) => {
     setDueDate(val);
     onUpdate?.({ due_date: val || null });
+  };
+
+  const handleStartDateChange = (val: string) => {
+    setStartDate(val);
+    onUpdate?.({ start_date: val || null });
+  };
+
+  const handleDueCompleteChange = (checked: boolean) => {
+    const completedAt = checked ? new Date().toISOString() : null;
+    onUpdate?.({
+      completed_at: completedAt,
+      status: checked ? "done" : status,
+    } as Partial<TaskItem>);
+    if (checked) setStatus("done");
+  };
+
+  const saveEstimate = (nextSeconds = estimatedSeconds) => {
+    const safeSeconds = Math.max(0, Math.round(nextSeconds));
+    const next = secondsToHoursMinutes(safeSeconds);
+    setEstimateHours(next.hours);
+    setEstimateMinutes(next.minutes);
+    onUpdate?.({ estimated_seconds: safeSeconds } as Partial<TaskItem>);
+  };
+
+  const adjustEstimate = (deltaMinutes: number) => {
+    saveEstimate(estimatedSeconds + deltaMinutes * 60);
+  };
+
+  const persistMetadata = (next: CardMetadata) => {
+    setCardMetadata(next);
+    onUpdate?.({ metadata: next } as Partial<TaskItem>);
+  };
+
+  const handleAddLabel = () => {
+    const name = newLabelName.trim();
+    if (!name) return;
+    const next = {
+      ...cardMetadata,
+      labels: [
+        ...(cardMetadata.labels ?? []),
+        { id: crypto.randomUUID(), name, color: newLabelColor },
+      ],
+    };
+    persistMetadata(next);
+    setNewLabelName("");
+  };
+
+  const handleRemoveLabel = (labelId: string) => {
+    persistMetadata({
+      ...cardMetadata,
+      labels: (cardMetadata.labels ?? []).filter((label) => label.id !== labelId),
+    });
+  };
+
+  const handleCoverChange = (color: string | null) => {
+    persistMetadata({
+      ...cardMetadata,
+      coverColor: color,
+    });
+  };
+
+  const handleToggleWatch = () => {
+    const watchedBy = cardMetadata.watchedBy ?? [];
+    const nextWatchedBy = watchedBy.includes(currentUserId)
+      ? watchedBy.filter((id) => id !== currentUserId)
+      : [...watchedBy, currentUserId];
+    persistMetadata({
+      ...cardMetadata,
+      watchedBy: nextWatchedBy,
+    });
+  };
+
+  const handleAddCustomField = () => {
+    const name = newFieldName.trim();
+    if (!name) return;
+    persistMetadata({
+      ...cardMetadata,
+      customFields: [
+        ...(cardMetadata.customFields ?? []),
+        {
+          id: crypto.randomUUID(),
+          name,
+          value: newFieldValue.trim(),
+        },
+      ],
+    });
+    setNewFieldName("");
+    setNewFieldValue("");
+  };
+
+  const handleRemoveCustomField = (fieldId: string) => {
+    persistMetadata({
+      ...cardMetadata,
+      customFields: (cardMetadata.customFields ?? []).filter(
+        (field) => field.id !== fieldId,
+      ),
+    });
+  };
+
+  const handleCopyCardLink = async () => {
+    const href = `${window.location.origin}${window.location.pathname}?card=${cardId}`;
+    await navigator.clipboard?.writeText(href);
+  };
+
+  const handleArchiveCard = () => {
+    setStatus("cancelled");
+    onUpdate?.({
+      status: "cancelled",
+      archived_at: new Date().toISOString(),
+      archived_by: currentUserId,
+    } as Partial<TaskItem>);
   };
 
   const handleAddComment = async () => {
@@ -779,23 +1463,21 @@ export default function CardDetailModal({
     setUploadingFile(false);
   };
 
-  const addCheckItem = () => {
-    if (!newCheckItem.trim()) return;
-    setChecklist((prev) => [
-      ...prev,
-      { id: crypto.randomUUID(), title: newCheckItem.trim(), completed: false },
-    ]);
-    setNewCheckItem("");
-  };
-
-  const checklistDone = checklist.filter((i) => i.completed).length;
+  const checklistDone = flatChecklistItems.filter((i) => i.is_completed).length;
 
   // ── Render ────────────────────────────────────────────────────────────────────
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/70 backdrop-blur-sm p-4 pt-12">
       <div className="relative w-full max-w-2xl rounded-2xl border border-white/10 bg-[#0f0f0f] shadow-2xl">
         {/* Orange top bar */}
-        <div className="h-1 w-full rounded-t-2xl bg-linear-to-r from-orange-500 to-orange-400" />
+        <div
+          className="h-2 w-full rounded-t-2xl"
+          style={{
+            background:
+              cardMetadata.coverColor ??
+              "linear-gradient(to right, #f97316, #fb923c)",
+          }}
+        />
 
         {/* Header */}
         <div className="flex items-start gap-3 border-b border-white/10 px-6 py-4">
@@ -829,15 +1511,38 @@ export default function CardDetailModal({
               </h2>
             )}
             <p className="mt-1 text-xs text-white/35">
-              Created{" "}
-              {new Date(card.created_at).toLocaleDateString("en-US", {
+              Created by{" "}
+              <span className="text-white/55">
+                {card.created_by_full_name ||
+                  card.created_by_email ||
+                  card.created_by ||
+                  "Unknown"}
+              </span>{" "}
+              on{" "}
+              {new Date(card.created_at).toLocaleDateString("en-ZW", {
                 year: "numeric",
                 month: "short",
                 day: "numeric",
+              })}{" "}
+              at{" "}
+              {new Date(card.created_at).toLocaleTimeString("en-ZW", {
+                hour: "2-digit",
+                minute: "2-digit",
               })}
-              {card.created_by_full_name &&
-                ` · by ${card.created_by_full_name}`}
             </p>
+            {(cardMetadata.labels ?? []).length > 0 && (
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {(cardMetadata.labels ?? []).map((label) => (
+                  <span
+                    key={label.id}
+                    className="rounded-md px-2 py-1 text-[10px] font-bold text-white"
+                    style={{ backgroundColor: label.color }}
+                  >
+                    {label.name}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
           <button
             onClick={onClose}
@@ -907,17 +1612,119 @@ export default function CardDetailModal({
                 </div>
               </div>
 
+              {/* Cover + Labels */}
+              <div className="grid gap-4 lg:grid-cols-2">
+                <div>
+                  <p className="text-[10px] uppercase tracking-widest text-white/40 mb-2 flex items-center gap-1">
+                    <Palette size={11} /> Cover
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {["#f97316", "#22c55e", "#3b82f6", "#a855f7", "#ef4444", "#0f172a"].map((color) => (
+                      <button
+                        key={color}
+                        type="button"
+                        onClick={() => handleCoverChange(color)}
+                        className="h-8 w-8 rounded-lg border border-white/15 transition hover:scale-105"
+                        style={{ backgroundColor: color }}
+                        title={color}
+                      />
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => handleCoverChange(null)}
+                      className="rounded-lg border border-white/10 px-3 py-1 text-xs text-white/50 hover:bg-white/10 hover:text-white"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <p className="text-[10px] uppercase tracking-widest text-white/40 mb-2 flex items-center gap-1">
+                    <Tag size={11} /> Labels
+                  </p>
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap gap-1.5">
+                      {(cardMetadata.labels ?? []).length === 0 ? (
+                        <span className="text-xs text-white/30">No labels</span>
+                      ) : (
+                        (cardMetadata.labels ?? []).map((label) => (
+                          <button
+                            key={label.id}
+                            type="button"
+                            onClick={() => handleRemoveLabel(label.id)}
+                            className="rounded-md px-2 py-1 text-[10px] font-bold text-white"
+                            style={{ backgroundColor: label.color }}
+                            title="Click to remove"
+                          >
+                            {label.name}
+                          </button>
+                        ))
+                      )}
+                    </div>
+                    <div className="flex gap-2">
+                      <input
+                        value={newLabelName}
+                        onChange={(event) => setNewLabelName(event.target.value)}
+                        placeholder="Label name"
+                        className="min-w-0 flex-1 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-white outline-none focus:border-orange-500/50"
+                      />
+                      <input
+                        type="color"
+                        value={newLabelColor}
+                        onChange={(event) => setNewLabelColor(event.target.value)}
+                        className="h-9 w-10 rounded-lg border border-white/10 bg-white/5"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleAddLabel}
+                        disabled={!newLabelName.trim()}
+                        className="rounded-lg bg-orange-500 px-3 py-2 text-xs font-bold text-black disabled:opacity-50"
+                      >
+                        Add
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               {/* Due date */}
-              <div>
-                <p className="text-[10px] uppercase tracking-widest text-white/40 mb-1.5 flex items-center gap-1">
-                  <CalendarClock size={11} /> Due Date
-                </p>
-                <input
-                  type="date"
-                  value={dueDate}
-                  onChange={(e) => handleDueDateChange(e.target.value)}
-                  className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none focus:border-orange-500/50"
-                />
+              <div className="grid gap-4 lg:grid-cols-2">
+                <div>
+                  <p className="text-[10px] uppercase tracking-widest text-white/40 mb-1.5 flex items-center gap-1">
+                    <CalendarClock size={11} /> Start Date
+                  </p>
+                  <input
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => handleStartDateChange(e.target.value)}
+                    className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none focus:border-orange-500/50"
+                  />
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase tracking-widest text-white/40 mb-1.5 flex items-center gap-1">
+                    <CalendarClock size={11} /> Due Date
+                  </p>
+                  <div className="flex gap-2">
+                    <input
+                      type="date"
+                      value={dueDate}
+                      onChange={(e) => handleDueDateChange(e.target.value)}
+                      className="min-w-0 flex-1 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none focus:border-orange-500/50"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleDueCompleteChange(!card.completed_at)}
+                      className={`rounded-xl border px-3 py-2 text-xs font-semibold ${
+                        card.completed_at
+                          ? "border-green-500/25 bg-green-500/10 text-green-300"
+                          : "border-white/10 bg-white/5 text-white/45"
+                      }`}
+                    >
+                      {card.completed_at ? "Done" : "Mark done"}
+                    </button>
+                  </div>
+                </div>
               </div>
 
               {/* Description */}
@@ -977,6 +1784,98 @@ export default function CardDetailModal({
                 )}
               </div>
 
+              {/* Everhour-style estimate */}
+              <div className="rounded-xl border border-white/10 bg-black/35 p-4">
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="flex items-center gap-1 text-[10px] uppercase tracking-widest text-white/40">
+                      <Clock3 size={11} /> Estimate
+                    </p>
+                    <p className="mt-1 text-xs text-white/35">
+                      Tracked {formatDurationShort(totalTrackedSeconds)} of{" "}
+                      {estimatedSeconds > 0
+                        ? formatDurationShort(estimatedSeconds)
+                        : "no estimate"}
+                    </p>
+                  </div>
+                  <div
+                    className={`rounded-xl border px-3 py-2 text-right ${
+                      isOverEstimate
+                        ? "border-red-500/20 bg-red-500/10"
+                        : "border-white/10 bg-white/5"
+                    }`}
+                  >
+                    <p className="text-[10px] uppercase tracking-wider text-white/35">
+                      {isOverEstimate ? "Over" : "Remaining"}
+                    </p>
+                    <p
+                      className={`text-sm font-bold ${
+                        isOverEstimate ? "text-red-300" : "text-emerald-300"
+                      }`}
+                    >
+                      {formatDurationShort(Math.abs(remainingEstimateSeconds))}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mb-3 h-2 overflow-hidden rounded-full bg-white/10">
+                  <div
+                    className={`h-full rounded-full transition-all ${
+                      isOverEstimate ? "bg-red-500" : "bg-orange-500"
+                    }`}
+                    style={{ width: `${estimatedSeconds > 0 ? estimateProgress : 0}%` }}
+                  />
+                </div>
+
+                <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto_auto_auto]">
+                  <input
+                    type="number"
+                    min={0}
+                    value={estimateHours}
+                    onChange={(event) =>
+                      setEstimateHours(Math.max(0, Number(event.target.value)))
+                    }
+                    className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none focus:border-orange-500/50"
+                    aria-label="Estimated hours"
+                  />
+                  <input
+                    type="number"
+                    min={0}
+                    max={59}
+                    value={estimateMinutes}
+                    onChange={(event) =>
+                      setEstimateMinutes(
+                        Math.max(0, Math.min(59, Number(event.target.value))),
+                      )
+                    }
+                    className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none focus:border-orange-500/50"
+                    aria-label="Estimated minutes"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => adjustEstimate(-30)}
+                    disabled={estimatedSeconds <= 0}
+                    className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-white/60 hover:bg-white/10 disabled:opacity-40"
+                  >
+                    -30m
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => adjustEstimate(30)}
+                    className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-white/60 hover:bg-white/10"
+                  >
+                    +30m
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => saveEstimate()}
+                    className="rounded-xl bg-orange-500 px-4 py-2 text-xs font-bold text-black hover:bg-orange-400"
+                  >
+                    Save
+                  </button>
+                </div>
+              </div>
+
               {/* ── Time Tracking Panel ── */}
               <TimeEntriesPanel
                 entries={taskTimeEntries}
@@ -987,7 +1886,99 @@ export default function CardDetailModal({
                 loading={taskTimeLoading}
                 mutating={taskTimeMutating}
                 onToggle={handleToggleTimer}
+                onManualLog={handleManualTimeLog}
+                onUpdateEntry={handleUpdateTimeEntry}
+                onDeleteEntry={handleDeleteTimeEntry}
               />
+
+              {/* Custom fields + actions */}
+              <div className="grid gap-4 lg:grid-cols-[1fr_180px]">
+                <div>
+                  <p className="text-[10px] uppercase tracking-widest text-white/40 mb-2">
+                    Custom Fields
+                  </p>
+                  <div className="space-y-2">
+                    {(cardMetadata.customFields ?? []).map((field) => (
+                      <div
+                        key={field.id}
+                        className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-xs font-semibold text-white/70">
+                            {field.name}
+                          </p>
+                          <p className="truncate text-xs text-white/40">
+                            {field.value || "Empty"}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveCustomField(field.id)}
+                          className="rounded-lg p-1 text-white/25 hover:bg-red-500/10 hover:text-red-300"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                    ))}
+                    <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+                      <input
+                        value={newFieldName}
+                        onChange={(event) => setNewFieldName(event.target.value)}
+                        placeholder="Field"
+                        className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white outline-none focus:border-orange-500/50"
+                      />
+                      <input
+                        value={newFieldValue}
+                        onChange={(event) => setNewFieldValue(event.target.value)}
+                        placeholder="Value"
+                        className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white outline-none focus:border-orange-500/50"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleAddCustomField}
+                        disabled={!newFieldName.trim()}
+                        className="rounded-xl bg-orange-500 px-3 py-2 text-xs font-bold text-black disabled:opacity-50"
+                      >
+                        Add
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <p className="text-[10px] uppercase tracking-widest text-white/40 mb-2">
+                    Actions
+                  </p>
+                  <div className="space-y-2">
+                    <button
+                      type="button"
+                      onClick={handleToggleWatch}
+                      className="flex w-full items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-white/60 hover:bg-white/10 hover:text-white"
+                    >
+                      <Circle size={10} />
+                      {(cardMetadata.watchedBy ?? []).includes(currentUserId)
+                        ? "Watching"
+                        : "Watch"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleCopyCardLink()}
+                      className="flex w-full items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-white/60 hover:bg-white/10 hover:text-white"
+                    >
+                      <Link2 size={13} />
+                      Copy link
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleArchiveCard}
+                      className="flex w-full items-center gap-2 rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-300 hover:bg-red-500/20"
+                    >
+                      <Archive size={13} />
+                      Archive
+                    </button>
+                  </div>
+                </div>
+              </div>
 
               {/* Collaborators */}
               <div>
@@ -1228,57 +2219,52 @@ export default function CardDetailModal({
           {/* ── Checklist tab ── */}
           {activeTab === "checklist" && (
             <div className="space-y-4">
-              {checklist.length > 0 && (
+              {flatChecklistItems.length > 0 && (
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
                     <span className="text-xs text-white/50">
-                      {checklistDone}/{checklist.length} completed
+                      {checklistDone}/{flatChecklistItems.length} completed
                     </span>
                     <span className="text-xs font-semibold text-white">
-                      {Math.round((checklistDone / checklist.length) * 100)}%
+                      {Math.round((checklistDone / flatChecklistItems.length) * 100)}%
                     </span>
                   </div>
                   <div className="h-1.5 rounded-full bg-white/10 overflow-hidden">
                     <div
                       className="h-full rounded-full bg-orange-500 transition-all"
                       style={{
-                        width: `${(checklistDone / checklist.length) * 100}%`,
+                        width: `${(checklistDone / flatChecklistItems.length) * 100}%`,
                       }}
                     />
                   </div>
                 </div>
               )}
               <div className="space-y-2">
-                {checklist.map((item) => (
+                {loadingChecklist ? (
+                  <div className="flex items-center justify-center rounded-xl border border-white/10 bg-white/3 px-3 py-8 text-white/40">
+                    <Loader2 size={16} className="mr-2 animate-spin" />
+                    Loading checklist...
+                  </div>
+                ) : flatChecklistItems.map((item) => (
                   <div
                     key={item.id}
                     className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/3 px-3 py-2.5 group"
                   >
                     <input
                       type="checkbox"
-                      checked={item.completed}
-                      onChange={() =>
-                        setChecklist((prev) =>
-                          prev.map((i) =>
-                            i.id === item.id
-                              ? { ...i, completed: !i.completed }
-                              : i,
-                          ),
-                        )
-                      }
+                      checked={item.is_completed}
+                      disabled={savingChecklist}
+                      onChange={() => void handleToggleCheckItem(item)}
                       className="h-4 w-4 rounded cursor-pointer accent-orange-500"
                     />
                     <span
-                      className={`flex-1 text-sm ${item.completed ? "line-through text-white/30" : "text-white/80"}`}
+                      className={`flex-1 text-sm ${item.is_completed ? "line-through text-white/30" : "text-white/80"}`}
                     >
-                      {item.title}
+                      {item.content}
                     </span>
                     <button
-                      onClick={() =>
-                        setChecklist((prev) =>
-                          prev.filter((i) => i.id !== item.id),
-                        )
-                      }
+                      onClick={() => void handleDeleteCheckItem(item.id)}
+                      disabled={savingChecklist}
                       className="opacity-0 group-hover:opacity-100 text-white/20 hover:text-red-400 transition"
                     >
                       <Trash2 size={13} />
@@ -1291,20 +2277,24 @@ export default function CardDetailModal({
                   value={newCheckItem}
                   onChange={(e) => setNewCheckItem(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter") addCheckItem();
+                    if (e.key === "Enter") void addCheckItem();
                   }}
                   placeholder="Add a checklist item…"
                   className="flex-1 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white placeholder:text-white/25 outline-none focus:border-orange-500/50"
                 />
                 <button
-                  onClick={addCheckItem}
-                  disabled={!newCheckItem.trim()}
+                  onClick={() => void addCheckItem()}
+                  disabled={!newCheckItem.trim() || savingChecklist}
                   className="rounded-xl bg-white/10 px-3 py-2.5 text-white/60 hover:bg-orange-500 hover:text-white disabled:opacity-30 transition"
                 >
-                  <Plus size={16} />
+                  {savingChecklist ? (
+                    <Loader2 size={16} className="animate-spin" />
+                  ) : (
+                    <Plus size={16} />
+                  )}
                 </button>
               </div>
-              {checklist.length === 0 && (
+              {!loadingChecklist && flatChecklistItems.length === 0 && (
                 <div className="py-8 text-center">
                   <CheckSquare
                     size={28}

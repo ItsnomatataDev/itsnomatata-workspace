@@ -19,6 +19,10 @@ import type { AdminTimeEntryRow } from "../../../lib/supabase/queries/adminTime"
 import EverhourCalendar, {
   type EverhourCalendarEvent,
 } from "../components/EverhourCalendar";
+import {
+  getZimbabweDateKey,
+  startOfZimbabweWeek,
+} from "../../../lib/utils/zimbabweCalendar";
 
 // ── Types ──────────────────────────────────────────────────
 
@@ -61,16 +65,11 @@ function formatHours(hours: number) {
 }
 
 function getDateKey(date: Date) {
-  return date.toISOString().slice(0, 10);
+  return getZimbabweDateKey(date);
 }
 
 function startOfWeekFn(date: Date, weekStart = 1) {
-  const copy = new Date(date);
-  const day = copy.getDay();
-  const distance = (day + 7 - weekStart) % 7;
-  copy.setDate(copy.getDate() - distance);
-  copy.setHours(0, 0, 0, 0);
-  return copy;
+  return startOfZimbabweWeek(date, weekStart);
 }
 
 function buildTwoWeekDays(): CalendarDay[] {
@@ -88,7 +87,7 @@ function buildTwoWeekDays(): CalendarDay[] {
         date,
         key: getDateKey(date),
         label: date
-          .toLocaleDateString(undefined, { weekday: "short" })
+          .toLocaleDateString("en-ZW", { weekday: "short" })
           .slice(0, 2),
         weekLabel: weekIndex === 0 ? "Last week" : "This week",
       };
@@ -384,7 +383,7 @@ export default function TeamTimesheetsPage() {
       const taskKey = entry.task_title || entry.description || "Untitled work";
       current.taskTotals[taskKey] = (current.taskTotals[taskKey] || 0) + dur;
 
-      const dayKey = entry.started_at?.slice(0, 10);
+      const dayKey = entry.started_at ? getZimbabweDateKey(entry.started_at) : null;
       if (dayKey && calendarKeySet.has(dayKey)) {
         current.dailyHours[dayKey] += dur / 3600;
       }
@@ -423,7 +422,7 @@ export default function TeamTimesheetsPage() {
       const cur = map.get(board) ?? { seconds: 0, dailyHours: {} };
       const dur = Number(entry.duration_seconds ?? 0);
       cur.seconds += dur;
-      const dayKey = entry.started_at?.slice(0, 10);
+      const dayKey = entry.started_at ? getZimbabweDateKey(entry.started_at) : null;
       if (dayKey) {
         cur.dailyHours[dayKey] = (cur.dailyHours[dayKey] || 0) + dur / 3600;
       }

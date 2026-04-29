@@ -25,12 +25,14 @@ import {
   createCard,
   getBoardStats,
   moveCard,
+  updateCard,
 } from "../services/boardService";
 import CardDetailModal from "../components/Carddetailmodal";
 import type { TaskItem, TaskStatus } from "../../../lib/supabase/queries/tasks";
 import type { Board, BoardStats, Card } from "../../../types/board";
 import { useTimeEntries } from "../../../lib/hooks/useTimeEntries";
 import { supabase } from "../../../lib/supabase/client";
+import { makeZimbabweLocalIso } from "../../../lib/utils/zimbabweCalendar";
 
 
 type Task = Card;
@@ -188,6 +190,16 @@ function KanbanCard({
   timerBusy?: boolean;
 }) {
   const priority = PRIORITY_COLOR[task.priority] ?? PRIORITY_COLOR.medium;
+  const labels = Array.isArray(task.metadata?.labels)
+    ? (task.metadata.labels as Array<{ id: string; name: string; color: string }>)
+    : [];
+  const trackedSeconds = Number(task.tracked_seconds_cache ?? 0) +
+    (isTrackingThisTask ? Number(liveSeconds ?? 0) : 0);
+  const estimatedSeconds = Number(task.estimated_seconds ?? 0);
+  const estimatePercent = estimatedSeconds > 0
+    ? Math.min(100, Math.round((trackedSeconds / estimatedSeconds) * 100))
+    : 0;
+  const isOverEstimate = estimatedSeconds > 0 && trackedSeconds > estimatedSeconds;
   const isOverdue =
     task.due_date &&
     new Date(task.due_date) < new Date() &&
@@ -223,6 +235,19 @@ function KanbanCard({
         {task.title}
       </p>
 
+      {labels.length > 0 && (
+        <div className="mb-2 flex flex-wrap gap-1">
+          {labels.slice(0, 4).map((label) => (
+            <span
+              key={label.id}
+              className="h-2 min-w-8 rounded-full"
+              style={{ backgroundColor: label.color }}
+              title={label.name}
+            />
+          ))}
+        </div>
+      )}
+
       {/* Due date */}
       {task.due_date && (
         <div
@@ -239,6 +264,23 @@ function KanbanCard({
             month: "short",
             day: "numeric",
           })}
+        </div>
+      )}
+
+      {estimatedSeconds > 0 && (
+        <div className="mb-2">
+          <div className="mb-1 flex items-center justify-between text-[10px] text-white/35">
+            <span>Estimate</span>
+            <span className={isOverEstimate ? "text-red-300" : "text-white/45"}>
+              {estimatePercent}%
+            </span>
+          </div>
+          <div className="h-1.5 overflow-hidden rounded-full bg-white/10">
+            <div
+              className={`h-full rounded-full ${isOverEstimate ? "bg-red-500" : "bg-orange-500"}`}
+              style={{ width: `${estimatePercent}%` }}
+            />
+          </div>
         </div>
       )}
 
@@ -291,7 +333,7 @@ function KanbanCard({
           <CardTimeIndicator
             taskId={task.id}
             className="text-[11px]"
-            showTotalTime={false}
+            showTotalTime
           />
           {initials ? (
             <div className="flex h-6 w-6 items-center justify-center rounded-full bg-orange-500/20 border border-orange-500/30 text-[10px] font-bold text-orange-400">
@@ -579,6 +621,7 @@ export default function BoardViewPage() {
       const rawCard = await createCard(organizationId, boardId, {
         title,
         status,
+        createdBy: auth?.user?.id ?? null,
       });
       const newTask = cardToTask(rawCard);
       setTasks((prev) => [...prev, newTask]);
@@ -590,7 +633,7 @@ export default function BoardViewPage() {
       });
       getBoardStats(organizationId, boardId).then(setStats).catch(console.warn);
     },
-    [organizationId, boardId],
+    [organizationId, boardId, auth?.user?.id],
   );
 
   // ── Open card ────────────────────────────────────────────────────────────────
@@ -604,23 +647,43 @@ export default function BoardViewPage() {
 
   const handleUpdateTask = useCallback(
     (updates: Partial<TaskItem>) => {
+      const taskId = selectedTask?.id;
+      if (!taskId) return;
+
+      const persistedUpdates: Partial<TaskItem> = { ...updates };
+      if (updates.due_date !== undefined) {
+        persistedUpdates.due_date = updates.due_date
+          ? makeZimbabweLocalIso(updates.due_date.slice(0, 10), "17:00:00")
+          : null;
+      }
+      if (updates.start_date !== undefined) {
+        persistedUpdates.start_date = updates.start_date
+          ? makeZimbabweLocalIso(updates.start_date.slice(0, 10), "08:00:00")
+          : null;
+      }
+
       setSelectedTask((prev) =>
-        prev ? ({ ...prev, ...updates } as Task) : null,
+        prev ? ({ ...prev, ...persistedUpdates } as Task) : null,
       );
       setTasks((prev) =>
         prev.map((t) =>
-          t.id === selectedTask?.id ? ({ ...t, ...updates } as Task) : t,
+          t.id === taskId ? ({ ...t, ...persistedUpdates } as Task) : t,
         ),
       );
       setGroupedTasks((prev) =>
         groupByStatus(
           tasks.map((t) =>
-            t.id === selectedTask?.id ? ({ ...t, ...updates } as Task) : t,
+            t.id === taskId ? ({ ...t, ...persistedUpdates } as Task) : t,
           ),
         ),
       );
+
+      void updateCard(taskId, persistedUpdates as Partial<Card>).catch((err) => {
+        console.error("Failed to save card updates:", err);
+        void loadBoardData();
+      });
     },
-    [selectedTask, tasks],
+    [loadBoardData, selectedTask?.id, tasks],
   );
 
   // ── Drag & drop ──────────────────────────────────────────────────────────────

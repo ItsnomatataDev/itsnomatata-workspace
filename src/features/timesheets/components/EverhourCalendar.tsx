@@ -5,21 +5,28 @@ import {
   Views,
   type View,
 } from "react-big-calendar";
-import { format, parse, startOfWeek, getDay, addMonths, subMonths } from "date-fns";
-import { enUS } from "date-fns/locale";
+import { format, parse, getDay, addMonths, subMonths } from "date-fns";
+import { enGB } from "date-fns/locale";
 import { ChevronLeft, ChevronRight, Calendar as CalendarIcon } from "lucide-react";
 import "react-big-calendar/lib/css/react-big-calendar.css";
 import type {
   AdminTimeEntryRow,
   CalendarTimeEntry,
 } from "../../../lib/supabase/queries/adminTime";
+import {
+  formatZimbabweDate,
+  getZimbabweDateKey,
+  makeZimbabweLocalIso,
+  startOfZimbabweWeek,
+  ZIMBABWE_LOCALE,
+} from "../../../lib/utils/zimbabweCalendar";
 
 const localizer = dateFnsLocalizer({
   format,
   parse,
-  startOfWeek,
+  startOfWeek: startOfZimbabweWeek,
   getDay,
-  locales: { "en-US": enUS },
+  locales: { [ZIMBABWE_LOCALE]: enGB },
 });
 
 export type EverhourCalendarEvent = {
@@ -88,7 +95,7 @@ export default function EverhourCalendar({
       for (const entry of calendarData) {
         const dateKey = entry.entry_date;
         const userKey = `${entry.user_id}-${dateKey}`;
-        const startDate = new Date(entry.entry_date);
+        const startDate = new Date(makeZimbabweLocalIso(entry.entry_date, "08:00:00"));
         const totalHours = entry.total_seconds / 3600;
 
         const rawProjects = entry.project_entries;
@@ -137,7 +144,7 @@ export default function EverhourCalendar({
       }
     } else if (entries) {
       for (const entry of entries) {
-        const dateKey = entry.started_at.slice(0, 10);
+        const dateKey = getZimbabweDateKey(entry.started_at);
         const userKey = `${entry.user_id}-${dateKey}`;
         const startDate = new Date(entry.started_at);
         const endDate = entry.ended_at ? new Date(entry.ended_at) : startDate;
@@ -243,7 +250,10 @@ export default function EverhourCalendar({
           <div className="flex items-center gap-2 ml-4">
             <CalendarIcon size={18} className="text-orange-400" />
             <span className="text-lg font-semibold text-white">
-              {format(currentDate, 'MMMM yyyy')}
+              {formatZimbabweDate(currentDate, {
+                month: "long",
+                year: "numeric",
+              })}
             </span>
           </div>
         </div>
@@ -383,6 +393,7 @@ export default function EverhourCalendar({
 
       <Calendar<EverhourCalendarEvent>
         localizer={localizer}
+        culture={ZIMBABWE_LOCALE}
         events={events}
         startAccessor="start"
         endAccessor="end"

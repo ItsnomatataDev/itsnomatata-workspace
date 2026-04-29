@@ -13,7 +13,7 @@ export interface TimeEntryRow {
     ended_at: string | null;
     duration_seconds: number | null;
     source: string | null;
-    entry_type: "timer" | "manual";
+    entry_type?: "timer" | "manual";
     is_billable: boolean;
     hourly_rate_id: string | null;
     cost_amount: number | null;

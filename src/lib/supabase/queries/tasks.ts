@@ -61,7 +61,10 @@ export interface TaskItem {
   blocked_reason: string | null;
   position: number;
   is_billable?: boolean;
+  estimated_seconds?: number | null;
   tracked_seconds_cache?: number | null;
+  archived_at?: string | null;
+  archived_by?: string | null;
   metadata?: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;

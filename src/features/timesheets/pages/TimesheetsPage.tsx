@@ -12,6 +12,12 @@ import {
   submitTimesheet,
   type TimesheetSubmission,
 } from "../services/timesheetService";
+import {
+  formatZimbabweDate,
+  formatZimbabweDateTime,
+  getZimbabweDateKey,
+  startOfZimbabweWeek,
+} from "../../../lib/utils/zimbabweCalendar";
 
 function formatDuration(totalSeconds: number) {
   const safeSeconds = Math.max(0, Number(totalSeconds || 0));
@@ -23,7 +29,11 @@ function formatDuration(totalSeconds: number) {
 function formatDate(value?: string | null) {
   if (!value) return "—";
   try {
-    return new Date(value).toLocaleDateString();
+    return formatZimbabweDate(value, {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
   } catch {
     return value;
   }
@@ -32,7 +42,7 @@ function formatDate(value?: string | null) {
 function formatDateTime(value?: string | null) {
   if (!value) return "—";
   try {
-    return new Date(value).toLocaleString();
+    return formatZimbabweDateTime(value);
   } catch {
     return value;
   }
@@ -40,20 +50,15 @@ function formatDateTime(value?: string | null) {
 
 function getWeekDates() {
   const now = new Date();
-  const day = now.getDay();
-  const diffToMonday = day === 0 ? 6 : day - 1;
-
-  const start = new Date(now);
-  start.setDate(now.getDate() - diffToMonday);
-  start.setHours(0, 0, 0, 0);
+  const start = startOfZimbabweWeek(now);
 
   const end = new Date(start);
   end.setDate(start.getDate() + 6);
   end.setHours(23, 59, 59, 999);
 
   return {
-    weekStart: start.toISOString().slice(0, 10),
-    weekEnd: end.toISOString().slice(0, 10),
+    weekStart: getZimbabweDateKey(start),
+    weekEnd: getZimbabweDateKey(end),
     startIso: start.toISOString(),
     endIso: end.toISOString(),
   };

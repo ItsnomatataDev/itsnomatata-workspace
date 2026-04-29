@@ -31,10 +31,13 @@ import { getAdminTimeEntries } from "../../../lib/supabase/queries/adminTime";
 import { supabase } from "../../../lib/supabase/client";
 import { getBoardTimeSettings, updateBoardTimeSettings, assignUsersToBoard, getBoardAssignments } from "../services/boardTimeService";
 import type { Board } from "../../../types/board";
+import { getZimbabweMonthRangeIso } from "../../../lib/utils/zimbabweCalendar";
 
 interface BoardTimeData extends Board {
   boardType?: "client" | "internal";
-  estimatedHours?: number;
+  estimatedHours?: number | null;
+  isUnlimited?: boolean;
+  periodLabel?: string;
   trackedHours?: number;
   assignedUsers?: BoardAssignee[];
   isBillable?: boolean;
@@ -62,7 +65,7 @@ interface CreateBoardForm {
   name: string;
   description: string;
   boardType: "client" | "internal";
-  estimatedHours: number;
+  estimatedHours: number | null;
   isBillable: boolean;
   billingType: "hourly" | "fixed";
   hourlyRate: number;
@@ -142,6 +145,7 @@ export default function BoardTimeManagementPage() {
 
     try {
       setLoading(true);
+      const period = getZimbabweMonthRangeIso();
 
       // Get all boards (clients)
       const boardsData = await getBoards(organizationId);
@@ -150,6 +154,8 @@ export default function BoardTimeManagementPage() {
       const timeEntries = await getAdminTimeEntries({
         organizationId,
         approvalStatus: "all",
+        from: period.start,
+        to: period.end,
         limit: 1000,
       });
 
@@ -176,6 +182,8 @@ export default function BoardTimeManagementPage() {
           );
 
           const trackedHours = trackedSeconds / 3600;
+          const boardType = ((board as any).board_type ?? "client") as "client" | "internal";
+          const isInternal = boardType === "internal";
 
           // Get board time settings
           const settings = await getBoardTimeSettings(board.id, organizationId);
@@ -224,10 +232,13 @@ export default function BoardTimeManagementPage() {
 
           return {
             ...board,
-            estimatedHours: settings?.estimatedHours || 40,
+            boardType,
+            estimatedHours: isInternal ? null : settings?.estimatedHours ?? 40,
+            isUnlimited: isInternal || settings?.estimatedHours === null,
+            periodLabel: period.label,
             trackedHours,
             assignedUsers,
-            isBillable: settings?.isBillable ?? true,
+            isBillable: isInternal ? false : settings?.isBillable ?? true,
             billingType: settings?.billingType || "hourly",
             hourlyRate: settings?.hourlyRate || 100,
             fixedPrice: settings?.fixedPrice || 5000,
@@ -283,14 +294,15 @@ export default function BoardTimeManagementPage() {
     // Apply status filter
     if (filterStatus !== "all") {
       filtered = filtered.filter((board) => {
-        const progress = (board.trackedHours || 0) / (board.estimatedHours || 1) * 100;
+        const isUnlimited = board.boardType === "internal" || board.isUnlimited;
+        const progress = isUnlimited ? 0 : (board.trackedHours || 0) / (board.estimatedHours || 1) * 100;
         switch (filterStatus) {
           case "over-budget":
-            return progress >= 100;
+            return !isUnlimited && progress >= 100;
           case "on-track":
-            return progress < 100 && progress >= 50;
+            return !isUnlimited && progress < 100 && progress >= 50;
           case "behind":
-            return progress < 50;
+            return !isUnlimited && progress < 50;
           case "billable":
             return board.isBillable;
           case "non-billable":
@@ -309,8 +321,8 @@ export default function BoardTimeManagementPage() {
         case "tracked":
           return (b.trackedHours || 0) - (a.trackedHours || 0);
         case "progress":
-          const aProgress = (a.trackedHours || 0) / (a.estimatedHours || 1) * 100;
-          const bProgress = (b.trackedHours || 0) / (b.estimatedHours || 1) * 100;
+          const aProgress = a.isUnlimited ? 0 : (a.trackedHours || 0) / (a.estimatedHours || 1) * 100;
+          const bProgress = b.isUnlimited ? 0 : (b.trackedHours || 0) / (b.estimatedHours || 1) * 100;
           return bProgress - aProgress;
         case "members":
           return (b.memberCount || 0) - (a.memberCount || 0);
@@ -354,7 +366,7 @@ export default function BoardTimeManagementPage() {
         throw new Error("Board name is required");
       }
 
-      if (createForm.estimatedHours <= 0) {
+      if (createForm.boardType === "client" && (!createForm.estimatedHours || createForm.estimatedHours <= 0)) {
         throw new Error("Time estimate must be greater than 0");
       }
 
@@ -379,11 +391,11 @@ export default function BoardTimeManagementPage() {
 
       // Set time settings
       await updateBoardTimeSettings(newBoard.id, organizationId, {
-        estimatedHours: createForm.estimatedHours,
-        isBillable: createForm.isBillable,
-        billingType: createForm.billingType,
-        hourlyRate: createForm.hourlyRate,
-        fixedPrice: createForm.fixedPrice,
+        estimatedHours: createForm.boardType === "internal" ? null : createForm.estimatedHours,
+        isBillable: createForm.boardType === "internal" ? false : createForm.isBillable,
+        billingType: createForm.boardType === "internal" ? "hourly" : createForm.billingType,
+        hourlyRate: createForm.boardType === "internal" ? 0 : createForm.hourlyRate,
+        fixedPrice: createForm.boardType === "internal" ? 0 : createForm.fixedPrice,
       });
 
       console.log("Time settings created successfully");
@@ -461,7 +473,11 @@ export default function BoardTimeManagementPage() {
       errors.name = "Board name is required";
     }
     
-    if (editingBoard?.estimatedHours !== undefined && editingBoard.estimatedHours <= 0) {
+    if (
+      editingBoard?.boardType === "client" &&
+      editingBoard?.estimatedHours !== undefined &&
+      (!editingBoard.estimatedHours || editingBoard.estimatedHours <= 0)
+    ) {
       errors.estimatedHours = "Time estimate must be greater than 0";
     }
     
@@ -535,11 +551,11 @@ export default function BoardTimeManagementPage() {
       console.log("Updating board time settings...");
       try {
         await updateBoardTimeSettings(editingBoard.id, organizationId, {
-          estimatedHours: editingBoard.estimatedHours,
-          isBillable: editingBoard.isBillable,
-          billingType: editingBoard.billingType,
-          hourlyRate: editingBoard.hourlyRate,
-          fixedPrice: editingBoard.fixedPrice,
+          estimatedHours: editingBoard.boardType === "internal" ? null : editingBoard.estimatedHours,
+          isBillable: editingBoard.boardType === "internal" ? false : editingBoard.isBillable,
+          billingType: editingBoard.boardType === "internal" ? "hourly" : editingBoard.billingType,
+          hourlyRate: editingBoard.boardType === "internal" ? 0 : editingBoard.hourlyRate,
+          fixedPrice: editingBoard.boardType === "internal" ? 0 : editingBoard.fixedPrice,
         });
         console.log("Board time settings updated successfully");
       } catch (timeSettingsError) {
@@ -743,8 +759,8 @@ export default function BoardTimeManagementPage() {
               </thead>
               <tbody>
                 {filteredBoards.map((board) => {
-                  const isInternal = board.boardType === 'internal';
-                  const progressPercentage = isInternal 
+                  const isInternal = board.boardType === 'internal' || board.isUnlimited;
+                  const progressPercentage = isInternal
                     ? 0 
                     : getProgressPercentage(
                         board.trackedHours || 0,
@@ -765,6 +781,9 @@ export default function BoardTimeManagementPage() {
                           </button>
                           <div className="text-sm text-white/40 mt-1">
                             {board.description || "No description"}
+                          </div>
+                          <div className="mt-1 text-[11px] text-white/30">
+                            {board.periodLabel || "Current month"}
                           </div>
                         </div>
                       </td>
@@ -806,6 +825,9 @@ export default function BoardTimeManagementPage() {
                         <div className="text-sm font-medium text-white">
                           {isInternal ? 'Unlimited' : formatHours(board.estimatedHours || 0)}
                         </div>
+                        {!isInternal && (
+                          <div className="mt-1 text-xs text-white/35">resets monthly</div>
+                        )}
                       </td>
 
                       {/* Tracked */}
@@ -997,7 +1019,15 @@ export default function BoardTimeManagementPage() {
                 </label>
                 <select
                   value={createForm.boardType}
-                  onChange={(e) => setCreateForm({...createForm, boardType: e.target.value as "client" | "internal", isBillable: e.target.value === "client" ? createForm.isBillable : false})}
+                  onChange={(e) => {
+                    const boardType = e.target.value as "client" | "internal";
+                    setCreateForm({
+                      ...createForm,
+                      boardType,
+                      estimatedHours: boardType === "internal" ? null : createForm.estimatedHours ?? 40,
+                      isBillable: boardType === "client" ? createForm.isBillable : false,
+                    });
+                  }}
                   className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white focus:outline-none focus:border-orange-400"
                 >
                   <option value="client">Client Board (Billable)</option>
@@ -1005,23 +1035,35 @@ export default function BoardTimeManagementPage() {
                 </select>
                 <p className="mt-1 text-xs text-white/40">
                   {createForm.boardType === "client" 
-                    ? "Client boards track billable work for external clients" 
-                    : "Internal boards track company-internal work without billing"}
+                    ? "Client boards use a monthly time budget that resets at the start of each Zimbabwe month." 
+                    : "Internal boards are unlimited, non-billable, and still track time for team visibility."}
                 </p>
               </div>
 
+              {createForm.boardType === "client" ? (
               <div>
                 <label className="block text-sm font-medium text-white mb-2">
-                  Time Estimate (hours)
+                  Monthly Time Budget (hours)
                 </label>
                 <input
                   type="number"
-                  value={createForm.estimatedHours}
+                  value={createForm.estimatedHours ?? ""}
                   onChange={(e) => setCreateForm({...createForm, estimatedHours: parseFloat(e.target.value) || 0})}
                   className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder:text-white/40 focus:outline-none focus:border-orange-400"
                   placeholder="40"
                 />
+                <p className="mt-1 text-xs text-white/40">
+                  This budget refreshes every month. Past tracked time is preserved for reports.
+                </p>
               </div>
+              ) : (
+                <div className="rounded-lg border border-blue-500/20 bg-blue-500/10 px-3 py-2">
+                  <p className="text-sm font-medium text-blue-300">Unlimited monthly time</p>
+                  <p className="mt-1 text-xs text-blue-100/60">
+                    Internal boards never go over budget; tracked time still appears in reports.
+                  </p>
+                </div>
+              )}
 
               {createForm.boardType === "client" && (
                 <>
@@ -1216,10 +1258,12 @@ export default function BoardTimeManagementPage() {
                 <select
                   value={editingBoard.boardType || "client"}
                   onChange={(e) => {
+                    const boardType = e.target.value as "client" | "internal";
                     setEditingBoard({
                       ...editingBoard,
-                      boardType: e.target.value as "client" | "internal",
-                      isBillable: e.target.value === "client" ? editingBoard.isBillable : false,
+                      boardType,
+                      estimatedHours: boardType === "internal" ? null : editingBoard.estimatedHours ?? 40,
+                      isBillable: boardType === "client" ? editingBoard.isBillable : false,
                     });
                   }}
                   className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white focus:outline-none focus:border-orange-400"
@@ -1229,18 +1273,19 @@ export default function BoardTimeManagementPage() {
                 </select>
                 <p className="mt-1 text-xs text-white/40">
                   {editingBoard.boardType === "internal" 
-                    ? "Internal boards track company-internal work without billing" 
-                    : "Client boards track billable work for external clients"}
+                    ? "Internal boards are unlimited and non-billable." 
+                    : "Client boards use a monthly budget that resets at the start of each Zimbabwe month."}
                 </p>
               </div>
 
+              {editingBoard.boardType === "client" ? (
               <div>
                 <label className="block text-sm font-medium text-white mb-2">
-                  Time Estimate (hours) <span className="text-orange-500">*</span>
+                  Monthly Time Budget (hours) <span className="text-orange-500">*</span>
                 </label>
                 <input
                   type="number"
-                  value={editingBoard.estimatedHours || ""}
+                  value={editingBoard.estimatedHours ?? ""}
                   onChange={(e) => {
                     setEditingBoard({
                       ...editingBoard,
@@ -1257,6 +1302,14 @@ export default function BoardTimeManagementPage() {
                   <p className="mt-1 text-xs text-red-400">{editFormErrors.estimatedHours}</p>
                 )}
               </div>
+              ) : (
+                <div className="rounded-lg border border-blue-500/20 bg-blue-500/10 px-3 py-2">
+                  <p className="text-sm font-medium text-blue-300">Unlimited monthly time</p>
+                  <p className="mt-1 text-xs text-blue-100/60">
+                    Internal work keeps time history but does not consume a client budget.
+                  </p>
+                </div>
+              )}
 
               {editingBoard.boardType === "client" && (
                 <div>

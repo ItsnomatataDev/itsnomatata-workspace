@@ -11,6 +11,7 @@ import {
   notifyTaskAssigned,
   notifyTaskCommented,
 } from "../../notifications/services/notificationOrchestrationService";
+import { makeZimbabweLocalIso } from "../../../lib/utils/zimbabweCalendar";
 
 // ─────────────────────────────────────────────
 //  BOARDS  (boards = clients table)
@@ -65,7 +66,12 @@ export async function getCards(
 
   // Profiles for assignees
   const userIds = [
-    ...new Set((assigneeRows ?? []).map((a) => a.user_id as string)),
+    ...new Set(
+      [
+        ...(assigneeRows ?? []).map((a) => a.user_id as string),
+        ...tasks.map((task) => task.created_by as string | null).filter(Boolean),
+      ].filter(Boolean) as string[],
+    ),
   ];
   const profileMap = new Map<
     string,
@@ -114,11 +120,18 @@ export async function getCards(
     assigneesByTask.set(a.task_id, list);
   }
 
-  return tasks.map((task) => ({
-    ...task,
-    assignees: assigneesByTask.get(task.id) ?? [],
-    commentsCount: commentCountMap.get(task.id) ?? 0,
-  })) as Card[];
+  return tasks.map((task) => {
+    const creator = task.created_by
+      ? profileMap.get(task.created_by as string)
+      : null;
+    return {
+      ...task,
+      assignees: assigneesByTask.get(task.id) ?? [],
+      commentsCount: commentCountMap.get(task.id) ?? 0,
+      created_by_full_name: creator?.full_name ?? null,
+      created_by_email: creator?.email ?? null,
+    };
+  }) as Card[];
 }
 
 // ─────────────────────────────────────────────
@@ -191,6 +204,8 @@ export async function createCard(
     priority?: string;
     assignedTo?: string;
     dueDate?: string;
+    createdBy?: string | null;
+    estimatedSeconds?: number | null;
   },
 ): Promise<Card> {
   const { data: card, error } = await supabase
@@ -203,7 +218,11 @@ export async function createCard(
       status: input.status ?? "todo",
       priority: input.priority ?? "medium",
       assigned_to: input.assignedTo ?? null,
-      due_date: input.dueDate ?? null,
+      created_by: input.createdBy ?? null,
+      estimated_seconds: input.estimatedSeconds ?? 0,
+      due_date: input.dueDate
+        ? makeZimbabweLocalIso(input.dueDate.slice(0, 10), "17:00:00")
+        : null,
       position: 0,
     })
     .select()
