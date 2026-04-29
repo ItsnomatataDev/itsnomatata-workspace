@@ -1,5 +1,5 @@
 import { supabase } from "../../../lib/supabase/client";
-import { notifyTaskComment } from "./taskNotificationService";
+import { notifyTaskCommented } from "../../notifications/services/notificationOrchestrationService";
 
 export interface TaskCommentItem {
   id: string;
@@ -26,7 +26,7 @@ const COMMENT_SELECT = `
 async function getTaskContext(taskId: string) {
   const { data, error } = await supabase
     .from("tasks")
-    .select("id, title, organization_id")
+    .select("id, title, organization_id, assigned_to, created_by")
     .eq("id", taskId)
     .single();
 
@@ -38,6 +38,8 @@ async function getTaskContext(taskId: string) {
     id: string;
     title: string;
     organization_id: string;
+    assigned_to: string | null;
+    created_by: string | null;
   };
 }
 
@@ -122,17 +124,21 @@ export async function createTaskComment(params: {
     throw new Error(`Failed to create task comment: ${error.message}`);
   }
 
-  const task = await getTaskContext(taskId);
-  const recipients = await getTaskNotificationRecipients(taskId, userId);
+  try {
+    const task = await getTaskContext(taskId);
+    const recipients = await getTaskNotificationRecipients(taskId, userId);
 
-  if (recipients.length > 0) {
-    await notifyTaskComment({
+    await notifyTaskCommented({
       organizationId: task.organization_id,
-      userIds: recipients,
       taskId: task.id,
       taskTitle: task.title,
+      commentId: data.id,
+      authorUserId: userId,
       authorName: author?.full_name || author?.email || "A team member",
+      extraUserIds: recipients,
     });
+  } catch (notificationError) {
+    console.error("TASK COMMENT NOTIFICATION ERROR:", notificationError);
   }
 
   return data as TaskCommentItem;

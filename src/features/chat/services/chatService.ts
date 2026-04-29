@@ -11,6 +11,18 @@ import type {
 
 const CHAT_BUCKET = "chat-attachments";
 
+type BulkNotificationSummary = {
+  ok?: boolean;
+  total?: number;
+  succeeded?: number;
+  failed?: number;
+  results?: Array<{
+    userId?: string;
+    ok?: boolean;
+    error?: string;
+  }>;
+};
+
 async function dispatchChatNotificationsWithFallback(params: {
   organizationId: string;
   userIds: string[];
@@ -24,18 +36,10 @@ async function dispatchChatNotificationsWithFallback(params: {
   metadata: Record<string, unknown>;
   referenceId: string;
   referenceType: "chat_conversation";
+  actorUserId: string;
+  dedupeKey: string;
 }) {
-  try {
-    return await sendBulkNotifications({
-      ...params,
-      sendEmail: true,
-    });
-  } catch (primaryError) {
-    console.error(
-      "CHAT notification primary send failed, trying edge fallback:",
-      primaryError,
-    );
-
+  async function createViaEdge() {
     const { data, error } = await supabase.functions.invoke(
       "create-notification",
       {
@@ -49,18 +53,48 @@ async function dispatchChatNotificationsWithFallback(params: {
           entityId: params.entityId,
           actionUrl: params.actionUrl,
           priority: params.priority,
-          metadata: params.metadata,
+          metadata: {
+            ...params.metadata,
+            category: "chat",
+          },
           referenceId: params.referenceId,
           referenceType: params.referenceType,
+          actorUserId: params.actorUserId,
+          category: "chat",
+          dedupeKey: params.dedupeKey,
         },
       },
     );
 
-    if (error) {
-      throw error;
+    if (error) throw error;
+    return data;
+  }
+
+  try {
+    const result = await sendBulkNotifications({
+      ...params,
+      sendEmail: true,
+    }) as BulkNotificationSummary;
+
+    if (result.ok === false || (result.failed ?? 0) > 0) {
+      const failureDetails = result.results
+        ?.filter((item) => item.ok === false)
+        .map((item) => `${item.userId ?? "unknown"}: ${item.error ?? "failed"}`)
+        .join("; ");
+
+      throw new Error(
+        `Chat notification delivery failed for ${result.failed ?? "some"} recipient(s). ${failureDetails ?? ""}`.trim(),
+      );
     }
 
-    return data;
+    return result;
+  } catch (primaryError) {
+    console.error(
+      "CHAT notification primary send failed, trying edge fallback:",
+      primaryError,
+    );
+
+    return createViaEdge();
   }
 }
 
@@ -134,6 +168,7 @@ async function notifyConversationMembers(params: {
   conversationId: string;
   senderId: string;
   senderName: string;
+  messageId: string;
   body?: string | null;
   messageType?: string | null;
   attachmentName?: string | null;
@@ -178,10 +213,14 @@ async function notifyConversationMembers(params: {
         conversationTitle: conversation.title,
         senderId: params.senderId,
         senderName: params.senderName,
+        messageId: params.messageId,
         messageType: params.messageType ?? "text",
       },
       referenceId: conversation.id,
       referenceType: "chat_conversation" as const,
+      actorUserId: params.senderId,
+      category: "chat",
+      dedupeKey: `chat-message:${params.messageId}`,
       sendEmail: true,
     };
 
@@ -471,6 +510,7 @@ export async function sendMessage(
       conversationId: params.conversationId,
       senderId: params.userId,
       senderName,
+      messageId: message.id,
       body,
       messageType,
       attachmentName: params.attachmentName ?? null,

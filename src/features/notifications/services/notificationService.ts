@@ -6,6 +6,7 @@ import {
 import {
   markAllNotificationsAsRead,
   markNotificationAsRead,
+  type NotificationChannel,
   type NotificationPriority,
   type NotificationType,
 } from "../../../lib/supabase/mutations/notifications";
@@ -14,12 +15,107 @@ import {
   deliverNotification,
 } from "./notificationDeliveryService";
 import { EmailTemplateService, type EmailContext } from "./emailTemplates";
+import { supabase } from "../../../lib/supabase/client";
 
 export type NotificationItem = NotificationRow;
 
-/* ------------------------------------------------------------------
-   READ / FETCH
------------------------------------------------------------------- */
+type SendNotificationParams = {
+  organizationId: string;
+  userId: string;
+  type: NotificationType;
+  title: string;
+  message?: string | null;
+  entityType?: string | null;
+  entityId?: string | null;
+  actionUrl?: string | null;
+  priority?: NotificationPriority;
+  metadata?: Record<string, unknown>;
+  referenceId?: string | null;
+  referenceType?: string | null;
+  actorUserId?: string | null;
+  category?: string | null;
+  dedupeKey?: string | null;
+  channels?: NotificationChannel[];
+  sendEmail?: boolean;
+};
+
+type SendBulkNotificationParams = Omit<SendNotificationParams, "userId"> & {
+  userIds: string[];
+  excludeActor?: boolean;
+};
+
+type BulkResultWithMaybeRows = {
+  ok?: boolean;
+  failed?: number;
+  results?: Array<{
+    userId?: string;
+    ok?: boolean;
+    notification?: unknown;
+    error?: string;
+  }>;
+};
+
+async function createNotificationViaEdge(
+  params: SendNotificationParams | SendBulkNotificationParams,
+  userIds: string[],
+  reason: unknown,
+) {
+  console.warn("Notification primary pipeline failed; using edge fallback.", {
+    reason,
+    userIds,
+    type: params.type,
+    title: params.title,
+  });
+
+  const { data, error } = await supabase.functions.invoke(
+    "create-notification",
+    {
+      body: {
+        organizationId: params.organizationId,
+        userIds,
+        type: params.type,
+        title: params.title,
+        message: params.message ?? null,
+        entityType: params.entityType ?? null,
+        entityId: params.entityId ?? null,
+        actionUrl: params.actionUrl ?? null,
+        priority: params.priority ?? "medium",
+        metadata: params.metadata ?? {},
+        referenceId: params.referenceId ?? null,
+        referenceType: params.referenceType ?? null,
+        actorUserId: params.actorUserId ?? null,
+        category: params.category ?? null,
+        dedupeKey: params.dedupeKey ?? null,
+      },
+    },
+  );
+
+  if (error) throw error;
+  return data;
+}
+
+function getBulkFallbackRecipients(
+  params: SendBulkNotificationParams,
+  result: BulkResultWithMaybeRows,
+) {
+  const failedWithoutRows = (result.results ?? [])
+    .filter((item) => item.ok === false && !item.notification)
+    .map((item) => item.userId)
+    .filter((id): id is string => Boolean(id));
+
+  if (failedWithoutRows.length > 0) {
+    return [...new Set(failedWithoutRows)];
+  }
+
+  if ((result.failed ?? 0) > 0 && !result.results?.length) {
+    return [
+      ...new Set(params.userIds.filter((id) => id && id !== params.actorUserId)),
+    ];
+  }
+
+  return [];
+}
+
 
 export async function fetchNotifications(userId: string, limit = 25) {
   return getUserNotifications({ userId, limit });
@@ -41,52 +137,53 @@ export async function readAllNotifications(userId: string) {
    SEND — IN-SYSTEM + EMAIL (single user)
 ------------------------------------------------------------------ */
 
-export async function sendNotification(params: {
-  organizationId: string;
-  userId: string;
-  type: NotificationType;
-  title: string;
-  message?: string | null;
-  entityType?: string | null;
-  entityId?: string | null;
-  actionUrl?: string | null;
-  priority?: NotificationPriority;
-  metadata?: Record<string, unknown>;
-  referenceId?: string | null;
-  referenceType?: string | null;
-  sendEmail?: boolean;
-}) {
-  return deliverNotification({
-    ...params,
-    // Default email to true for high/urgent — delivery service
-    // will check user preferences before actually sending
-    sendEmail: params.sendEmail ?? true,
-  });
+export async function sendNotification(params: SendNotificationParams) {
+  try {
+    return await deliverNotification({
+      ...params,
+      // Default email to true for high/urgent — delivery service
+      // will check user preferences before actually sending
+      sendEmail: params.sendEmail ?? true,
+    });
+  } catch (error) {
+    return createNotificationViaEdge(params, [params.userId], error);
+  }
 }
 
 /* ------------------------------------------------------------------
    SEND — IN-SYSTEM + EMAIL (multiple users)
 ------------------------------------------------------------------ */
 
-export async function sendBulkNotifications(params: {
-  organizationId: string;
-  userIds: string[];
-  type: NotificationType;
-  title: string;
-  message?: string | null;
-  entityType?: string | null;
-  entityId?: string | null;
-  actionUrl?: string | null;
-  priority?: NotificationPriority;
-  metadata?: Record<string, unknown>;
-  referenceId?: string | null;
-  referenceType?: string | null;
-  sendEmail?: boolean;
-}) {
-  return deliverBulkNotifications({
-    ...params,
-    sendEmail: params.sendEmail ?? true,
-  });
+export async function sendBulkNotifications(params: SendBulkNotificationParams) {
+  try {
+    const result = await deliverBulkNotifications({
+      ...params,
+      sendEmail: params.sendEmail ?? true,
+    });
+
+    const fallbackRecipients = getBulkFallbackRecipients(
+      params,
+      result as BulkResultWithMaybeRows,
+    );
+
+    if (fallbackRecipients.length > 0) {
+      return createNotificationViaEdge(params, fallbackRecipients, result);
+    }
+
+    return result;
+  } catch (error) {
+    const recipientIds = [
+      ...new Set(
+        params.userIds.filter(
+          (id) =>
+            id &&
+            (params.excludeActor === false || id !== params.actorUserId),
+        ),
+      ),
+    ];
+
+    return createNotificationViaEdge(params, recipientIds, error);
+  }
 }
 
 /* ------------------------------------------------------------------
@@ -199,6 +296,9 @@ export async function notifyAndEmailUser(params: {
   referenceType?: string | null;
   entityType?: string | null;
   entityId?: string | null;
+  actorUserId?: string | null;
+  category?: string | null;
+  dedupeKey?: string | null;
 }) {
   // Fire in-system notification + email in parallel
   const [notification] = await Promise.allSettled([
@@ -215,6 +315,9 @@ export async function notifyAndEmailUser(params: {
       referenceType: params.referenceType,
       entityType: params.entityType,
       entityId: params.entityId,
+      actorUserId: params.actorUserId,
+      category: params.category,
+      dedupeKey: params.dedupeKey,
       sendEmail: true,
     }),
   ]);
@@ -239,6 +342,9 @@ export async function notifyAndEmailUsers(params: {
   referenceType?: string | null;
   entityType?: string | null;
   entityId?: string | null;
+  actorUserId?: string | null;
+  category?: string | null;
+  dedupeKey?: string | null;
 }) {
   return sendBulkNotifications({
     organizationId: params.organizationId,
@@ -253,6 +359,9 @@ export async function notifyAndEmailUsers(params: {
     referenceType: params.referenceType,
     entityType: params.entityType,
     entityId: params.entityId,
+    actorUserId: params.actorUserId,
+    category: params.category,
+    dedupeKey: params.dedupeKey,
     sendEmail: true,
   });
 }

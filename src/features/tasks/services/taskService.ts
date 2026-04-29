@@ -8,6 +8,7 @@ import type {
 } from "../../../lib/supabase/queries/tasks";
 import type { TaskChecklistWithItems } from "../../../lib/supabase/queries/taskChecklists";
 import type { TaskSubmissionItem } from "../../../lib/supabase/queries/taskSubmissions";
+import { notifyTaskAssigned } from "../../notifications/services/notificationOrchestrationService";
 
 export type TrelloTaskItem = TaskItem & {
   tracked_seconds_cache?: number | null;
@@ -288,6 +289,20 @@ const insertPayload = {
     throw new Error(`Failed to create task: ${error.message}`);
   }
 
+  if (data.assigned_to && data.assigned_to !== data.created_by) {
+    try {
+      await notifyTaskAssigned({
+        organizationId: data.organization_id,
+        userId: data.assigned_to,
+        taskId: data.id,
+        taskTitle: data.title,
+        actorUserId: data.created_by,
+      });
+    } catch (notificationError) {
+      console.error("TASK CREATE ASSIGNMENT NOTIFICATION ERROR:", notificationError);
+    }
+  }
+
   return data as TrelloTaskItem;
 }
 
@@ -296,6 +311,12 @@ export async function updateTask(
   payload: UpdateTaskInput,
 ): Promise<TrelloTaskItem> {
   if (!taskId) throw new Error("taskId is required");
+
+  const { data: existingTask } = await supabase
+    .from("tasks")
+    .select("id, title, organization_id, assigned_to, created_by")
+    .eq("id", taskId)
+    .maybeSingle();
 
   const { data, error } = await supabase
     .from("tasks")
@@ -306,6 +327,24 @@ export async function updateTask(
 
   if (error) {
     throw new Error(`Failed to update task: ${error.message}`);
+  }
+
+  if (
+    payload.assigned_to &&
+    payload.assigned_to !== existingTask?.assigned_to &&
+    payload.assigned_to !== existingTask?.created_by
+  ) {
+    try {
+      await notifyTaskAssigned({
+        organizationId: data.organization_id,
+        userId: payload.assigned_to,
+        taskId: data.id,
+        taskTitle: data.title,
+        actorUserId: existingTask?.created_by ?? null,
+      });
+    } catch (notificationError) {
+      console.error("TASK UPDATE ASSIGNMENT NOTIFICATION ERROR:", notificationError);
+    }
   }
 
   return data as TrelloTaskItem;

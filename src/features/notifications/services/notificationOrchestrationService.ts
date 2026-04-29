@@ -30,6 +30,9 @@ type BaseNotifyParams = {
   metadata?: Record<string, unknown>;
   referenceId?: string | null;
   referenceType?: string | null;
+  actorUserId?: string | null;
+  category?: string | null;
+  dedupeKey?: string | null;
   sendEmail?: boolean;
 };
 
@@ -164,6 +167,9 @@ export async function notifyUser(
     metadata: params.metadata,
     referenceId: params.referenceId,
     referenceType: params.referenceType,
+    actorUserId: params.actorUserId,
+    category: params.category,
+    dedupeKey: params.dedupeKey,
     sendEmail: params.sendEmail,
   });
 }
@@ -189,6 +195,9 @@ export async function notifyUsers(
     metadata: params.metadata,
     referenceId: params.referenceId,
     referenceType: params.referenceType,
+    actorUserId: params.actorUserId,
+    category: params.category,
+    dedupeKey: params.dedupeKey,
     sendEmail: params.sendEmail,
   });
 }
@@ -219,6 +228,9 @@ export async function notifyRoles(
     },
     referenceId: params.referenceId,
     referenceType: params.referenceType,
+    actorUserId: params.actorUserId,
+    category: params.category,
+    dedupeKey: params.dedupeKey,
     sendEmail: params.sendEmail,
   });
 }
@@ -249,6 +261,9 @@ export async function notifyDepartment(
     },
     referenceId: params.referenceId,
     referenceType: params.referenceType,
+    actorUserId: params.actorUserId,
+    category: params.category,
+    dedupeKey: params.dedupeKey,
     sendEmail: params.sendEmail,
   });
 }
@@ -273,6 +288,9 @@ export async function notifyOrganization(
     metadata: params.metadata,
     referenceId: params.referenceId,
     referenceType: params.referenceType,
+    actorUserId: params.actorUserId,
+    category: params.category,
+    dedupeKey: params.dedupeKey,
     sendEmail: params.sendEmail,
   });
 }
@@ -313,6 +331,9 @@ export async function notifyLeaveRequestSubmitted(params: {
     referenceType: "leave_request",
     actionUrl: "/admin/leave",
     priority: "high",
+    actorUserId: params.requesterId,
+    category: "leave",
+    dedupeKey: `leave-submitted:${params.leaveRequestId}`,
     metadata: {
       leaveRequestId: params.leaveRequestId,
       requesterId: params.requesterId,
@@ -356,6 +377,9 @@ export async function notifyLeaveRequestDecision(params: {
     referenceType: "leave_request",
     actionUrl: "/leave",
     priority: approved ? "medium" : "high",
+    actorUserId: params.decidedByUserId ?? null,
+    category: "leave",
+    dedupeKey: `leave-${params.status}:${params.leaveRequestId}`,
     metadata: {
       leaveRequestId: params.leaveRequestId,
       requesterId: params.requesterId,

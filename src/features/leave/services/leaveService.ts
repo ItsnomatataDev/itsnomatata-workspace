@@ -6,6 +6,10 @@ import {
 } from "../../notifications/services/notificationService";
 import { calculateLeaveDays, calculateLeaveDaysWithExclusions } from "../utils/leaveDays";
 import { recordBalanceChange } from "./leaveBalanceAuditService";
+import type {
+  NotificationPriority,
+  NotificationType,
+} from "../../../lib/supabase/mutations/notifications";
 
 export type LeaveTypeRow = {
   id: string;
@@ -40,6 +44,82 @@ export type LeaveBalanceRow = {
   remainingDays: number;
   usedDays: number;
 };
+
+type NotificationSummary = {
+  ok?: boolean;
+  failed?: number;
+};
+
+async function notifyLeaveUsersWithFallback(params: {
+  organizationId: string;
+  userIds: string[];
+  type: NotificationType;
+  title: string;
+  message: string;
+  actionUrl: string;
+  priority: NotificationPriority;
+  entityType: string;
+  entityId: string;
+  referenceId: string;
+  referenceType: string;
+  actorUserId?: string | null;
+  category: string;
+  dedupeKey: string;
+  metadata: Record<string, unknown>;
+}) {
+  const result = await notifyAndEmailUsers(params) as NotificationSummary;
+
+  if (result?.ok !== false && !(result?.failed && result.failed > 0)) {
+    return result;
+  }
+
+  console.warn("LEAVE NOTIFICATION PRIMARY PIPELINE FAILED, USING EDGE FALLBACK:", result);
+
+  const { data, error } = await supabase.functions.invoke("create-notification", {
+    body: params,
+  });
+
+  if (error) throw error;
+  return data;
+}
+
+async function notifyLeaveUserWithFallback(params: {
+  organizationId: string;
+  userId: string;
+  userEmail: string;
+  fullName?: string | null;
+  type: NotificationType;
+  title: string;
+  message: string;
+  actionUrl: string;
+  priority: NotificationPriority;
+  entityType: string;
+  entityId: string;
+  referenceId: string;
+  referenceType: string;
+  actorUserId?: string | null;
+  category: string;
+  dedupeKey: string;
+  metadata: Record<string, unknown>;
+}) {
+  const result = await notifyAndEmailUser(params) as NotificationSummary | null;
+
+  if (result?.ok !== false && !(result?.failed && result.failed > 0)) {
+    return result;
+  }
+
+  console.warn("LEAVE NOTIFICATION PRIMARY PIPELINE FAILED, USING EDGE FALLBACK:", result);
+
+  const { data, error } = await supabase.functions.invoke("create-notification", {
+    body: {
+      ...params,
+      userIds: [params.userId],
+    },
+  });
+
+  if (error) throw error;
+  return data;
+}
 
 function buildOverlapMessage(params: {
   overlapName: string;
@@ -309,7 +389,7 @@ export async function createLeaveRequest(params: {
     };
 
     // in-system + email for all admins and managers
-    await notifyAndEmailUsers({
+    await notifyLeaveUsersWithFallback({
       organizationId: params.organizationId,
       userIds: adminsAndManagers.map((p) => p.id),
       type: "leave_request_submitted",
@@ -321,6 +401,9 @@ export async function createLeaveRequest(params: {
       entityId: leaveRequest.id,
       referenceId: leaveRequest.id,
       referenceType: "leave_request",
+      actorUserId: params.userId,
+      category: "leave",
+      dedupeKey: `leave-submitted:${leaveRequest.id}`,
       metadata: sharedMeta,
     });
   } catch (notificationError) {
@@ -386,7 +469,7 @@ export async function approveLeaveRequest(params: {
     const requesterName = requester?.full_name?.trim() || "Team Member";
     const leaveTypeName = leaveType?.name || "Leave";
 
-    await notifyAndEmailUser({
+    await notifyLeaveUserWithFallback({
       organizationId: params.organizationId,
       userId: leaveRequest.user_id,
       userEmail: requester?.email ?? "",
@@ -400,6 +483,9 @@ export async function approveLeaveRequest(params: {
       entityId: leaveRequest.id,
       referenceId: leaveRequest.id,
       referenceType: "leave_request",
+      actorUserId: params.approvedByUserId,
+      category: "leave",
+      dedupeKey: `leave-approved:${leaveRequest.id}`,
       metadata: {
         leaveRequestId: leaveRequest.id,
         leaveTypeName,
@@ -476,7 +562,7 @@ export async function rejectLeaveRequest(params: {
       ? ` Reason: ${params.rejectionReason}`
       : "";
 
-    await notifyAndEmailUser({
+    await notifyLeaveUserWithFallback({
       organizationId: params.organizationId,
       userId: leaveRequest.user_id,
       userEmail: requester?.email ?? "",
@@ -490,6 +576,9 @@ export async function rejectLeaveRequest(params: {
       entityId: leaveRequest.id,
       referenceId: leaveRequest.id,
       referenceType: "leave_request",
+      actorUserId: params.rejectedByUserId,
+      category: "leave",
+      dedupeKey: `leave-rejected:${leaveRequest.id}`,
       metadata: {
         leaveRequestId: leaveRequest.id,
         leaveTypeName,

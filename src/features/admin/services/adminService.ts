@@ -8,7 +8,15 @@ import {
   startOfTodayISO,
   startOfWeekISO,
 } from "../../../lib/utils/timeMath";
-import { notifyLeaveRequestDecision } from "../../notifications/services/notificationOrchestrationService";
+import {
+  notifyLeaveRequestDecision,
+  notifyUser,
+} from "../../notifications/services/notificationOrchestrationService";
+
+type NotificationSummary = {
+  ok?: boolean;
+  failed?: number;
+};
 
 export type AdminDashboardStats = {
   totalEmployees: number;
@@ -358,18 +366,81 @@ export async function updateLeaveRequestStatus(params: {
         : Promise.resolve({ data: null }),
     ]);
 
-    await notifyLeaveRequestDecision({
-      organizationId: params.organizationId,
-      requesterId: request.user_id,
-      leaveRequestId: request.id,
-      status: params.status,
-      leaveTypeId: request.leave_type_id,
-      startDate: request.start_date,
-      endDate: request.end_date,
-      rejectionReason: params.rejectionReason ?? null,
-      decidedByUserId: params.approvedBy,
-      sendEmail: true,
-    });
+    const approved = params.status === "approved";
+    const leaveTypeName = leaveType?.name || "Leave";
+    const approverName =
+      approver?.full_name?.trim() ||
+      approver?.email?.trim() ||
+      "an administrator";
+    const message = approved
+      ? `Your ${leaveTypeName} request from ${request.start_date} to ${request.end_date} was approved.`
+      : `Your ${leaveTypeName} request from ${request.start_date} to ${request.end_date} was rejected.${params.rejectionReason ? ` Reason: ${params.rejectionReason}` : ""}`;
+
+    const sendDecisionFallback = async (reason: unknown) => {
+      console.warn(
+        "LEAVE DECISION PRIMARY PIPELINE FAILED, USING EDGE FALLBACK:",
+        reason,
+      );
+      const { error: fallbackError } = await supabase.functions.invoke(
+        "create-notification",
+        {
+          body: {
+            organizationId: params.organizationId,
+            userId: request.user_id,
+            type: approved
+              ? "leave_request_approved"
+              : "leave_request_rejected",
+            title: approved
+              ? "Leave request approved"
+              : "Leave request rejected",
+            message,
+            actionUrl: "/leave",
+            priority: approved ? "medium" : "high",
+            entityType: "leave_request",
+            entityId: request.id,
+            referenceId: request.id,
+            referenceType: "leave_request",
+            actorUserId: params.approvedBy,
+            category: "leave",
+            dedupeKey: `leave-${params.status}:${request.id}`,
+            metadata: {
+              leaveRequestId: request.id,
+              requesterId: request.user_id,
+              decidedByUserId: params.approvedBy,
+              decidedByName: approverName,
+              status: params.status,
+              leaveTypeName,
+              startDate: request.start_date,
+              endDate: request.end_date,
+              rejectionReason: params.rejectionReason ?? null,
+            },
+          },
+        },
+      );
+
+      if (fallbackError) throw fallbackError;
+    };
+
+    try {
+      const decisionResult = await notifyLeaveRequestDecision({
+        organizationId: params.organizationId,
+        requesterId: request.user_id,
+        leaveRequestId: request.id,
+        status: params.status,
+        leaveTypeId: request.leave_type_id,
+        startDate: request.start_date,
+        endDate: request.end_date,
+        rejectionReason: params.rejectionReason ?? null,
+        decidedByUserId: params.approvedBy,
+        sendEmail: true,
+      }) as NotificationSummary;
+
+      if (decisionResult?.ok === false || (decisionResult?.failed ?? 0) > 0) {
+        await sendDecisionFallback(decisionResult);
+      }
+    } catch (primaryNotifyError) {
+      await sendDecisionFallback(primaryNotifyError);
+    }
 
     if (params.status === "approved") {
       console.info(
@@ -944,6 +1015,45 @@ export async function createDutyRosterEntry(params: {
     .single();
 
   if (error) throw error;
+
+  try {
+    const { data: roster } = await supabase
+      .from("duty_rosters")
+      .select("id, organization_id, title, week_start")
+      .eq("id", params.rosterId)
+      .maybeSingle();
+
+    if (roster) {
+      await notifyUser({
+        organizationId: roster.organization_id,
+        userId: params.userId,
+        type: "duty_roster_assigned",
+        title: "Duty roster shift assigned",
+        message: `You were assigned ${params.shiftName} on ${params.shiftDate}${params.startTime ? ` from ${params.startTime}` : ""}${params.endTime ? ` to ${params.endTime}` : ""}.`,
+        entityType: "duty_roster",
+        entityId: params.rosterId,
+        referenceId: data.id,
+        referenceType: "duty_roster_entry",
+        actionUrl: "/roster",
+        priority: "high",
+        category: "roster",
+        dedupeKey: `roster-entry:${data.id}`,
+        metadata: {
+          rosterId: params.rosterId,
+          rosterTitle: roster.title,
+          weekStart: roster.week_start,
+          entryId: data.id,
+          shiftDate: params.shiftDate,
+          shiftName: params.shiftName,
+          startTime: params.startTime ?? null,
+          endTime: params.endTime ?? null,
+        },
+      });
+    }
+  } catch (notificationError) {
+    console.error("DUTY ROSTER NOTIFICATION ERROR:", notificationError);
+  }
+
   return data as DutyRosterEntryRow;
 }
 

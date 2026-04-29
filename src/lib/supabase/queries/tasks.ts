@@ -11,6 +11,7 @@ export type TaskStatus =
   | "cancelled";
 
 export type TaskPriority = "low" | "medium" | "high" | "urgent";
+export type TaskArchiveMode = "active" | "archived" | "all";
 
 export interface TaskBoardColumn {
   id: string;
@@ -303,9 +304,11 @@ export const getBoardColumns = async (
 export const getTasks = async ({
   assignedTo,
   organizationId,
+  archiveMode = "active",
 }: {
   assignedTo?: string;
   organizationId?: string;
+  archiveMode?: TaskArchiveMode;
 }): Promise<TaskItem[]> => {
   let query = supabase
     .from("tasks")
@@ -315,6 +318,8 @@ export const getTasks = async ({
 
   if (assignedTo) query = query.eq("assigned_to", assignedTo);
   if (organizationId) query = query.eq("organization_id", organizationId);
+  if (archiveMode === "active") query = query.is("archived_at", null);
+  if (archiveMode === "archived") query = query.not("archived_at", "is", null);
 
   const { data, error } = await query;
   if (error) throw error;
@@ -353,6 +358,7 @@ export const getProjectTasks = async (
   organizationId: string,
   projectId: string,
   columnId?: string,
+  archiveMode: TaskArchiveMode = "active",
 ): Promise<TaskItem[]> => {
   if (!organizationId) throw new Error("organizationId is required");
   if (!projectId) throw new Error("projectId is required");
@@ -365,6 +371,8 @@ export const getProjectTasks = async (
     .order("position", { ascending: true });
 
   if (columnId) query = query.eq("column_id", columnId);
+  if (archiveMode === "active") query = query.is("archived_at", null);
+  if (archiveMode === "archived") query = query.not("archived_at", "is", null);
 
   const { data, error } = await query;
   if (error) throw error;
@@ -688,6 +696,7 @@ export const searchTaskInvitableUsers = async ({
 export const getProjectBoardData = async (
   organizationId: string,
   projectId: string,
+  archiveMode: TaskArchiveMode = "active",
 ): Promise<ProjectBoardData> => {
   if (!organizationId) throw new Error("organizationId is required");
   if (!projectId) throw new Error("projectId is required");
@@ -703,7 +712,7 @@ export const getProjectBoardData = async (
   ] = await Promise.all([
     getBoardById(organizationId, projectId),
     getBoardColumns(organizationId, projectId),
-    getProjectTasks(organizationId, projectId),
+    getProjectTasks(organizationId, projectId, undefined, archiveMode),
     getTaskRuntimeInfo(organizationId, projectId),
     getTaskWatcherCounts(organizationId, projectId),
     getTaskCommentCounts(organizationId, projectId),

@@ -215,15 +215,19 @@ export default function TaskDetailsModal({
   );
   const [activeTaskLiveSeconds, setActiveTaskLiveSeconds] = useState(0);
 
-  const [submissionType, setSubmissionType] = useState<string>("website");
+  const [submissionType, setSubmissionType] =
+    useState<TaskSubmissionType>("general");
   const [submissionLink, setSubmissionLink] = useState("");
   const [submissionTitle, setSubmissionTitle] = useState("");
   const [submissionNotes, setSubmissionNotes] = useState("");
   const [submissionFile, setSubmissionFile] = useState<File | null>(null);
-  const [reviewNote, setReviewNote] = useState("");
+  const [reviewNotes, setReviewNotes] = useState<Record<string, string>>({});
 
   const canReview =
-    currentUserRole === "admin" || currentUserRole === "manager";
+    currentUserRole === "admin" ||
+    currentUserRole === "manager" ||
+    task?.assigned_by === currentUserId ||
+    task?.created_by === currentUserId;
 
   useEffect(() => {
     setLiveTrackedSeconds(Number(trackedSeconds ?? 0));
@@ -416,19 +420,16 @@ export default function TaskDetailsModal({
   const handleCreateSubmission = async () => {
     if (!task) return;
 
-    const needsPhysicalFile =
-      submissionType === "media" || submissionType === "document";
-
     if (!submissionTitle.trim()) return;
 
-    if (needsPhysicalFile && !submissionFile) {
-      alert("Please upload a file for media or document submissions.");
+    if (!submissionFile && !submissionLink.trim() && !submissionNotes.trim()) {
+      alert("Upload a file, add a link, or write notes before submitting.");
       return;
     }
 
     await onCreateSubmission({
       taskId: task.id,
-      submissionType: submissionType as any,
+      submissionType,
       title: submissionTitle,
       notes: submissionNotes || null,
       linkUrl: submissionLink || null,
@@ -439,6 +440,25 @@ export default function TaskDetailsModal({
     setSubmissionLink("");
     setSubmissionNotes("");
     setSubmissionFile(null);
+  };
+
+  const handleSubmissionReview = async (
+    submissionId: string,
+    taskId: string,
+    decision: "approve" | "reject",
+  ) => {
+    const note = reviewNotes[submissionId]?.trim() || undefined;
+
+    if (decision === "approve") {
+      await onApproveSubmission(submissionId, taskId, note);
+    } else {
+      await onRejectSubmission(submissionId, taskId, note);
+    }
+
+    setReviewNotes((prev) => ({
+      ...prev,
+      [submissionId]: "",
+    }));
   };
 
   return (
@@ -1043,17 +1063,19 @@ export default function TaskDetailsModal({
                   </div>
 
                   <p className="mt-2 text-sm text-white/45">
-                    Submit work here for admin or manager approval. Media and
-                    document tasks can upload a real file.
+                    Submit images, PDFs, documents, links, or notes here for
+                    the task assigner to review.
                   </p>
 
                   <div className="mt-4 grid gap-3 md:grid-cols-2">
                     <select
                       value={submissionType}
-                      onChange={(e) => setSubmissionType(e.target.value)}
+                      onChange={(e) =>
+                        setSubmissionType(e.target.value as TaskSubmissionType)
+                      }
                       className="rounded-xl border border-white/10 bg-black px-4 py-3 text-white outline-none focus:border-orange-500"
                     >
-                      <option value="website">Website</option>
+                      <option value="website">Website / Link</option>
                       <option value="media">Media</option>
                       <option value="document">Document</option>
                       <option value="general">General</option>
@@ -1086,30 +1108,27 @@ export default function TaskDetailsModal({
                     />
                   </div>
 
-                  {(submissionType === "media" ||
-                    submissionType === "document" ||
-                    submissionType === "general") && (
-                    <div className="mt-3">
-                      <label className="mb-2 flex items-center gap-2 text-sm text-white/60">
-                        <Upload size={14} />
-                        Upload file
-                      </label>
+                  <div className="mt-3">
+                    <label className="mb-2 flex items-center gap-2 text-sm text-white/60">
+                      <Upload size={14} />
+                      Upload review item
+                    </label>
 
-                      <input
-                        type="file"
-                        onChange={(e) =>
-                          setSubmissionFile(e.target.files?.[0] ?? null)
-                        }
-                        className="block w-full rounded-xl border border-white/10 bg-black px-4 py-3 text-sm text-white file:mr-4 file:rounded-lg file:border-0 file:bg-orange-500 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-black"
-                      />
+                    <input
+                      type="file"
+                      accept="image/*,application/pdf,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.rar,.mp4,.mov,.mp3,.wav"
+                      onChange={(e) =>
+                        setSubmissionFile(e.target.files?.[0] ?? null)
+                      }
+                      className="block w-full rounded-xl border border-white/10 bg-black px-4 py-3 text-sm text-white file:mr-4 file:rounded-lg file:border-0 file:bg-orange-500 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-black"
+                    />
 
-                      {submissionFile ? (
-                        <p className="mt-2 text-xs text-white/50">
-                          Selected: {submissionFile.name}
-                        </p>
-                      ) : null}
-                    </div>
-                  )}
+                    {submissionFile ? (
+                      <p className="mt-2 text-xs text-white/50">
+                        Selected: {submissionFile.name}
+                      </p>
+                    ) : null}
+                  </div>
 
                   <div className="mt-4 flex flex-wrap gap-2">
                     <button
@@ -1141,6 +1160,9 @@ export default function TaskDetailsModal({
                               <p className="mt-1 text-xs text-white/45">
                                 {submission.submission_type} •{" "}
                                 {submission.approval_status}
+                                {submission.file_name
+                                  ? ` • ${submission.file_name}`
+                                  : ""}
                               </p>
                             </div>
 
@@ -1161,17 +1183,42 @@ export default function TaskDetailsModal({
                           ) : null}
 
                           {submission.signed_file_url ? (
-                            <a
-                              href={submission.signed_file_url}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="mt-2 block text-sm text-orange-400 underline"
-                            >
-                              Open file
-                              {submission.file_name
-                                ? ` (${submission.file_name})`
-                                : ""}
-                            </a>
+                            <div className="mt-3 space-y-3">
+                              {submission.mime_type?.startsWith("image/") ? (
+                                <a
+                                  href={submission.signed_file_url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="block overflow-hidden rounded-xl border border-white/10 bg-white/5"
+                                >
+                                  <img
+                                    src={submission.signed_file_url}
+                                    alt={submission.file_name || submission.title}
+                                    className="max-h-72 w-full object-contain"
+                                  />
+                                </a>
+                              ) : null}
+
+                              {submission.mime_type === "application/pdf" ? (
+                                <iframe
+                                  src={submission.signed_file_url}
+                                  title={submission.file_name || submission.title}
+                                  className="h-72 w-full rounded-xl border border-white/10 bg-white"
+                                />
+                              ) : null}
+
+                              <a
+                                href={submission.signed_file_url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="block text-sm text-orange-400 underline"
+                              >
+                                Open file
+                                {submission.file_name
+                                  ? ` (${submission.file_name})`
+                                  : ""}
+                              </a>
+                            </div>
                           ) : null}
 
                           {submission.notes ? (
@@ -1180,11 +1227,27 @@ export default function TaskDetailsModal({
                             </p>
                           ) : null}
 
+                          {submission.review_note ? (
+                            <div className="mt-3 rounded-xl border border-white/10 bg-white/5 px-4 py-3">
+                              <p className="text-xs font-semibold uppercase tracking-wide text-white/40">
+                                Review note
+                              </p>
+                              <p className="mt-2 whitespace-pre-wrap text-sm text-white/70">
+                                {submission.review_note}
+                              </p>
+                            </div>
+                          ) : null}
+
                           {canReview ? (
                             <div className="mt-4 space-y-3">
                               <textarea
-                                value={reviewNote}
-                                onChange={(e) => setReviewNote(e.target.value)}
+                                value={reviewNotes[submission.id] ?? ""}
+                                onChange={(e) =>
+                                  setReviewNotes((prev) => ({
+                                    ...prev,
+                                    [submission.id]: e.target.value,
+                                  }))
+                                }
                                 rows={3}
                                 className="w-full rounded-xl border border-white/10 bg-[#0b0d0f] px-4 py-3 text-white outline-none focus:border-orange-500"
                                 placeholder="Optional review note"
@@ -1195,10 +1258,10 @@ export default function TaskDetailsModal({
                                   type="button"
                                   disabled={busy || !task}
                                   onClick={() =>
-                                    void onApproveSubmission(
+                                    void handleSubmissionReview(
                                       submission.id,
                                       task.id,
-                                      reviewNote || undefined,
+                                      "approve",
                                     )
                                   }
                                   className="rounded-xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-black disabled:opacity-60"
@@ -1210,10 +1273,10 @@ export default function TaskDetailsModal({
                                   type="button"
                                   disabled={busy || !task}
                                   onClick={() =>
-                                    void onRejectSubmission(
+                                    void handleSubmissionReview(
                                       submission.id,
                                       task.id,
-                                      reviewNote || undefined,
+                                      "reject",
                                     )
                                   }
                                   className="rounded-xl bg-red-500 px-4 py-3 text-sm font-semibold text-black disabled:opacity-60"

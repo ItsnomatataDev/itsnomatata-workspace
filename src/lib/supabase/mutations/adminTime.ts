@@ -1,4 +1,55 @@
 import { supabase } from "../client";
+import type { TimeEntryItem } from "./timeEntries";
+import { sendNotification } from "../../../features/notifications/services/notificationService";
+
+function formatHours(seconds?: number | null) {
+  const hours = Math.max(0, Number(seconds ?? 0)) / 3600;
+  return `${hours.toFixed(hours >= 10 ? 1 : 2)}h`;
+}
+
+async function notifyTimeEntryDecision(
+  entry: TimeEntryItem,
+  status: "approved" | "rejected",
+  actorUserId?: string | null,
+) {
+  if (!entry.organization_id || !entry.user_id) return;
+
+  try {
+    await sendNotification({
+      organizationId: entry.organization_id,
+      userId: entry.user_id,
+      type: "approval_decision",
+      title:
+        status === "approved"
+          ? "Time entry approved"
+          : "Time entry sent back",
+      message:
+        status === "approved"
+          ? `Your ${formatHours(entry.duration_seconds)} time entry was approved.`
+          : `Your ${formatHours(entry.duration_seconds)} time entry was sent back for review.`,
+      entityType: "time_entry",
+      entityId: entry.id,
+      actionUrl: "/time",
+      priority: status === "approved" ? "medium" : "high",
+      referenceId: entry.id,
+      referenceType: "time_entry",
+      actorUserId: actorUserId ?? null,
+      category: "time_tracking",
+      dedupeKey: `time-entry-${status}:${entry.id}:${entry.approved_at ?? ""}`,
+      metadata: {
+        approvalStatus: status,
+        startedAt: entry.started_at,
+        endedAt: entry.ended_at,
+        durationSeconds: entry.duration_seconds,
+        taskId: entry.task_id,
+        projectId: entry.project_id,
+      },
+      channels: ["in_app", "email", "push"],
+    });
+  } catch (error) {
+    console.error("TIME ENTRY NOTIFICATION ERROR:", error);
+  }
+}
 
 export async function approveTimeEntry({
   entryId,
@@ -24,6 +75,7 @@ export async function approveTimeEntry({
     .single();
 
   if (error) throw error;
+  await notifyTimeEntryDecision(data as TimeEntryItem, "approved", approvedBy);
   return data;
 }
 
@@ -50,6 +102,11 @@ export async function rejectTimeEntry({
     .single();
 
   if (error) throw error;
+  await notifyTimeEntryDecision(
+    data as TimeEntryItem,
+    "rejected",
+    approvedBy ?? null,
+  );
   return data;
 }
 
@@ -78,5 +135,10 @@ export async function bulkApproveTimeEntries({
     .select();
 
   if (error) throw error;
+  await Promise.all(
+    (data ?? []).map((entry) =>
+      notifyTimeEntryDecision(entry as TimeEntryItem, "approved", approvedBy),
+    ),
+  );
   return data ?? [];
 }

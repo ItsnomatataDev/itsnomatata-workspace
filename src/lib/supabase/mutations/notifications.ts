@@ -2,6 +2,7 @@ import { supabase } from "../client";
 import type { NotificationRow } from "../queries/notifications";
 
 export type NotificationPriority = "low" | "medium" | "high" | "urgent";
+export type NotificationChannel = "in_app" | "email" | "push";
 
 export type NotificationType =
   | "general"
@@ -40,16 +41,7 @@ export type NotificationType =
   | "expense_rejected"
   | "task_collaboration_invite";
 
-export async function markNotificationAsRead(notificationId: string) {
-  const { data, error } = await supabase
-    .from("notifications")
-    .update({
-      is_read: true,
-      read_at: new Date().toISOString(),
-    })
-    .eq("id", notificationId)
-    .select(
-      `
+const NOTIFICATION_SELECT = `
       id,
       organization_id,
       user_id,
@@ -65,9 +57,25 @@ export async function markNotificationAsRead(notificationId: string) {
       metadata,
       reference_id,
       reference_type,
+      actor_user_id,
+      category,
+      dedupe_key,
+      delivery_state,
+      seen_at,
+      expires_at,
+      data,
       created_at
-      `,
-    )
+      `;
+
+export async function markNotificationAsRead(notificationId: string) {
+  const { data, error } = await supabase
+    .from("notifications")
+    .update({
+      is_read: true,
+      read_at: new Date().toISOString(),
+    })
+    .eq("id", notificationId)
+    .select(NOTIFICATION_SELECT)
     .single();
 
   if (error) throw error;
@@ -101,49 +109,52 @@ export async function createNotification(params: {
   metadata?: Record<string, unknown>;
   referenceId?: string | null;
   referenceType?: string | null;
+  actorUserId?: string | null;
+  category?: string | null;
+  dedupeKey?: string | null;
+  deliveryState?: "pending" | "processing" | "delivered" | "partial" | "failed";
 }) {
   console.log("Creating notification:", params);
 
+  const payload = {
+    organization_id: params.organizationId,
+    user_id: params.userId,
+    type: params.type,
+    title: params.title,
+    message: params.message ?? null,
+    entity_type: params.entityType ?? null,
+    entity_id: params.entityId ?? null,
+    action_url: params.actionUrl ?? null,
+    priority: params.priority ?? "medium",
+    metadata: params.metadata ?? {},
+    reference_id: params.referenceId ?? null,
+    reference_type: params.referenceType ?? null,
+    actor_user_id: params.actorUserId ?? null,
+    category: params.category ?? null,
+    dedupe_key: params.dedupeKey ?? null,
+    delivery_state: params.deliveryState ?? "pending",
+    is_read: false,
+  };
+
   const { data, error } = await supabase
     .from("notifications")
-    .insert({
-      organization_id: params.organizationId,
-      user_id: params.userId,
-      type: params.type,
-      title: params.title,
-      message: params.message ?? null,
-      entity_type: params.entityType ?? null,
-      entity_id: params.entityId ?? null,
-      action_url: params.actionUrl ?? null,
-      priority: params.priority ?? "medium",
-      metadata: params.metadata ?? {},
-      reference_id: params.referenceId ?? null,
-      reference_type: params.referenceType ?? null,
-      is_read: false,
-    })
-    .select(
-      `
-      id,
-      organization_id,
-      user_id,
-      type,
-      title,
-      message,
-      entity_type,
-      entity_id,
-      action_url,
-      is_read,
-      read_at,
-      priority,
-      metadata,
-      reference_id,
-      reference_type,
-      created_at
-      `,
-    )
+    .insert(payload)
+    .select(NOTIFICATION_SELECT)
     .single();
 
   if (error) {
+    if (params.dedupeKey && error.code === "23505") {
+      const { data: existing, error: existingError } = await supabase
+        .from("notifications")
+        .select(NOTIFICATION_SELECT)
+        .eq("user_id", params.userId)
+        .eq("dedupe_key", params.dedupeKey)
+        .maybeSingle();
+
+      if (existingError) throw existingError;
+      if (existing) return existing as NotificationRow;
+    }
+
     console.error("NOTIFICATION INSERT ERROR:", error);
     console.error("Error details:", {
       code: error.code,
@@ -171,6 +182,10 @@ export async function createBulkNotifications(params: {
   metadata?: Record<string, unknown>;
   referenceId?: string | null;
   referenceType?: string | null;
+  actorUserId?: string | null;
+  category?: string | null;
+  dedupeKey?: string | null;
+  deliveryState?: "pending" | "processing" | "delivered" | "partial" | "failed";
 }) {
   const uniqueUserIds = [...new Set(params.userIds)].filter(Boolean);
 
@@ -189,32 +204,17 @@ export async function createBulkNotifications(params: {
     metadata: params.metadata ?? {},
     reference_id: params.referenceId ?? null,
     reference_type: params.referenceType ?? null,
+    actor_user_id: params.actorUserId ?? null,
+    category: params.category ?? null,
+    dedupe_key: params.dedupeKey ? `${params.dedupeKey}:${userId}` : null,
+    delivery_state: params.deliveryState ?? "pending",
     is_read: false,
   }));
 
   const { data, error } = await supabase
     .from("notifications")
     .insert(payload)
-    .select(
-      `
-      id,
-      organization_id,
-      user_id,
-      type,
-      title,
-      message,
-      entity_type,
-      entity_id,
-      action_url,
-      is_read,
-      read_at,
-      priority,
-      metadata,
-      reference_id,
-      reference_type,
-      created_at
-      `,
-    );
+    .select(NOTIFICATION_SELECT);
 
   if (error) throw error;
   return (data ?? []) as NotificationRow[];

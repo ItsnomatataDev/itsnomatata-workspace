@@ -3,6 +3,7 @@ import type {
   BoardColumnWithTasks,
   BoardTask,
   ProjectBoardData,
+  TaskArchiveMode,
   TaskCommentItem,
   TaskInvitableUser,
   TaskItem,
@@ -43,6 +44,7 @@ type UseTasksParams = {
   assignedTo?: string;
   organizationId?: string | null;
   projectId?: string | null;
+  archiveMode?: TaskArchiveMode;
 };
 
 type TaskChecklistItem = {
@@ -90,7 +92,8 @@ function buildInvitedMap(tasks: Array<TaskItem | BoardTask>) {
 }
 
 export function useTasks(params: UseTasksParams) {
-  const { assignedTo, organizationId, projectId } = params;
+  const { assignedTo, organizationId, projectId, archiveMode = "active" } =
+    params;
 
   const [tasks, setTasks] = useState<TaskItem[]>([]);
   const [boardColumns, setBoardColumns] = useState<BoardColumnWithTasks[]>([]);
@@ -139,6 +142,7 @@ export function useTasks(params: UseTasksParams) {
         const boardData: ProjectBoardData = await getProjectBoardData(
           organizationId,
           projectId,
+          archiveMode,
         );
 
         const nextBoardColumns = boardData.columns.map((column) => ({
@@ -163,7 +167,7 @@ export function useTasks(params: UseTasksParams) {
       const [items, runtimeInfo, watcherCounts, trackedTime] = await Promise
         .all(
           [
-            getTasks({ assignedTo, organizationId }),
+            getTasks({ assignedTo, organizationId, archiveMode }),
             getTaskRuntimeInfo(organizationId),
             getTaskWatcherCounts(organizationId),
             getTrackedTimeByTask(organizationId),
@@ -204,7 +208,7 @@ export function useTasks(params: UseTasksParams) {
     } finally {
       setLoading(false);
     }
-  }, [assignedTo, organizationId, projectId]);
+  }, [archiveMode, assignedTo, organizationId, projectId]);
 
   useEffect(() => {
     void refetch();

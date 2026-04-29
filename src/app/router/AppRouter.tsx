@@ -32,6 +32,7 @@ import AdminRosterPage from "../../features/admin/pages/AdminRosterPage";
 import DutyRosterViewPage from "../../features/admin/pages/DutyRosterViewPage";
 import AdminEmployeesPage from "../../features/admin/pages/AdminEmployeesPage";
 import AdminEmployeeDetailsPage from "../../features/admin/pages/AdminEmployeeDetailsPage";
+import AdminNotificationsPage from "../../features/admin/pages/AdminNotificationsPage";
 import NotificationsPage from "../../features/notifications/pages/NotificationsPage";
 import ChatPage from "../../features/chat/pages/ChatPage";
 import MeetingsPage from "../../features/meetings/pages/MeetingsPage";
@@ -416,6 +417,16 @@ const AppRouter = () => {
           element={
             <ProtectedRoute>
               <NotificationsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/notification-deliveries"
+          element={
+            <ProtectedRoute>
+              <RoleRoute roles={["admin", "manager", "it"]}>
+                <AdminNotificationsPage />
+              </RoleRoute>
             </ProtectedRoute>
           }
         />

@@ -57,3 +57,34 @@ export async function getTaskSubmissionSignedUrl(filePath: string) {
 
   return data?.signedUrl ?? null;
 }
+
+export async function findFirstTaskSubmissionFile(params: {
+  organizationId: string;
+  taskId: string;
+  submissionId: string;
+}) {
+  const folderPath =
+    `${params.organizationId}/${params.taskId}/${params.submissionId}`;
+
+  const { data, error } = await supabase.storage
+    .from(BUCKET)
+    .list(folderPath, {
+      limit: 1,
+      sortBy: {
+        column: "created_at",
+        order: "desc",
+      },
+    });
+
+  if (error) throw error;
+
+  const file = data?.find((item) => item.name && item.id);
+  if (!file) return null;
+
+  return {
+    filePath: `${folderPath}/${file.name}`,
+    fileName: file.name,
+    mimeType: file.metadata?.mimetype as string | null | undefined,
+    fileSize: file.metadata?.size as number | null | undefined,
+  };
+}

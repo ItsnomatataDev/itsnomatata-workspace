@@ -1,5 +1,6 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  Archive,
   CheckSquare,
   ClipboardPlus,
   LayoutGrid,
@@ -29,6 +30,7 @@ import {
   type TaskSubmissionType,
 } from "../../../lib/supabase/queries/taskSubmissions";
 import { useTimeEntries } from "../../../lib/hooks/useTimeEntries";
+import { supabase } from "../../../lib/supabase/client";
 import {
   getTaskClientInvites,
   inviteClientToTask,
@@ -56,6 +58,9 @@ export default function TasksWorkspacePage({
   const auth = useAuth();
   const [busy, setBusy] = useState(false);
   const [boardMode, setBoardMode] = useState<BoardMode>(defaultBoardMode);
+  const [archiveMode, setArchiveMode] = useState<"active" | "archived">(
+    "active",
+  );
   const [selectedTaskSubmissions, setSelectedTaskSubmissions] = useState<
     TaskSubmissionItem[]
   >([]);
@@ -102,6 +107,7 @@ export default function TasksWorkspacePage({
       boardMode === "mine" && !projectId && user ? currentUserId : undefined,
     organizationId,
     projectId,
+    archiveMode,
   });
 
   const {
@@ -162,22 +168,128 @@ export default function TasksWorkspacePage({
     );
   }, [currentUserId, currentUserRole, selectedTask]);
 
-  const handleLoadTaskSubmissions = async (taskId: string) => {
+  const handleLoadTaskSubmissions = useCallback(async (taskId: string) => {
     const submissions = await getTaskSubmissions(taskId);
     setSelectedTaskSubmissions(submissions);
-  };
+  }, []);
 
-  const handleLoadTaskClientInvites = async (taskId: string) => {
+  const handleLoadTaskClientInvites = useCallback(async (taskId: string) => {
     const invites = await getTaskClientInvites(taskId);
     setSelectedTaskClientInvites(invites);
-  };
+  }, []);
 
-  const handleOpenTaskWithExtras = async (taskId: string) => {
+  const handleOpenTaskWithExtras = useCallback(async (taskId: string) => {
     await openTask(taskId);
     await handleLoadTaskSubmissions(taskId);
     await handleLoadTaskClientInvites(taskId);
     await refreshTaskEntries();
-  };
+  }, [
+    handleLoadTaskClientInvites,
+    handleLoadTaskSubmissions,
+    openTask,
+    refreshTaskEntries,
+  ]);
+
+  useEffect(() => {
+    if (!currentOrganizationId) return;
+
+    let refreshTimeout: number | null = null;
+
+    const scheduleRefresh = () => {
+      if (refreshTimeout !== null) {
+        window.clearTimeout(refreshTimeout);
+      }
+
+      refreshTimeout = window.setTimeout(() => {
+        void refetch();
+        void refreshTaskEntries();
+
+        if (selectedTask?.id) {
+          void handleOpenTaskWithExtras(selectedTask.id);
+        }
+      }, 250);
+    };
+
+    const channel = supabase
+      .channel(
+        `tasks-workspace-sync:${currentOrganizationId}:${projectId ?? "all"}`,
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "tasks",
+          filter: `organization_id=eq.${currentOrganizationId}`,
+        },
+        scheduleRefresh,
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "task_comments",
+          filter: `organization_id=eq.${currentOrganizationId}`,
+        },
+        scheduleRefresh,
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "task_submissions",
+          filter: `organization_id=eq.${currentOrganizationId}`,
+        },
+        scheduleRefresh,
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "task_checklists",
+          filter: `organization_id=eq.${currentOrganizationId}`,
+        },
+        scheduleRefresh,
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "task_checklist_items",
+          filter: `organization_id=eq.${currentOrganizationId}`,
+        },
+        scheduleRefresh,
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "time_entries",
+          filter: `organization_id=eq.${currentOrganizationId}`,
+        },
+        scheduleRefresh,
+      )
+      .subscribe();
+
+    return () => {
+      if (refreshTimeout !== null) {
+        window.clearTimeout(refreshTimeout);
+      }
+      supabase.removeChannel(channel);
+    };
+  }, [
+    currentOrganizationId,
+    handleOpenTaskWithExtras,
+    projectId,
+    refetch,
+    refreshTaskEntries,
+    selectedTask?.id,
+  ]);
 
  const handleCreateTask = async (values: TaskFormValues) => {
    try {
@@ -814,33 +926,54 @@ export default function TasksWorkspacePage({
                   </p>
                 </div>
 
-                {allowModeSwitch && !projectId ? (
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setBoardMode("organization")}
-                      className={`rounded-2xl px-4 py-3 text-sm font-medium transition ${
-                        boardMode === "organization"
-                          ? "bg-orange-500 text-black"
-                          : "border border-white/10 bg-white/5 text-white/70"
-                      }`}
-                    >
-                      Organization Board
-                    </button>
+                <div className="flex flex-wrap gap-2">
+                  {allowModeSwitch && !projectId ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setBoardMode("organization")}
+                        className={`rounded-2xl px-4 py-3 text-sm font-medium transition ${
+                          boardMode === "organization"
+                            ? "bg-orange-500 text-black"
+                            : "border border-white/10 bg-white/5 text-white/70"
+                        }`}
+                      >
+                        Organization Board
+                      </button>
 
-                    <button
-                      type="button"
-                      onClick={() => setBoardMode("mine")}
-                      className={`rounded-2xl px-4 py-3 text-sm font-medium transition ${
-                        boardMode === "mine"
-                          ? "bg-orange-500 text-black"
-                          : "border border-white/10 bg-white/5 text-white/70"
-                      }`}
-                    >
-                      My Tasks
-                    </button>
-                  </div>
-                ) : null}
+                      <button
+                        type="button"
+                        onClick={() => setBoardMode("mine")}
+                        className={`rounded-2xl px-4 py-3 text-sm font-medium transition ${
+                          boardMode === "mine"
+                            ? "bg-orange-500 text-black"
+                            : "border border-white/10 bg-white/5 text-white/70"
+                        }`}
+                      >
+                        My Tasks
+                      </button>
+                    </>
+                  ) : null}
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setArchiveMode((current) =>
+                        current === "active" ? "archived" : "active",
+                      )
+                    }
+                    className={`inline-flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-medium transition ${
+                      archiveMode === "archived"
+                        ? "bg-white text-black"
+                        : "border border-white/10 bg-white/5 text-white/70"
+                    }`}
+                  >
+                    <Archive size={16} />
+                    {archiveMode === "archived"
+                      ? "Showing Archived"
+                      : "Archived Cards"}
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -918,11 +1051,13 @@ export default function TasksWorkspacePage({
                 <div>
                   <h2 className="text-lg font-semibold">Board</h2>
                   <p className="text-sm text-white/50">
-                    {projectId
-                      ? "Real project board columns"
-                      : boardMode === "organization"
-                        ? "Shared board for the organization"
-                        : "Only tasks assigned to you"}
+                    {archiveMode === "archived"
+                      ? "Archived cards kept out of the active workflow"
+                      : projectId
+                        ? "Real project board columns"
+                        : boardMode === "organization"
+                          ? "Shared board for the organization"
+                          : "Only tasks assigned to you"}
                   </p>
                 </div>
               </div>

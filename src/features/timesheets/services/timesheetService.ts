@@ -1,5 +1,9 @@
 import { supabase } from "../../../lib/supabase/client";
 import type { TimesheetSubmissionRow } from "../../../lib/supabase/queries/timesheets";
+import {
+  sendBulkNotifications,
+  sendNotification,
+} from "../../notifications/services/notificationService";
 
 export type TimesheetSubmission = TimesheetSubmissionRow;
 
@@ -35,6 +39,91 @@ export interface RejectTimesheetPayload {
   notes?: string | null;
 }
 
+async function getTimesheetApproverIds(organizationId: string, submitterId: string) {
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("id")
+    .eq("organization_id", organizationId)
+    .in("primary_role", ["admin", "manager"])
+    .neq("id", submitterId);
+
+  if (error) throw error;
+  return (data ?? []).map((row) => row.id as string).filter(Boolean);
+}
+
+async function notifyTimesheetSubmitted(timesheet: TimesheetSubmission) {
+  try {
+    const approverIds = await getTimesheetApproverIds(
+      timesheet.organization_id,
+      timesheet.user_id,
+    );
+
+    if (approverIds.length === 0) return;
+
+    await sendBulkNotifications({
+      organizationId: timesheet.organization_id,
+      userIds: approverIds,
+      type: "approval_needed",
+      title: "Timesheet submitted",
+      message: `A timesheet for ${timesheet.week_start} to ${timesheet.week_end} is ready for review.`,
+      entityType: "timesheet_submission",
+      entityId: timesheet.id,
+      actionUrl: "/timesheets/team",
+      priority: "medium",
+      referenceId: timesheet.id,
+      referenceType: "timesheet_submission",
+      actorUserId: timesheet.user_id,
+      category: "time_tracking",
+      dedupeKey: `timesheet-submitted:${timesheet.id}`,
+      metadata: {
+        weekStart: timesheet.week_start,
+        weekEnd: timesheet.week_end,
+        submitterUserId: timesheet.user_id,
+      },
+      channels: ["in_app", "email", "push"],
+    });
+  } catch (error) {
+    console.error("TIMESHEET SUBMITTED NOTIFICATION ERROR:", error);
+  }
+}
+
+async function notifyTimesheetDecision(
+  timesheet: TimesheetSubmission,
+  decision: "approved" | "rejected",
+  approverId: string,
+) {
+  try {
+    await sendNotification({
+      organizationId: timesheet.organization_id,
+      userId: timesheet.user_id,
+      type: "approval_decision",
+      title:
+        decision === "approved" ? "Timesheet approved" : "Timesheet rejected",
+      message:
+        decision === "approved"
+          ? `Your timesheet for ${timesheet.week_start} to ${timesheet.week_end} was approved.`
+          : `Your timesheet for ${timesheet.week_start} to ${timesheet.week_end} was rejected.${timesheet.notes ? ` ${timesheet.notes}` : ""}`,
+      entityType: "timesheet_submission",
+      entityId: timesheet.id,
+      actionUrl: "/timesheets",
+      priority: decision === "approved" ? "medium" : "high",
+      referenceId: timesheet.id,
+      referenceType: "timesheet_submission",
+      actorUserId: approverId,
+      category: "time_tracking",
+      dedupeKey: `timesheet-${decision}:${timesheet.id}:${timesheet.updated_at}`,
+      metadata: {
+        decision,
+        weekStart: timesheet.week_start,
+        weekEnd: timesheet.week_end,
+      },
+      channels: ["in_app", "email", "push"],
+    });
+  } catch (error) {
+    console.error("TIMESHEET DECISION NOTIFICATION ERROR:", error);
+  }
+}
+
 export async function createTimesheet(
   payload: CreateTimesheetPayload,
 ): Promise<TimesheetSubmission> {
@@ -60,7 +149,9 @@ export async function createTimesheet(
     .single();
 
   if (error) throw error;
-  return data as TimesheetSubmission;
+  const timesheet = data as TimesheetSubmission;
+  await notifyTimesheetSubmitted(timesheet);
+  return timesheet;
 }
 
 export async function updateTimesheet(
@@ -107,7 +198,9 @@ export async function submitTimesheet(
     .single();
 
   if (error) throw error;
-  return data as TimesheetSubmission;
+  const timesheet = data as TimesheetSubmission;
+  await notifyTimesheetSubmitted(timesheet);
+  return timesheet;
 }
 
 export async function approveTimesheet(
@@ -133,7 +226,9 @@ export async function approveTimesheet(
     .single();
 
   if (error) throw error;
-  return data as TimesheetSubmission;
+  const timesheet = data as TimesheetSubmission;
+  await notifyTimesheetDecision(timesheet, "approved", approverId);
+  return timesheet;
 }
 
 export async function rejectTimesheet(
@@ -160,7 +255,9 @@ export async function rejectTimesheet(
     .single();
 
   if (error) throw error;
-  return data as TimesheetSubmission;
+  const timesheet = data as TimesheetSubmission;
+  await notifyTimesheetDecision(timesheet, "rejected", approverId);
+  return timesheet;
 }
 
 export async function getTimesheetsForUser(

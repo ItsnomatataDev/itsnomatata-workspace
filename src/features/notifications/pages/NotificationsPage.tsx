@@ -13,12 +13,18 @@ import {
   Video,
   Zap,
   RefreshCw,
+  Smartphone,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import Sidebar from "../../../components/dashboard/components/Sidebar";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import { useNotifications } from "../../../lib/hooks/useNotifications";
 import { sendNotification } from "../services/notificationService";
+import {
+  getPushConfigurationError,
+  getPushSupportError,
+  registerPushNotifications,
+} from "../services/pushService";
 import type { NotificationItem } from "../services/notificationService";
 
 type NotificationCategory =
@@ -267,24 +273,26 @@ function NotificationCard({
 
 export default function NotificationsPage() {
   const auth = useAuth();
-const currentUser = auth?.user ?? null;
-const currentProfile = auth?.profile ?? null;
-const userId = currentProfile?.id ?? null;
-const role = currentProfile?.primary_role ?? "social_media";
+  const currentUser = auth?.user ?? null;
+  const currentProfile = auth?.profile ?? null;
+  const userId = currentProfile?.id ?? null;
+  const role = currentProfile?.primary_role ?? "social_media";
 
-const {
-  notifications,
-  unreadCount,
-  loading,
-  error,
-  reload,
-  markOneAsRead,
-  markEverythingAsRead,
-} = useNotifications(userId);
+  const {
+    notifications,
+    unreadCount,
+    loading,
+    error,
+    reload,
+    markOneAsRead,
+    markEverythingAsRead,
+  } = useNotifications(userId);
+
   const [activeCategory, setActiveCategory] =
     useState<NotificationCategory>("all");
   const [showUnreadOnly, setShowUnreadOnly] = useState(false);
   const [testingNotification, setTestingNotification] = useState(false);
+  const [enablingPush, setEnablingPush] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [testMessage, setTestMessage] = useState("");
   const [testError, setTestError] = useState("");
@@ -327,58 +335,111 @@ const {
     return counts;
   }, [enriched]);
 
-async function handleRefresh() {
-  try {
-    setRefreshing(true);
-    await reload();
-  } finally {
-    setRefreshing(false);
+  async function handleRefresh() {
+    try {
+      setRefreshing(true);
+      await reload();
+    } finally {
+      setRefreshing(false);
+    }
   }
-}
 
- async function handleSendTestNotification() {
-   if (!organizationId) {
-     setTestError("Missing organization ID on your profile.");
-     return;
-   }
+  async function handleEnablePush() {
+    if (!organizationId) {
+      setTestError("Missing organization ID on your profile.");
+      return;
+    }
 
-   if (!userId) {
-     setTestError("Missing user ID.");
-     return;
-   }
+    if (!userId) {
+      setTestError("Missing user ID.");
+      return;
+    }
 
-   try {
-     setTestingNotification(true);
-     setTestError("");
-     setTestMessage("");
+    const supportError = getPushSupportError();
+    if (supportError) {
+      setTestError(supportError);
+      return;
+    }
 
-     await sendNotification({
-       organizationId,
-       userId,
-       type: "system_alert",
-       title: "System notification test",
-       message:
-         "This is a live test confirming the notification system is active.",
-       actionUrl: "/notifications",
-       priority: "high",
-       sendEmail: true,
-       metadata: {
-         source: "notifications_test_button",
-         triggered_at: new Date().toISOString(),
-       },
-     });
+    const configurationError = getPushConfigurationError();
+    if (configurationError) {
+      setTestError(configurationError);
+      return;
+    }
 
-     await reload();
+    try {
+      setEnablingPush(true);
+      setTestError("");
+      setTestMessage("");
 
-     setTestMessage(
-       "Test notification sent. It should appear in the list and bell above.",
-     );
-   } catch (err: any) {
-     setTestError(err?.message || "Failed to send test notification.");
-   } finally {
-     setTestingNotification(false);
-   }
- }
+      await registerPushNotifications({
+        userId,
+        organizationId,
+      });
+
+      setTestMessage("Push notifications enabled for this device.");
+    } catch (err: unknown) {
+      setTestError(
+        err instanceof Error
+          ? err.message
+          : "Failed to enable push notifications. Check browser permissions and push_subscriptions RLS.",
+      );
+    } finally {
+      setEnablingPush(false);
+    }
+  }
+
+  async function handleSendTestNotification() {
+    if (!organizationId) {
+      setTestError("Missing organization ID on your profile.");
+      return;
+    }
+
+    if (!userId) {
+      setTestError("Missing user ID.");
+      return;
+    }
+
+    try {
+      setTestingNotification(true);
+      setTestError("");
+      setTestMessage("");
+
+      await sendNotification({
+        organizationId,
+        userId,
+        type: "system_alert",
+        title: "System notification test",
+        message:
+          "This is a live test confirming the notification system is active.",
+        actionUrl: "/notifications",
+        priority: "high",
+        sendEmail: true,
+        metadata: {
+          source: "notifications_test_button",
+          triggered_at: new Date().toISOString(),
+          push_test: true,
+        },
+        category: "system",
+        dedupeKey: `notification-test:${userId}:${Date.now()}`,
+        channels: ["in_app", "email", "push"],
+      });
+
+      await reload();
+
+      setTestMessage(
+        "Test notification sent. Check the list, bell, email inbox, push popup, and delivery logs.",
+      );
+    } catch (err: unknown) {
+      setTestError(
+        err instanceof Error
+          ? err.message
+          : "Failed to send test notification. If this mentions RLS, confirm notification insert and delivery policies are applied.",
+      );
+    } finally {
+      setTestingNotification(false);
+    }
+  }
 
   return (
     <div className="min-h-screen bg-black text-white">
@@ -445,6 +506,7 @@ async function handleRefresh() {
               <p>Unread count: {unreadCount}</p>
               <p>Loading: {loading ? "yes" : "no"}</p>
             </div>
+
             {error ? (
               <p className="mt-3 text-red-300">Hook error: {error}</p>
             ) : null}
@@ -521,7 +583,9 @@ async function handleRefresh() {
                 <p className="mt-2 text-sm text-white/45">
                   {activeCategory === "all"
                     ? "Activity across the system will appear here."
-                    : `No ${CATEGORY_META[activeCategory].label.toLowerCase()} notifications yet.`}
+                    : `No ${CATEGORY_META[
+                        activeCategory
+                      ].label.toLowerCase()} notifications yet.`}
                 </p>
               </div>
             ) : (
@@ -547,18 +611,31 @@ async function handleRefresh() {
                   </div>
                   <p className="mt-2 text-sm text-white/55">
                     Sends a live system alert to this account, tests realtime
-                    delivery, and triggers the n8n email webhook.
+                    delivery, triggers the n8n email webhook, and can trigger
+                    push once the Edge Function is connected.
                   </p>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => void handleSendTestNotification()}
-                  disabled={testingNotification}
-                  className="border border-orange-500 bg-orange-500 px-5 py-2.5 text-sm font-semibold text-black transition hover:bg-orange-400 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {testingNotification ? "Sending..." : "Send test"}
-                </button>
+                <div className="flex flex-wrap gap-3">
+                  <button
+                    type="button"
+                    onClick={() => void handleEnablePush()}
+                    disabled={enablingPush}
+                    className="inline-flex items-center gap-2 border border-white/10 bg-white/5 px-5 py-2.5 text-sm font-semibold text-white/70 transition hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <Smartphone size={15} />
+                    {enablingPush ? "Enabling..." : "Enable push"}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => void handleSendTestNotification()}
+                    disabled={testingNotification}
+                    className="border border-orange-500 bg-orange-500 px-5 py-2.5 text-sm font-semibold text-black transition hover:bg-orange-400 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {testingNotification ? "Sending..." : "Send test"}
+                  </button>
+                </div>
               </div>
 
               {testMessage ? (
@@ -573,7 +650,7 @@ async function handleRefresh() {
                 </div>
               ) : null}
 
-              <div className="mt-4 grid gap-3 text-sm text-white/55 sm:grid-cols-4">
+              <div className="mt-4 grid gap-3 text-sm text-white/55 sm:grid-cols-5">
                 {(
                   [
                     ["1. DB row", "Notification should appear in the table."],
@@ -583,6 +660,10 @@ async function handleRefresh() {
                     ],
                     ["3. n8n", "Email webhook execution should appear."],
                     ["4. Email", "Message should arrive in the inbox."],
+                    [
+                      "5. Push",
+                      "Browser push should arrive if enabled and Edge Function is connected.",
+                    ],
                   ] as [string, string][]
                 ).map(([title, desc]) => (
                   <div

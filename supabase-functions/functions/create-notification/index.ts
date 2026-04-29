@@ -15,6 +15,8 @@ type CreateNotificationBody = {
   metadata?: Record<string, unknown>;
   referenceId?: string | null;
   referenceType?: string | null;
+  actorUserId?: string | null;
+  category?: string | null;
   dedupeKey?: string | null;
 };
 
@@ -115,11 +117,23 @@ Deno.serve(async (req) => {
         .eq("status", "active")
         .maybeSingle();
 
-      if (membershipError || !membership) {
+      const { data: profileMembership, error: profileMembershipError } =
+        await supabase
+          .from("profiles")
+          .select("id")
+          .eq("id", authData.user.id)
+          .eq("organization_id", organizationId)
+          .maybeSingle();
+
+      if (
+        membershipError ||
+        profileMembershipError ||
+        (!membership && !profileMembership)
+      ) {
         return jsonResponse(
           {
             error:
-              "Forbidden: user is not an active member of this organization",
+              "Forbidden: user is not a member of this organization",
           },
           403,
         );
@@ -207,7 +221,18 @@ Deno.serve(async (req) => {
       },
       reference_id: body.referenceId?.trim() || null,
       reference_type: body.referenceType?.trim() || null,
+      actor_user_id:
+        body.actorUserId?.trim() ||
+        (typeof body.metadata?.senderId === "string"
+          ? body.metadata.senderId
+          : null),
+      category:
+        body.category?.trim() ||
+        (typeof body.metadata?.category === "string"
+          ? body.metadata.category
+          : null),
       dedupe_key: dedupeKey,
+      delivery_state: "delivered",
       is_read: false,
     }));
 

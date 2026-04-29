@@ -105,15 +105,15 @@ export function NotificationProvider({
           if (!incoming.is_read) {
             setUnreadCount((prev) => prev + 1);
 
-            // Show toast notification for new notification
-            toast.info(incoming.message || incoming.title, {
-              onClick: () => {
-                // Navigate to action URL if available
-                if (incoming.action_url) {
-                  window.location.href = incoming.action_url;
-                }
-              },
-            });
+            if (navigator.onLine) {
+              toast.info(incoming.message || incoming.title, {
+                onClick: () => {
+                  if (incoming.action_url) {
+                    window.location.href = incoming.action_url;
+                  }
+                },
+              });
+            }
           }
         },
       )
@@ -140,6 +140,8 @@ export function NotificationProvider({
 
             if (!existing.is_read && updated.is_read) {
               setUnreadCount((count) => Math.max(0, count - 1));
+            } else if (existing.is_read && !updated.is_read) {
+              setUnreadCount((count) => count + 1);
             }
 
             return prev.map((item) =>

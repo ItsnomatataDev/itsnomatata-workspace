@@ -205,7 +205,7 @@ export async function joinMeeting(params: {
 
   const { data: existingParticipant, error: existingError } = await supabase
     .from("meeting_participants")
-    .select("id, role")
+    .select("id, role, joined_at, left_at")
     .eq("meeting_id", params.meetingId)
     .eq("user_id", params.userId)
     .maybeSingle();
@@ -213,6 +213,8 @@ export async function joinMeeting(params: {
   if (existingError) throw existingError;
 
   const role = existingParticipant?.role === "host" ? "host" : "participant";
+  const shouldNotifyJoined =
+    !existingParticipant?.joined_at || Boolean(existingParticipant.left_at);
 
   const { error } = await supabase
     .from("meeting_participants")
@@ -229,7 +231,8 @@ export async function joinMeeting(params: {
 
   if (error) throw error;
 
-  // Notify other participants that someone joined
+  if (!shouldNotifyJoined) return;
+
   try {
     const { data: meetingData } = await supabase
       .from("meetings")
@@ -273,6 +276,8 @@ export async function joinMeeting(params: {
             joinerId: params.userId,
             joinerName,
           },
+          category: "meetings",
+          dedupeKey: `meeting-join:${params.meetingId}:${params.userId}:${new Date().toISOString().slice(0, 10)}`,
         });
       }
     }

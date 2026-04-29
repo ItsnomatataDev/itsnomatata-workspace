@@ -6,8 +6,11 @@ import {
 import type { TaskStatus } from "../queries/tasks";
 import type { TaskSubmissionItem } from "../queries/taskSubmissions";
 import { getTrackedTimeByTask } from "../queries/tasks";
-import { notifyTaskEvent } from "../mutations/notifications";
-import { notifyTaskAssigned } from "../../../features/notifications/services/notificationOrchestrationService";
+import {
+  notifyTaskAssigned,
+  notifyTaskCollaborators,
+  notifyTaskCommented,
+} from "../../../features/notifications/services/notificationOrchestrationService";
 
 export interface CreateTaskCommentPayload {
   organizationId: string;
@@ -59,6 +62,33 @@ export async function createTaskComment(
     .single();
 
   if (error) throw error;
+
+  try {
+    const { data: task } = await supabase
+      .from("tasks")
+      .select("id, title, assigned_to, created_by")
+      .eq("id", taskId)
+      .maybeSingle();
+
+    const { data: watcherRows } = await supabase
+      .from("task_watchers")
+      .select("user_id")
+      .eq("task_id", taskId);
+
+    await notifyTaskCommented({
+      organizationId,
+      taskId,
+      commentId: data.id,
+      taskTitle: task?.title ?? "Untitled task",
+      authorUserId: userId,
+      extraUserIds: (watcherRows ?? [])
+        .map((row) => row.user_id as string | null)
+        .filter((id): id is string => Boolean(id)),
+    });
+  } catch (notificationError) {
+    console.error("TASK COMMENT NOTIFICATION ERROR:", notificationError);
+  }
+
   return data;
 }
 
@@ -125,21 +155,13 @@ export async function createCardInviteNotification(params: {
 }) {
   const { organizationId, userId, taskId, invitedBy, taskTitle } = params;
 
-  const { error } = await supabase.from("notifications").insert({
-    organization_id: organizationId,
-    user_id: userId,
-    type: "task_assigned",
-    title: "You were invited to a card",
-    message: `You were invited to collaborate on "${taskTitle}".`,
-    data: {
-      task_id: taskId,
-      invited_by: invitedBy,
-      task_title: taskTitle,
-    },
-    is_read: false,
+  return notifyTaskCollaborators({
+    organizationId,
+    userIds: [userId],
+    taskId,
+    taskTitle,
+    actorUserId: invitedBy,
   });
-
-  if (error) throw error;
 }
 
 export async function removeTaskWatcher(params: {
@@ -401,17 +423,33 @@ export async function createTask(payload: CreateTaskPayload): Promise<TaskRow> {
       })),
     );
 
-    // Send notifications to assignees
     try {
-      await notifyTaskEvent({
+      await Promise.all(
+        assigneeIds
+          .filter((userId) => userId !== payload.created_by)
+          .map((userId) =>
+            notifyTaskAssigned({
+              organizationId,
+              userId,
+              taskId: data.id,
+              taskTitle: data.title,
+              actorUserId: payload.created_by ?? payload.assigned_by ?? null,
+            }),
+          ),
+      );
+    } catch (notifError) {
+      console.error("Failed to send task assignment notification:", notifError);
+    }
+  }
+
+  if (data.assigned_to && data.assigned_to !== data.created_by) {
+    try {
+      await notifyTaskAssigned({
         organizationId,
-        userIds: assigneeIds,
+        userId: data.assigned_to,
         taskId: data.id,
-        event: "assigned",
-        title: "New task assigned",
-        message: `You were assigned to "${insertPayload.title}"`,
-        priority: "high",
-        actionUrl: `/tasks/${data.id}`,
+        taskTitle: data.title,
+        actorUserId: data.created_by ?? data.assigned_by ?? null,
       });
     } catch (notifError) {
       console.error("Failed to send task assignment notification:", notifError);
@@ -447,6 +485,12 @@ export async function updateTask(
     throw new Error("At least one task field is required");
   }
 
+  const { data: existingTask } = await supabase
+    .from("tasks")
+    .select("id, assigned_to, created_by")
+    .eq("id", taskId)
+    .maybeSingle();
+
   let query = supabase.from("tasks").update(updatePayload).eq("id", taskId);
 
   if (organizationId) {
@@ -477,18 +521,40 @@ export async function updateTask(
 
       // Notify all (re)assigned users
       try {
-        const assigneeNotifications = fields.assigneeIds.map((userId) =>
-          notifyTaskAssigned({
-            organizationId: assigneeOrganizationId,
-            userId,
-            taskId,
-            taskTitle: data.title,
-          }),
-        );
+        const assigneeNotifications = fields.assigneeIds
+          .filter((userId) => userId !== data.created_by)
+          .map((userId) =>
+            notifyTaskAssigned({
+              organizationId: assigneeOrganizationId,
+              userId,
+              taskId,
+              taskTitle: data.title,
+              actorUserId: data.assigned_by ?? data.created_by ?? null,
+            }),
+          );
         await Promise.all(assigneeNotifications);
       } catch (notifError) {
         console.error("Failed to send task assignment notifications:", notifError);
       }
+    }
+  }
+
+  if (
+    fields.assigned_to &&
+    fields.assigned_to !== existingTask?.assigned_to &&
+    fields.assigned_to !== data.created_by &&
+    fields.assigned_to !== fields.assigned_by
+  ) {
+    try {
+      await notifyTaskAssigned({
+        organizationId: organizationId ?? data.organization_id,
+        userId: fields.assigned_to,
+        taskId,
+        taskTitle: data.title,
+        actorUserId: fields.assigned_by ?? data.created_by ?? null,
+      });
+    } catch (notifError) {
+      console.error("Failed to send task assignment notification:", notifError);
     }
   }
 
