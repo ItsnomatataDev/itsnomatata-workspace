@@ -552,6 +552,46 @@ export default function ChatPage() {
     }
   }
 
+  async function handleSendFile(file: File) {
+    if (!user?.id || !activeConversationId) return;
+
+    try {
+      setSending(true);
+      setError("");
+
+      const uploaded = await uploadChatAttachment({
+        file,
+        conversationId: activeConversationId,
+        userId: user.id,
+      });
+
+      const sentMessage = await sendMessage({
+        conversationId: activeConversationId,
+        userId: user.id,
+        messageType: "file",
+        attachmentUrl: uploaded.publicUrl,
+        attachmentName: uploaded.fileName,
+      });
+
+      if (sentMessage) {
+        setMessages((current) => {
+          const exists = current.some(
+            (message) => message.id === sentMessage.id,
+          );
+          if (exists) return current;
+          return [...current, sentMessage];
+        });
+
+        updateConversationAfterSend(sentMessage);
+      }
+    } catch (err: any) {
+      console.error("SEND FILE ERROR:", err);
+      setError(err?.message || "Failed to send file.");
+    } finally {
+      setSending(false);
+    }
+  }
+
   async function handleStartDirectChat(selectedUser: ChatUser) {
     if (!user?.id || !profile?.organization_id) return;
 
@@ -783,6 +823,7 @@ export default function ChatPage() {
             onTyping={handleTyping}
             onImageSelect={(file) => void handleSendImage(file)}
             onAudioReady={(file) => void handleSendAudio(file)}
+            onFileSelect={(file) => void handleSendFile(file)}
             disabled={!activeConversationId || creatingChat}
             sending={sending}
           />
