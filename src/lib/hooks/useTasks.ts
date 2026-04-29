@@ -28,6 +28,16 @@ import {
   removeTaskWatcher,
   updateTask,
 } from "../supabase/mutations/tasks";
+import {
+  createTaskChecklist,
+  deleteTaskChecklist,
+  createTaskChecklistItem,
+  toggleTaskChecklistItem,
+  deleteTaskChecklistItem,
+} from "../supabase/mutations/taskChecklists";
+import {
+  getTaskChecklists,
+} from "../supabase/queries/taskChecklists";
 
 type UseTasksParams = {
   assignedTo?: string;
@@ -216,10 +226,11 @@ export function useTasks(params: UseTasksParams) {
         setDetailsLoading(true);
         setDetailsError("");
 
-        const [task, comments, watchers] = await Promise.all([
+        const [task, comments, watchers, checklists] = await Promise.all([
           getTaskById(taskId),
           getTaskComments(taskId),
           getTaskWatchers(taskId),
+          getTaskChecklists(taskId),
         ]);
 
         const liveTask = tasks.find((item) => item.id === taskId);
@@ -227,7 +238,7 @@ export function useTasks(params: UseTasksParams) {
         setSelectedTask(liveTask ? { ...task, ...liveTask } : (task ?? null));
         setSelectedTaskComments(comments ?? []);
         setSelectedTaskWatchers(watchers ?? []);
-        setSelectedTaskChecklists([]);
+        setSelectedTaskChecklists(checklists ?? []);
 
         return liveTask ? { ...task, ...liveTask } : (task ?? null);
       } catch (err: any) {
@@ -366,48 +377,105 @@ export function useTasks(params: UseTasksParams) {
   );
 
   const addChecklist = useCallback(
-    async (_params: { taskId: string; title: string; userId: string }) => {
-      throw new Error("Checklist service is not wired yet.");
+    async (params: { taskId: string; title: string; userId: string }) => {
+      if (!organizationId) return;
+
+      await createTaskChecklist({
+        taskId: params.taskId,
+        organizationId,
+        title: params.title,
+        createdBy: params.userId,
+      });
+
+      await refetch();
+      
+      // Refresh checklists if this is the selected task
+      if (selectedTask?.id === params.taskId) {
+        const checklists = await getTaskChecklists(params.taskId);
+        setSelectedTaskChecklists(checklists);
+      }
     },
-    [],
+    [organizationId, refetch, selectedTask?.id],
   );
 
   const removeChecklist = useCallback(
-    async (_params: { taskId: string; checklistId: string }) => {
-      throw new Error("Checklist service is not wired yet.");
+    async (params: { taskId: string; checklistId: string }) => {
+      await deleteTaskChecklist(params.checklistId);
+      await refetch();
+      
+      // Refresh checklists if this is the selected task
+      if (selectedTask?.id === params.taskId) {
+        const checklists = await getTaskChecklists(params.taskId);
+        setSelectedTaskChecklists(checklists);
+      }
     },
-    [],
+    [refetch, selectedTask?.id],
   );
 
   const addChecklistItem = useCallback(
-    async (_params: {
+    async (params: {
       taskId: string;
       checklistId: string;
       content: string;
       userId: string;
     }) => {
-      throw new Error("Checklist item service is not wired yet.");
+      if (!organizationId) return;
+
+      await createTaskChecklistItem({
+        checklistId: params.checklistId,
+        taskId: params.taskId,
+        organizationId,
+        content: params.content,
+        createdBy: params.userId,
+      });
+
+      await refetch();
+      
+      // Refresh checklists if this is the selected task
+      if (selectedTask?.id === params.taskId) {
+        const checklists = await getTaskChecklists(params.taskId);
+        setSelectedTaskChecklists(checklists);
+      }
     },
-    [],
+    [organizationId, refetch, selectedTask?.id],
   );
 
   const toggleChecklistItem = useCallback(
-    async (_params: {
+    async (params: {
       taskId: string;
       itemId: string;
       checked: boolean;
       userId: string;
     }) => {
-      throw new Error("Checklist item service is not wired yet.");
+      await toggleTaskChecklistItem({
+        itemId: params.itemId,
+        checked: params.checked,
+        userId: params.userId,
+      });
+
+      await refetch();
+      
+      // Refresh checklists if this is the selected task
+      if (selectedTask?.id === params.taskId) {
+        const checklists = await getTaskChecklists(params.taskId);
+        setSelectedTaskChecklists(checklists);
+      }
     },
-    [],
+    [refetch, selectedTask?.id],
   );
 
   const removeChecklistItem = useCallback(
-    async (_params: { taskId: string; itemId: string }) => {
-      throw new Error("Checklist item service is not wired yet.");
+    async (params: { taskId: string; itemId: string }) => {
+      await deleteTaskChecklistItem(params.itemId);
+      await refetch();
+      
+      // Refresh checklists if this is the selected task
+      if (selectedTask?.id === params.taskId) {
+        const checklists = await getTaskChecklists(params.taskId);
+        setSelectedTaskChecklists(checklists);
+      }
     },
-    [],
+    [refetch, selectedTask?.id],
   );
 
   const moveTaskToColumn = useCallback(

@@ -17,6 +17,8 @@ export const createTaskChecklist = async ({
   createdBy: string;
   position?: number;
 }): Promise<TaskChecklist> => {
+  console.log("Creating checklist:", { taskId, organizationId, title, createdBy, position });
+  
   const { data, error } = await supabase
     .from("task_checklists")
     .insert({
@@ -29,7 +31,12 @@ export const createTaskChecklist = async ({
     .select("*")
     .single();
 
-  if (error) throw new Error(error.message);
+  if (error) {
+    console.error("Error creating checklist:", error);
+    throw new Error(error.message);
+  }
+  
+  console.log("Checklist created successfully:", data);
   return data as TaskChecklist;
 };
 
@@ -75,6 +82,8 @@ export const createTaskChecklistItem = async ({
   createdBy: string;
   position?: number;
 }): Promise<TaskChecklistItem> => {
+  console.log("Creating checklist item:", { checklistId, taskId, organizationId, content, createdBy, position });
+  
   const { data, error } = await supabase
     .from("task_checklist_items")
     .insert({
@@ -88,7 +97,12 @@ export const createTaskChecklistItem = async ({
     .select("*")
     .single();
 
-  if (error) throw new Error(error.message);
+  if (error) {
+    console.error("Error creating checklist item:", error);
+    throw new Error(error.message);
+  }
+  
+  console.log("Checklist item created successfully:", data);
   return data as TaskChecklistItem;
 };
 

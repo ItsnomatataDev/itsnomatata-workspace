@@ -206,11 +206,6 @@ export default function AssetForm({
       return;
     }
 
-    if (form.insured && !form.insurance_provider.trim()) {
-      setError("Insurance provider is required when insured is set to yes.");
-      return;
-    }
-
     try {
       const resolvedPurchaseBatchId = await resolvePurchaseBatchId();
 

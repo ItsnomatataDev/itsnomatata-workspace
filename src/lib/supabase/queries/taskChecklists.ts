@@ -33,6 +33,8 @@ export interface TaskChecklistWithItems extends TaskChecklist {
 export const getTaskChecklists = async (
   taskId: string,
 ): Promise<TaskChecklistWithItems[]> => {
+  console.log("Fetching checklists for task:", taskId);
+  
   const { data: checklistData, error: checklistError } = await supabase
     .from("task_checklists")
     .select("*")
@@ -40,9 +42,13 @@ export const getTaskChecklists = async (
     .order("position", { ascending: true })
     .order("created_at", { ascending: true });
 
-  if (checklistError) throw checklistError;
+  if (checklistError) {
+    console.error("Error fetching checklists:", checklistError);
+    throw checklistError;
+  }
 
   const checklists = (checklistData ?? []) as TaskChecklist[];
+  console.log("Found checklists:", checklists.length, checklists);
 
   if (checklists.length === 0) return [];
 
@@ -55,12 +61,19 @@ export const getTaskChecklists = async (
     .order("position", { ascending: true })
     .order("created_at", { ascending: true });
 
-  if (itemError) throw itemError;
+  if (itemError) {
+    console.error("Error fetching checklist items:", itemError);
+    throw itemError;
+  }
 
   const items = (itemData ?? []) as TaskChecklistItem[];
+  console.log("Found checklist items:", items.length, items);
 
-  return checklists.map((checklist) => ({
+  const result = checklists.map((checklist) => ({
     ...checklist,
     items: items.filter((item) => item.checklist_id === checklist.id),
   }));
+  
+  console.log("Final checklists with items:", result);
+  return result;
 };

@@ -17,6 +17,7 @@ export interface TimeEntryItem {
   is_running: boolean;
   duration_seconds: number;
   source: string | null;
+  entry_type: "timer" | "manual";
   is_billable: boolean;
   hourly_rate_snapshot: number | null;
   cost_amount: number | null;
@@ -119,6 +120,7 @@ const TIME_ENTRY_SELECT = `
   is_running,
   duration_seconds,
   source,
+  entry_type,
   is_billable,
   hourly_rate_snapshot,
   cost_amount,
@@ -301,6 +303,7 @@ export const startTimeEntry = async (
       duration_seconds: 0,
       is_billable: payload.isBillable ?? false,
       source: payload.source ?? "timer",
+      entry_type: "timer",
       metadata: payload.metadata ?? {},
     })
     .select(TIME_ENTRY_SELECT)
@@ -430,6 +433,7 @@ export const resumeTimeEntry = async ({
       duration_seconds: 0,
       is_billable: entry.is_billable,
       source: "resume",
+      entry_type: "timer",
       metadata: {
         resumed_from_entry_id: entry.id,
         ...(entry.metadata ?? {}),
@@ -493,6 +497,7 @@ export const createManualTimeEntry = async (
       ),
       is_billable: payload.isBillable ?? false,
       source: payload.source ?? "manual",
+      entry_type: "manual",
       metadata: payload.metadata ?? {},
     })
     .select(TIME_ENTRY_SELECT)

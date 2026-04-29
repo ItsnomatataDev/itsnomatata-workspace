@@ -16,6 +16,9 @@ export default function TaskColumn({
   taskRuntimeMap,
   taskInvitedCountMap,
   onCreateCard,
+  organizationId,
+  userId,
+  onTimeRefresh,
 }: {
   title: string;
   status?: TaskStatus;
@@ -35,6 +38,9 @@ export default function TaskColumn({
   taskRuntimeMap: Map<string, boolean>;
   taskInvitedCountMap: Map<string, number>;
   onCreateCard?: (status: TaskStatus) => void;
+  organizationId: string;
+  userId: string;
+  onTimeRefresh?: () => void;
 }) {
   const [isOver, setIsOver] = useState(false);
   const accent = accentClass ?? "";
@@ -132,6 +138,9 @@ export default function TaskColumn({
               onOpen={onOpen}
               hasRunningTimer={taskRuntimeMap.get(task.id) ?? false}
               invitedCount={taskInvitedCountMap.get(task.id) ?? 0}
+              organizationId={organizationId}
+              userId={userId}
+              onTimeRefresh={onTimeRefresh}
             />
           ))
         )}

@@ -231,6 +231,7 @@ export async function getConversations(
   console.log("User IDs to fetch profiles for:", Array.from(allUserIds));
 
   // Fetch all profiles in a single query
+  // Note: This relies on profiles RLS policy allowing viewing org members
   const { data: profilesData, error: profilesError } = await supabase
     .from("profiles")
     .select("id, full_name, email, last_seen_at")
@@ -312,7 +313,7 @@ export async function getConversations(
     // Get last message for this conversation
     const lastMessage = lastMessagesMap.get(conversation.id) || null;
 
-    // Build message preview text
+
     let messageBody = lastMessage?.body || null;
     if (lastMessage?.is_deleted) {
       messageBody = "This message was deleted.";

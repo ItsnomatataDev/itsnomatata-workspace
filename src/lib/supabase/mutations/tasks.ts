@@ -7,6 +7,7 @@ import type { TaskStatus } from "../queries/tasks";
 import type { TaskSubmissionItem } from "../queries/taskSubmissions";
 import { getTrackedTimeByTask } from "../queries/tasks";
 import { notifyTaskEvent } from "../mutations/notifications";
+import { notifyTaskAssigned } from "../../../features/notifications/services/notificationOrchestrationService";
 
 export interface CreateTaskCommentPayload {
   organizationId: string;
@@ -449,6 +450,21 @@ export async function updateTask(
           user_id: userId,
         })),
       );
+
+      // Notify all (re)assigned users
+      try {
+        const assigneeNotifications = fields.assigneeIds.map((userId) =>
+          notifyTaskAssigned({
+            organizationId: assigneeOrganizationId,
+            userId,
+            taskId,
+            taskTitle: data.title,
+          }),
+        );
+        await Promise.all(assigneeNotifications);
+      } catch (notifError) {
+        console.error("Failed to send task assignment notifications:", notifError);
+      }
     }
   }
 

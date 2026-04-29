@@ -7,6 +7,10 @@ import type {
   List,
 } from "../../../types/board";
 import type { TaskStatus } from "../../../lib/supabase/queries/tasks";
+import {
+  notifyTaskAssigned,
+  notifyTaskCommented,
+} from "../../notifications/services/notificationOrchestrationService";
 
 // ─────────────────────────────────────────────
 //  BOARDS  (boards = clients table)
@@ -155,7 +159,7 @@ export async function createBoard(
   input: {
     name: string;
     description?: string;
-  }
+  },
 ): Promise<Board> {
   const { data, error } = await supabase
     .from("clients")
@@ -206,6 +210,27 @@ export async function createCard(
     .single();
 
   if (error) throw error;
+
+  // If assigned to a user, create task_assignee row and notify
+  if (input.assignedTo) {
+    try {
+      await supabase.from("task_assignees").insert({
+        organization_id: organizationId,
+        task_id: card.id,
+        user_id: input.assignedTo,
+      });
+
+      await notifyTaskAssigned({
+        organizationId,
+        userId: input.assignedTo,
+        taskId: card.id,
+        taskTitle: input.title,
+      });
+    } catch (notifError) {
+      console.error("CREATE CARD ASSIGNMENT NOTIFICATION ERROR:", notifError);
+    }
+  }
+
   return { ...card, assignees: [], commentsCount: 0 } as Card;
 }
 
@@ -309,7 +334,6 @@ export async function addCardComment(
   if (error) throw error;
   return data;
 }
-
 
 export async function getLists(boardId: string): Promise<List[]> {
   const now = new Date().toISOString();

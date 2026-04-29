@@ -222,8 +222,15 @@ export default function TasksWorkspacePage({
    }
  };
   const handleTrack = async (taskId: string, title: string) => {
+    console.log("handleTrack called:", { taskId, title, currentUserId, currentOrganizationId });
+    
     if (!currentOrganizationId) {
       alert("Organization is not available yet. Please wait and try again.");
+      return;
+    }
+
+    if (!currentUserId) {
+      alert("User ID is not available. Please make sure you're logged in.");
       return;
     }
 
@@ -249,6 +256,7 @@ export default function TasksWorkspacePage({
 
       alert("Timer started and linked to the main time tracking system");
     } catch (err) {
+      console.error("Timer start error:", err);
       alert(err instanceof Error ? err.message : "Failed to start timer");
     }
   };
@@ -947,6 +955,12 @@ export default function TasksWorkspacePage({
                   onMoveTaskToColumn={(params) => void moveTaskToColumn(params)}
                   taskRuntimeMap={taskRuntimeMap}
                   taskInvitedCountMap={taskInvitedCountMap}
+                  organizationId={currentOrganizationId ?? ""}
+                  userId={currentUserId}
+                  onTimeRefresh={() => {
+                    void refetch();
+                    void refreshTaskEntries();
+                  }}
                 />
               ) : null}
             </section>

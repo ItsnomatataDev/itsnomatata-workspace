@@ -1,7 +1,9 @@
 import { useState } from "react";
-import { Bell } from "lucide-react";
+import { Bell, Zap } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useNotifications } from "../../../lib/hooks/useNotifications";
+import { useAuth } from "../../../app/providers/AuthProvider";
+import { createNotification } from "../../../lib/supabase/mutations/notifications";
 
 function timeAgo(dateString: string) {
   const date = new Date(dateString).getTime();
@@ -20,6 +22,11 @@ function timeAgo(dateString: string) {
 
 export default function NotificationBell() {
   const [open, setOpen] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<string>("");
+
+  const auth = useAuth();
+  const profile = auth?.profile;
 
   const {
     notifications,
@@ -28,9 +35,38 @@ export default function NotificationBell() {
     actionLoading,
     markOneAsRead,
     markEverythingAsRead,
+    reload,
   } = useNotifications();
 
   const latest = notifications.slice(0, 6);
+
+  const handleTestNotification = async () => {
+    if (!profile?.organization_id || !profile?.id) {
+      setTestResult("Missing org or user ID");
+      return;
+    }
+    setTesting(true);
+    setTestResult("");
+    try {
+      await createNotification({
+        organizationId: profile.organization_id,
+        userId: profile.id,
+        type: "system_alert",
+        title: "Test notification",
+        message: "If you see this, insert + read are working.",
+        actionUrl: "/notifications",
+        priority: "high",
+      });
+      setTestResult("Sent! Reloading...");
+      await reload();
+      setTestResult("Sent and reloaded.");
+    } catch (err: any) {
+      console.error("TEST NOTIFICATION ERROR:", err);
+      setTestResult(`Error: ${err?.message || "unknown"}`);
+    } finally {
+      setTesting(false);
+    }
+  };
 
   return (
     <div className="relative">
@@ -117,7 +153,7 @@ export default function NotificationBell() {
             )}
           </div>
 
-          <div className="border-t border-white/10 px-4 py-3">
+          <div className="border-t border-white/10 px-4 py-3 space-y-2">
             <Link
               to="/notifications"
               onClick={() => setOpen(false)}
@@ -125,6 +161,25 @@ export default function NotificationBell() {
             >
               View all notifications
             </Link>
+
+            <button
+              type="button"
+              onClick={() => void handleTestNotification()}
+              disabled={testing}
+              className="flex items-center gap-1.5 text-xs font-medium text-white/50 hover:text-orange-400 transition disabled:opacity-50"
+            >
+              <Zap size={12} />
+              {testing ? "Sending test..." : "Send test notification"}
+            </button>
+
+            {testResult ? (
+              <p className="text-[11px] text-white/40">{testResult}</p>
+            ) : null}
+
+            <p className="text-[10px] text-white/25">
+              Loaded: {notifications.length} | Unread: {unreadCount} | Loading:{" "}
+              {loading ? "yes" : "no"}
+            </p>
           </div>
         </div>
       ) : null}

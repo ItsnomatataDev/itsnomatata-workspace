@@ -213,10 +213,6 @@ function validateImportedRow(row: ImportedAssetRow): string[] {
     errors.push("Serial number is required.");
   }
 
-  if (row.insured && !row.insurance_provider?.trim()) {
-    errors.push("Insurance provider is required when insured is yes.");
-  }
-
   return errors;
 }
 

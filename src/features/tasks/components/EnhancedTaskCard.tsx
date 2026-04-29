@@ -14,6 +14,8 @@ import type {
   TaskItem,
   TaskWatcherItem,
 } from "../../../lib/supabase/queries/tasks";
+import { ManualTimeDialog } from "./ManualTimeDialog";
+import type { TimeEntryItem } from "../../../lib/supabase/mutations/timeEntries";
 
 function formatDueDate(value?: string | null) {
   if (!value) return null;
@@ -76,10 +78,16 @@ export default function EnhancedTaskCard({
   onOpen,
   hasRunningTimer,
   invitedCount,
+  organizationId,
+  userId,
+  onTimeRefresh,
 }: {
   task: EnhancedTaskCard;
   onTrack: (taskId: string, title: string) => void;
   onOpen: (taskId: string) => void;
+  organizationId: string;
+  userId: string;
+  onTimeRefresh?: () => void;
   hasRunningTimer?: boolean;
   invitedCount?: number;
 }) {
@@ -304,22 +312,40 @@ export default function EnhancedTaskCard({
             </div>
           )}
         </div>
-        <button
-          onClick={(event) => {
-            event.stopPropagation();
-            onTrack(task.id, task.title);
-          }}
-          className="
-            flex-1 rounded-md bg-orange-500/80 hover:bg-orange-500
-            px-2 py-1.5 text-xs font-semibold text-black
-            transition-all duration-150
-            active:scale-95
-            flex items-center justify-center gap-1
-          "
-        >
-          <Clock3 size={12} />
-          <span>Track</span>
-        </button>
+        <div className="flex gap-1">
+          <button
+            onClick={(event) => {
+              event.stopPropagation();
+              onTrack(task.id, task.title);
+            }}
+            className="
+              flex-1 rounded-md bg-orange-500/80 hover:bg-orange-500
+              px-2 py-1.5 text-xs font-semibold text-black
+              transition-all duration-150
+              active:scale-95
+              flex items-center justify-center gap-1
+            "
+          >
+            <Clock3 size={12} />
+            <span>Track</span>
+          </button>
+          <ManualTimeDialog
+            taskId={task.id}
+            organizationId={organizationId}
+            userId={userId}
+            onLogSuccess={(entry: TimeEntryItem) => {
+              // refresh tracked time
+              if (onTimeRefresh) onTimeRefresh();
+            }}
+            className="
+              rounded-md bg-white/10 hover:bg-white/20
+              px-2 py-1.5 text-xs font-semibold text-white
+              transition-all duration-150
+              active:scale-95
+              flex items-center justify-center gap-1
+            "
+          />
+        </div>
       </div>
       <div className="pointer-events-none absolute inset-0 rounded-2xl bg-[linear-gradient(135deg,rgba(249,115,22,0.08),transparent_35%)] opacity-0 transition group-hover:opacity-100" />
     </article>

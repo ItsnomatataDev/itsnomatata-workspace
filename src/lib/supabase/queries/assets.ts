@@ -389,3 +389,5 @@ export async function getAssetStats(organizationId: string) {
     uninsured: assets.filter((item) => item.insured !== true).length,
   };
 }
+
+

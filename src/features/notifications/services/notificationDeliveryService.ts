@@ -230,7 +230,35 @@ export async function deliverNotification(params: DeliverNotificationParams) {
     });
     console.log("NOTIFICATION INSERTED:", notification);
 
-    // Temporarily disable email to isolate in-system notification issues
+    // Send email if enabled
+    if (params.sendEmail !== false) {
+      try {
+        const { profile, canEmail } = await getUserEmailPreferences(
+          params.userId,
+          params.type,
+          priority,
+        );
+
+        if (profile && canEmail) {
+          await triggerNotificationEmail({
+            to: profile.email!,
+            fullName: profile.full_name,
+            title: params.title,
+            message: params.message,
+            actionUrl: params.actionUrl,
+            type: params.type,
+            priority,
+            metadata: params.metadata,
+            organizationId: params.organizationId,
+            userId: params.userId,
+            notificationId: notification.id,
+          });
+        }
+      } catch (emailError) {
+        console.error("EMAIL SEND ERROR:", emailError);
+      }
+    }
+
     return notification;
   } catch (error) {
     console.error("NOTIFICATION INSERT ERROR:", error);
@@ -274,7 +302,38 @@ export async function deliverBulkNotifications(
     });
     console.log("BULK NOTIFICATIONS INSERTED:", notifications);
 
-    // Temporarily disable email to isolate in-system notification issues
+    // Send emails if enabled
+    if (params.sendEmail !== false && notifications.length > 0) {
+      try {
+        await Promise.all(
+          notifications.map(async (n) => {
+            const { profile, canEmail } = await getUserEmailPreferences(
+              n.user_id,
+              params.type,
+              priority,
+            );
+            if (profile && canEmail) {
+              await triggerNotificationEmail({
+                to: profile.email!,
+                fullName: profile.full_name,
+                title: params.title,
+                message: params.message,
+                actionUrl: params.actionUrl,
+                type: params.type,
+                priority,
+                metadata: params.metadata,
+                organizationId: params.organizationId,
+                userId: n.user_id,
+                notificationId: n.id,
+              });
+            }
+          }),
+        );
+      } catch (emailError) {
+        console.error("BULK EMAIL SEND ERROR:", emailError);
+      }
+    }
+
     return notifications;
   } catch (error) {
     console.error("BULK NOTIFICATION INSERT ERROR:", error);

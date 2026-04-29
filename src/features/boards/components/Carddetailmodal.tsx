@@ -1,4 +1,10 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  useMemo,
+} from "react";
 import {
   X,
   Clock3,
@@ -39,6 +45,10 @@ import {
 } from "../../../lib/supabase/mutations/timeEntries";
 import { uploadTaskSubmissionFile } from "../../../lib/supabase/storage";
 import type { TaskSubmissionFileResult } from "../../../lib/supabase/storage";
+import {
+  notifyTaskAssigned,
+  notifyTaskCommented,
+} from "../../notifications/services/notificationOrchestrationService";
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -454,7 +464,8 @@ export default function CardDetailModal({
 
   const currentUserActiveEntry = useMemo(
     () =>
-      taskActiveEntries.find((entry) => entry.user_id === currentUserId) ?? null,
+      taskActiveEntries.find((entry) => entry.user_id === currentUserId) ??
+      null,
     [taskActiveEntries, currentUserId],
   );
 
@@ -474,8 +485,7 @@ export default function CardDetailModal({
           return {
             ...entry,
             liveSeconds: getLiveEntrySeconds(entry, liveNow),
-            userName:
-              profile?.full_name || profile?.email || "Team member",
+            userName: profile?.full_name || profile?.email || "Team member",
             userEmail: profile?.email ?? null,
             isCurrentUser: entry.user_id === currentUserId,
           };
@@ -690,6 +700,18 @@ export default function CardDetailModal({
           },
         ]);
         setNewComment("");
+
+        // Notify assignees and watchers about the new comment
+        void notifyTaskCommented({
+          organizationId,
+          taskId: cardId,
+          commentId: saved.id,
+          authorUserId: currentUserId,
+          authorName: card.created_by_full_name || undefined,
+          taskTitle: title,
+        }).catch((err) => {
+          console.error("CARD COMMENT NOTIFICATION ERROR:", err);
+        });
       }
     } catch (e) {
       console.error(e);
@@ -719,6 +741,16 @@ export default function CardDetailModal({
           primary_role: user.primary_role,
         },
       ]);
+
+      // Notify the newly added assignee
+      void notifyTaskAssigned({
+        organizationId,
+        userId: user.id,
+        taskId: cardId,
+        taskTitle: title,
+      }).catch((err) => {
+        console.error("ADD ASSIGNEE NOTIFICATION ERROR:", err);
+      });
     } catch (e) {
       console.error(e);
     } finally {
@@ -1063,8 +1095,6 @@ export default function CardDetailModal({
                   </div>
                 )}
               </div>
-
-              {/* Attachments */}
               <div>
                 <p className="text-[10px] uppercase tracking-widest text-white/40 mb-2 flex items-center gap-1">
                   <Paperclip size={11} /> Attachments

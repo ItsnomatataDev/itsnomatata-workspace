@@ -32,23 +32,23 @@ export interface EmailTracking {
 }
 
 export class EmailPreferencesService {
-  // Get user email preferences
-  static async getUserPreferences(userId: string): Promise<EmailPreferences> {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('email_preferences')
-      .eq('id', userId)
-      .single();
+ static async getUserPreferences(userId: string): Promise<EmailPreferences> {
+  const defaults = this.getDefaultPreferences();
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('email_preferences')
+    .eq('id', userId)
+    .single();
 
-    if (error) {
-      console.error('Error fetching email preferences:', error);
-      return this.getDefaultPreferences();
-    }
-
-    return (data.email_preferences as EmailPreferences) || this.getDefaultPreferences();
+  if (error) {
+    console.error('Error fetching email preferences:', error);
+    return defaults; // already returns full safe object
   }
 
-  // Update user email preferences
+  // Merge: defaults fill any missing keys, DB values override them
+  return { ...defaults, ...(data?.email_preferences ?? {}) };
+}
+
   static async updateUserPreferences(
     userId: string,
     preferences: Partial<EmailPreferences>
@@ -70,7 +70,6 @@ export class EmailPreferencesService {
     return data.email_preferences as EmailPreferences;
   }
 
-  // Check if user should receive email for specific notification type
   static async shouldSendEmail(
     userId: string,
     notificationType: string,
@@ -78,17 +77,14 @@ export class EmailPreferencesService {
   ): Promise<boolean> {
     const prefs = await this.getUserPreferences(userId);
 
-    // Master switch
     if (!prefs.all) {
       return false;
     }
 
-    // Check if type is in excluded list
     if (prefs.types.length > 0 && !prefs.types.includes(notificationType)) {
       return false;
     }
 
-    // Check quiet hours
     if (prefs.quietHours.enabled) {
       const now = new Date();
       const currentTime = now.getHours() * 60 + now.getMinutes();
@@ -108,7 +104,6 @@ export class EmailPreferencesService {
     return true;
   }
 
-  // Track email sent
   static async trackEmail(params: {
     organizationId: string;
     userId: string;
@@ -174,7 +169,7 @@ export class EmailPreferencesService {
     }
   }
 
-  // Get email analytics for organization
+
   static async getEmailAnalytics(
     organizationId: string,
     startDate?: Date,

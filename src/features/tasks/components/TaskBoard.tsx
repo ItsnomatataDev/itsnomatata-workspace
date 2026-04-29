@@ -24,6 +24,9 @@ export default function TaskBoard({
   taskRuntimeMap,
   taskInvitedCountMap,
   onCreateCard,
+  organizationId,
+  userId,
+  onTimeRefresh,
 }: {
   groupedTasks: Record<string, TaskItem[]>;
   boardColumns?: BoardColumnWithTasks[];
@@ -40,6 +43,9 @@ export default function TaskBoard({
   taskRuntimeMap: Map<string, boolean>;
   taskInvitedCountMap: Map<string, number>;
   onCreateCard?: (status: TaskStatus) => void;
+  organizationId: string;
+  userId: string;
+  onTimeRefresh?: () => void;
 }) {
   const usingRealColumns = !!boardColumns && boardColumns.length > 0;
 
@@ -91,6 +97,9 @@ export default function TaskBoard({
                   taskRuntimeMap={taskRuntimeMap}
                   taskInvitedCountMap={taskInvitedCountMap}
                   onCreateCard={onCreateCard}
+                  organizationId={organizationId}
+                  userId={userId}
+                  onTimeRefresh={onTimeRefresh}
                 />
               ))
             : STATUS_COLUMNS.map((column) => (
@@ -105,6 +114,9 @@ export default function TaskBoard({
                   taskRuntimeMap={taskRuntimeMap}
                   taskInvitedCountMap={taskInvitedCountMap}
                   onCreateCard={onCreateCard}
+                  organizationId={organizationId}
+                  userId={userId}
+                  onTimeRefresh={onTimeRefresh}
                 />
               ))}
         </div>
