@@ -37,14 +37,16 @@ export type EverhourCalendarEvent = {
   resource: {
     userId: string;
     userName: string;
-    userEmail: string;
-    totalHours: number;
-    projects: Array<{
-      projectId: string | null;
-      projectName: string | null;
-      hours: number;
-      isBillable: boolean;
-    }>;
+      userEmail: string;
+      totalHours: number;
+      hasImported: boolean;
+      projects: Array<{
+        projectId: string | null;
+        projectName: string | null;
+        hours: number;
+        isBillable: boolean;
+        source?: string | null;
+      }>;
   };
 };
 
@@ -104,6 +106,8 @@ export default function EverhourCalendar({
           hours: number;
           project_name: string | null | undefined;
           is_billable: boolean;
+          source?: string | null;
+          entry_type?: string | null;
         }> = Array.isArray(rawProjects)
           ? rawProjects
           : typeof rawProjects === "string"
@@ -121,6 +125,7 @@ export default function EverhourCalendar({
                 projectName: proj.project_name ?? null,
                 hours: proj.hours,
                 isBillable: proj.is_billable,
+                source: proj.source ?? proj.entry_type ?? null,
               });
             }
             return acc;
@@ -138,6 +143,7 @@ export default function EverhourCalendar({
             userName: entry.user_name || "Unknown",
             userEmail: entry.user_email || "",
             totalHours,
+            hasImported: projects.some((project) => project.source === "trello_import" || project.source === "imported"),
             projects,
           },
         });
@@ -164,6 +170,7 @@ export default function EverhourCalendar({
               projectName: entry.project_name ?? null,
               hours,
               isBillable: entry.is_billable,
+              source: entry.source,
             });
           }
           // Update title with new total
@@ -179,12 +186,14 @@ export default function EverhourCalendar({
               userName: entry.user_name || "Unknown",
               userEmail: entry.user_email || "",
               totalHours: hours,
+              hasImported: entry.source === "trello_import" || entry.entry_type === "imported",
               projects: [
                 {
                   projectId: entry.project_id,
                   projectName: entry.project_name ?? null,
                   hours,
                   isBillable: entry.is_billable,
+                  source: entry.source,
                 },
               ],
             },
@@ -405,7 +414,9 @@ export default function EverhourCalendar({
         onNavigate={() => {}}
         onSelectEvent={handleSelectEvent}
         eventPropGetter={(event) => {
-          const color = getUserColor(event.resource.userId);
+          const color = event.resource.hasImported
+            ? { bg: "#0ea5e9", light: "rgba(14,165,233,0.18)" }
+            : getUserColor(event.resource.userId);
           const isSelected = selectedUserId === event.resource.userId;
           const isBelowTarget = event.resource.totalHours < 8;
           return {
@@ -423,6 +434,7 @@ export default function EverhourCalendar({
               border: isBelowTarget && !isSelected 
                 ? "1px solid rgba(239,68,68,0.4)" 
                 : `1px solid ${isSelected ? "transparent" : color.bg}`,
+              borderLeft: event.resource.hasImported ? "3px solid #0ea5e9" : undefined,
               borderRadius: "6px",
               opacity: selectedUserId && !isSelected ? 0.4 : 0.95,
               fontWeight: 600,
@@ -447,6 +459,7 @@ export default function EverhourCalendar({
                   style={{ backgroundColor: isSelected ? "#fff" : color.bg }}
                 />
                 <span className="truncate">
+                  {event.resource.hasImported ? "Imported " : ""}
                   {event.resource.userName.split(" ")[0]}{" "}
                   <span className="opacity-75">
                     {event.resource.totalHours.toFixed(1)}h

@@ -1066,7 +1066,7 @@ export default function TasksWorkspacePage({
                 <div className="flex items-center gap-2 text-sm text-white/60">
                   <LayoutGrid size={14} />
                   <span>
-                    Drag cards across lanes like Trello. Each card still carries
+                    Drag cards across Codex lanes. Each card still carries
                     time tracking, invited collaborators, comments, checklists,
                     and submissions.
                   </span>

@@ -19,6 +19,13 @@ export type AdminTimeEntryRow = {
   is_running: boolean;
   is_billable: boolean;
   source: string | null;
+  entry_type?: "timer" | "manual" | "imported" | null;
+  source_entry_id?: string | null;
+  source_card_id?: string | null;
+  source_board_id?: string | null;
+  source_user_id?: string | null;
+  source_user_name?: string | null;
+  metadata?: Record<string, unknown> | null;
   approval_status: string;
   approved_by: string | null;
   approved_at: string | null;
@@ -37,6 +44,102 @@ export type AdminTimeEntryRow = {
   client_name?: string | null;
   campaign_name?: string | null;
 };
+
+const ADMIN_TIME_ENTRY_SELECT = `
+  id,
+  organization_id,
+  user_id,
+  task_id,
+  project_id,
+  client_id,
+  campaign_id,
+  description,
+  started_at,
+  ended_at,
+  duration_seconds,
+  is_running,
+  is_billable,
+  source,
+  entry_type,
+  source_entry_id,
+  source_card_id,
+  source_board_id,
+  source_user_id,
+  source_user_name,
+  metadata,
+  approval_status,
+  approved_by,
+  approved_at,
+  locked_at,
+  hourly_rate_snapshot,
+  cost_amount,
+  created_at,
+  updated_at
+`;
+
+const ADMIN_TIME_ENTRY_LEGACY_SELECT = `
+  id,
+  organization_id,
+  user_id,
+  task_id,
+  project_id,
+  client_id,
+  campaign_id,
+  description,
+  started_at,
+  ended_at,
+  duration_seconds,
+  is_running,
+  is_billable,
+  source,
+  metadata,
+  approval_status,
+  approved_by,
+  approved_at,
+  locked_at,
+  hourly_rate_snapshot,
+  cost_amount,
+  created_at,
+  updated_at
+`;
+
+function missingColumnError(error: unknown) {
+  const candidate = error as { code?: string; message?: string } | null;
+  return candidate?.code === "42703" || candidate?.message?.includes("does not exist");
+}
+
+function buildAdminTimeEntriesQuery(params: {
+  organizationId: string;
+  approvalStatus: TimeApprovalStatus | "all";
+  userId?: string;
+  projectId?: string;
+  clientId?: string;
+  isBillable: boolean | "all";
+  from?: string;
+  to?: string;
+  limit: number;
+  select: string;
+}) {
+  let query = supabase
+    .from("time_entries")
+    .select(params.select)
+    .eq("organization_id", params.organizationId)
+    .order("started_at", { ascending: false })
+    .limit(params.limit);
+
+  if (params.approvalStatus !== "all") {
+    query = query.eq("approval_status", params.approvalStatus);
+  }
+
+  if (params.userId) query = query.eq("user_id", params.userId);
+  if (params.projectId) query = query.eq("project_id", params.projectId);
+  if (params.clientId) query = query.eq("client_id", params.clientId);
+  if (params.isBillable !== "all") query = query.eq("is_billable", params.isBillable);
+  if (params.from) query = query.gte("started_at", params.from);
+  if (params.to) query = query.lte("started_at", params.to);
+
+  return query;
+}
 
 export async function getAdminTimeEntries(params: {
   organizationId: string;
@@ -63,49 +166,32 @@ export async function getAdminTimeEntries(params: {
 
   if (!organizationId) throw new Error("organizationId is required");
 
-  let query = supabase
-    .from("time_entries")
-    .select(`
-      id,
-      organization_id,
-      user_id,
-      task_id,
-      project_id,
+  const queryParams = {
+    organizationId,
+    approvalStatus,
+    userId,
+    projectId,
+    clientId,
+    isBillable,
+    from,
+    to,
+    limit,
+  };
 
-      client_id,
-      campaign_id,
-      description,
-      started_at,
-      ended_at,
-      duration_seconds,
-      is_running,
-      is_billable,
-      source,
-      approval_status,
-      approved_by,
-      approved_at,
-      locked_at,
-      hourly_rate_snapshot,
-      cost_amount,
-      created_at,
-      updated_at
-    `)
-    .eq("organization_id", organizationId)
-    .order("started_at", { ascending: false })
-    .limit(limit);
+  let { data, error } = await buildAdminTimeEntriesQuery({
+    ...queryParams,
+    select: ADMIN_TIME_ENTRY_LEGACY_SELECT,
+  });
 
-  if (approvalStatus !== "all") {
-    query = query.eq("approval_status", approvalStatus);
+  if (error && missingColumnError(error)) {
+    const legacy = await buildAdminTimeEntriesQuery({
+      ...queryParams,
+      select: ADMIN_TIME_ENTRY_LEGACY_SELECT,
+    });
+    data = legacy.data;
+    error = legacy.error;
   }
 
-  if (userId) query = query.eq("user_id", userId);
-  if (projectId) query = query.eq("project_id", projectId);
-  if (clientId) query = query.eq("client_id", clientId);
-  if (isBillable !== "all") query = query.eq("is_billable", isBillable);
-  if (from) query = query.gte("started_at", from);
-  if (to) query = query.lte("started_at", to);
-
-  const { data, error } = await query;
   if (error) throw error;
 
   const items = (data ?? []) as unknown as AdminTimeEntryRow[];
@@ -190,14 +276,17 @@ export async function getAdminTimeEntries(params: {
 
   return items.map((item) => ({
     ...item,
+    user_id: item.user_id ?? item.source_user_id ?? item.source_user_name ?? "unmatched",
     ...(item.task_id ? {
       project_id: item.project_id ?? taskMap.get(item.task_id)?.project_id ?? null,
       client_id: item.client_id ?? taskMap.get(item.task_id)?.client_id ?? null,
       campaign_id:
         item.campaign_id ?? taskMap.get(item.task_id)?.campaign_id ?? null,
     } : {}),
-    user_name: profileMap.get(item.user_id)?.full_name ?? null,
-    user_email: profileMap.get(item.user_id)?.email ?? null,
+    user_name: item.user_id
+      ? profileMap.get(item.user_id)?.full_name ?? null
+      : item.source_user_name ?? null,
+    user_email: item.user_id ? profileMap.get(item.user_id)?.email ?? null : null,
     task_title: item.task_id ? taskMap.get(item.task_id)?.title ?? null : null,
     project_name:
       (item.project_id
@@ -321,32 +410,50 @@ async function getCalendarTimeEntriesFallback(params: {
 }) {
   const { organizationId, from, to, userId } = params;
 
-  let query = supabase
-    .from("time_entries")
-    .select(
-      "id, organization_id, user_id, project_id, description, started_at, duration_seconds, is_billable, approval_status",
-    )
-    .eq("organization_id", organizationId)
-    .in("approval_status", ["pending", "approved"])
-    .order("started_at", { ascending: false });
+  const buildCalendarFallbackQuery = (select: string) => {
+    let nextQuery = supabase
+      .from("time_entries")
+      .select(select)
+      .eq("organization_id", organizationId)
+      .in("approval_status", ["pending", "approved"])
+      .order("started_at", { ascending: false });
 
-  if (from) query = query.gte("started_at", from);
-  if (to) query = query.lte("started_at", to);
-  if (userId) query = query.eq("user_id", userId);
+    if (from) nextQuery = nextQuery.gte("started_at", from);
+    if (to) nextQuery = nextQuery.lte("started_at", to);
+    if (userId) nextQuery = nextQuery.eq("user_id", userId);
 
-  const { data, error } = await query;
+    return nextQuery;
+  };
+
+  let { data, error } = await buildCalendarFallbackQuery(
+    "id, organization_id, user_id, project_id, description, started_at, duration_seconds, is_billable, approval_status, source, metadata",
+  );
+
+  if (error && missingColumnError(error)) {
+    const legacy = await buildCalendarFallbackQuery(
+      "id, organization_id, user_id, project_id, description, started_at, duration_seconds, is_billable, approval_status, source, metadata",
+    );
+    data = legacy.data;
+    error = legacy.error;
+  }
+
   if (error) throw error;
 
-  const items = (data ?? []) as Array<{
+  const items = ((data ?? []) as unknown) as Array<{
     id: string;
     organization_id: string;
-    user_id: string;
+    user_id: string | null;
     project_id: string | null;
     description: string | null;
     started_at: string;
     duration_seconds: number;
     is_billable: boolean;
     approval_status: string;
+    source: string | null;
+    entry_type: string | null;
+    source_user_id: string | null;
+    source_user_name: string | null;
+    metadata: Record<string, unknown> | null;
   }>;
 
   const userIds = Array.from(
@@ -382,7 +489,13 @@ async function getCalendarTimeEntriesFallback(params: {
 
   for (const item of items) {
     const entryDate = getZimbabweDateKey(item.started_at);
-    const key = `${item.user_id}-${entryDate}`;
+    const externalUserName =
+      item.source_user_name ??
+      (typeof item.metadata?.source_user_name === "string"
+        ? item.metadata.source_user_name
+        : null);
+    const userKey = item.user_id ?? item.source_user_id ?? externalUserName ?? "unmatched";
+    const key = `${userKey}-${entryDate}`;
     const projectHours = Number(item.duration_seconds ?? 0) / 3600;
 
     const projectEntry = {
@@ -413,9 +526,11 @@ async function getCalendarTimeEntriesFallback(params: {
     } else {
       grouped.set(key, {
         organization_id: item.organization_id,
-        user_id: item.user_id,
-        user_name: profileMap.get(item.user_id)?.full_name ?? null,
-        user_email: profileMap.get(item.user_id)?.email ?? null,
+        user_id: userKey,
+        user_name: item.user_id
+          ? profileMap.get(item.user_id)?.full_name ?? null
+          : externalUserName ?? "Unmatched Trello user",
+        user_email: item.user_id ? profileMap.get(item.user_id)?.email ?? null : null,
         entry_date: entryDate,
         total_seconds: Number(item.duration_seconds ?? 0),
         entry_count: 1,

@@ -109,7 +109,7 @@ const PRIORITY_COLOR: Record<string, string> = {
   low: "text-white/30",
 };
 
-// ── Trello inline add ─────────────────────────────────────────────────────────
+// ── Codex inline add ──────────────────────────────────────────────────────────
 
 function InlineCardAdder({
   onAdd,
@@ -178,7 +178,7 @@ function InlineCardAdder({
   );
 }
 
-// ── Trello-style card ──────────────────────────────────────────────────────────
+// ── Codex workflow card ───────────────────────────────────────────────────────
 
 function KanbanCard({
   task,
@@ -684,6 +684,27 @@ export default function BoardViewPage() {
     );
   }
 
+  function getWorkflowColumnIdForStatus(
+    status: TaskStatus,
+    boardColumns: BoardColumnView[] = columns,
+  ) {
+    const exact = boardColumns.find(
+      (column) => column.status === status && column.columnId,
+    );
+    return exact?.columnId ?? null;
+  }
+
+  function withWorkflowColumnForStatus<T extends Partial<TaskItem>>(
+    updates: T,
+    boardColumns: BoardColumnView[] = columns,
+  ): T & { column_id?: string | null } {
+    if (!updates.status) return updates;
+    return {
+      ...updates,
+      column_id: getWorkflowColumnIdForStatus(updates.status, boardColumns),
+    };
+  }
+
   // ── Add card ─────────────────────────────────────────────────────────────────
 
   const handleAddCard = useCallback(
@@ -723,7 +744,9 @@ export default function BoardViewPage() {
       const taskId = selectedTask?.id;
       if (!taskId) return;
 
-      const persistedUpdates: Partial<TaskItem> = { ...updates };
+      const persistedUpdates: Partial<TaskItem> = withWorkflowColumnForStatus({
+        ...updates,
+      });
       if (updates.due_date !== undefined) {
         persistedUpdates.due_date = updates.due_date
           ? makeZimbabweLocalIso(updates.due_date.slice(0, 10), "17:00:00")
@@ -857,6 +880,8 @@ export default function BoardViewPage() {
         throw new Error("A timer is already running. Stop it first.");
       }
 
+      const inProgressColumnId = getWorkflowColumnIdForStatus("in_progress");
+
       // Start new timer
       const { error } = await supabase.from("time_entries").insert({
         organization_id: organizationId,
@@ -872,15 +897,21 @@ export default function BoardViewPage() {
 
       if (error) throw error;
 
+      await updateCard(taskId, {
+        status: "in_progress",
+        column_id: inProgressColumnId,
+      } as Partial<Card>);
+
       // Reload active timer
       await loadActiveTimer();
+      await loadBoardData();
     } catch (err: any) {
       console.error("Failed to start timer:", err);
       alert(err?.message || "Failed to start timer");
     } finally {
       setTimerBusy(false);
     }
-  }, [auth?.user?.id, boardId, organizationId, loadActiveTimer]);
+  }, [auth?.user?.id, boardId, getWorkflowColumnIdForStatus, loadActiveTimer, loadBoardData, organizationId]);
 
   const isTrackingThisTask = useCallback((taskId: string) => {
     return activeTimer?.task_id === taskId;

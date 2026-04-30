@@ -180,6 +180,13 @@ function formatDateTime(iso: string) {
   });
 }
 
+function getEntrySourceLabel(entry: TimeEntryItem) {
+  if (entry.source === "trello_import") return "Codex";
+  if (entry.entry_type === "imported") return "Imported";
+  if (entry.entry_type === "manual" || entry.source?.includes("manual")) return "Manual";
+  return "Timer";
+}
+
 function timeAgo(dateStr: string) {
   const diff = Date.now() - new Date(dateStr).getTime();
   const mins = Math.floor(diff / 60000);
@@ -653,9 +660,21 @@ function TimeEntriesPanel({
                   ) : (
                     <div className="flex items-center justify-between gap-3">
                       <div className="min-w-0">
-                        <p className="text-xs text-white/70 truncate">
-                          {entry.description || "Timer session"}
-                        </p>
+                        <div className="flex min-w-0 items-center gap-2">
+                          <span className="shrink-0 rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-semibold text-white/45">
+                            {getEntrySourceLabel(entry)}
+                          </span>
+                          <p className="truncate text-xs text-white/70">
+                            {entry.description || "Timer session"}
+                          </p>
+                        </div>
+                        {(entry.source_user_name || entry.user_id) && (
+                          <p className="mt-0.5 truncate text-[10px] text-white/35">
+                            {entry.source_user_name
+                              ? `Source user: ${entry.source_user_name}`
+                              : "Mapped internal user"}
+                          </p>
+                        )}
                         <p className="text-[10px] text-white/35 mt-0.5">
                           {formatDateTime(entry.started_at)}
                           {entry.ended_at && ` -> ${formatDateTime(entry.ended_at)}`}
@@ -812,11 +831,11 @@ export default function CardDetailModal({
     () =>
       taskActiveEntries
         .map((entry) => {
-          const profile = timeEntryProfiles[entry.user_id];
+          const profile = entry.user_id ? timeEntryProfiles[entry.user_id] : null;
           return {
             ...entry,
             liveSeconds: getLiveEntrySeconds(entry, liveNow),
-            userName: profile?.full_name || profile?.email || "Team member",
+            userName: profile?.full_name || profile?.email || entry.source_user_name || "Team member",
             userEmail: profile?.email ?? null,
             isCurrentUser: entry.user_id === currentUserId,
           };
@@ -861,7 +880,7 @@ export default function CardDetailModal({
         0,
       );
 
-      const userIds = [...new Set(entries.map((entry) => entry.user_id))];
+      const userIds = [...new Set(entries.map((entry) => entry.user_id).filter(Boolean))] as string[];
       if (userIds.length === 0) {
         setTimeEntryProfiles({});
       } else {

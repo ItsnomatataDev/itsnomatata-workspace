@@ -66,7 +66,7 @@ export default function TaskBoard({
           </h3>
           <p className="mt-1 text-xs text-white/45">
             {usingRealColumns
-              ? "Drag cards between real Trello-style columns"
+              ? "Drag cards between real Codex columns"
               : "Drag cards between workflow statuses"}
           </p>
         </div>

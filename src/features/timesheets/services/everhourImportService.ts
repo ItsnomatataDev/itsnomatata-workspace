@@ -12,6 +12,10 @@ export type EverhourImportResult = {
   skipped: number;
   boardsCreated: number;
   tasksCreated: number;
+  usersMapped: number;
+  projectsMapped: number;
+  estimatesUpdated: number;
+  invoicesImported: number;
   unmatchedUsers: Array<{
     name: string | null;
     email: string | null;
@@ -34,6 +38,15 @@ export type TrelloBoardImportResult = {
   checklistItemsImported: number;
   attachmentsImported: number;
   commentsImported: number;
+  timeEntriesImported: number;
+  totalImportedSeconds: number;
+  importedTimeStatus: "not_requested" | "imported" | "no_time_data_found";
+  unmatchedTimeUsers: Array<{
+    sourceUserId: string | null;
+    sourceUserName: string | null;
+    sourceUserEmail: string | null;
+    durationSeconds: number;
+  }>;
   unmatchedMembers: Array<{
     trelloMemberId: string;
     name: string | null;
@@ -61,6 +74,58 @@ type NormalizedEverhourEntry = {
   hourlyRate: number | null;
   costAmount: number | null;
   approvalStatus: "pending" | "approved" | "rejected";
+  raw: JsonRecord;
+};
+
+type NormalizedEverhourInvoice = {
+  externalId: string | null;
+  invoiceNumber: string | null;
+  invoiceDate: string | null;
+  periodStart: string | null;
+  periodEnd: string | null;
+  currency: string | null;
+  subtotal: number | null;
+  taxTotal: number | null;
+  total: number | null;
+  status: string | null;
+  clientName: string | null;
+  projectName: string | null;
+  projectExternalId: string | null;
+  fileName: string | null;
+  publicUrl: string | null;
+  raw: JsonRecord;
+};
+
+type NormalizedEverhourUser = {
+  externalId: string;
+  email: string | null;
+  name: string | null;
+  role: string | null;
+  status: string | null;
+  raw: JsonRecord;
+};
+
+type NormalizedEverhourProject = {
+  externalId: string;
+  name: string | null;
+  status: string | null;
+  budgetSeconds: number | null;
+  raw: JsonRecord;
+};
+
+type NormalizedTrelloTimeEntry = {
+  sourceEntryId: string | null;
+  sourceCardId: string | null;
+  sourceBoardId: string | null;
+  sourceUserId: string | null;
+  sourceUserName: string | null;
+  sourceUserEmail: string | null;
+  startedAt: string;
+  endedAt: string;
+  durationSeconds: number;
+  description: string | null;
+  entryType: "timer" | "manual" | "imported";
+  provider: string;
   raw: JsonRecord;
 };
 
@@ -112,6 +177,19 @@ function stripTrelloPrefix(value: string | null | undefined) {
   const trimmed = value.trim();
   if (!trimmed) return null;
   return trimmed.toLowerCase().startsWith("tr:") ? trimmed.slice(3) : trimmed;
+}
+
+function extractTrelloIdFromValue(value: string | null | undefined) {
+  const stripped = stripTrelloPrefix(value);
+  if (!stripped) return null;
+
+  const cardUrl = stripped.match(/trello\.com\/c\/([a-zA-Z0-9]+)/);
+  if (cardUrl?.[1]) return cardUrl[1];
+
+  const boardUrl = stripped.match(/trello\.com\/b\/([a-zA-Z0-9]+)/);
+  if (boardUrl?.[1]) return boardUrl[1];
+
+  return stripped;
 }
 
 function parseDurationSeconds(value: unknown): number | null {
@@ -188,6 +266,120 @@ function collectCandidateRecords(input: unknown): JsonRecord[] {
   return records;
 }
 
+function collectInvoiceRecords(input: unknown): JsonRecord[] {
+  const records: JsonRecord[] = [];
+  const seen = new Set<JsonRecord>();
+
+  const visit = (value: unknown) => {
+    if (Array.isArray(value)) {
+      for (const item of value) visit(item);
+      return;
+    }
+
+    const record = asRecord(value);
+    if (!record || seen.has(record)) return;
+    seen.add(record);
+
+    const text = JSON.stringify(record).toLowerCase();
+    const hasInvoiceSignal =
+      getString(record, ["invoice_number", "invoiceNumber", "number", "invoiceNo"]) ||
+      text.includes("invoice");
+    const hasMoneySignal =
+      getNumber(record, ["total", "amount", "subtotal", "tax_total", "taxTotal"]) !== null;
+
+    if (hasInvoiceSignal && hasMoneySignal) records.push(record);
+
+    for (const nested of Object.values(record)) {
+      if (Array.isArray(nested) || asRecord(nested)) visit(nested);
+    }
+  };
+
+  visit(input);
+  return records;
+}
+
+function normalizeInvoice(record: JsonRecord): NormalizedEverhourInvoice | null {
+  const project = asRecord(record.project);
+  const client = asRecord(record.client) ?? asRecord(record.customer);
+  const file = asRecord(record.file) ?? asRecord(record.pdf) ?? asRecord(record.attachment);
+  const invoiceNumber = getString(record, ["invoice_number", "invoiceNumber", "number", "invoiceNo"]);
+  const total = getNumber(record, ["total", "amount", "totalAmount", "grandTotal"]);
+
+  if (!invoiceNumber && !total) return null;
+
+  return {
+    externalId: getString(record, ["id", "invoiceId", "externalId"]),
+    invoiceNumber,
+    invoiceDate: parseDate(getString(record, ["invoice_date", "invoiceDate", "date", "issuedAt"])),
+    periodStart: parseDate(getString(record, ["period_start", "periodStart", "from", "startDate"])),
+    periodEnd: parseDate(getString(record, ["period_end", "periodEnd", "to", "endDate"])),
+    currency: getString(record, ["currency"]) ?? "USD",
+    subtotal: getNumber(record, ["subtotal", "subTotal"]),
+    taxTotal: getNumber(record, ["tax_total", "taxTotal", "tax"]),
+    total,
+    status: getString(record, ["status"]) ?? "imported",
+    clientName: getString(client, ["name"]) ?? getString(record, ["client", "clientName", "customer", "customerName"]),
+    projectName: getString(project, ["name"]) ?? getString(record, ["project", "projectName", "board", "boardName"]),
+    projectExternalId:
+      getString(project, ["id", "externalId", "shortLink"]) ??
+      extractTrelloIdFromValue(getString(record, ["projectId", "projectExternalId", "boardId", "boardExternalId", "boardUrl", "projectUrl"])),
+    fileName: getString(file, ["name", "fileName"]) ?? getString(record, ["fileName"]),
+    publicUrl:
+      getString(file, ["url", "publicUrl", "downloadUrl"]) ??
+      getString(record, ["url", "pdfUrl", "publicUrl", "downloadUrl"]),
+    raw: record,
+  };
+}
+
+function collectEverhourUsers(input: unknown): NormalizedEverhourUser[] {
+  return asArray(input)
+    .map(asRecord)
+    .filter((record): record is JsonRecord => Boolean(record))
+    .map((record) => {
+      const externalId = getString(record, ["id"]);
+      if (!externalId) return null;
+      return {
+        externalId,
+        email: getString(record, ["email"]),
+        name: getString(record, ["name", "fullName", "full_name"]),
+        role: getString(record, ["role"]),
+        status: getString(record, ["status"]),
+        raw: record,
+      };
+    })
+    .filter((user): user is NormalizedEverhourUser => Boolean(user));
+}
+
+function collectEverhourProjects(input: unknown): NormalizedEverhourProject[] {
+  return asArray(input)
+    .map(asRecord)
+    .filter((record): record is JsonRecord => Boolean(record))
+    .map((record) => {
+      const externalId = getString(record, ["id"]);
+      if (!externalId) return null;
+      const budget = asRecord(record.budget);
+      return {
+        externalId,
+        name: getString(record, ["name"]),
+        status: getString(record, ["status"]),
+        budgetSeconds: getNumber(budget, ["budget"]) ?? null,
+        raw: record,
+      };
+    })
+    .filter((project): project is NormalizedEverhourProject => Boolean(project));
+}
+
+function collectEverhourEstimateRecords(input: unknown): JsonRecord[] {
+  return asArray(input)
+    .map(asRecord)
+    .filter((record): record is JsonRecord => {
+      if (!record) return false;
+      const task = asRecord(record.task);
+      const estimate = asRecord(record.estimate);
+      return Boolean(task && getString(task, ["id"]) && estimate && getNumber(estimate, ["total"]));
+    });
+}
+
 function normalizeEntry(record: JsonRecord): NormalizedEverhourEntry | null {
   const user = asRecord(record.user) ?? asRecord(record.member) ?? asRecord(record.employee);
   const task = asRecord(record.task);
@@ -224,14 +416,16 @@ function normalizeEntry(record: JsonRecord): NormalizedEverhourEntry | null {
     userName:
       getString(user, ["name", "fullName", "full_name"]) ??
       getString(record, ["userName", "memberName", "employeeName"]),
-    userExternalId: getString(user, ["id", "externalId"]) ?? getString(record, ["userId", "memberId"]),
+    userExternalId:
+      getString(user, ["id", "externalId"]) ??
+      getString(record, ["user", "userId", "memberId"]),
     projectExternalId:
       getString(project, ["id", "externalId", "shortLink"]) ??
-      getString(record, ["projectId", "projectExternalId", "boardId", "boardExternalId"]) ??
+      extractTrelloIdFromValue(getString(record, ["projectId", "projectExternalId", "boardId", "boardExternalId", "boardUrl", "projectUrl"])) ??
       getFirstStringFromArray(task?.projects),
     taskExternalId:
       getString(task, ["id", "externalId", "shortLink"]) ??
-      getString(record, ["taskId", "taskExternalId", "issueId"]),
+      extractTrelloIdFromValue(getString(record, ["taskId", "taskExternalId", "issueId", "taskUrl", "url"])),
     clientName:
       getString(client, ["name"]) ??
       getString(record, ["client", "clientName", "customer", "customerName"]),
@@ -291,6 +485,172 @@ function statusFromTrelloListName(name: string | null | undefined) {
   }
   if (normalized.includes("backlog")) return "backlog";
   return "todo";
+}
+
+function normalizeColumnMatchKey(name: string | null | undefined) {
+  return normalizeKey(name).replace(/[^a-z0-9]/g, "");
+}
+
+function defaultStatusForTrelloListName(name: string | null | undefined) {
+  const normalized = normalizeColumnMatchKey(name);
+  if (["todo", "to-do", "to_do"].includes(normalized) || normalized === "todo") return "todo";
+  if (["done", "complete", "completed"].includes(normalized)) return "done";
+  if (["doing", "inprogress", "progress"].includes(normalized)) return "in_progress";
+  if (["backlog", "ideas"].includes(normalized)) return "backlog";
+  return null;
+}
+
+function deterministicHash(parts: Array<string | number | null | undefined>) {
+  const input = parts.map((part) => String(part ?? "")).join("|");
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < input.length; i += 1) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return `h${(hash >>> 0).toString(16).padStart(8, "0")}`;
+}
+
+function parsePluginValue(record: JsonRecord): unknown {
+  const value = record.value ?? record.data;
+  if (typeof value !== "string") return value ?? record;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}
+
+function collectTrelloTimeCandidateRecords(input: unknown): JsonRecord[] {
+  const candidates: JsonRecord[] = [];
+  const seen = new Set<JsonRecord>();
+
+  const visit = (value: unknown) => {
+    if (Array.isArray(value)) {
+      for (const item of value) visit(item);
+      return;
+    }
+
+    if (typeof value === "string") return;
+
+    const record = asRecord(value);
+    if (!record || seen.has(record)) return;
+    seen.add(record);
+
+    const hasDuration =
+      getNumber(record, ["duration_seconds", "durationSeconds", "seconds", "timeSpentSeconds", "totalSeconds"]) ??
+      getNumber(record, ["duration_minutes", "durationMinutes", "minutes", "timeSpentMinutes", "totalMinutes"]) ??
+      getNumber(record, ["duration_hours", "durationHours", "hours", "timeSpentHours", "totalHours"]) ??
+      parseDurationSeconds(record.duration) ??
+      parseDurationSeconds(record.time) ??
+      parseDurationSeconds(record.timeSpent) ??
+      parseDurationSeconds(record.total);
+
+    const hasTimeProvider =
+      /\b(everhour|planyway|timecamp|harvest)\b/i.test(
+        JSON.stringify(record).slice(0, 3000),
+      );
+    const hasExplicitTimestamp = Boolean(
+      getString(record, ["startedAt", "started_at", "start", "from", "date", "day", "createdAt"]),
+    );
+
+    if (hasDuration && hasTimeProvider && hasExplicitTimestamp) {
+      candidates.push(record);
+    }
+
+    for (const nested of Object.values(record)) {
+      if (Array.isArray(nested) || asRecord(nested)) visit(nested);
+    }
+  };
+
+  visit(input);
+  return candidates;
+}
+
+function normalizeTrelloTimeEntry(params: {
+  record: JsonRecord;
+  cardId: string | null;
+  boardId: string | null;
+  memberLookup: Map<string, JsonRecord>;
+}): NormalizedTrelloTimeEntry | null {
+  const record = params.record;
+  const user =
+    asRecord(record.user) ??
+    asRecord(record.member) ??
+    asRecord(record.memberCreator) ??
+    asRecord(record.author) ??
+    null;
+  const sourceUserId =
+    getString(user, ["id", "externalId", "idMember"]) ??
+    getString(record, ["userId", "memberId", "idMember", "authorId"]);
+  const memberRecord = sourceUserId ? params.memberLookup.get(sourceUserId) ?? null : null;
+  const sourceUserName =
+    getString(user, ["fullName", "name", "username", "displayName"]) ??
+    getString(memberRecord, ["fullName", "username", "name"]) ??
+    getString(record, ["userName", "memberName", "authorName"]);
+  const sourceUserEmail =
+    getString(user, ["email"]) ??
+    getString(memberRecord, ["email"]) ??
+    getString(record, ["email", "userEmail", "memberEmail"]);
+
+  const durationSeconds =
+    getNumber(record, ["duration_seconds", "durationSeconds", "seconds", "timeSpentSeconds", "totalSeconds"]) ??
+    ((getNumber(record, ["duration_minutes", "durationMinutes", "minutes", "timeSpentMinutes", "totalMinutes"]) ?? 0) * 60 || null) ??
+    ((getNumber(record, ["duration_hours", "durationHours", "hours", "timeSpentHours", "totalHours"]) ?? 0) * 3600 || null) ??
+    parseDurationSeconds(record.duration) ??
+    parseDurationSeconds(record.time) ??
+    parseDurationSeconds(record.timeSpent) ??
+    parseDurationSeconds(record.total);
+
+  if (!durationSeconds || durationSeconds <= 0) return null;
+
+  const startedAt = parseDate(
+    getString(record, ["started_at", "startedAt", "start", "from", "createdAt", "date", "day"]),
+  );
+  if (!startedAt) return null;
+
+  const endedAt =
+    parseDate(getString(record, ["ended_at", "endedAt", "end", "to"])) ??
+    new Date(new Date(startedAt).getTime() + durationSeconds * 1000).toISOString();
+  const sourceEntryId =
+    getString(record, ["id", "entryId", "timeId", "externalId"]) ??
+    deterministicHash([
+      params.boardId,
+      params.cardId,
+      sourceUserId,
+      sourceUserName,
+      startedAt,
+      durationSeconds,
+      JSON.stringify(record).slice(0, 500),
+    ]);
+  const providerText = JSON.stringify(record).toLowerCase();
+  const provider = providerText.includes("everhour")
+    ? "everhour"
+    : providerText.includes("planyway")
+      ? "planyway"
+      : providerText.includes("timecamp")
+        ? "timecamp"
+        : providerText.includes("harvest")
+          ? "harvest"
+          : "trello";
+  const typeText = normalizeKey(getString(record, ["type", "entryType", "source"]));
+
+  return {
+    sourceEntryId,
+    sourceCardId: params.cardId,
+    sourceBoardId: params.boardId,
+    sourceUserId,
+    sourceUserName,
+    sourceUserEmail,
+    startedAt,
+    endedAt,
+    durationSeconds,
+    description:
+      getString(record, ["description", "notes", "note", "comment", "text"]) ??
+      `Imported ${provider} time`,
+    entryType: typeText.includes("timer") ? "timer" : typeText.includes("manual") ? "manual" : "imported",
+    provider,
+    raw: record,
+  };
 }
 
 async function createImportBatch(params: {
@@ -467,6 +827,30 @@ async function getOrCreateTask(params: {
   return { taskId: data.id as string, created: true };
 }
 
+async function syncImportedTaskTimeCache(params: {
+  organizationId: string;
+  taskId: string;
+}) {
+  const { data, error } = await supabase
+    .from("time_entries")
+    .select("duration_seconds")
+    .eq("organization_id", params.organizationId)
+    .eq("task_id", params.taskId);
+
+  if (error) return;
+
+  const total = (data ?? []).reduce(
+    (sum, row) => sum + Number(row.duration_seconds ?? 0),
+    0,
+  );
+
+  await supabase
+    .from("tasks")
+    .update({ tracked_seconds_cache: total })
+    .eq("organization_id", params.organizationId)
+    .eq("id", params.taskId);
+}
+
 async function resolveMappedTrelloBoard(params: {
   organizationId: string;
   externalId: string | null;
@@ -535,6 +919,260 @@ async function resolveMappedTrelloTask(params: {
   };
 }
 
+function resolveExactBoardByName(params: {
+  name: string | null;
+  boardMap: Map<string, Board>;
+}) {
+  const key = normalizeKey(params.name);
+  if (!key) return null;
+  return params.boardMap.get(key)?.id ?? null;
+}
+
+function resolveExactTaskByTitle(params: {
+  boardId: string | null;
+  title: string | null;
+  taskMap: Map<string, string>;
+}) {
+  const cleanTitle = params.title?.trim();
+  if (!cleanTitle) return null;
+  return params.taskMap.get(`${params.boardId ?? "none"}::${normalizeKey(cleanTitle)}`) ?? null;
+}
+
+function parseEstimateSeconds(entry: NormalizedEverhourEntry) {
+  const raw = entry.raw;
+  return (
+    getNumber(raw, ["estimated_seconds", "estimatedSeconds", "estimateSeconds", "budgetSeconds"]) ??
+    ((getNumber(raw, ["estimated_minutes", "estimatedMinutes", "estimateMinutes", "budgetMinutes"]) ?? 0) * 60 || null) ??
+    ((getNumber(raw, ["estimated_hours", "estimatedHours", "estimateHours", "budgetHours"]) ?? 0) * 3600 || null) ??
+    parseDurationSeconds(raw.estimate) ??
+    parseDurationSeconds(raw.estimated) ??
+    parseDurationSeconds(raw.budget)
+  );
+}
+
+async function importEverhourInvoices(params: {
+  organizationId: string;
+  importedBy: string;
+  json: unknown;
+  boardMap: Map<string, Board>;
+}) {
+  const invoiceRecords = collectInvoiceRecords(params.json)
+    .map(normalizeInvoice)
+    .filter((invoice): invoice is NormalizedEverhourInvoice => Boolean(invoice));
+
+  let imported = 0;
+
+  for (const invoice of invoiceRecords) {
+    const mappedBoardId =
+      await resolveMappedTrelloBoard({
+        organizationId: params.organizationId,
+        externalId: invoice.projectExternalId,
+      }) ??
+      resolveExactBoardByName({
+        name: invoice.clientName ?? invoice.projectName,
+        boardMap: params.boardMap,
+      });
+
+    if (!mappedBoardId) continue;
+
+    const externalId =
+      invoice.externalId ??
+      deterministicHash([
+        invoice.invoiceNumber,
+        mappedBoardId,
+        invoice.invoiceDate,
+        invoice.total,
+        invoice.publicUrl,
+      ]);
+
+    const { error } = await supabase.from("client_invoices").upsert(
+      {
+        organization_id: params.organizationId,
+        client_id: mappedBoardId,
+        invoice_number: invoice.invoiceNumber,
+        invoice_date: invoice.invoiceDate ? invoice.invoiceDate.slice(0, 10) : null,
+        period_start: invoice.periodStart ? invoice.periodStart.slice(0, 10) : null,
+        period_end: invoice.periodEnd ? invoice.periodEnd.slice(0, 10) : null,
+        currency: invoice.currency ?? "USD",
+        subtotal: invoice.subtotal,
+        tax_total: invoice.taxTotal,
+        total: invoice.total,
+        status: invoice.status ?? "imported",
+        source: "everhour_import",
+        external_id: externalId,
+        file_name: invoice.fileName,
+        public_url: invoice.publicUrl,
+        metadata: {
+          imported_from: "everhour_json",
+          imported_by: params.importedBy,
+          imported_at: new Date().toISOString(),
+          project_external_id: invoice.projectExternalId,
+          raw: invoice.raw,
+        },
+        created_by: params.importedBy,
+      },
+      { onConflict: "organization_id,source,external_id" },
+    );
+
+    if (!error) imported += 1;
+  }
+
+  return imported;
+}
+
+async function importEverhourUsers(params: {
+  organizationId: string;
+  importedBy: string;
+  json: unknown;
+  profiles: Array<{ id: string; full_name: string | null; email: string | null }>;
+}) {
+  const users = collectEverhourUsers(params.json);
+  if (users.length === 0) return 0;
+
+  const profileByEmail = new Map(
+    params.profiles
+      .filter((profile) => profile.email)
+      .map((profile) => [normalizeKey(profile.email), profile.id]),
+  );
+  const profileByName = new Map(
+    params.profiles
+      .filter((profile) => profile.full_name)
+      .map((profile) => [normalizeKey(profile.full_name), profile.id]),
+  );
+
+  let mapped = 0;
+  for (const user of users) {
+    const userId =
+      profileByEmail.get(normalizeKey(user.email)) ??
+      profileByName.get(normalizeKey(user.name)) ??
+      null;
+
+    const { error } = await supabase.from("external_time_user_mappings").upsert(
+      {
+        organization_id: params.organizationId,
+        source: "everhour",
+        source_user_id: user.externalId,
+        source_user_name: user.name,
+        source_user_email: user.email,
+        user_id: userId,
+        created_by: params.importedBy,
+        metadata: {
+          role: user.role,
+          status: user.status,
+          raw: user.raw,
+        },
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "organization_id,source,source_user_id" },
+    );
+
+    if (!error && userId) mapped += 1;
+  }
+
+  return mapped;
+}
+
+async function getEverhourUserMappings(organizationId: string) {
+  const { data, error } = await supabase
+    .from("external_time_user_mappings")
+    .select("source_user_id, user_id, source_user_name, source_user_email")
+    .eq("organization_id", organizationId)
+    .eq("source", "everhour");
+
+  if (error) return new Map<string, {
+    user_id: string | null;
+    source_user_name: string | null;
+    source_user_email: string | null;
+  }>();
+
+  return new Map(
+    (data ?? []).map((row) => [
+      String(row.source_user_id),
+      {
+        user_id: row.user_id as string | null,
+        source_user_name: row.source_user_name as string | null,
+        source_user_email: row.source_user_email as string | null,
+      },
+    ]),
+  );
+}
+
+async function importEverhourProjects(params: {
+  organizationId: string;
+  json: unknown;
+  boardMap: Map<string, Board>;
+}) {
+  const projects = collectEverhourProjects(params.json);
+  if (projects.length === 0) return 0;
+
+  let mapped = 0;
+  for (const project of projects) {
+    const boardId = resolveExactBoardByName({
+      name: project.name,
+      boardMap: params.boardMap,
+    });
+    if (!boardId) continue;
+
+    await upsertMapping({
+      organizationId: params.organizationId,
+      source: "trello",
+      externalType: "board",
+      externalId: stripTrelloPrefix(project.externalId),
+      internalTable: "clients",
+      internalId: boardId,
+      metadata: {
+        mapped_from: "everhour_projects_json",
+        status: project.status,
+        budget_seconds: project.budgetSeconds,
+        raw: project.raw,
+      },
+    });
+
+    mapped += 1;
+  }
+
+  return mapped;
+}
+
+async function importEverhourEstimates(params: {
+  organizationId: string;
+  json: unknown;
+  taskMap: Map<string, string>;
+}) {
+  const estimates = collectEverhourEstimateRecords(params.json);
+  let updated = 0;
+
+  for (const record of estimates) {
+    const task = asRecord(record.task);
+    const project = asRecord(record.project);
+    const estimate = asRecord(record.estimate);
+    const taskExternalId = getString(task, ["id"]);
+    const projectExternalId = getString(project, ["id"]);
+    const estimateSeconds = getNumber(estimate, ["total"]);
+    if (!taskExternalId || !estimateSeconds || estimateSeconds <= 0) continue;
+
+    const mappedTask = await resolveMappedTrelloTask({
+      organizationId: params.organizationId,
+      externalId: taskExternalId,
+      taskMap: params.taskMap,
+    });
+
+    if (!mappedTask?.taskId) continue;
+
+    const { error } = await supabase
+      .from("tasks")
+      .update({
+        estimated_seconds: estimateSeconds,
+      })
+      .eq("organization_id", params.organizationId)
+      .eq("id", mappedTask.taskId);
+
+    if (!error) updated += 1;
+  }
+
+  return updated;
+}
+
 export async function importEverhourJson(params: {
   organizationId: string;
   importedBy: string;
@@ -552,6 +1190,10 @@ export async function importEverhourJson(params: {
     skipped: 0,
     boardsCreated: 0,
     tasksCreated: 0,
+    usersMapped: 0,
+    projectsMapped: 0,
+    estimatesUpdated: 0,
+    invoicesImported: 0,
     unmatchedUsers: [],
     errors: [],
   };
@@ -586,18 +1228,40 @@ export async function importEverhourJson(params: {
     ]),
   );
 
+  result.usersMapped = await importEverhourUsers({
+    organizationId: params.organizationId,
+    importedBy: params.importedBy,
+    json: params.json,
+    profiles: (profiles ?? []) as Array<{ id: string; full_name: string | null; email: string | null }>,
+  });
+  result.projectsMapped = await importEverhourProjects({
+    organizationId: params.organizationId,
+    json: params.json,
+    boardMap,
+  });
+  result.estimatesUpdated = await importEverhourEstimates({
+    organizationId: params.organizationId,
+    json: params.json,
+    taskMap,
+  });
+  const everhourUserMappings = await getEverhourUserMappings(params.organizationId);
+
   for (const entry of candidates) {
+    const externalUserMapping = entry.userExternalId
+      ? everhourUserMappings.get(String(entry.userExternalId))
+      : null;
     const userId =
       usersByEmail.get(normalizeKey(entry.userEmail)) ??
-      usersByName.get(normalizeKey(entry.userName));
+      usersByName.get(normalizeKey(entry.userName)) ??
+      externalUserMapping?.user_id;
 
     if (!userId) {
       result.skipped += 1;
       result.unmatchedUsers.push({
-        name: entry.userName,
-        email: entry.userEmail,
+        name: entry.userName ?? externalUserMapping?.source_user_name ?? null,
+        email: entry.userEmail ?? externalUserMapping?.source_user_email ?? null,
         externalId: entry.userExternalId,
-        reason: "No matching profile by email or full name.",
+        reason: "No matching profile by Everhour user id, email, or full name.",
       });
       continue;
     }
@@ -613,35 +1277,62 @@ export async function importEverhourJson(params: {
         await resolveMappedTrelloBoard({
           organizationId: params.organizationId,
           externalId: entry.projectExternalId,
-        });
-
-      const boardName = entry.clientName ?? entry.projectName;
-      const board = mappedBoardId
-        ? { boardId: mappedBoardId, created: false }
-        : await getOrCreateBoard({
-          organizationId: params.organizationId,
-          name: boardName,
+        }) ??
+        resolveExactBoardByName({
+          name: entry.clientName ?? entry.projectName,
           boardMap,
         });
-      if (board.created) result.boardsCreated += 1;
 
-      const task = mappedTask
-        ? { taskId: mappedTask.taskId, created: false }
-        : await getOrCreateTask({
-          organizationId: params.organizationId,
-          boardId: board.boardId,
+      if (!mappedBoardId) {
+        result.skipped += 1;
+        result.errors.push(
+          `Skipped Everhour time for "${entry.taskName ?? "unknown task"}": no matching imported board/project.`,
+        );
+        continue;
+      }
+
+      const taskId =
+        mappedTask?.taskId ??
+        resolveExactTaskByTitle({
+          boardId: mappedBoardId,
           title: entry.taskName,
           taskMap,
         });
-      if (task.created) result.tasksCreated += 1;
+
+      if (!taskId) {
+        result.skipped += 1;
+        result.errors.push(
+          `Skipped Everhour time for "${entry.taskName ?? "unknown task"}": no matching imported card/task on board.`,
+        );
+        continue;
+      }
+
+      const estimateSeconds = parseEstimateSeconds(entry);
+      if (estimateSeconds && estimateSeconds > 0) {
+        const { error: estimateError } = await supabase
+          .from("tasks")
+          .update({ estimated_seconds: estimateSeconds })
+          .eq("organization_id", params.organizationId)
+          .eq("id", taskId);
+        if (!estimateError) result.estimatesUpdated += 1;
+      }
+
+      const importHash = deterministicHash([
+        "everhour",
+        entry.externalId,
+        taskId,
+        userId,
+        entry.startedAt,
+        entry.endedAt,
+        entry.durationSeconds,
+      ]);
 
       const duplicate = await supabase
         .from("time_entries")
         .select("id")
         .eq("organization_id", params.organizationId)
-        .eq("user_id", userId)
-        .eq("started_at", entry.startedAt)
-        .eq("ended_at", entry.endedAt)
+        .eq("source", "everhour_import")
+        .eq("import_hash", importHash)
         .limit(1)
         .maybeSingle();
 
@@ -658,8 +1349,8 @@ export async function importEverhourJson(params: {
       const { error } = await supabase.from("time_entries").insert({
         organization_id: params.organizationId,
         user_id: userId,
-        client_id: board.boardId,
-        task_id: task.taskId,
+        client_id: mappedBoardId,
+        task_id: taskId,
         description: entry.description ?? entry.taskName ?? "Imported Everhour time entry",
         started_at: entry.startedAt,
         ended_at: entry.endedAt,
@@ -670,6 +1361,13 @@ export async function importEverhourJson(params: {
         cost_amount: costAmount,
         approval_status: entry.approvalStatus,
         source: "everhour_import",
+        entry_type: "imported",
+        source_entry_id: entry.externalId,
+        source_card_id: entry.taskExternalId,
+        source_board_id: entry.projectExternalId,
+        source_user_id: entry.userExternalId,
+        source_user_name: entry.userName,
+        import_hash: importHash,
         metadata: {
           imported_from: "everhour_json",
           imported_by: params.importedBy,
@@ -686,11 +1384,22 @@ export async function importEverhourJson(params: {
 
       if (error) throw new Error(error.message);
       result.imported += 1;
+      await syncImportedTaskTimeCache({
+        organizationId: params.organizationId,
+        taskId,
+      });
     } catch (error) {
       result.skipped += 1;
       result.errors.push(error instanceof Error ? error.message : String(error));
     }
   }
+
+  result.invoicesImported = await importEverhourInvoices({
+    organizationId: params.organizationId,
+    importedBy: params.importedBy,
+    json: params.json,
+    boardMap,
+  });
 
   return result;
 }
@@ -704,7 +1413,7 @@ async function getOrCreateTrelloBoard(params: {
 }) {
   const trelloBoardId = getString(params.boardRecord, ["id"]);
   const trelloShortLink = getString(params.boardRecord, ["shortLink"]);
-  const boardName = getString(params.boardRecord, ["name"]) ?? "Imported Trello Board";
+  const boardName = getString(params.boardRecord, ["name"]) ?? "Imported Codex Board";
 
   const mapped = await getMapping({
     organizationId: params.organizationId,
@@ -768,8 +1477,8 @@ async function getOrCreateTrelloBoard(params: {
     organizationId: params.organizationId,
     name: boardName,
     website: getString(params.boardRecord, ["url", "shortUrl"]),
-    industry: "Trello Import",
-    notes: "Created from Trello board JSON import.",
+    industry: "Codex Import",
+    notes: "Created from Codex board JSON import.",
     boardType: "client",
   });
 
@@ -815,6 +1524,7 @@ async function getOrCreateTrelloColumn(params: {
   const trelloListId = getString(params.listRecord, ["id"]);
   const name = getString(params.listRecord, ["name"]) ?? "Imported List";
   const trelloPosition = getNumber(params.listRecord, ["pos"]);
+  const matchedDefaultStatus = defaultStatusForTrelloListName(name);
 
   const mapped = await getMapping({
     organizationId: params.organizationId,
@@ -824,30 +1534,82 @@ async function getOrCreateTrelloColumn(params: {
   });
 
   if (mapped?.internal_id) {
-    return { columnId: mapped.internal_id, created: false, name };
+    return { columnId: mapped.internal_id, status: statusFromTrelloListName(name), created: false, name };
   }
 
-  const { data: existing } = await supabase
+  const { data: existingColumns } = await supabase
     .from("task_board_columns")
-    .select("id")
+    .select("id, name, position")
     .eq("organization_id", params.organizationId)
     .eq("client_id", params.boardId)
-    .ilike("name", name)
-    .maybeSingle();
+    .order("position", { ascending: true });
 
-  if (existing?.id) {
+  const exactExisting = (existingColumns ?? []).find(
+    (column) => normalizeColumnMatchKey(column.name) === normalizeColumnMatchKey(name),
+  );
+  const defaultExisting = matchedDefaultStatus
+    ? (existingColumns ?? []).find(
+      (column) =>
+        defaultStatusForTrelloListName(column.name) === matchedDefaultStatus ||
+        normalizeColumnMatchKey(column.name) === normalizeColumnMatchKey(
+          matchedDefaultStatus === "in_progress" ? "In Progress" : matchedDefaultStatus,
+        ),
+    )
+    : null;
+  const reusableColumn = exactExisting ?? defaultExisting;
+
+  if (reusableColumn?.id) {
     await upsertMapping({
       organizationId: params.organizationId,
       source: "trello",
       externalType: "list",
       externalId: trelloListId,
       internalTable: "task_board_columns",
-      internalId: existing.id as string,
+      internalId: reusableColumn.id as string,
       importBatchId: params.importBatchId,
-      metadata: { name, position: params.position, trello_position: trelloPosition },
+      metadata: {
+        name,
+        original_trello_list_name: name,
+        position: params.position,
+        trello_position: trelloPosition,
+        matched_default_status: matchedDefaultStatus,
+      },
     });
-    return { columnId: existing.id as string, created: false, name };
+    return {
+      columnId: reusableColumn.id as string,
+      status: matchedDefaultStatus ?? statusFromTrelloListName(name),
+      created: false,
+      name,
+    };
   }
+
+  if (matchedDefaultStatus) {
+    await upsertMapping({
+      organizationId: params.organizationId,
+      source: "trello",
+      externalType: "list",
+      externalId: trelloListId,
+      internalTable: "task_status",
+      internalId: null,
+      importBatchId: params.importBatchId,
+      metadata: {
+        name,
+        original_trello_list_name: name,
+        matched_default_status: matchedDefaultStatus,
+      },
+    });
+    return {
+      columnId: null,
+      status: matchedDefaultStatus,
+      created: false,
+      name,
+    };
+  }
+
+  const maxPosition = (existingColumns ?? []).reduce(
+    (max, column) => Math.max(max, Number(column.position ?? 0)),
+    4,
+  );
 
   const { data, error } = await supabase
     .from("task_board_columns")
@@ -855,8 +1617,8 @@ async function getOrCreateTrelloColumn(params: {
       organization_id: params.organizationId,
       client_id: params.boardId,
       project_id: null,
-      name,
-      position: params.position,
+      name: `Codex - ${name}`,
+      position: maxPosition + 1 + params.position,
       color: null,
     })
     .select("id")
@@ -872,10 +1634,15 @@ async function getOrCreateTrelloColumn(params: {
     internalTable: "task_board_columns",
     internalId: data.id as string,
     importBatchId: params.importBatchId,
-    metadata: { name, position: params.position, trello_position: trelloPosition },
+    metadata: {
+      name: `Codex - ${name}`,
+      original_trello_list_name: name,
+      position: params.position,
+      trello_position: trelloPosition,
+    },
   });
 
-  return { columnId: data.id as string, created: true, name };
+  return { columnId: data.id as string, status: statusFromTrelloListName(name), created: true, name };
 }
 
 export async function importTrelloBoardJson(params: {
@@ -884,9 +1651,10 @@ export async function importTrelloBoardJson(params: {
   json: unknown;
   boards: Board[];
   fileName?: string | null;
+  importTrackedTime?: boolean;
 }): Promise<TrelloBoardImportResult> {
   const boardRecord = asRecord(params.json);
-  if (!boardRecord) throw new Error("Trello import expects one board JSON object.");
+  if (!boardRecord) throw new Error("Codex import expects one board JSON object.");
 
   const listRecords = asArray(boardRecord.lists)
     .map(asRecord)
@@ -913,7 +1681,7 @@ export async function importTrelloBoardJson(params: {
   });
 
   const result: TrelloBoardImportResult = {
-    boardName: getString(boardRecord, ["name"]) ?? "Imported Trello Board",
+    boardName: getString(boardRecord, ["name"]) ?? "Imported Codex Board",
     boardId: null,
     scannedLists: listRecords.length,
     scannedCards: cardRecords.length,
@@ -925,6 +1693,10 @@ export async function importTrelloBoardJson(params: {
     checklistItemsImported: 0,
     attachmentsImported: 0,
     commentsImported: 0,
+    timeEntriesImported: 0,
+    totalImportedSeconds: 0,
+    importedTimeStatus: params.importTrackedTime === false ? "not_requested" : "no_time_data_found",
+    unmatchedTimeUsers: [],
     unmatchedMembers: [],
     errors: [],
   };
@@ -951,6 +1723,11 @@ export async function importTrelloBoardJson(params: {
         .filter((profile) => profile.full_name)
         .map((profile) => [normalizeKey(profile.full_name), profile.id as string]),
     );
+    const profileByEmail = new Map(
+      (profiles ?? [])
+        .filter((profile) => profile.email)
+        .map((profile) => [normalizeKey(profile.email), profile.id as string]),
+    );
     const profileByEmailPrefix = new Map(
       (profiles ?? [])
         .filter((profile) => profile.email)
@@ -961,9 +1738,11 @@ export async function importTrelloBoardJson(params: {
     );
 
     const trelloMemberToProfile = new Map<string, string>();
+    const trelloMemberRecords = new Map<string, JsonRecord>();
     for (const member of memberRecords) {
       const memberId = getString(member, ["id"]);
       if (!memberId) continue;
+      trelloMemberRecords.set(memberId, member);
 
       const fullName = getString(member, ["fullName"]);
       const username = getString(member, ["username"]);
@@ -978,12 +1757,13 @@ export async function importTrelloBoardJson(params: {
           trelloMemberId: memberId,
           name: fullName,
           username,
-          reason: "No matching profile by Trello full name or username.",
+          reason: "No matching profile by Codex full name or username.",
         });
       }
     }
 
     const listIdToColumnId = new Map<string, string>();
+    const listIdToStatus = new Map<string, string>();
     const listIdToName = new Map<string, string>();
     let visibleListPosition = 0;
     for (const list of listRecords) {
@@ -1000,7 +1780,8 @@ export async function importTrelloBoardJson(params: {
         visibleListPosition += 1;
         const listId = getString(list, ["id"]);
         if (listId) {
-          listIdToColumnId.set(listId, column.columnId);
+          if (column.columnId) listIdToColumnId.set(listId, column.columnId);
+          listIdToStatus.set(listId, column.status);
           listIdToName.set(listId, column.name);
         }
         if (column.created) result.listsImported += 1;
@@ -1019,15 +1800,21 @@ export async function importTrelloBoardJson(params: {
     }
 
     const commentsByCard = new Map<string, JsonRecord[]>();
+    const actionsByCard = new Map<string, JsonRecord[]>();
     for (const action of actionRecords) {
-      if (getString(action, ["type"]) !== "commentCard") continue;
       const data = asRecord(action.data);
       const card = asRecord(data?.card);
       const cardId = getString(card, ["id"]);
       if (!cardId) continue;
-      const list = commentsByCard.get(cardId) ?? [];
-      list.push(action);
-      commentsByCard.set(cardId, list);
+      const actionList = actionsByCard.get(cardId) ?? [];
+      actionList.push(action);
+      actionsByCard.set(cardId, actionList);
+
+      if (getString(action, ["type"]) === "commentCard") {
+        const list = commentsByCard.get(cardId) ?? [];
+        list.push(action);
+        commentsByCard.set(cardId, list);
+      }
     }
 
     const nextCardPositionByList = new Map<string, number>();
@@ -1042,12 +1829,12 @@ export async function importTrelloBoardJson(params: {
 
       if (mapped?.internal_id) {
         result.duplicates += 1;
-        continue;
       }
 
       try {
         const listId = getString(card, ["idList"]);
         const columnId = listId ? listIdToColumnId.get(listId) ?? null : null;
+        const mappedStatus = listId ? listIdToStatus.get(listId) ?? null : null;
         const listName = listId ? listIdToName.get(listId) ?? null : null;
         const labels = asArray(card.labels)
           .map(asRecord)
@@ -1063,7 +1850,7 @@ export async function importTrelloBoardJson(params: {
         const title = getString(card, ["name"]) ?? "Untitled Trello card";
         const status = getBoolean(card, ["closed"]) === true
           ? "done"
-          : statusFromTrelloListName(listName);
+          : mappedStatus ?? statusFromTrelloListName(listName);
         const positionKey = listId ?? "none";
         const position = nextCardPositionByList.get(positionKey) ?? 0;
         nextCardPositionByList.set(positionKey, position + 1);
@@ -1071,71 +1858,79 @@ export async function importTrelloBoardJson(params: {
         const dueDate = parseDate(getString(card, ["due"]));
         const shortLink = getString(card, ["shortLink"]);
 
-        const { data: task, error } = await supabase
-          .from("tasks")
-          .insert({
-            organization_id: params.organizationId,
-            client_id: board.boardId,
-            column_id: columnId,
-            title,
-            description: getString(card, ["desc"]) || null,
-            status,
-            priority: labels.some((label) =>
-                normalizeKey(label.name).includes("urgent") ||
-                normalizeKey(label.color).includes("red")
-              )
-              ? "urgent"
-              : "medium",
-            due_date: dueDate,
-            position,
-            is_billable: true,
-            created_by: params.importedBy,
-            metadata: {
-              imported_from: "trello_board_json",
-              trello_card_id: trelloCardId,
-              trello_short_link: shortLink,
-              trello_url: getString(card, ["url", "shortUrl"]),
-              trello_list_id: listId,
-              trello_list_name: listName,
-              trello_position: trelloPosition,
-              labels,
-              raw_badges: card.badges ?? null,
-              date_last_activity: getString(card, ["dateLastActivity"]),
-            },
-          })
-          .select("id")
-          .single();
+        let taskId = mapped?.internal_id ?? null;
+        const isExistingCard = Boolean(taskId);
 
-        if (error) throw new Error(error.message);
+        if (!taskId) {
+          const { data: task, error } = await supabase
+            .from("tasks")
+            .insert({
+              organization_id: params.organizationId,
+              client_id: board.boardId,
+              column_id: columnId,
+              title,
+              description: getString(card, ["desc"]) || null,
+              status,
+              priority: labels.some((label) =>
+                  normalizeKey(label.name).includes("urgent") ||
+                  normalizeKey(label.color).includes("red")
+                )
+                ? "urgent"
+                : "medium",
+              due_date: dueDate,
+              position,
+              is_billable: true,
+              created_by: params.importedBy,
+              imported_time_status: params.importTrackedTime === false ? "not_requested" : "no_time_data_found",
+              metadata: {
+                imported_from: "trello_board_json",
+                trello_card_id: trelloCardId,
+                trello_short_link: shortLink,
+                trello_url: getString(card, ["url", "shortUrl"]),
+                trello_list_id: listId,
+                trello_list_name: listName,
+                original_trello_list_name: listName,
+                trello_position: trelloPosition,
+                labels,
+                raw_badges: card.badges ?? null,
+                date_last_activity: getString(card, ["dateLastActivity"]),
+              },
+            })
+            .select("id")
+            .single();
 
-        const taskId = task.id as string;
-        result.cardsImported += 1;
+          if (error) throw new Error(error.message);
+          taskId = task.id as string;
+          result.cardsImported += 1;
+        }
 
-        await upsertMapping({
-          organizationId: params.organizationId,
-          source: "trello",
-          externalType: "card",
-          externalId: trelloCardId,
-          internalTable: "tasks",
-          internalId: taskId,
-          importBatchId,
-          metadata: { shortLink, title, listId, listName },
-        });
-
-        if (shortLink) {
+        if (!isExistingCard) {
           await upsertMapping({
             organizationId: params.organizationId,
             source: "trello",
-            externalType: "card_short_link",
-            externalId: shortLink,
+            externalType: "card",
+            externalId: trelloCardId,
             internalTable: "tasks",
             internalId: taskId,
             importBatchId,
-            metadata: { trelloCardId, title },
+            metadata: { shortLink, title, listId, listName },
           });
+
+          if (shortLink) {
+            await upsertMapping({
+              organizationId: params.organizationId,
+              source: "trello",
+              externalType: "card_short_link",
+              externalId: shortLink,
+              internalTable: "tasks",
+              internalId: taskId,
+              importBatchId,
+              metadata: { trelloCardId, title },
+            });
+          }
         }
 
-        if (assigneeIds.length > 0) {
+        if (!isExistingCard && assigneeIds.length > 0) {
           const { error: assigneeError } = await supabase
             .from("task_assignees")
             .upsert(
@@ -1150,7 +1945,7 @@ export async function importTrelloBoardJson(params: {
           if (!assigneeError) result.assigneesLinked += assigneeIds.length;
         }
 
-        const cardChecklists = checklistByCard.get(trelloCardId ?? "") ?? [];
+        const cardChecklists = isExistingCard ? [] : checklistByCard.get(trelloCardId ?? "") ?? [];
         for (const [checklistIndex, checklist] of cardChecklists.entries()) {
           const { data: newChecklist, error: checklistError } = await supabase
             .from("task_checklists")
@@ -1190,7 +1985,7 @@ export async function importTrelloBoardJson(params: {
           }
         }
 
-        const attachments = asArray(card.attachments)
+        const attachments = isExistingCard ? [] : asArray(card.attachments)
           .map(asRecord)
           .filter((item): item is JsonRecord => Boolean(item));
         if (attachments.length > 0) {
@@ -1215,7 +2010,7 @@ export async function importTrelloBoardJson(params: {
           if (!attachmentError) result.attachmentsImported += attachments.length;
         }
 
-        const comments = commentsByCard.get(trelloCardId ?? "") ?? [];
+        const comments = isExistingCard ? [] : commentsByCard.get(trelloCardId ?? "") ?? [];
         if (comments.length > 0) {
           const { error: commentError } = await supabase
             .from("task_comments")
@@ -1240,10 +2035,158 @@ export async function importTrelloBoardJson(params: {
 
           if (!commentError) result.commentsImported += comments.length;
         }
+
+        if (params.importTrackedTime !== false) {
+          const timeSources: unknown[] = [
+            asArray(card.pluginData)
+              .map(asRecord)
+              .filter((item): item is JsonRecord => Boolean(item))
+              .map(parsePluginValue),
+            card.customFieldItems,
+            card.customFields,
+          ];
+          const normalizedTimeEntries = collectTrelloTimeCandidateRecords(timeSources)
+            .map((record) =>
+              normalizeTrelloTimeEntry({
+                record,
+                cardId: trelloCardId,
+                boardId: getString(boardRecord, ["id"]),
+                memberLookup: trelloMemberRecords,
+              }),
+            )
+            .filter((entry): entry is NormalizedTrelloTimeEntry => Boolean(entry));
+
+          if (normalizedTimeEntries.length > 0) {
+            await supabase
+              .from("tasks")
+              .update({ imported_time_status: "imported" })
+              .eq("organization_id", params.organizationId)
+              .eq("id", taskId);
+          }
+
+          for (const timeEntry of normalizedTimeEntries) {
+            const userId = profileByEmail.get(normalizeKey(timeEntry.sourceUserEmail));
+            const effectiveSourceUserId =
+              timeEntry.sourceUserId ??
+              deterministicHash([timeEntry.sourceUserName, timeEntry.sourceUserEmail]);
+            const importHash = deterministicHash([
+              "trello",
+              timeEntry.sourceEntryId,
+              timeEntry.sourceCardId,
+              timeEntry.durationSeconds,
+              effectiveSourceUserId,
+              timeEntry.sourceUserName,
+              timeEntry.startedAt,
+            ]);
+
+            const duplicate = await supabase
+              .from("time_entries")
+              .select("id")
+              .eq("organization_id", params.organizationId)
+              .eq("source", "trello_import")
+              .eq("import_hash", importHash)
+              .maybeSingle();
+
+            if (duplicate.error) throw new Error(duplicate.error.message);
+            if (duplicate.data?.id) continue;
+
+            const { error: timeError } = await supabase.from("time_entries").insert({
+              organization_id: params.organizationId,
+              user_id: userId ?? null,
+              client_id: board.boardId,
+              task_id: taskId,
+              description: timeEntry.description,
+              started_at: timeEntry.startedAt,
+              ended_at: timeEntry.endedAt,
+              is_running: false,
+              duration_seconds: timeEntry.durationSeconds,
+              is_billable: true,
+              approval_status: "approved",
+              source: "trello_import",
+              entry_type: timeEntry.entryType,
+              source_entry_id: timeEntry.sourceEntryId,
+              source_card_id: timeEntry.sourceCardId,
+              source_board_id: timeEntry.sourceBoardId,
+              source_user_id: effectiveSourceUserId,
+              source_user_name: timeEntry.sourceUserName,
+              import_hash: importHash,
+              metadata: {
+                imported_from: "trello_board_json",
+                imported_by: params.importedBy,
+                imported_at: new Date().toISOString(),
+                provider: timeEntry.provider,
+                source_user_email: timeEntry.sourceUserEmail,
+                source_user_id: effectiveSourceUserId,
+                source_user_name: timeEntry.sourceUserName,
+                original_trello_list_name: listName,
+                raw: timeEntry.raw,
+              },
+            });
+
+            if (timeError) throw new Error(timeError.message);
+
+            result.timeEntriesImported += 1;
+            result.totalImportedSeconds += timeEntry.durationSeconds;
+            result.importedTimeStatus = "imported";
+
+            if (!userId) {
+              result.unmatchedTimeUsers.push({
+                sourceUserId: effectiveSourceUserId,
+                sourceUserName: timeEntry.sourceUserName,
+                sourceUserEmail: timeEntry.sourceUserEmail,
+                durationSeconds: timeEntry.durationSeconds,
+              });
+
+              if (effectiveSourceUserId || timeEntry.sourceUserName || timeEntry.sourceUserEmail) {
+                await supabase.from("external_time_user_mappings").upsert(
+                  {
+                    organization_id: params.organizationId,
+                    source: "trello",
+                    source_user_id: effectiveSourceUserId,
+                    source_user_name: timeEntry.sourceUserName,
+                    source_user_email: timeEntry.sourceUserEmail,
+                    user_id: null,
+                    created_by: params.importedBy,
+                    metadata: {
+                      source_board_id: timeEntry.sourceBoardId,
+                      provider: timeEntry.provider,
+                    },
+                    updated_at: new Date().toISOString(),
+                  },
+                  { onConflict: "organization_id,source,source_user_id" },
+                );
+              }
+            }
+          }
+
+          if (normalizedTimeEntries.length > 0) {
+            await syncImportedTaskTimeCache({
+              organizationId: params.organizationId,
+              taskId,
+            });
+          }
+        }
       } catch (error) {
         result.errors.push(error instanceof Error ? error.message : String(error));
       }
     }
+
+    if (params.importTrackedTime !== false && result.timeEntriesImported === 0) {
+      result.importedTimeStatus = "no_time_data_found";
+    }
+
+    await supabase.from("import_logs").insert({
+      organization_id: params.organizationId,
+      source: "trello",
+      source_board_id: getString(boardRecord, ["id"]),
+      imported_by: params.importedBy,
+      status: result.errors.length > 0 ? "completed_with_errors" : "completed",
+      total_boards: 1,
+      total_cards: result.cardsImported,
+      total_time_entries: result.timeEntriesImported,
+      unmatched_users_count: result.unmatchedTimeUsers.length,
+      errors: result.errors,
+    });
 
     await finishImportBatch({
       batchId: importBatchId,
@@ -1261,4 +2204,57 @@ export async function importTrelloBoardJson(params: {
     });
     throw error;
   }
+}
+
+export type ExternalTimeUserMapping = {
+  id: string;
+  source_user_id: string;
+  source_user_name: string | null;
+  source_user_email: string | null;
+  user_id: string | null;
+};
+
+export async function getUnmatchedExternalTimeUsers(organizationId: string) {
+  const { data, error } = await supabase
+    .from("external_time_user_mappings")
+    .select("id, source_user_id, source_user_name, source_user_email, user_id")
+    .eq("organization_id", organizationId)
+    .eq("source", "trello")
+    .is("user_id", null)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.warn("UNMATCHED EXTERNAL USERS LOOKUP SKIPPED:", error.message);
+    return [] as ExternalTimeUserMapping[];
+  }
+
+  return (data ?? []) as ExternalTimeUserMapping[];
+}
+
+export async function mapExternalTimeUser(params: {
+  organizationId: string;
+  mappingId: string;
+  sourceUserId: string;
+  userId: string;
+}) {
+  const now = new Date().toISOString();
+  const { error: mappingError } = await supabase
+    .from("external_time_user_mappings")
+    .update({ user_id: params.userId, updated_at: now })
+    .eq("organization_id", params.organizationId)
+    .eq("id", params.mappingId);
+
+  if (mappingError) throw new Error(mappingError.message);
+
+  const { error: entriesError } = await supabase
+    .from("time_entries")
+    .update({
+      user_id: params.userId,
+    })
+    .eq("organization_id", params.organizationId)
+    .eq("source", "trello_import")
+    .eq("source_user_id", params.sourceUserId)
+    .is("user_id", null);
+
+  if (entriesError) throw new Error(entriesError.message);
 }

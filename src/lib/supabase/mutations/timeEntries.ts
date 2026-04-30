@@ -17,7 +17,12 @@ export interface TimeEntryItem {
   is_running: boolean;
   duration_seconds: number;
   source: string | null;
-  entry_type?: "timer" | "manual";
+  entry_type?: "timer" | "manual" | "imported";
+  source_entry_id?: string | null;
+  source_card_id?: string | null;
+  source_board_id?: string | null;
+  source_user_id?: string | null;
+  source_user_name?: string | null;
   is_billable: boolean;
   hourly_rate_snapshot: number | null;
   cost_amount: number | null;

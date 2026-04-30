@@ -470,7 +470,7 @@ export default function TaskDetailsModal({
               {task?.title || "Task Details"}
             </h2>
             <p className="mt-1 text-sm text-white/50">
-              Trello-style workflow card
+              Codex workflow card
             </p>
           </div>
 

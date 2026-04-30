@@ -12,6 +12,7 @@ import {
   Plus,
   Search,
   TrendingUp,
+  Trash2,
   Users,
   X,
   Check,
@@ -21,7 +22,7 @@ import {
 } from "lucide-react";
 import Sidebar from "../../../components/dashboard/components/Sidebar";
 import { useAuth } from "../../../app/providers/AuthProvider";
-import { getBoards } from "../../boards/services/boardService";
+import { deleteBoard, getBoards } from "../../boards/services/boardService";
 import { useTeamTimesheetsRealtime } from "../../../lib/hooks/useTeamTimesheetsRealtime";
 import { supabase } from "../../../lib/supabase/client";
 import type { Board } from "../../../types/board";
@@ -29,7 +30,10 @@ import type { AdminTimeEntryRow } from "../../../lib/supabase/queries/adminTime"
 import {
   importEverhourJson,
   importTrelloBoardJson,
+  getUnmatchedExternalTimeUsers,
+  mapExternalTimeUser,
   type EverhourImportResult,
+  type ExternalTimeUserMapping,
   type TrelloBoardImportResult,
 } from "../services/everhourImportService";
 import {
@@ -65,6 +69,24 @@ interface GroupedBoards {
   boards: BoardWithTime[];
   totalTracked: number;
 }
+
+type ProfileOption = {
+  id: string;
+  full_name: string | null;
+  email: string | null;
+};
+
+type ClientInvoiceRow = {
+  id: string;
+  client_id: string | null;
+  invoice_number: string | null;
+  invoice_date: string | null;
+  total: number | null;
+  currency: string | null;
+  status: string | null;
+  public_url: string | null;
+  file_name: string | null;
+};
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -253,13 +275,19 @@ function BillingSelector({
 
 function BoardRow({
   board,
+  canDelete,
+  isDeleting,
   onUpdateBilling,
+  onDeleteBoard,
 }: {
   board: BoardWithTime;
+  canDelete: boolean;
+  isDeleting: boolean;
   onUpdateBilling: (
     boardId: string,
     patch: Partial<BoardBillingConfig>,
   ) => void;
+  onDeleteBoard: (board: BoardWithTime) => void;
 }) {
   const [editingBudget, setEditingBudget] = useState(false);
   const { billing, trackedSeconds, billableSeconds, memberAvatars } = board;
@@ -279,7 +307,11 @@ function BoardRow({
       className={`group grid items-center gap-3 border-b border-white/5 px-4 py-3 transition-colors hover:bg-white/3 ${
         !billing.isVisible ? "opacity-40" : ""
       }`}
-      style={{ gridTemplateColumns: "1fr 160px 240px 120px 100px" }}
+      style={{
+        gridTemplateColumns: canDelete
+          ? "1fr 160px 240px 120px 100px 52px"
+          : "1fr 160px 240px 120px 100px",
+      }}
     >
       {/* Name */}
       <div className="flex items-center gap-3 min-w-0">
@@ -409,6 +441,27 @@ function BoardRow({
           onChange={(t) => onUpdateBilling(board.id, { billingType: t })}
         />
       </div>
+
+      {canDelete && (
+        <div className="flex justify-end">
+          <button
+            type="button"
+            disabled={isDeleting}
+            onClick={(e) => {
+              e.stopPropagation();
+              onDeleteBoard(board);
+            }}
+            className="rounded-lg p-1.5 text-white/25 transition hover:bg-red-500/10 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-40"
+            title="Delete board"
+          >
+            {isDeleting ? (
+              <Loader2 size={14} className="animate-spin" />
+            ) : (
+              <Trash2 size={14} />
+            )}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -417,13 +470,19 @@ function BoardRow({
 
 function GroupSection({
   group,
+  canDelete,
+  deletingBoardId,
   onUpdateBilling,
+  onDeleteBoard,
 }: {
   group: GroupedBoards;
+  canDelete: boolean;
+  deletingBoardId: string | null;
   onUpdateBilling: (
     boardId: string,
     patch: Partial<BoardBillingConfig>,
   ) => void;
+  onDeleteBoard: (board: BoardWithTime) => void;
 }) {
   const [collapsed, setCollapsed] = useState(false);
 
@@ -460,20 +519,28 @@ function GroupSection({
         <>
           <div
             className="grid items-center gap-3 border-b border-white/5 px-4 py-2 text-[10px] uppercase tracking-widest text-white/20"
-            style={{ gridTemplateColumns: "1fr 160px 240px 120px 100px" }}
+            style={{
+              gridTemplateColumns: canDelete
+                ? "1fr 160px 240px 120px 100px 52px"
+                : "1fr 160px 240px 120px 100px",
+            }}
           >
             <span>Board / Client</span>
             <span>Members</span>
             <span>Time tracked</span>
             <span className="text-center">Visible</span>
             <span className="text-right">Billing</span>
+            {canDelete && <span className="text-right">Delete</span>}
           </div>
 
           {group.boards.map((board) => (
             <BoardRow
               key={board.id}
               board={board}
+              canDelete={canDelete}
+              isDeleting={deletingBoardId === board.id}
               onUpdateBilling={onUpdateBilling}
+              onDeleteBoard={onDeleteBoard}
             />
           ))}
         </>
@@ -732,6 +799,11 @@ export default function EverhourAdminPage() {
   const [trelloImportResult, setTrelloImportResult] =
     useState<TrelloBoardImportResult | null>(null);
   const [importError, setImportError] = useState("");
+  const [profileOptions, setProfileOptions] = useState<ProfileOption[]>([]);
+  const [unmatchedExternalUsers, setUnmatchedExternalUsers] = useState<ExternalTimeUserMapping[]>([]);
+  const [mappingBusyId, setMappingBusyId] = useState<string | null>(null);
+  const [clientInvoices, setClientInvoices] = useState<ClientInvoiceRow[]>([]);
+  const [deletingBoardId, setDeletingBoardId] = useState<string | null>(null);
 
   const {
     entries,
@@ -750,6 +822,38 @@ export default function EverhourAdminPage() {
       .catch(console.error)
       .finally(() => setLoadingBoards(false));
   }, [organizationId]);
+
+  const loadExternalUserMappings = useCallback(async () => {
+    if (!organizationId || profile?.primary_role !== "admin") return;
+    const rows = await getUnmatchedExternalTimeUsers(organizationId);
+    setUnmatchedExternalUsers(rows);
+  }, [organizationId, profile?.primary_role]);
+
+  const loadClientInvoices = useCallback(async () => {
+    if (!organizationId) return;
+    const { data, error } = await supabase
+      .from("client_invoices")
+      .select("id, client_id, invoice_number, invoice_date, total, currency, status, public_url, file_name")
+      .eq("organization_id", organizationId)
+      .order("invoice_date", { ascending: false })
+      .limit(12);
+
+    if (!error) setClientInvoices((data ?? []) as ClientInvoiceRow[]);
+  }, [organizationId]);
+
+  useEffect(() => {
+    if (!organizationId) return;
+
+    supabase
+      .from("profiles")
+      .select("id, full_name, email")
+      .eq("organization_id", organizationId)
+      .order("full_name", { ascending: true })
+      .then(({ data }) => setProfileOptions((data ?? []) as ProfileOption[]));
+
+    void loadExternalUserMappings();
+    void loadClientInvoices();
+  }, [loadClientInvoices, loadExternalUserMappings, organizationId]);
 
  
   useEffect(() => {
@@ -936,6 +1040,66 @@ export default function EverhourAdminPage() {
     [],
   );
 
+  const handleDeleteBoard = useCallback(
+    async (board: BoardWithTime) => {
+      if (!organizationId || profile?.primary_role !== "admin") return;
+
+      const confirmed = window.confirm(
+        `Delete "${board.name}"?\n\nThis will remove the board from admin management. Any tasks linked to it will follow your database delete rules, so only continue if you are sure.`,
+      );
+      if (!confirmed) return;
+
+      setDeletingBoardId(board.id);
+      setImportError("");
+      try {
+        await deleteBoard(organizationId, board.id);
+        setBoards((prev) => prev.filter((item) => item.id !== board.id));
+        setMembersByBoard((prev) => {
+          const next = { ...prev };
+          delete next[board.id];
+          return next;
+        });
+        setBillingConfig((prev) => {
+          const next = { ...prev };
+          delete next[board.id];
+          saveBillingConfig(next);
+          return next;
+        });
+        await Promise.all([refetch(), loadClientInvoices()]);
+      } catch (error) {
+        setImportError(
+          error instanceof Error ? error.message : "Failed to delete board.",
+        );
+      } finally {
+        setDeletingBoardId(null);
+      }
+    },
+    [loadClientInvoices, organizationId, profile?.primary_role, refetch],
+  );
+
+  const handleMapExternalUser = useCallback(
+    async (mapping: ExternalTimeUserMapping, userId: string) => {
+      if (!organizationId || !userId) return;
+      setMappingBusyId(mapping.id);
+      try {
+        await mapExternalTimeUser({
+          organizationId,
+          mappingId: mapping.id,
+          sourceUserId: mapping.source_user_id,
+          userId,
+        });
+        await Promise.all([loadExternalUserMappings(), refetch()]);
+      } catch (error) {
+        setImportError(
+          error instanceof Error ? error.message : "Failed to map external user.",
+        );
+      } finally {
+        setMappingBusyId(null);
+      }
+    },
+    [loadExternalUserMappings, organizationId, refetch],
+  );
+
   const handleImportJson = useCallback(
     async (file: File | null) => {
       if (!file || !organizationId || !auth?.user?.id) return;
@@ -955,7 +1119,7 @@ export default function EverhourAdminPage() {
           boards,
         });
         setImportResult(result);
-        await Promise.all([refetch(), getBoards(organizationId).then(setBoards)]);
+        await Promise.all([refetch(), getBoards(organizationId).then(setBoards), loadClientInvoices()]);
       } catch (error) {
         setImportError(
           error instanceof Error ? error.message : "Failed to import Everhour JSON.",
@@ -964,7 +1128,7 @@ export default function EverhourAdminPage() {
         setImporting(false);
       }
     },
-    [auth?.user?.id, boards, organizationId, refetch],
+    [auth?.user?.id, boards, loadClientInvoices, organizationId, refetch],
   );
 
   const handleImportTrelloJson = useCallback(
@@ -985,18 +1149,19 @@ export default function EverhourAdminPage() {
           json: parsed,
           boards,
           fileName: file.name,
+          importTrackedTime: false,
         });
         setTrelloImportResult(result);
-        await Promise.all([refetch(), getBoards(organizationId).then(setBoards)]);
+        await Promise.all([refetch(), getBoards(organizationId).then(setBoards), loadClientInvoices()]);
       } catch (error) {
         setImportError(
-          error instanceof Error ? error.message : "Failed to import Trello board JSON.",
+          error instanceof Error ? error.message : "Failed to import Codex board JSON.",
         );
       } finally {
         setImportingTrello(false);
       }
     },
-    [auth?.user?.id, boards, organizationId, refetch],
+    [auth?.user?.id, boards, loadClientInvoices, organizationId, refetch],
   );
 
   const loading = loadingBoards || loadingEntries;
@@ -1041,7 +1206,7 @@ export default function EverhourAdminPage() {
                 </label>
                 <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-orange-500/25 bg-orange-500/10 px-4 py-2.5 text-sm font-semibold text-orange-100 transition hover:bg-orange-500/15">
                   <LayoutGrid size={15} />
-                  {importingTrello ? "Importing..." : "Import Trello Board"}
+                  {importingTrello ? "Importing..." : "Import Codex Board"}
                   <input
                     type="file"
                     accept="application/json,.json"
@@ -1077,7 +1242,7 @@ export default function EverhourAdminPage() {
                 ) : trelloImportResult ? (
                   <div className="space-y-1">
                     <p className="font-semibold">
-                      Trello board imported: {trelloImportResult.boardName}
+                      Codex board imported: {trelloImportResult.boardName}
                     </p>
                     <p className="text-xs text-white/55">
                       {trelloImportResult.cardsImported} cards ·{" "}
@@ -1091,7 +1256,10 @@ export default function EverhourAdminPage() {
                       {trelloImportResult.attachmentsImported} · comments:{" "}
                       {trelloImportResult.commentsImported}
                       {trelloImportResult.unmatchedMembers.length > 0
-                        ? ` · ${trelloImportResult.unmatchedMembers.length} Trello members need profile matching.`
+                        ? ` · ${trelloImportResult.unmatchedMembers.length} Codex members need profile matching.`
+                        : ""}
+                      {trelloImportResult.unmatchedTimeUsers.length > 0
+                        ? ` · ${trelloImportResult.unmatchedTimeUsers.length} external time users unmatched.`
                         : ""}
                     </p>
                     {trelloImportResult.errors.length > 0 && (
@@ -1107,8 +1275,11 @@ export default function EverhourAdminPage() {
                       {" "}{importResult.duplicates} duplicates, {importResult.skipped} skipped.
                     </p>
                     <p className="text-xs text-white/55">
-                      Scanned {importResult.scanned} records · created{" "}
-                      {importResult.boardsCreated} boards and {importResult.tasksCreated} tasks.
+                      Scanned {importResult.scanned} records · matched time to existing boards/cards ·{" "}
+                      {importResult.usersMapped} users mapped ·{" "}
+                      {importResult.projectsMapped} projects mapped ·{" "}
+                      {importResult.estimatesUpdated} estimates updated ·{" "}
+                      {importResult.invoicesImported} invoices imported.
                       {importResult.unmatchedUsers.length > 0
                         ? ` ${importResult.unmatchedUsers.length} records need matching profiles by email or full name.`
                         : ""}
@@ -1120,6 +1291,50 @@ export default function EverhourAdminPage() {
                     )}
                   </div>
                 ) : null}
+              </div>
+            )}
+
+            {profile.primary_role === "admin" && unmatchedExternalUsers.length > 0 && (
+              <div className="mt-4 rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3">
+                <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-amber-100">
+                  <AlertTriangle size={15} />
+                  Unmatched Codex time users
+                </div>
+                <div className="grid gap-2 md:grid-cols-2">
+                  {unmatchedExternalUsers.slice(0, 6).map((mapping) => (
+                    <div
+                      key={mapping.id}
+                      className="flex items-center gap-2 rounded-xl border border-white/10 bg-black/25 p-2"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-xs font-semibold text-white/80">
+                          {mapping.source_user_name || mapping.source_user_email || mapping.source_user_id}
+                        </p>
+                        <p className="truncate text-[10px] text-white/35">
+                          Codex source: {mapping.source_user_id}
+                        </p>
+                      </div>
+                      <select
+                        disabled={mappingBusyId === mapping.id}
+                        defaultValue=""
+                        onChange={(event) => {
+                          void handleMapExternalUser(mapping, event.target.value);
+                          event.currentTarget.value = "";
+                        }}
+                        className="max-w-48 rounded-lg border border-white/10 bg-black px-2 py-1.5 text-xs text-white outline-none"
+                      >
+                        <option value="" disabled>
+                          Map user
+                        </option>
+                        {profileOptions.map((option) => (
+                          <option key={option.id} value={option.id}>
+                            {option.full_name || option.email || option.id}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 
@@ -1174,6 +1389,54 @@ export default function EverhourAdminPage() {
                 </div>
               ))}
             </div>
+
+            {clientInvoices.length > 0 && (
+              <div className="mt-6 rounded-2xl border border-white/8 bg-white/3 p-4">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wide text-white/30">
+                      Invoices
+                    </p>
+                    <p className="text-sm font-semibold text-white/80">
+                      Imported invoice records from Everhour
+                    </p>
+                  </div>
+                  <span className="text-xs text-white/35">
+                    {clientInvoices.length} recent
+                  </span>
+                </div>
+                <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                  {clientInvoices.map((invoice) => {
+                    const boardName = boards.find((board) => board.id === invoice.client_id)?.name ?? "Matched board";
+                    return (
+                      <a
+                        key={invoice.id}
+                        href={invoice.public_url ?? undefined}
+                        target={invoice.public_url ? "_blank" : undefined}
+                        rel="noreferrer"
+                        className="rounded-xl border border-white/8 bg-black/30 px-3 py-2 transition hover:border-orange-500/25"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="truncate text-xs font-semibold text-white/80">
+                            {invoice.invoice_number || invoice.file_name || "Invoice"}
+                          </p>
+                          <span className="shrink-0 text-xs font-bold text-green-300">
+                            {invoice.total != null
+                              ? `${invoice.currency ?? "USD"} ${Number(invoice.total).toFixed(2)}`
+                              : invoice.status ?? "imported"}
+                          </span>
+                        </div>
+                        <p className="mt-1 truncate text-[10px] text-white/35">
+                          {boardName}
+                          {invoice.invoice_date ? ` · ${invoice.invoice_date}` : ""}
+                          {invoice.public_url ? " · PDF" : ""}
+                        </p>
+                      </a>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* ── Toolbar ── */}
@@ -1219,7 +1482,10 @@ export default function EverhourAdminPage() {
                 <GroupSection
                   key={group.groupName}
                   group={group}
+                  canDelete={profile.primary_role === "admin"}
+                  deletingBoardId={deletingBoardId}
                   onUpdateBilling={handleUpdateBilling}
+                  onDeleteBoard={handleDeleteBoard}
                 />
               ))}
           </div>

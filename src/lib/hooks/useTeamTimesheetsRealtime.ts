@@ -33,6 +33,11 @@ export function useTeamTimesheetsRealtime(
     const [now, setNow] = useState(Date.now());
 
     const loadEntries = useCallback(async (options?: { silent?: boolean }) => {
+        if (!organizationId) {
+            setEntries([]);
+            setLoading(false);
+            return;
+        }
         if (!options?.silent) {
             setLoading(true);
         }
@@ -42,7 +47,7 @@ export function useTeamTimesheetsRealtime(
                 approvalStatus: "all",
                 from,
                 to,
-                limit: 1000,
+                limit: 5000,
             });
             setEntries(rows);
             setError(null);
