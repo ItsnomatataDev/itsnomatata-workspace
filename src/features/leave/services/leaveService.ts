@@ -4,12 +4,13 @@ import {
   notifyAndEmailUser,
   notifyAndEmailUsers,
 } from "../../notifications/services/notificationService";
-import { calculateLeaveDays, calculateLeaveDaysWithExclusions } from "../utils/leaveDays";
+import { calculateLeaveDaysWithExclusions } from "../utils/leaveDays";
 import { recordBalanceChange } from "./leaveBalanceAuditService";
 import type {
   NotificationPriority,
   NotificationType,
 } from "../../../lib/supabase/mutations/notifications";
+import type { PublicHolidayRow } from "../components/leaveCalender";
 
 export type LeaveTypeRow = {
   id: string;
@@ -30,14 +31,89 @@ export type MyLeaveRequestRow = {
   requested_days: number;
   request_department: string | null;
   request_role: string | null;
+  office?: string | null;
   reason: string | null;
   status: string;
   approved_by: string | null;
   approved_at: string | null;
   rejection_reason: string | null;
   balance_deducted_at?: string | null;
+  admin_notes?: string | null;
+  edited_by?: string | null;
+  edited_at?: string | null;
+  cancelled_at?: string | null;
+  cancelled_by?: string | null;
+  cancellation_reason?: string | null;
   created_at: string;
 };
+
+const LEAVE_REQUEST_SELECT =
+  "id, organization_id, user_id, leave_type_id, start_date, end_date, requested_days, request_department, request_role, office, reason, status, approved_by, approved_at, rejection_reason, balance_deducted_at, admin_notes, edited_by, edited_at, cancelled_at, cancelled_by, cancellation_reason, created_at";
+
+const LEGACY_LEAVE_REQUEST_SELECT =
+  "id, organization_id, user_id, leave_type_id, start_date, end_date, requested_days, request_department, request_role, reason, status, approved_by, approved_at, rejection_reason, balance_deducted_at, created_at";
+
+type SupabaseErrorLike = {
+  code?: string;
+  message?: string;
+  details?: string | null;
+  hint?: string | null;
+};
+
+function isMissingLeaveLifecycleColumn(error: unknown) {
+  const message = String((error as SupabaseErrorLike | null)?.message ?? "")
+    .toLowerCase();
+
+  return [
+    "leave_requests.office",
+    "column office",
+    "admin_notes",
+    "edited_by",
+    "edited_at",
+    "cancelled_at",
+    "cancelled_by",
+    "cancellation_reason",
+    "metadata",
+  ].some((column) => message.includes(column));
+}
+
+function normalizeLeaveRequest(row: Partial<MyLeaveRequestRow>): MyLeaveRequestRow {
+  return {
+    ...(row as MyLeaveRequestRow),
+    office: row.office ?? row.request_department ?? "IT's Nomatata",
+    admin_notes: row.admin_notes ?? null,
+    edited_by: row.edited_by ?? null,
+    edited_at: row.edited_at ?? null,
+    cancelled_at: row.cancelled_at ?? null,
+    cancelled_by: row.cancelled_by ?? null,
+    cancellation_reason: row.cancellation_reason ?? null,
+  };
+}
+
+async function selectLeaveRequestById(params: {
+  organizationId: string;
+  leaveRequestId: string;
+}) {
+  const current = await supabase
+    .from("leave_requests")
+    .select(LEAVE_REQUEST_SELECT)
+    .eq("id", params.leaveRequestId)
+    .eq("organization_id", params.organizationId)
+    .single();
+
+  if (!current.error) return normalizeLeaveRequest(current.data);
+  if (!isMissingLeaveLifecycleColumn(current.error)) throw current.error;
+
+  const legacy = await supabase
+    .from("leave_requests")
+    .select(LEGACY_LEAVE_REQUEST_SELECT)
+    .eq("id", params.leaveRequestId)
+    .eq("organization_id", params.organizationId)
+    .single();
+
+  if (legacy.error) throw legacy.error;
+  return normalizeLeaveRequest(legacy.data);
+}
 
 export type LeaveBalanceRow = {
   totalDays: number;
@@ -121,27 +197,6 @@ async function notifyLeaveUserWithFallback(params: {
   return data;
 }
 
-function buildOverlapMessage(params: {
-  overlapName: string;
-  overlapRole?: string | null;
-  overlapStatus?: string | null;
-  requestRole?: string | null;
-  requestDepartment?: string | null;
-}) {
-  const normalizedRequestRole = params.requestRole?.trim().toLowerCase() || null;
-  const normalizedOverlapRole = params.overlapRole?.trim().toLowerCase() || null;
-  const requestStatus = params.overlapStatus === "pending"
-    ? "already has a pending leave request"
-    : "is already on approved leave";
-
-  if (normalizedRequestRole && normalizedRequestRole === normalizedOverlapRole) {
-    return `Leave cannot be requested because ${params.overlapName} (${params.overlapRole || "the same role"}) ${requestStatus} for this period. Role-based leave restriction applies across all offices.`;
-  }
-
-  const officeLabel = params.requestDepartment || "the selected office";
-  return `Leave cannot be requested for ${officeLabel} because ${params.overlapName} ${requestStatus} for that period.`;
-}
-
 export async function getLeaveTypes(organizationId: string) {
   const { data, error } = await supabase
     .from("leave_types")
@@ -157,17 +212,28 @@ export async function getMyLeaveRequests(
   organizationId: string,
   userId: string,
 ) {
-  const { data, error } = await supabase
+  const current = await supabase
     .from("leave_requests")
-    .select(
-      "id, organization_id, user_id, leave_type_id, start_date, end_date, requested_days, request_department, request_role, reason, status, approved_by, approved_at, rejection_reason, balance_deducted_at, created_at",
-    )
+    .select(LEAVE_REQUEST_SELECT)
     .eq("organization_id", organizationId)
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
 
-  if (error) throw error;
-  return (data ?? []) as MyLeaveRequestRow[];
+  if (!current.error) {
+    return (current.data ?? []).map(normalizeLeaveRequest);
+  }
+
+  if (!isMissingLeaveLifecycleColumn(current.error)) throw current.error;
+
+  const legacy = await supabase
+    .from("leave_requests")
+    .select(LEGACY_LEAVE_REQUEST_SELECT)
+    .eq("organization_id", organizationId)
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false });
+
+  if (legacy.error) throw legacy.error;
+  return (legacy.data ?? []).map(normalizeLeaveRequest);
 }
 
 export async function getLeaveBalance(
@@ -202,40 +268,28 @@ export async function createLeaveRequest(params: {
   reason?: string;
   requestDepartment?: string | null;
   requestRole?: string | null;
+  office?: string | null;
 }) {
   console.log("[createLeaveRequest] Starting with params:", params);
-
-  // Check for public holidays in the requested date range
-  console.log("[createLeaveRequest] Checking for public holidays...");
-  const { data: holidays } = await supabase
-    .from("public_holidays")
-    .select("date, name")
-    .eq("organization_id", params.organizationId)
-    .gte("date", params.startDate)
-    .lte("date", params.endDate);
-
-  console.log("[createLeaveRequest] Holidays found:", holidays);
-
-  if (holidays && holidays.length > 0) {
-    const holidayNames = holidays.map((h) => `${h.date} (${h.name})`).join(", ");
-    console.error("[createLeaveRequest] Public holiday conflict:", holidayNames);
-    throw new Error(
-      `Cannot request leave on public holidays: ${holidayNames}. Please adjust your dates to exclude these days.`,
-    );
-  }
+  const office = params.office?.trim() ||
+    params.requestDepartment?.trim() ||
+    "IT's Nomatata";
 
   console.log("[createLeaveRequest] Calculating leave days with exclusions...");
   const requestedDays = await calculateLeaveDaysWithExclusions({
     organizationId: params.organizationId,
     startDate: params.startDate,
     endDate: params.endDate,
+    office,
   });
 
   console.log("[createLeaveRequest] Requested days:", requestedDays);
 
   if (requestedDays <= 0) {
     console.error("[createLeaveRequest] Invalid date range");
-    throw new Error("Leave end date cannot be earlier than the start date.");
+    throw new Error(
+      `The selected range has no countable leave days for ${office}.`,
+    );
   }
 
   console.log("[createLeaveRequest] Getting leave balance...");
@@ -255,7 +309,7 @@ export async function createLeaveRequest(params: {
     organizationId: params.organizationId,
     startDate: params.startDate,
     endDate: params.endDate,
-    requestDepartment: params.requestDepartment,
+    requestDepartment: office,
     requestRole: params.requestRole,
   });
 
@@ -271,58 +325,50 @@ export async function createLeaveRequest(params: {
     );
   }
 
-  if (availability.overlappingApprovedLeaves.length > 0) {
-    const firstOverlap = availability.overlappingApprovedLeaves[0];
-    const overlapName =
-      firstOverlap?.requester_name ||
-      firstOverlap?.requester_email ||
-      "another employee";
-    console.error("[createLeaveRequest] Overlapping leave:", firstOverlap);
-    throw new Error(
-      buildOverlapMessage({
-        overlapName,
-        overlapRole: firstOverlap?.requester_role,
-        overlapStatus: firstOverlap?.status,
-        requestRole: params.requestRole,
-        requestDepartment: params.requestDepartment,
-      }),
-    );
-  }
-
   console.log("[createLeaveRequest] Inserting leave request into database...");
-  const { data, error } = await supabase
+  const insertPayload = {
+    organization_id: params.organizationId,
+    user_id: params.userId,
+    leave_type_id: params.leaveTypeId ?? null,
+    start_date: params.startDate,
+    end_date: params.endDate,
+    requested_days: requestedDays,
+    request_department: office,
+    request_role: params.requestRole?.trim() || null,
+    office,
+    reason: params.reason?.trim() || "",
+    status: "pending",
+  };
+
+  let insertResult = await supabase
     .from("leave_requests")
-    .insert({
-      organization_id: params.organizationId,
-      user_id: params.userId,
-      leave_type_id: params.leaveTypeId ?? null,
-      start_date: params.startDate,
-      end_date: params.endDate,
-      requested_days: requestedDays,
-      request_department: params.requestDepartment?.trim() || null,
-      request_role: params.requestRole?.trim() || null,
-      reason: params.reason?.trim() || "",
-      status: "pending",
-    })
-    .select(
-      "id, organization_id, user_id, leave_type_id, start_date, end_date, requested_days, request_department, request_role, reason, status, approved_by, approved_at, rejection_reason, balance_deducted_at, created_at",
-    )
+    .insert(insertPayload)
+    .select(LEAVE_REQUEST_SELECT)
     .single();
 
-  if (error) {
-    console.error("[createLeaveRequest] Database insert error:", error);
-    console.error("[createLeaveRequest] Error details:", {
-      code: error.code,
-      message: error.message,
-      details: error.details,
-      hint: error.hint,
-    });
-    throw error;
+  if (insertResult.error && isMissingLeaveLifecycleColumn(insertResult.error)) {
+    const { office: _office, ...legacyPayload } = insertPayload;
+    insertResult = await supabase
+      .from("leave_requests")
+      .insert(legacyPayload)
+      .select(LEGACY_LEAVE_REQUEST_SELECT)
+      .single();
   }
 
-  console.log("[createLeaveRequest] Leave request inserted successfully:", data);
+  if (insertResult.error) {
+    console.error("[createLeaveRequest] Database insert error:", insertResult.error);
+    console.error("[createLeaveRequest] Error details:", {
+      code: insertResult.error.code,
+      message: insertResult.error.message,
+      details: insertResult.error.details,
+      hint: insertResult.error.hint,
+    });
+    throw insertResult.error;
+  }
 
-  const leaveRequest = data as MyLeaveRequestRow;
+  console.log("[createLeaveRequest] Leave request inserted successfully:", insertResult.data);
+
+  const leaveRequest = normalizeLeaveRequest(insertResult.data);
 
   // — notifications + emails —
   try {
@@ -373,7 +419,7 @@ export async function createLeaveRequest(params: {
     const requesterName = requester?.full_name?.trim() || "Unknown user";
     const requesterEmail = requester?.email?.trim() || "No email";
     const leaveTypeName = leaveType?.name || "General Leave";
-    const officeLabel = params.requestDepartment?.trim() || "Unspecified office";
+    const officeLabel = office || "Unspecified office";
 
     const notificationMessage = `${requesterName} (${requesterEmail}) requested ${leaveTypeName} for ${officeLabel} from ${params.startDate} to ${params.endDate}.`;
 
@@ -418,7 +464,7 @@ export async function approveLeaveRequest(params: {
   leaveRequestId: string;
   approvedByUserId: string;
 }) {
-  const { data, error } = await supabase
+  let updateResult = await supabase
     .from("leave_requests")
     .update({
       status: "approved",
@@ -429,13 +475,32 @@ export async function approveLeaveRequest(params: {
     .eq("id", params.leaveRequestId)
     .eq("organization_id", params.organizationId)
     .select(
-      "id, organization_id, user_id, leave_type_id, start_date, end_date, requested_days, request_department, request_role, reason, status, approved_by, approved_at, rejection_reason, balance_deducted_at, created_at",
+      LEAVE_REQUEST_SELECT,
     )
     .single();
 
-  if (error) throw error;
+  if (updateResult.error) {
+    if (!isMissingLeaveLifecycleColumn(updateResult.error)) {
+      throw updateResult.error;
+    }
 
-  const leaveRequest = data as MyLeaveRequestRow;
+    updateResult = await supabase
+      .from("leave_requests")
+      .update({
+        status: "approved",
+        approved_by: params.approvedByUserId,
+        approved_at: new Date().toISOString(),
+        rejection_reason: null,
+      })
+      .eq("id", params.leaveRequestId)
+      .eq("organization_id", params.organizationId)
+      .select(LEGACY_LEAVE_REQUEST_SELECT)
+      .single();
+
+    if (updateResult.error) throw updateResult.error;
+  }
+
+  const leaveRequest = normalizeLeaveRequest(updateResult.data);
 
   try {
     const [
@@ -508,7 +573,7 @@ export async function rejectLeaveRequest(params: {
   rejectedByUserId: string;
   rejectionReason?: string | null;
 }) {
-  const { data, error } = await supabase
+  let updateResult = await supabase
     .from("leave_requests")
     .update({
       status: "rejected",
@@ -519,13 +584,32 @@ export async function rejectLeaveRequest(params: {
     .eq("id", params.leaveRequestId)
     .eq("organization_id", params.organizationId)
     .select(
-      "id, organization_id, user_id, leave_type_id, start_date, end_date, requested_days, request_department, request_role, reason, status, approved_by, approved_at, rejection_reason, balance_deducted_at, created_at",
+      LEAVE_REQUEST_SELECT,
     )
     .single();
 
-  if (error) throw error;
+  if (updateResult.error) {
+    if (!isMissingLeaveLifecycleColumn(updateResult.error)) {
+      throw updateResult.error;
+    }
 
-  const leaveRequest = data as MyLeaveRequestRow;
+    updateResult = await supabase
+      .from("leave_requests")
+      .update({
+        status: "rejected",
+        approved_by: params.rejectedByUserId,
+        approved_at: new Date().toISOString(),
+        rejection_reason: params.rejectionReason ?? null,
+      })
+      .eq("id", params.leaveRequestId)
+      .eq("organization_id", params.organizationId)
+      .select(LEGACY_LEAVE_REQUEST_SELECT)
+      .single();
+
+    if (updateResult.error) throw updateResult.error;
+  }
+
+  const leaveRequest = normalizeLeaveRequest(updateResult.data);
 
   try {
     const [
@@ -602,35 +686,9 @@ export async function modifyLeaveRequestDates(params: {
   modifiedByUserId: string;
   newStartDate: string;
   newEndDate: string;
+  office?: string | null;
   reason?: string;
 }) {
-  // Check for public holidays in the requested date range
-  const { data: holidays } = await supabase
-    .from("public_holidays")
-    .select("date, name")
-    .eq("organization_id", params.organizationId)
-    .gte("date", params.newStartDate)
-    .lte("date", params.newEndDate);
-
-  if (holidays && holidays.length > 0) {
-    const holidayNames = holidays.map((h) => `${h.date} (${h.name})`).join(", ");
-    throw new Error(
-      `Cannot modify leave to include public holidays: ${holidayNames}. Please adjust your dates to exclude these days.`,
-    );
-  }
-
-  // Calculate new days
-  const newRequestedDays = await calculateLeaveDaysWithExclusions({
-    organizationId: params.organizationId,
-    startDate: params.newStartDate,
-    endDate: params.newEndDate,
-  });
-
-  if (newRequestedDays <= 0) {
-    throw new Error("Leave end date cannot be earlier than the start date.");
-  }
-
-  // Get current leave request
   const { data: currentRequest, error: fetchError } = await supabase
     .from("leave_requests")
     .select("*")
@@ -642,79 +700,120 @@ export async function modifyLeaveRequestDates(params: {
     throw new Error("Leave request not found.");
   }
 
+  const office = params.office?.trim() ||
+    currentRequest.office ||
+    currentRequest.request_department ||
+    "IT's Nomatata";
+
+  // Calculate new days
+  const newRequestedDays = await calculateLeaveDaysWithExclusions({
+    organizationId: params.organizationId,
+    startDate: params.newStartDate,
+    endDate: params.newEndDate,
+    office,
+  });
+
+  if (newRequestedDays <= 0) {
+    throw new Error("Leave end date cannot be earlier than the start date.");
+  }
+
   // Check if already approved - need to handle balance adjustment
   const wasApproved = currentRequest.status === "approved";
   const oldRequestedDays = currentRequest.requested_days;
 
   // Update the leave request
-  const { data, error } = await supabase
+  const updatePayload = {
+    start_date: params.newStartDate,
+    end_date: params.newEndDate,
+    office,
+    request_department: office,
+    requested_days: newRequestedDays,
+    edited_by: params.modifiedByUserId,
+    edited_at: new Date().toISOString(),
+    metadata: {
+      ...currentRequest.metadata,
+      modified_by: params.modifiedByUserId,
+      modified_at: new Date().toISOString(),
+      modification_reason: params.reason,
+      previous_start_date: currentRequest.start_date,
+      previous_end_date: currentRequest.end_date,
+      previous_requested_days: oldRequestedDays,
+    },
+  };
+
+  let updateResult = await supabase
     .from("leave_requests")
-    .update({
+    .update(updatePayload)
+    .eq("id", params.leaveRequestId)
+    .eq("organization_id", params.organizationId)
+    .select(LEAVE_REQUEST_SELECT)
+    .single();
+
+  if (updateResult.error && isMissingLeaveLifecycleColumn(updateResult.error)) {
+    updateResult = await supabase
+      .from("leave_requests")
+      .update({
+        start_date: params.newStartDate,
+        end_date: params.newEndDate,
+        request_department: office,
+        requested_days: newRequestedDays,
+      })
+      .eq("id", params.leaveRequestId)
+      .eq("organization_id", params.organizationId)
+      .select(LEGACY_LEAVE_REQUEST_SELECT)
+      .single();
+  }
+
+  if (updateResult.error) throw updateResult.error;
+
+  const leaveRequest = normalizeLeaveRequest(updateResult.data);
+
+  if (wasApproved && newRequestedDays !== oldRequestedDays) {
+    const balanceDelta = newRequestedDays - oldRequestedDays;
+    const { data: profileAfterEdit } = await supabase
+      .from("profiles")
+      .select("leave_days_total, leave_days_remaining")
+      .eq("id", leaveRequest.user_id)
+      .maybeSingle();
+
+    if (profileAfterEdit) {
+      const newRemaining = Number(profileAfterEdit.leave_days_remaining ?? 0);
+      await recordBalanceChange({
+        organizationId: params.organizationId,
+        userId: leaveRequest.user_id,
+        modifiedBy: params.modifiedByUserId,
+        previousTotal: Number(profileAfterEdit.leave_days_total ?? 22),
+        newTotal: Number(profileAfterEdit.leave_days_total ?? 22),
+        previousRemaining: newRemaining + balanceDelta,
+        newRemaining,
+        reason:
+          `Approved leave date edit adjusted balance by ${balanceDelta} day(s). ${params.reason ?? ""}`.trim(),
+      });
+    }
+  }
+
+  const { error: auditError } = await supabase.from("leave_request_audit").insert({
+    organization_id: params.organizationId,
+    leave_request_id: params.leaveRequestId,
+    actor_user_id: params.modifiedByUserId,
+    action: "admin_dates_updated",
+    previous_data: {
+      start_date: currentRequest.start_date,
+      end_date: currentRequest.end_date,
+      requested_days: oldRequestedDays,
+      office: currentRequest.office,
+    },
+    new_data: {
       start_date: params.newStartDate,
       end_date: params.newEndDate,
       requested_days: newRequestedDays,
-      metadata: {
-        ...currentRequest.metadata,
-        modified_by: params.modifiedByUserId,
-        modified_at: new Date().toISOString(),
-        modification_reason: params.reason,
-        previous_start_date: currentRequest.start_date,
-        previous_end_date: currentRequest.end_date,
-        previous_requested_days: oldRequestedDays,
-      },
-    })
-    .eq("id", params.leaveRequestId)
-    .eq("organization_id", params.organizationId)
-    .select(
-      "id, organization_id, user_id, leave_type_id, start_date, end_date, requested_days, request_department, request_role, reason, status, approved_by, approved_at, rejection_reason, balance_deducted_at, created_at",
-    )
-    .single();
+      office,
+    },
+    note: params.reason ?? null,
+  });
 
-  if (error) throw error;
-
-  const leaveRequest = data as MyLeaveRequestRow;
-
-  // If approved, adjust balance
-  if (wasApproved) {
-    const balanceDelta = newRequestedDays - oldRequestedDays;
-
-    if (balanceDelta > 0) {
-      // Need more days - check if available
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("leave_days_remaining")
-        .eq("id", leaveRequest.user_id)
-        .single();
-
-      if (!profile || profile.leave_days_remaining < balanceDelta) {
-        throw new Error(
-          `Not enough leave days to extend this request. Need ${balanceDelta} more days.`,
-        );
-      }
-
-      await supabase
-        .from("profiles")
-        .update({ leave_days_remaining: profile.leave_days_remaining - balanceDelta })
-        .eq("id", leaveRequest.user_id);
-    } else if (balanceDelta < 0) {
-      // Return days
-      const { data: profileForUpdate } = await supabase
-        .from("profiles")
-        .select("leave_days_total, leave_days_remaining")
-        .eq("id", leaveRequest.user_id)
-        .single();
-
-      if (profileForUpdate) {
-        const newRemaining = Math.min(
-          profileForUpdate.leave_days_total,
-          profileForUpdate.leave_days_remaining + Math.abs(balanceDelta),
-        );
-        await supabase
-          .from("profiles")
-          .update({ leave_days_remaining: newRemaining })
-          .eq("id", leaveRequest.user_id);
-      }
-    }
+  if (auditError) {
+    console.warn("LEAVE REQUEST AUDIT SKIPPED:", auditError.message);
   }
 
   // Send notification to user
@@ -859,20 +958,60 @@ export async function getPublicHolidays(params: {
   startDate?: string;
   endDate?: string;
 }) {
+  const normalizeHoliday = (holiday: Record<string, unknown>): PublicHolidayRow => ({
+    ...holiday,
+    id: String(holiday.id ?? ""),
+    organization_id: String(holiday.organization_id ?? params.organizationId),
+    date: String(holiday.holiday_date ?? holiday.date ?? ""),
+    name: String(holiday.title ?? holiday.name ?? "Public holiday"),
+    description:
+      typeof holiday.description === "string" ? holiday.description : null,
+    is_recurring: Boolean(holiday.is_recurring ?? false),
+  });
+
   let query = supabase
     .from("public_holidays")
     .select("*")
-    .eq("organization_id", params.organizationId);
+    .eq("organization_id", params.organizationId)
+    .eq("country_code", "ZW");
 
   if (params.startDate) {
-    query = query.gte("date", params.startDate);
+    query = query.gte("holiday_date", params.startDate);
   }
   if (params.endDate) {
-    query = query.lte("date", params.endDate);
+    query = query.lte("holiday_date", params.endDate);
   }
 
-  const { data, error } = await query.order("date", { ascending: true });
+  const { data, error } = await query.order("holiday_date", { ascending: true });
 
-  if (error) throw error;
-  return data;
+  if (error) {
+    const missingNewColumns =
+      error.message.includes("country_code") ||
+      error.message.includes("holiday_date") ||
+      error.message.includes("title");
+
+    if (!missingNewColumns) throw error;
+
+    let legacyQuery = supabase
+      .from("public_holidays")
+      .select("*")
+      .eq("organization_id", params.organizationId);
+
+    if (params.startDate) {
+      legacyQuery = legacyQuery.gte("date", params.startDate);
+    }
+    if (params.endDate) {
+      legacyQuery = legacyQuery.lte("date", params.endDate);
+    }
+
+    const { data: legacyData, error: legacyError } = await legacyQuery.order(
+      "date",
+      { ascending: true },
+    );
+
+    if (legacyError) throw legacyError;
+    return (legacyData ?? []).map(normalizeHoliday);
+  }
+
+  return (data ?? []).map(normalizeHoliday);
 }

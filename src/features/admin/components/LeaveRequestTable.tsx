@@ -68,7 +68,7 @@ export default function LeaveRequestTable({
                       {request.requester_email || request.user_id}
                     </p>
                     <p className="text-xs text-white/45">
-                      Office: {request.requester_department || "—"}
+                      Office: {request.office || request.requester_department || "—"}
                     </p>
                     <p className="text-xs text-white/45">
                       Role: {request.requester_role || "—"}

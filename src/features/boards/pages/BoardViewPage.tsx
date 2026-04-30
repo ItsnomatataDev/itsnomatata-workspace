@@ -14,6 +14,7 @@ import {
   ChevronDown,
   Pause,
   Play,
+  Trash2,
 } from "lucide-react";
 import CardTimeIndicator from "../components/CardTimeIndicator";
 import { useAuth } from "../../../app/providers/AuthProvider";
@@ -24,12 +25,14 @@ import {
   getCards,
   createCard,
   getBoardStats,
+  getLists,
   moveCard,
   updateCard,
+  deleteCard,
 } from "../services/boardService";
 import CardDetailModal from "../components/Carddetailmodal";
 import type { TaskItem, TaskStatus } from "../../../lib/supabase/queries/tasks";
-import type { Board, BoardStats, Card } from "../../../types/board";
+import type { Board, BoardStats, Card, List } from "../../../types/board";
 import { useTimeEntries } from "../../../lib/hooks/useTimeEntries";
 import { supabase } from "../../../lib/supabase/client";
 import { makeZimbabweLocalIso } from "../../../lib/utils/zimbabweCalendar";
@@ -89,6 +92,15 @@ const COLUMNS: {
     accent: "border-t-green-500",
   },
 ];
+
+type BoardColumnView = {
+  id: string;
+  status: TaskStatus;
+  label: string;
+  dot: string;
+  accent: string;
+  columnId: string | null;
+};
 
 const PRIORITY_COLOR: Record<string, string> = {
   urgent: "text-red-400",
@@ -171,6 +183,7 @@ function InlineCardAdder({
 function KanbanCard({
   task,
   onOpen,
+  onDelete,
   onDragStart,
   onTrack,
   isTrackingThisTask,
@@ -181,6 +194,7 @@ function KanbanCard({
 }: {
   task: Task;
   onOpen: (id: string) => void;
+  onDelete: (id: string, title: string) => void;
   onDragStart: (e: React.DragEvent, id: string, status: TaskStatus) => void;
   onTrack: (taskId: string, title: string) => void;
   isTrackingThisTask?: boolean;
@@ -230,11 +244,22 @@ function KanbanCard({
       onClick={() => onOpen(task.id)}
       className="group w-full cursor-pointer rounded-xl border border-white/10 bg-[#131313] p-3 transition-all hover:border-white/25 hover:bg-[#1c1c1c] hover:shadow-lg hover:shadow-black/40 active:opacity-70"
     >
+      <div className="mb-1 flex items-start justify-between gap-2">
+        <p className="min-w-0 flex-1 text-sm font-medium text-white leading-snug line-clamp-3">
+          {task.title}
+        </p>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete(task.id, task.title);
+          }}
+          className="shrink-0 rounded-lg p-1 text-white/20 opacity-0 transition group-hover:opacity-100 hover:bg-red-500/10 hover:text-red-300"
+          title="Delete card"
+        >
+          <Trash2 size={13} />
+        </button>
+      </div>
       {/* Title */}
-      <p className="text-sm font-medium text-white leading-snug line-clamp-3 mb-2.5">
-        {task.title}
-      </p>
-
       {labels.length > 0 && (
         <div className="mb-2 flex flex-wrap gap-1">
           {labels.slice(0, 4).map((label) => (
@@ -357,8 +382,10 @@ function KanbanColumn({
   label,
   dot,
   accent,
+  columnId,
   tasks,
   onOpen,
+  onDelete,
   onAddCard,
   onDragStart,
   onDrop,
@@ -373,9 +400,11 @@ function KanbanColumn({
   label: string;
   dot: string;
   accent: string;
+  columnId: string | null;
   tasks: Task[];
   onOpen: (id: string) => void;
-  onAddCard: (status: TaskStatus, title: string) => Promise<void>;
+  onDelete: (id: string, title: string) => void;
+  onAddCard: (status: TaskStatus, title: string, columnId?: string | null) => Promise<void>;
   onDragStart: (e: React.DragEvent, id: string, status: TaskStatus) => void;
   onDrop: (e: React.DragEvent, targetStatus: TaskStatus) => void;
   onTrack: (taskId: string, title: string) => void;
@@ -427,6 +456,7 @@ function KanbanColumn({
             key={task.id}
             task={task}
             onOpen={onOpen}
+            onDelete={onDelete}
             onDragStart={onDragStart}
             onTrack={onTrack}
             isTrackingThisTask={isTrackingThisTask?.(task.id)}
@@ -441,7 +471,7 @@ function KanbanColumn({
         {adding ? (
           <InlineCardAdder
             onAdd={async (title) => {
-              await onAddCard(status, title);
+              await onAddCard(status, title, columnId);
               setAdding(false);
             }}
             onCancel={() => setAdding(false)}
@@ -468,6 +498,7 @@ export default function BoardViewPage() {
   const organizationId = profile?.organization_id ?? null;
 
   const [board, setBoard] = useState<Board | null>(null);
+  const [columns, setColumns] = useState<BoardColumnView[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [groupedTasks, setGroupedTasks] = useState<Record<string, Task[]>>({});
   const [stats, setStats] = useState<BoardStats | null>(null);
@@ -489,6 +520,25 @@ export default function BoardViewPage() {
     startDate: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
     endDate: new Date().toISOString(),
   });
+
+  const makeColumnViews = useCallback((lists: List[]): BoardColumnView[] => {
+    return lists.map((list, index) => {
+      const fallback = COLUMNS[index] ?? COLUMNS[COLUMNS.length - 1];
+      const statusFromId = list.id.startsWith("list-")
+        ? list.id.replace("list-", "") as TaskStatus
+        : null;
+      const status = statusFromId ?? statusFromTrelloListName(list.name);
+
+      return {
+        id: list.id,
+        columnId: list.id.startsWith("list-") ? null : list.id,
+        status,
+        label: list.name,
+        dot: fallback.dot,
+        accent: fallback.accent,
+      };
+    });
+  }, []);
 
   const loadActiveTimer = useCallback(async () => {
     if (!auth?.user?.id || !organizationId) return;
@@ -535,17 +585,20 @@ export default function BoardViewPage() {
       setLoading(true);
       setError("");
 
-      const [boardData, cardsData] = await Promise.all([
+      const [boardData, listsData, cardsData] = await Promise.all([
         getBoard(boardId),
+        getLists(boardId),
         getCards(organizationId, boardId),
       ]);
 
       if (!boardData) throw new Error(`Board not found (id: ${boardId})`);
       setBoard(boardData);
 
+      const nextColumns = makeColumnViews(listsData);
+      setColumns(nextColumns);
       const normalised = (cardsData as any[]).map(cardToTask);
       setTasks(normalised);
-      setGroupedTasks(groupByStatus(normalised));
+      setGroupedTasks(groupByColumn(normalised, nextColumns));
 
       // Stats non-critical
       getBoardStats(organizationId, boardId).then(setStats).catch(console.warn);
@@ -586,8 +639,8 @@ export default function BoardViewPage() {
         {
           event: '*',
           schema: 'public',
-          table: 'cards',
-          filter: `board_id=eq.${boardId}`,
+          table: 'tasks',
+          filter: `client_id=eq.${boardId}`,
         },
         () => {
           // Reload board data when cards change
@@ -601,12 +654,30 @@ export default function BoardViewPage() {
     };
   }, [organizationId, boardId, loadBoardData, loadActiveTimer]);
 
-  function groupByStatus(list: Task[]): Record<string, Task[]> {
+  function statusFromTrelloListName(name: string | null | undefined): TaskStatus {
+    const normalized = name?.trim().toLowerCase() ?? "";
+    if (normalized.includes("done") || normalized.includes("complete")) return "done";
+    if (normalized.includes("review") || normalized.includes("approval")) return "review";
+    if (normalized.includes("progress") || normalized.includes("doing")) return "in_progress";
+    if (normalized.includes("backlog")) return "backlog";
+    return "todo";
+  }
+
+  function groupByColumn(
+    list: Task[],
+    boardColumns: BoardColumnView[] = columns,
+  ): Record<string, Task[]> {
+    const columnIds = new Set(
+      boardColumns.map((column) => column.columnId).filter(Boolean),
+    );
+
     return list.reduce(
       (acc, t) => {
-        const s = t.status || "todo";
-        if (!acc[s]) acc[s] = [];
-        acc[s].push(t);
+        const key = t.column_id && columnIds.has(t.column_id)
+          ? t.column_id
+          : t.status || "todo";
+        if (!acc[key]) acc[key] = [];
+        acc[key].push(t);
         return acc;
       },
       {} as Record<string, Task[]>,
@@ -616,19 +687,21 @@ export default function BoardViewPage() {
   // ── Add card ─────────────────────────────────────────────────────────────────
 
   const handleAddCard = useCallback(
-    async (status: TaskStatus, title: string) => {
+    async (status: TaskStatus, title: string, columnId?: string | null) => {
       if (!organizationId || !boardId) return;
       const rawCard = await createCard(organizationId, boardId, {
         title,
         status,
+        columnId: columnId ?? null,
         createdBy: auth?.user?.id ?? null,
       });
       const newTask = cardToTask(rawCard);
       setTasks((prev) => [...prev, newTask]);
       setGroupedTasks((prev) => {
         const next = { ...prev };
-        if (!next[status]) next[status] = [];
-        next[status] = [...next[status], newTask];
+        const groupKey = columnId ?? status;
+        if (!next[groupKey]) next[groupKey] = [];
+        next[groupKey] = [...next[groupKey], newTask];
         return next;
       });
       getBoardStats(organizationId, boardId).then(setStats).catch(console.warn);
@@ -671,7 +744,7 @@ export default function BoardViewPage() {
         ),
       );
       setGroupedTasks((prev) =>
-        groupByStatus(
+        groupByColumn(
           tasks.map((t) =>
             t.id === taskId ? ({ ...t, ...persistedUpdates } as Task) : t,
           ),
@@ -696,34 +769,65 @@ export default function BoardViewPage() {
     [],
   );
 
+  const handleDeleteTask = useCallback(
+    async (taskId: string, title: string, confirmFirst = true) => {
+      if (confirmFirst && !window.confirm(`Delete "${title}"? This removes the card and keeps existing time entries for reporting.`)) {
+        return;
+      }
+
+      setTasks((prev) => prev.filter((task) => task.id !== taskId));
+      setGroupedTasks((prev) => {
+        const next: Record<string, Task[]> = {};
+        for (const [key, value] of Object.entries(prev)) {
+          next[key] = value.filter((task) => task.id !== taskId);
+        }
+        return next;
+      });
+      setSelectedTask((current) => current?.id === taskId ? null : current);
+
+      try {
+        await deleteCard(taskId);
+        if (organizationId && boardId) {
+          getBoardStats(organizationId, boardId).then(setStats).catch(console.warn);
+        }
+      } catch (err) {
+        console.error("Delete card failed, reloading", err);
+        void loadBoardData();
+      }
+    },
+    [boardId, loadBoardData, organizationId],
+  );
+
   const handleDrop = useCallback(
-    async (e: React.DragEvent, targetStatus: TaskStatus) => {
+    async (e: React.DragEvent, targetStatus: TaskStatus, targetColumnId?: string | null) => {
       e.preventDefault();
       const drag = dragRef.current;
-      if (!drag || drag.status === targetStatus) return;
+      if (!drag) return;
 
       // Optimistic update
       setTasks((prev) =>
         prev.map((t) =>
-          t.id === drag.id ? { ...t, status: targetStatus } : t,
+          t.id === drag.id
+            ? { ...t, status: targetStatus, column_id: targetColumnId ?? null }
+            : t,
         ),
       );
       setGroupedTasks((prev) => {
         const next = { ...prev };
         const task = tasks.find((t) => t.id === drag.id);
         if (!task) return prev;
-        next[drag.status] = (next[drag.status] ?? []).filter(
-          (t) => t.id !== drag.id,
-        );
-        next[targetStatus] = [
-          ...(next[targetStatus] ?? []),
-          { ...task, status: targetStatus },
+        const sourceKey = task.column_id ?? drag.status;
+        const targetKey = targetColumnId ?? targetStatus;
+        next[sourceKey] = (next[sourceKey] ?? []).filter((t) => t.id !== drag.id);
+        next[targetKey] = [
+          ...(next[targetKey] ?? []),
+          { ...task, status: targetStatus, column_id: targetColumnId ?? null },
         ];
         return next;
       });
 
       try {
-        await moveCard(drag.id, targetStatus, 0);
+        await moveCard(drag.id, targetStatus, 0, targetColumnId ?? null);
       } catch (err) {
         console.error("Move failed, reverting", err);
         void loadBoardData();
@@ -757,6 +861,7 @@ export default function BoardViewPage() {
       const { error } = await supabase.from("time_entries").insert({
         organization_id: organizationId,
         user_id: auth.user.id,
+        client_id: boardId ?? null,
         task_id: taskId,
         description: `Working on ${title}`,
         started_at: new Date().toISOString(),
@@ -775,7 +880,7 @@ export default function BoardViewPage() {
     } finally {
       setTimerBusy(false);
     }
-  }, [auth?.user?.id, organizationId, loadActiveTimer]);
+  }, [auth?.user?.id, boardId, organizationId, loadActiveTimer]);
 
   const isTrackingThisTask = useCallback((taskId: string) => {
     return activeTimer?.task_id === taskId;
@@ -921,15 +1026,16 @@ export default function BoardViewPage() {
               </div>
             ) : (
               <div className="flex gap-4 p-6 h-full items-start">
-                {COLUMNS.map((col) => (
+                {columns.map((col) => (
                   <KanbanColumn
-                    key={col.status}
+                    key={col.id}
                     {...col}
-                    tasks={groupedTasks[col.status] ?? []}
+                    tasks={groupedTasks[col.columnId ?? col.status] ?? []}
                     onOpen={handleOpenTask}
+                    onDelete={handleDeleteTask}
                     onAddCard={handleAddCard}
                     onDragStart={handleDragStart}
-                    onDrop={handleDrop}
+                    onDrop={(event, status) => handleDrop(event, status, col.columnId)}
                     onTrack={handleTrack}
                     isTrackingThisTask={isTrackingThisTask}
                     liveSeconds={liveSeconds}
@@ -964,6 +1070,7 @@ export default function BoardViewPage() {
           isOpen={!!selectedTask}
           onClose={() => setSelectedTask(null)}
           onUpdate={handleUpdateTask}
+          onDelete={(cardId) => handleDeleteTask(cardId, selectedTask.title, false)}
           onToggleTimer={(id, title) => console.log("timer", id, title)}
           hasRunningTimer={false}
           currentUserId={auth.user.id}

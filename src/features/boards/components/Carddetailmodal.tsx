@@ -29,7 +29,6 @@ import {
   Tag,
   Palette,
   Link2,
-  Archive,
   Save,
 } from "lucide-react";
 import type {
@@ -87,6 +86,7 @@ interface CardDetailModalProps {
   isOpen: boolean;
   onClose: () => void;
   onUpdate?: (updates: Partial<TaskItem>) => void;
+  onDelete?: (cardId: string) => Promise<void> | void;
   onToggleTimer?: (cardId: string, title: string) => void;
   hasRunningTimer?: boolean;
   currentUserId: string;
@@ -715,6 +715,7 @@ export default function CardDetailModal({
   isOpen,
   onClose,
   onUpdate,
+  onDelete,
   hasRunningTimer = false,
   currentUserId,
   organizationId,
@@ -1351,13 +1352,18 @@ export default function CardDetailModal({
     await navigator.clipboard?.writeText(href);
   };
 
-  const handleArchiveCard = () => {
-    setStatus("cancelled");
-    onUpdate?.({
-      status: "cancelled",
-      archived_at: new Date().toISOString(),
-      archived_by: currentUserId,
-    } as Partial<TaskItem>);
+  const handleDeleteCard = async () => {
+    if (!window.confirm(`Delete "${title}"? This removes the card and keeps existing time entries for reporting.`)) {
+      return;
+    }
+
+    if (onDelete) {
+      await onDelete(cardId);
+      return;
+    }
+
+    await deleteCard(cardId);
+    onClose();
   };
 
   const handleAddComment = async () => {
@@ -1970,11 +1976,11 @@ export default function CardDetailModal({
                     </button>
                     <button
                       type="button"
-                      onClick={handleArchiveCard}
+                      onClick={() => void handleDeleteCard()}
                       className="flex w-full items-center gap-2 rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-300 hover:bg-red-500/20"
                     >
-                      <Archive size={13} />
-                      Archive
+                      <Trash2 size={13} />
+                      Delete card
                     </button>
                   </div>
                 </div>

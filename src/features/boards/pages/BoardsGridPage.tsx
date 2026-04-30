@@ -7,17 +7,11 @@ import {
   TrendingUp,
   LayoutGrid,
   CheckCircle2,
-  MoreVertical,
   X,
   Loader2,
   Building2,
-  Share2,
-  Archive,
-  Trash2,
 } from "lucide-react";
 import { createClient } from "../../clients/services/clientService";
-import { deleteBoard } from "../services/boardService";
-import DeleteBoardModal from "../components/DeleteBoardModal";
 import Sidebar from "../../../components/dashboard/components/Sidebar";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import { getBoards, getBoardStats } from "../services/boardService";
@@ -489,51 +483,6 @@ export default function BoardsGridPage() {
                                 {board.industry}
                               </p>
                             )}
-                          </div>
-                        </div>
-                        <div className="relative">
-                          <button
-                            type="button"
-                            onClick={(e) => e.stopPropagation()}
-                            className="shrink-0 rounded-lg p-1.5 text-white/20 opacity-0 group-hover:opacity-100 hover:bg-white/10 hover:text-white transition-all"
-                          >
-                            <MoreVertical size={14} />
-                          </button>
-                          <div className="absolute top-full right-0 mt-1 w-48 bg-white/5 backdrop-blur border border-white/10 rounded-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-20 shadow-2xl">
-                            <button className="w-full text-left px-4 py-2 text-sm text-white/80 hover:bg-white/10 transition flex items-center gap-2">
-                              <Share2 size={14} />
-                              Share Board
-                            </button>
-                            <button className="w-full text-left px-4 py-2 text-sm text-white/80 hover:bg-white/10 transition flex items-center gap-2">
-                              <Archive size={14} />
-                              Archive Board
-                            </button>
-                            <button
-                              onClick={async (e) => {
-                                e.stopPropagation();
-                                if (
-                                  confirm(
-                                    "Delete this board? All tasks will be unassigned (client_id=null).",
-                                  )
-                                ) {
-                                  try {
-                                    await deleteBoard(organizationId, board.id);
-                                    setBoards((prev) =>
-                                      prev.filter((b) => b.id !== board.id),
-                                    );
-                                  } catch (err) {
-                                    alert(
-                                      "Delete failed: " +
-                                        (err as Error).message,
-                                    );
-                                  }
-                                }
-                              }}
-                              className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-red-500/10 transition flex items-center gap-2"
-                            >
-                              <Trash2 size={14} />
-                              Delete Board
-                            </button>
                           </div>
                         </div>
                       </div>

@@ -229,6 +229,7 @@ export default function AdminLeavePage() {
   const handleSaveLeaveModification = async (params: {
     newStartDate: string;
     newEndDate: string;
+    office: string;
     reason: string;
   }) => {
     if (!selectedLeaveForModify || !userId || !organizationId) return;
@@ -243,6 +244,7 @@ export default function AdminLeavePage() {
         modifiedByUserId: userId,
         newStartDate: params.newStartDate,
         newEndDate: params.newEndDate,
+        office: params.office,
         reason: params.reason,
       });
 
@@ -586,6 +588,7 @@ export default function AdminLeavePage() {
           setSelectedLeaveForModify(null);
         }}
         leaveRequest={selectedLeaveForModify}
+        organizationId={organizationId}
         onSave={handleSaveLeaveModification}
       />
 

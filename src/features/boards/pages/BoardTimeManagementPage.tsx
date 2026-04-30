@@ -20,12 +20,11 @@ import {
   Calendar,
   BriefcaseBusiness,
   Briefcase,
-  Trash2,
 } from "lucide-react";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import { useNavigate } from "react-router-dom";
 import Sidebar from "../../../components/dashboard/components/Sidebar";
-import { getBoards, createCard, updateCard, createBoard, deleteBoard } from "../services/boardService";
+import { getBoards, createCard, updateCard, createBoard } from "../services/boardService";
 import { createClient } from "../../clients/services/clientService";
 import { getAdminTimeEntries } from "../../../lib/supabase/queries/adminTime";
 import { supabase } from "../../../lib/supabase/client";
@@ -622,47 +621,6 @@ export default function BoardTimeManagementPage() {
     }
   };
 
-  const handleDeleteBoard = async (boardId: string, boardName: string) => {
-    if (!organizationId) return;
-    
-    // Confirm deletion
-    const confirmed = window.confirm(
-      `Are you sure you want to delete "${boardName}"? This action cannot be undone and all associated tasks will be unassigned.`
-    );
-    
-    if (!confirmed) return;
-
-    setIsSaving(true);
-    try {
-      console.log("Deleting board:", boardId);
-      
-      await deleteBoard(organizationId, boardId);
-      console.log("Board deleted successfully");
-      
-      // Reload data to ensure synchronization
-      await loadBoardsWithTimeData();
-      console.log("Board data reloaded after deletion");
-      
-    } catch (error) {
-      console.error("Failed to delete board:", error);
-      let errorMessage = "Failed to delete board. Please try again.";
-      
-      if (error instanceof Error) {
-        if (error.message.includes("permission")) {
-          errorMessage = "You don't have permission to delete this board.";
-        } else if (error.message.includes("foreign")) {
-          errorMessage = "Cannot delete board with existing tasks. Please delete tasks first.";
-        } else {
-          errorMessage = error.message;
-        }
-      }
-      
-      alert(errorMessage);
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
   if (loading) {
     return (
       <div className="min-h-screen bg-black text-white flex items-center justify-center">
@@ -934,13 +892,6 @@ export default function BoardTimeManagementPage() {
                             <Eye className="w-4 h-4" />
                           </button>
 
-                          <button
-                            onClick={() => handleDeleteBoard(board.id, board.name)}
-                            className="p-1.5 text-white/40 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition"
-                            title="Delete Board"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
                         </div>
                       </td>
                     </tr>

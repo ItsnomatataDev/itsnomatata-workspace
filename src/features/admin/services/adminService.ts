@@ -179,18 +179,95 @@ export type LeaveRequestRow = {
   requested_days: number;
   request_department?: string | null;
   request_role?: string | null;
+  office?: string | null;
   reason: string | null;
   status: string;
   approved_by: string | null;
   approved_at: string | null;
   rejection_reason: string | null;
   balance_deducted_at?: string | null;
+  admin_notes?: string | null;
+  edited_by?: string | null;
+  edited_at?: string | null;
+  cancelled_at?: string | null;
+  cancelled_by?: string | null;
+  cancellation_reason?: string | null;
   created_at: string;
   requester_name?: string | null;
   requester_email?: string | null;
   requester_department?: string | null;
   requester_role?: string | null;
 };
+
+const ADMIN_LEAVE_REQUEST_SELECT =
+  "id, organization_id, user_id, leave_type_id, start_date, end_date, requested_days, request_department, request_role, office, reason, status, approved_by, approved_at, rejection_reason, balance_deducted_at, admin_notes, edited_by, edited_at, cancelled_at, cancelled_by, cancellation_reason, created_at";
+
+const LEGACY_ADMIN_LEAVE_REQUEST_SELECT =
+  "id, organization_id, user_id, leave_type_id, start_date, end_date, requested_days, request_department, request_role, reason, status, approved_by, approved_at, rejection_reason, balance_deducted_at, created_at";
+
+function isMissingLeaveLifecycleColumn(error: unknown) {
+  const message = String((error as { message?: string } | null)?.message ?? "")
+    .toLowerCase();
+
+  return [
+    "leave_requests.office",
+    "column office",
+    "admin_notes",
+    "edited_by",
+    "edited_at",
+    "cancelled_at",
+    "cancelled_by",
+    "cancellation_reason",
+  ].some((column) => message.includes(column));
+}
+
+function normalizeAdminLeaveRequest(
+  row: Partial<LeaveRequestRow>,
+): LeaveRequestRow {
+  return {
+    ...(row as LeaveRequestRow),
+    office: row.office ?? row.request_department ?? null,
+    admin_notes: row.admin_notes ?? null,
+    edited_by: row.edited_by ?? null,
+    edited_at: row.edited_at ?? null,
+    cancelled_at: row.cancelled_at ?? null,
+    cancelled_by: row.cancelled_by ?? null,
+    cancellation_reason: row.cancellation_reason ?? null,
+  };
+}
+
+async function getLeaveRequestRows(params: {
+  organizationId: string;
+  limit?: number;
+}) {
+  let query = supabase
+    .from("leave_requests")
+    .select(ADMIN_LEAVE_REQUEST_SELECT)
+    .eq("organization_id", params.organizationId)
+    .order("created_at", { ascending: false });
+
+  if (params.limit) query = query.limit(params.limit);
+
+  const current = await query;
+
+  if (!current.error) {
+    return (current.data ?? []).map(normalizeAdminLeaveRequest);
+  }
+
+  if (!isMissingLeaveLifecycleColumn(current.error)) throw current.error;
+
+  let legacyQuery = supabase
+    .from("leave_requests")
+    .select(LEGACY_ADMIN_LEAVE_REQUEST_SELECT)
+    .eq("organization_id", params.organizationId)
+    .order("created_at", { ascending: false });
+
+  if (params.limit) legacyQuery = legacyQuery.limit(params.limit);
+
+  const legacy = await legacyQuery;
+  if (legacy.error) throw legacy.error;
+  return (legacy.data ?? []).map(normalizeAdminLeaveRequest);
+}
 
 export type LeaveTypeRow = {
   id: string;
@@ -399,17 +476,7 @@ export async function getEmployeeTimeEntries(params: {
 }
 
 export async function getLeaveRequests(organizationId: string) {
-  const { data, error } = await supabase
-    .from("leave_requests")
-    .select(
-      "id, organization_id, user_id, leave_type_id, start_date, end_date, requested_days, request_department, request_role, reason, status, approved_by, approved_at, rejection_reason, balance_deducted_at, created_at",
-    )
-    .eq("organization_id", organizationId)
-    .order("created_at", { ascending: false });
-
-  if (error) throw error;
-
-  const requests = (data ?? []) as LeaveRequestRow[];
+  const requests = await getLeaveRequestRows({ organizationId });
 
   const userIds = [
     ...new Set(requests.map((item) => item.user_id).filter(Boolean)),
@@ -436,7 +503,7 @@ export async function getLeaveRequests(organizationId: string) {
       requester_name: requester?.full_name ?? null,
       requester_email: requester?.email ?? null,
       requester_department:
-        request.request_department ?? requester?.department ?? null,
+        request.office ?? request.request_department ?? requester?.department ?? null,
       requester_role: request.request_role ?? requester?.primary_role ?? null,
     };
   });
@@ -445,18 +512,7 @@ export async function getLeaveRequests(organizationId: string) {
 export async function getRecentLeaveRequests(
   organizationId: string,
 ): Promise<LeaveRequestRow[]> {
-  const { data, error } = await supabase
-    .from("leave_requests")
-    .select(
-      "id, organization_id, user_id, leave_type_id, start_date, end_date, requested_days, request_department, request_role, reason, status, approved_by, approved_at, rejection_reason, balance_deducted_at, created_at",
-    )
-    .eq("organization_id", organizationId)
-    .order("created_at", { ascending: false })
-    .limit(5);
-
-  if (error) throw error;
-
-  const requests = (data ?? []) as LeaveRequestRow[];
+  const requests = await getLeaveRequestRows({ organizationId, limit: 5 });
 
   const userIds = [
     ...new Set(requests.map((item) => item.user_id).filter(Boolean)),
@@ -483,7 +539,7 @@ export async function getRecentLeaveRequests(
       requester_name: requester?.full_name ?? null,
       requester_email: requester?.email ?? null,
       requester_department:
-        request.request_department ?? requester?.department ?? null,
+        request.office ?? request.request_department ?? requester?.department ?? null,
       requester_role: request.request_role ?? requester?.primary_role ?? null,
     };
   });
@@ -509,7 +565,7 @@ export async function updateLeaveRequestStatus(params: {
 }) {
   const approvedAt = new Date().toISOString();
 
-  const { data: updatedRequest, error: updateError } = await supabase
+  let updateResult = await supabase
     .from("leave_requests")
     .update({
       status: params.status,
@@ -521,18 +577,33 @@ export async function updateLeaveRequestStatus(params: {
     })
     .eq("id", params.leaveRequestId)
     .eq("organization_id", params.organizationId)
-    .select(
-      "id, organization_id, user_id, leave_type_id, start_date, end_date, requested_days, request_department, request_role, reason, status, approved_by, approved_at, rejection_reason, balance_deducted_at, created_at",
-    )
+    .select(ADMIN_LEAVE_REQUEST_SELECT)
     .single();
 
-  if (updateError) {
-    console.error("UPDATE LEAVE REQUEST STATUS ERROR:", updateError);
-    throw new Error(updateError.message);
+  if (updateResult.error && isMissingLeaveLifecycleColumn(updateResult.error)) {
+    updateResult = await supabase
+      .from("leave_requests")
+      .update({
+        status: params.status,
+        approved_by: params.approvedBy,
+        approved_at: approvedAt,
+        rejection_reason: params.status === "rejected"
+          ? (params.rejectionReason ?? "")
+          : null,
+      })
+      .eq("id", params.leaveRequestId)
+      .eq("organization_id", params.organizationId)
+      .select(LEGACY_ADMIN_LEAVE_REQUEST_SELECT)
+      .single();
+  }
+
+  if (updateResult.error) {
+    console.error("UPDATE LEAVE REQUEST STATUS ERROR:", updateResult.error);
+    throw new Error(updateResult.error.message);
   }
 
   try {
-    const request = updatedRequest as LeaveRequestRow;
+    const request = normalizeAdminLeaveRequest(updateResult.data);
 
     const [{ data: approver }, { data: leaveType }] = await Promise.all([
       supabase
@@ -637,7 +708,7 @@ export async function updateLeaveRequestStatus(params: {
     console.error("LEAVE APPROVAL/REJECTION NOTIFY ERROR:", notifyErr);
   }
 
-  return updatedRequest;
+  return normalizeAdminLeaveRequest(updateResult.data);
 }
 export async function createLeaveType(params: {
   organizationId: string;

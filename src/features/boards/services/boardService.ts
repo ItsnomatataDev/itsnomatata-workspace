@@ -206,6 +206,7 @@ export async function createCard(
     dueDate?: string;
     createdBy?: string | null;
     estimatedSeconds?: number | null;
+    columnId?: string | null;
   },
 ): Promise<Card> {
   const { data: card, error } = await supabase
@@ -213,6 +214,7 @@ export async function createCard(
     .insert({
       organization_id: organizationId,
       client_id: boardId,
+      column_id: input.columnId ?? null,
       title: input.title,
       description: input.description ?? null,
       status: input.status ?? "todo",
@@ -271,10 +273,14 @@ export async function moveCard(
   cardId: string,
   targetStatus: TaskStatus,
   position: number,
+  columnId?: string | null,
 ): Promise<void> {
+  const updates: Record<string, unknown> = { status: targetStatus, position };
+  if (columnId !== undefined) updates.column_id = columnId;
+
   const { error } = await supabase
     .from("tasks")
-    .update({ status: targetStatus, position })
+    .update(updates)
     .eq("id", cardId);
   if (error) throw error;
 }
@@ -354,7 +360,7 @@ export async function addCardComment(
   return data;
 }
 
-export async function getLists(boardId: string): Promise<List[]> {
+function getFallbackLists(boardId: string): List[] {
   const now = new Date().toISOString();
   return [
     {
@@ -418,6 +424,26 @@ export async function getLists(boardId: string): Promise<List[]> {
       taskCount: 0,
     },
   ];
+}
+
+export async function getLists(boardId: string): Promise<List[]> {
+  const { data, error } = await supabase
+    .from("task_board_columns")
+    .select("*")
+    .eq("client_id", boardId)
+    .order("position", { ascending: true });
+
+  if (error) throw error;
+
+  if (data && data.length > 0) {
+    return data.map((column) => ({
+      ...column,
+      boardId,
+      taskCount: 0,
+    })) as List[];
+  }
+
+  return getFallbackLists(boardId);
 }
 
 export async function getBoardView(

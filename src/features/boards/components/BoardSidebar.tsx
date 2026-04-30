@@ -5,9 +5,6 @@ import {
   Users,
   Activity,
   MoreVertical,
-  Archive,
-  Trash2,
-  Share2,
   Calendar,
   TrendingUp,
   MessageSquare,
@@ -413,21 +410,6 @@ export default function BoardSidebar({
               </div>
             </div>
 
-            {/* Actions */}
-            <div className="space-y-2 pt-1">
-              <button className="w-full flex items-center gap-2 rounded-xl border border-white/10 bg-white/3 px-4 py-2.5 text-sm text-white/70 hover:bg-white/8 hover:text-white transition">
-                <Share2 size={15} />
-                Share Board
-              </button>
-              <button className="w-full flex items-center gap-2 rounded-xl border border-white/10 bg-white/3 px-4 py-2.5 text-sm text-white/70 hover:bg-white/8 hover:text-white transition">
-                <Archive size={15} />
-                Archive Board
-              </button>
-              <button className="w-full flex items-center gap-2 rounded-xl border border-red-500/20 bg-red-500/5 px-4 py-2.5 text-sm text-red-400 hover:bg-red-500/15 transition">
-                <Trash2 size={15} />
-                Delete Board
-              </button>
-            </div>
           </>
         )}
 

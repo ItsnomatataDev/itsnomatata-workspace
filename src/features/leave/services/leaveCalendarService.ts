@@ -25,6 +25,7 @@ export type LeaveCalendarEventRow = {
   requested_days?: number;
   request_role?: string | null;
   request_department?: string | null;
+  office?: string | null;
   reason: string | null;
   status: string;
   approved_by: string | null;
@@ -36,6 +37,31 @@ export type LeaveCalendarEventRow = {
   requester_role?: string | null;
   requester_department?: string | null;
 };
+
+const LEAVE_CALENDAR_EVENT_SELECT =
+  "id, organization_id, user_id, leave_type_id, start_date, end_date, requested_days, request_role, request_department, office, reason, status, approved_by, approved_at, rejection_reason, created_at";
+
+const LEGACY_LEAVE_CALENDAR_EVENT_SELECT =
+  "id, organization_id, user_id, leave_type_id, start_date, end_date, requested_days, request_role, request_department, reason, status, approved_by, approved_at, rejection_reason, created_at";
+
+function isMissingLeaveOfficeColumn(error: unknown) {
+  const message = String(
+    (error as { message?: string } | null)?.message ?? "",
+  ).toLowerCase();
+
+  return message.includes("leave_requests.office") ||
+    message.includes("column office") ||
+    message.includes("'office'");
+}
+
+function normalizeLeaveCalendarEvent(
+  row: Partial<LeaveCalendarEventRow>,
+): LeaveCalendarEventRow {
+  return {
+    ...(row as LeaveCalendarEventRow),
+    office: row.office ?? row.request_department ?? null,
+  };
+}
 
 export async function getLeaveCalendarRules(organizationId: string) {
   const { data, error } = await supabase
@@ -132,18 +158,31 @@ export async function deleteLeaveCalendarRule(ruleId: string) {
 }
 
 export async function getApprovedLeaveCalendarEvents(organizationId: string) {
-  const { data, error } = await supabase
+  let result = await supabase
     .from("leave_requests")
-    .select(
-      "id, organization_id, user_id, leave_type_id, start_date, end_date, requested_days, request_role, request_department, reason, status, approved_by, approved_at, rejection_reason, created_at",
-    )
+    .select(LEAVE_CALENDAR_EVENT_SELECT)
     .eq("organization_id", organizationId)
-    .eq("status", "approved")
-    .order("start_date", { ascending: true });
+    .in("status", ["pending", "approved", "rejected", "cancelled"])
+    .order("start_date", { ascending: true }) as {
+      data: Partial<LeaveCalendarEventRow>[] | null;
+      error: unknown | null;
+    };
 
-  if (error) throw error;
+  if (result.error && isMissingLeaveOfficeColumn(result.error)) {
+    result = await supabase
+      .from("leave_requests")
+      .select(LEGACY_LEAVE_CALENDAR_EVENT_SELECT)
+      .eq("organization_id", organizationId)
+      .in("status", ["pending", "approved", "rejected", "cancelled"])
+      .order("start_date", { ascending: true }) as {
+        data: Partial<LeaveCalendarEventRow>[] | null;
+        error: unknown | null;
+      };
+  }
 
-  const rows = (data ?? []) as LeaveCalendarEventRow[];
+  if (result.error) throw result.error;
+
+  const rows = (result.data ?? []).map(normalizeLeaveCalendarEvent);
   const userIds = [...new Set(rows.map((item) => item.user_id))];
 
   if (userIds.length === 0) return rows;
@@ -167,7 +206,7 @@ export async function getApprovedLeaveCalendarEvents(organizationId: string) {
       requester_name: profile?.full_name ?? null,
       requester_email: profile?.email ?? null,
       requester_role: row.request_role ?? profile?.primary_role ?? null,
-      requester_department: row.request_department ?? profile?.department ?? null,
+      requester_department: row.office ?? row.request_department ?? profile?.department ?? null,
     };
   });
 }
@@ -215,9 +254,7 @@ export async function checkLeaveAvailability(params: {
       .gte("end_date", params.startDate),
     supabase
       .from("leave_requests")
-      .select(
-        "id, organization_id, user_id, leave_type_id, start_date, end_date, requested_days, request_role, request_department, reason, status, approved_by, approved_at, rejection_reason, created_at",
-      )
+      .select(LEAVE_CALENDAR_EVENT_SELECT)
       .eq("organization_id", params.organizationId)
       .in("status", ["pending", "approved"])
       .lte("start_date", params.endDate)
@@ -225,7 +262,26 @@ export async function checkLeaveAvailability(params: {
   ]);
 
   if (rulesRes.error) throw rulesRes.error;
-  if (overlapRes.error) throw overlapRes.error;
+  let overlapRows = (overlapRes.data ?? []) as Partial<
+    LeaveCalendarEventRow
+  >[];
+
+  if (overlapRes.error && isMissingLeaveOfficeColumn(overlapRes.error)) {
+    const legacyOverlapRes = await supabase
+      .from("leave_requests")
+      .select(LEGACY_LEAVE_CALENDAR_EVENT_SELECT)
+      .eq("organization_id", params.organizationId)
+      .in("status", ["pending", "approved"])
+      .lte("start_date", params.endDate)
+      .gte("end_date", params.startDate);
+
+    if (legacyOverlapRes.error) throw legacyOverlapRes.error;
+    overlapRows = (legacyOverlapRes.data ?? []) as Partial<
+      LeaveCalendarEventRow
+    >[];
+  } else if (overlapRes.error) {
+    throw overlapRes.error;
+  }
 
   const normalizedDepartment = params.requestDepartment?.trim().toLowerCase() ||
     null;
@@ -245,7 +301,7 @@ export async function checkLeaveAvailability(params: {
     return matchesDepartment && matchesRole;
   });
 
-  const overlaps = (overlapRes.data ?? []) as LeaveCalendarEventRow[];
+  const overlaps = overlapRows.map(normalizeLeaveCalendarEvent);
   const userIds = [...new Set(overlaps.map((item) => item.user_id))];
 
   let profilesMap = new Map<
@@ -291,23 +347,7 @@ export async function checkLeaveAvailability(params: {
         profilesMap.get(item.user_id)?.department ??
         null,
     }))
-    .filter((item) => {
-      // Check for role-based overlap across all departments
-      if (normalizedRole) {
-        const itemRole = item.requester_role?.trim().toLowerCase() || null;
-        if (itemRole === normalizedRole) {
-          return true; // Role match - block across all departments
-        }
-      }
-
-      // Check for department-based overlap (existing logic)
-      if (!normalizedDepartment) {
-        return true;
-      }
-
-      return (item.requester_department?.trim().toLowerCase() || null) ===
-        normalizedDepartment;
-    });
+    .filter((item) => item.status === "approved" || item.status === "pending");
 
   return {
     blockedRules,

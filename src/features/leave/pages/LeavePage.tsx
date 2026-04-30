@@ -19,8 +19,9 @@ import {
   type LeaveCalendarEventRow,
   type LeaveCalendarRuleRow,
 } from "../services/leaveCalendarService";
+import { LEAVE_OFFICES } from "../utils/leaveDays";
 
-const LEAVE_OFFICE_OPTIONS = ["Three Little Birds", "ITsNomatata", ];
+const LEAVE_OFFICE_OPTIONS = [...LEAVE_OFFICES];
 
 export default function LeavePage() {
   const auth = useAuth();

@@ -26,7 +26,12 @@ import { useTeamTimesheetsRealtime } from "../../../lib/hooks/useTeamTimesheetsR
 import { supabase } from "../../../lib/supabase/client";
 import type { Board } from "../../../types/board";
 import type { AdminTimeEntryRow } from "../../../lib/supabase/queries/adminTime";
-import { importEverhourJson, type EverhourImportResult } from "../services/everhourImportService";
+import {
+  importEverhourJson,
+  importTrelloBoardJson,
+  type EverhourImportResult,
+  type TrelloBoardImportResult,
+} from "../services/everhourImportService";
 import {
   getZimbabweDateKey,
   makeZimbabweLocalIso,
@@ -722,7 +727,10 @@ export default function EverhourAdminPage() {
   const [searchValue, setSearchValue] = useState("");
   const [showAddHours, setShowAddHours] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [importingTrello, setImportingTrello] = useState(false);
   const [importResult, setImportResult] = useState<EverhourImportResult | null>(null);
+  const [trelloImportResult, setTrelloImportResult] =
+    useState<TrelloBoardImportResult | null>(null);
   const [importError, setImportError] = useState("");
 
   const {
@@ -935,6 +943,7 @@ export default function EverhourAdminPage() {
       setImporting(true);
       setImportError("");
       setImportResult(null);
+      setTrelloImportResult(null);
 
       try {
         const raw = await file.text();
@@ -953,6 +962,38 @@ export default function EverhourAdminPage() {
         );
       } finally {
         setImporting(false);
+      }
+    },
+    [auth?.user?.id, boards, organizationId, refetch],
+  );
+
+  const handleImportTrelloJson = useCallback(
+    async (file: File | null) => {
+      if (!file || !organizationId || !auth?.user?.id) return;
+
+      setImportingTrello(true);
+      setImportError("");
+      setImportResult(null);
+      setTrelloImportResult(null);
+
+      try {
+        const raw = await file.text();
+        const parsed = JSON.parse(raw);
+        const result = await importTrelloBoardJson({
+          organizationId,
+          importedBy: auth.user.id,
+          json: parsed,
+          boards,
+          fileName: file.name,
+        });
+        setTrelloImportResult(result);
+        await Promise.all([refetch(), getBoards(organizationId).then(setBoards)]);
+      } catch (error) {
+        setImportError(
+          error instanceof Error ? error.message : "Failed to import Trello board JSON.",
+        );
+      } finally {
+        setImportingTrello(false);
       }
     },
     [auth?.user?.id, boards, organizationId, refetch],
@@ -998,6 +1039,20 @@ export default function EverhourAdminPage() {
                     }}
                   />
                 </label>
+                <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-orange-500/25 bg-orange-500/10 px-4 py-2.5 text-sm font-semibold text-orange-100 transition hover:bg-orange-500/15">
+                  <LayoutGrid size={15} />
+                  {importingTrello ? "Importing..." : "Import Trello Board"}
+                  <input
+                    type="file"
+                    accept="application/json,.json"
+                    className="hidden"
+                    disabled={importingTrello}
+                    onChange={(event) => {
+                      void handleImportTrelloJson(event.target.files?.[0] ?? null);
+                      event.currentTarget.value = "";
+                    }}
+                  />
+                </label>
                 <button
                   type="button"
                   onClick={() => setShowAddHours(true)}
@@ -1009,7 +1064,7 @@ export default function EverhourAdminPage() {
               </div>
             </div>
 
-            {(importResult || importError) && (
+            {(importResult || trelloImportResult || importError) && (
               <div
                 className={`mt-4 rounded-2xl border px-4 py-3 text-sm ${
                   importError
@@ -1019,6 +1074,32 @@ export default function EverhourAdminPage() {
               >
                 {importError ? (
                   <p>{importError}</p>
+                ) : trelloImportResult ? (
+                  <div className="space-y-1">
+                    <p className="font-semibold">
+                      Trello board imported: {trelloImportResult.boardName}
+                    </p>
+                    <p className="text-xs text-white/55">
+                      {trelloImportResult.cardsImported} cards ·{" "}
+                      {trelloImportResult.listsImported} new lists ·{" "}
+                      {trelloImportResult.duplicates} duplicates ·{" "}
+                      {trelloImportResult.assigneesLinked} assignees linked.
+                    </p>
+                    <p className="text-xs text-white/45">
+                      Checklists: {trelloImportResult.checklistsImported} · items:{" "}
+                      {trelloImportResult.checklistItemsImported} · attachments:{" "}
+                      {trelloImportResult.attachmentsImported} · comments:{" "}
+                      {trelloImportResult.commentsImported}
+                      {trelloImportResult.unmatchedMembers.length > 0
+                        ? ` · ${trelloImportResult.unmatchedMembers.length} Trello members need profile matching.`
+                        : ""}
+                    </p>
+                    {trelloImportResult.errors.length > 0 && (
+                      <p className="text-xs text-amber-200">
+                        {trelloImportResult.errors.slice(0, 2).join(" ")}
+                      </p>
+                    )}
+                  </div>
                 ) : importResult ? (
                   <div className="space-y-1">
                     <p className="font-semibold">

@@ -6,10 +6,13 @@ import {
 } from "../services/leaveService";
 import {
   checkLeaveAvailability,
-  type LeaveCalendarEventRow,
   type LeaveCalendarRuleRow,
 } from "../services/leaveCalendarService";
-import { calculateLeaveDays, formatLeaveDaysLabel } from "../utils/leaveDays";
+import {
+  calculateLeaveDaysForOffice,
+  formatLeaveDaysLabel,
+  getLeaveCountingRuleLabel,
+} from "../utils/leaveDays";
 
 type CreateLeaveRequestModalProps = {
   open: boolean;
@@ -56,9 +59,10 @@ export default function CreateLeaveRequestModal({
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [blockedRules, setBlockedRules] = useState<LeaveCalendarRuleRow[]>([]);
+  const [overlapWarnings, setOverlapWarnings] = useState<string[]>([]);
+  const [requestedDays, setRequestedDays] = useState(0);
 
   const hasAvailabilityConflict = blockedRules.length > 0;
-  const requestedDays = calculateLeaveDays(startDate, endDate);
 
   const resetForm = () => {
     setRequestOffice(defaultOffice.trim());
@@ -89,6 +93,8 @@ export default function CreateLeaveRequestModal({
       ) {
         if (active) {
           setBlockedRules([]);
+          setOverlapWarnings([]);
+          setRequestedDays(0);
           setCheckingAvailability(false);
         }
         return;
@@ -97,21 +103,37 @@ export default function CreateLeaveRequestModal({
       try {
         setCheckingAvailability(true);
 
-        const result = await checkLeaveAvailability({
-          organizationId,
-          startDate,
-          endDate,
-          requestDepartment: requestOffice,
-          requestRole: requesterRole,
-        });
+        const [result, days] = await Promise.all([
+          checkLeaveAvailability({
+            organizationId,
+            startDate,
+            endDate,
+            requestDepartment: requestOffice,
+            requestRole: requesterRole,
+          }),
+          calculateLeaveDaysForOffice({
+            organizationId,
+            startDate,
+            endDate,
+            office: requestOffice,
+          }),
+        ]);
 
         if (!active) return;
 
         setBlockedRules(result.blockedRules);
+        setRequestedDays(days);
+        setOverlapWarnings(
+          result.overlappingApprovedLeaves.map((leave) =>
+            `${leave.requester_name || leave.requester_email || "Someone"} has ${leave.status} leave from ${leave.start_date} to ${leave.end_date}.`,
+          ),
+        );
       } catch (err) {
         console.error("CHECK LEAVE AVAILABILITY ERROR:", err);
         if (!active) return;
         setBlockedRules([]);
+        setOverlapWarnings([]);
+        setRequestedDays(0);
       } finally {
         if (active) {
           setCheckingAvailability(false);
@@ -181,6 +203,7 @@ export default function CreateLeaveRequestModal({
         reason,
         requestDepartment: requestOffice,
         requestRole: requesterRole,
+        office: requestOffice,
       });
 
       setSuccessMessage("Leave request submitted successfully.");
@@ -275,6 +298,11 @@ export default function CreateLeaveRequestModal({
                 </option>
               ))}
             </select>
+            {requestOffice ? (
+              <p className="mt-2 text-xs text-white/45">
+                {getLeaveCountingRuleLabel(requestOffice)}
+              </p>
+            ) : null}
           </div>
 
           <div>
@@ -332,6 +360,22 @@ export default function CreateLeaveRequestModal({
           {requestedDays > 0 ? (
             <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-white/65">
               This request will use {formatLeaveDaysLabel(requestedDays)}.
+            </div>
+          ) : null}
+
+          {overlapWarnings.length > 0 ? (
+            <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4">
+              <p className="font-semibold text-amber-200">
+                Calendar warning only
+              </p>
+              <p className="mt-1 text-sm text-amber-100/80">
+                You can still submit this leave. Admins will review overlaps.
+              </p>
+              <div className="mt-3 space-y-1 text-xs text-amber-100/70">
+                {overlapWarnings.map((warning) => (
+                  <p key={warning}>{warning}</p>
+                ))}
+              </div>
             </div>
           ) : null}
 

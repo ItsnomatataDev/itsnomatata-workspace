@@ -139,7 +139,7 @@ export default function LeaveCalendar({
   const events = useMemo<LeaveCalendarEvent[]>(() => {
     const leaveEvents: LeaveCalendarEvent[] = approvedLeaves.map((item) => ({
       id: item.id,
-      title: `${item.requester_name || item.requester_email || "Employee"} on leave`,
+      title: `${item.status}: ${item.requester_name || item.requester_email || "Employee"}`,
       start: toStartDate(item.start_date),
       end: toEndInclusive(item.end_date),
       allDay: true,
@@ -381,13 +381,31 @@ export default function LeaveCalendar({
               };
             }
 
+            const leave = event.raw as LeaveCalendarEventRow;
+
             return {
+              className: "rbc-day-slot",
               style: {
-                backgroundColor: "#ea580c",
+                backgroundColor:
+                  leave.status === "approved"
+                    ? "#16a34a"
+                    : leave.status === "rejected"
+                      ? "#dc2626"
+                      : "#ea580c",
                 color: "white",
                 borderRadius: "8px",
                 border: "none",
                 padding: "2px 6px",
+              },
+            };
+          }}
+          dayPropGetter={(date) => {
+            const isWeekend = date.getDay() === 0 || date.getDay() === 6;
+            if (!isWeekend) return {};
+
+            return {
+              style: {
+                backgroundColor: "rgba(251, 191, 36, 0.12)",
               },
             };
           }}
