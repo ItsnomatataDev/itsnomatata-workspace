@@ -143,7 +143,11 @@ export default function EverhourCalendar({
             userName: entry.user_name || "Unknown",
             userEmail: entry.user_email || "",
             totalHours,
-            hasImported: projects.some((project) => project.source === "trello_import" || project.source === "imported"),
+            hasImported: projects.some((project) =>
+              project.source === "trello_import" ||
+              project.source === "everhour_import" ||
+              project.source === "imported"
+            ),
             projects,
           },
         });
@@ -186,7 +190,10 @@ export default function EverhourCalendar({
               userName: entry.user_name || "Unknown",
               userEmail: entry.user_email || "",
               totalHours: hours,
-              hasImported: entry.source === "trello_import" || entry.entry_type === "imported",
+              hasImported:
+                entry.source === "trello_import" ||
+                entry.source === "everhour_import" ||
+                entry.entry_type === "imported",
               projects: [
                 {
                   projectId: entry.project_id,

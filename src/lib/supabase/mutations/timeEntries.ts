@@ -1,5 +1,10 @@
 import { supabase } from "../client";
 import { logTaskTimeTracked } from "./taskUpdates";
+import {
+  clampToZimbabweCutoff,
+  getZimbabweCutoffIso,
+  isAtOrAfterZimbabweCutoff,
+} from "../../utils/zimbabweCalendar";
 
 export type TimeEntryApprovalStatus = "pending" | "approved" | "rejected";
 
@@ -171,6 +176,81 @@ function calculateDurationSeconds(startedAt: string, endedAt: string) {
   return Math.max(0, Math.floor((end - start) / 1000));
 }
 
+function getCutoffEndForRunningEntry(startedAt: string, endedAt = new Date()) {
+  return clampToZimbabweCutoff(startedAt, endedAt);
+}
+
+function hasZimbabweCutoffPassedForStart(startedAt: string, now = new Date()) {
+  return now.getTime() >= new Date(getZimbabweCutoffIso(startedAt)).getTime();
+}
+
+async function closeRunningEntryAtCutoff(row: {
+  id: string;
+  started_at: string;
+  task_id: string | null;
+  organization_id: string;
+}) {
+  const endedAt = getCutoffEndForRunningEntry(row.started_at);
+  const durationSeconds = calculateDurationSeconds(row.started_at, endedAt);
+
+  const { data, error } = await supabase
+    .from("time_entries")
+    .update({
+      ended_at: endedAt,
+      is_running: false,
+      duration_seconds: durationSeconds,
+      metadata: {
+        auto_stopped: true,
+        auto_stop_reason: "harare_7pm_cutoff",
+        auto_stopped_at: new Date().toISOString(),
+      },
+    })
+    .eq("id", row.id)
+    .select(TIME_ENTRY_SELECT)
+    .single();
+
+  if (error) throw new Error(error.message);
+
+  if (row.task_id) {
+    await syncTaskTrackedSecondsCache({
+      organizationId: row.organization_id,
+      taskId: row.task_id,
+    }).catch((cacheErr) => {
+      console.warn("Failed to sync task tracked time cache:", cacheErr);
+    });
+  }
+
+  return data as TimeEntryItem;
+}
+
+export async function stopExpiredRunningTimersForOrganization(
+  organizationId: string,
+) {
+  if (!organizationId) return 0;
+
+  const { data, error } = await supabase
+    .from("time_entries")
+    .select("id, started_at, task_id, organization_id")
+    .eq("organization_id", organizationId)
+    .is("ended_at", null);
+
+  if (error) throw new Error(error.message);
+
+  let stopped = 0;
+  for (const row of data ?? []) {
+    if (!hasZimbabweCutoffPassedForStart(row.started_at)) continue;
+    await closeRunningEntryAtCutoff(row as {
+      id: string;
+      started_at: string;
+      task_id: string | null;
+      organization_id: string;
+    });
+    stopped += 1;
+  }
+
+  return stopped;
+}
+
 export async function syncTaskTrackedSecondsCache(params: {
   organizationId: string;
   taskId: string;
@@ -257,7 +337,18 @@ export const getActiveTimeEntry = async ({
     throw new Error(error.message);
   }
 
-  return (data as TimeEntryItem | null) ?? null;
+  const active = (data as TimeEntryItem | null) ?? null;
+  if (active && hasZimbabweCutoffPassedForStart(active.started_at)) {
+    await closeRunningEntryAtCutoff({
+      id: active.id,
+      started_at: active.started_at,
+      task_id: active.task_id,
+      organization_id: active.organization_id,
+    });
+    return null;
+  }
+
+  return active;
 };
 
 export const getTimeEntriesForUser = async ({
@@ -310,6 +401,10 @@ export const startTimeEntry = async (
     organizationId: payload.organizationId,
     userId: payload.userId,
   });
+
+  if (isAtOrAfterZimbabweCutoff()) {
+    throw new Error("Timers stop at 7:00 PM Harare time. Add manual time for today if needed.");
+  }
 
   let projectId = payload.projectId ?? null;
   let clientId = payload.clientId ?? null;
@@ -373,7 +468,7 @@ export const stopTimeEntry = async (
     throw new Error(existingError.message);
   }
 
-  const endedAt = new Date().toISOString();
+  const endedAt = getCutoffEndForRunningEntry(existing.started_at);
   const durationSeconds = calculateDurationSeconds(
     existing.started_at,
     endedAt,
@@ -446,6 +541,10 @@ export const resumeTimeEntry = async ({
     organizationId,
     userId,
   });
+
+  if (isAtOrAfterZimbabweCutoff()) {
+    throw new Error("Timers stop at 7:00 PM Harare time. Add manual time for today if needed.");
+  }
 
   const { data: existing, error: existingError } = await supabase
     .from("time_entries")

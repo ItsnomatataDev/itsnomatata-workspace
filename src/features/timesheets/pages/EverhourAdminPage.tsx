@@ -1311,7 +1311,7 @@ export default function EverhourAdminPage() {
                           {mapping.source_user_name || mapping.source_user_email || mapping.source_user_id}
                         </p>
                         <p className="truncate text-[10px] text-white/35">
-                          Codex source: {mapping.source_user_id}
+                          {mapping.source === "everhour" ? "Everhour" : "Codex"} source: {mapping.source_user_id}
                         </p>
                       </div>
                       <select

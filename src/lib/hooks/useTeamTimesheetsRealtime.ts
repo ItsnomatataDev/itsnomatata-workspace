@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "../supabase/client";
 import type { AdminTimeEntryRow } from "../supabase/queries/adminTime";
 import { getAdminTimeEntries } from "../supabase/queries/adminTime";
+import { stopExpiredRunningTimersForOrganization } from "../supabase/mutations/timeEntries";
 
 interface UseTeamTimesheetsRealtimeProps {
     organizationId: string;
@@ -42,6 +43,7 @@ export function useTeamTimesheetsRealtime(
             setLoading(true);
         }
         try {
+            await stopExpiredRunningTimersForOrganization(organizationId).catch(() => 0);
             const rows = await getAdminTimeEntries({
                 organizationId,
                 approvalStatus: "all",

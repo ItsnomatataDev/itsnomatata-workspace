@@ -332,22 +332,46 @@ function normalizeInvoice(record: JsonRecord): NormalizedEverhourInvoice | null 
 }
 
 function collectEverhourUsers(input: unknown): NormalizedEverhourUser[] {
-  return asArray(input)
-    .map(asRecord)
-    .filter((record): record is JsonRecord => Boolean(record))
-    .map((record) => {
-      const externalId = getString(record, ["id"]);
-      if (!externalId) return null;
-      return {
-        externalId,
-        email: getString(record, ["email"]),
-        name: getString(record, ["name", "fullName", "full_name"]),
+  const users = new Map<string, NormalizedEverhourUser>();
+
+  for (const record of asArray(input).map(asRecord).filter(Boolean) as JsonRecord[]) {
+    const externalId = getString(record, ["id"]);
+    const email = getString(record, ["email"]);
+    const name = getString(record, ["name", "fullName", "full_name"]);
+    const looksLikeUser =
+      Boolean(externalId && (email || name)) &&
+      !asRecord(record.task) &&
+      !getNumber(record, ["time", "duration_seconds", "durationSeconds", "seconds"]);
+
+    if (looksLikeUser) {
+      users.set(externalId!, {
+        externalId: externalId!,
+        email,
+        name,
         role: getString(record, ["role"]),
         status: getString(record, ["status"]),
         raw: record,
-      };
-    })
-    .filter((user): user is NormalizedEverhourUser => Boolean(user));
+      });
+    }
+
+    const task = asRecord(record.task);
+    const assignees = Array.isArray(task?.assignees) ? task.assignees : [];
+    for (const assignee of assignees) {
+      const assigneeRecord = asRecord(assignee);
+      const userId = getString(assigneeRecord, ["userId", "id"]);
+      if (!userId || users.has(userId)) continue;
+      users.set(userId, {
+        externalId: userId,
+        email: getString(assigneeRecord, ["email"]),
+        name: getString(assigneeRecord, ["accountName", "name", "fullName", "full_name"]),
+        role: null,
+        status: null,
+        raw: assigneeRecord ?? {},
+      });
+    }
+  }
+
+  return Array.from(users.values());
 }
 
 function collectEverhourProjects(input: unknown): NormalizedEverhourProject[] {
@@ -385,6 +409,13 @@ function normalizeEntry(record: JsonRecord): NormalizedEverhourEntry | null {
   const task = asRecord(record.task);
   const project = asRecord(record.project);
   const client = asRecord(record.client);
+  const rawUserExternalId =
+    getString(user, ["id", "externalId"]) ??
+    getString(record, ["user", "userId", "memberId"]);
+  const taskAssignees = Array.isArray(task?.assignees) ? task.assignees : [];
+  const matchingAssignee = taskAssignees
+    .map(asRecord)
+    .find((assignee) => getString(assignee, ["userId", "id"]) === rawUserExternalId) ?? null;
 
   const startedAt =
     parseDate(getString(record, ["started_at", "startedAt", "start", "from", "timeFrom"])) ??
@@ -415,10 +446,9 @@ function normalizeEntry(record: JsonRecord): NormalizedEverhourEntry | null {
     userEmail: getString(user, ["email"]) ?? getString(record, ["email", "userEmail", "memberEmail"]),
     userName:
       getString(user, ["name", "fullName", "full_name"]) ??
+      getString(matchingAssignee, ["accountName", "name", "fullName", "full_name"]) ??
       getString(record, ["userName", "memberName", "employeeName"]),
-    userExternalId:
-      getString(user, ["id", "externalId"]) ??
-      getString(record, ["user", "userId", "memberId"]),
+    userExternalId: rawUserExternalId,
     projectExternalId:
       getString(project, ["id", "externalId", "shortLink"]) ??
       extractTrelloIdFromValue(getString(record, ["projectId", "projectExternalId", "boardId", "boardExternalId", "boardUrl", "projectUrl"])) ??
@@ -851,6 +881,27 @@ async function syncImportedTaskTimeCache(params: {
     .eq("id", params.taskId);
 }
 
+async function assignImportedTimeUserToTask(params: {
+  organizationId: string;
+  taskId: string | null;
+  userId: string | null;
+}) {
+  if (!params.taskId || !params.userId) return;
+
+  const { error } = await supabase.from("task_assignees").upsert(
+    {
+      organization_id: params.organizationId,
+      task_id: params.taskId,
+      user_id: params.userId,
+    },
+    { onConflict: "organization_id,task_id,user_id" },
+  );
+
+  if (error) {
+    console.warn("IMPORTED TIME ASSIGNEE UPSERT SKIPPED:", error.message);
+  }
+}
+
 async function resolveMappedTrelloBoard(params: {
   organizationId: string;
   externalId: string | null;
@@ -1245,6 +1296,7 @@ export async function importEverhourJson(params: {
     taskMap,
   });
   const everhourUserMappings = await getEverhourUserMappings(params.organizationId);
+  const unmatchedUserKeys = new Set<string>();
 
   for (const entry of candidates) {
     const externalUserMapping = entry.userExternalId
@@ -1253,17 +1305,44 @@ export async function importEverhourJson(params: {
     const userId =
       usersByEmail.get(normalizeKey(entry.userEmail)) ??
       usersByName.get(normalizeKey(entry.userName)) ??
-      externalUserMapping?.user_id;
+      externalUserMapping?.user_id ??
+      null;
 
     if (!userId) {
-      result.skipped += 1;
-      result.unmatchedUsers.push({
-        name: entry.userName ?? externalUserMapping?.source_user_name ?? null,
-        email: entry.userEmail ?? externalUserMapping?.source_user_email ?? null,
-        externalId: entry.userExternalId,
-        reason: "No matching profile by Everhour user id, email, or full name.",
-      });
-      continue;
+      const unmatchedKey =
+        entry.userExternalId ??
+        entry.userEmail ??
+        entry.userName ??
+        `entry:${entry.externalId ?? result.unmatchedUsers.length}`;
+      if (!unmatchedUserKeys.has(unmatchedKey)) {
+        unmatchedUserKeys.add(unmatchedKey);
+        result.unmatchedUsers.push({
+          name: entry.userName ?? externalUserMapping?.source_user_name ?? null,
+          email: entry.userEmail ?? externalUserMapping?.source_user_email ?? null,
+          externalId: entry.userExternalId,
+          reason: "Imported as unmatched external Everhour user. Map this user to an employee profile when ready.",
+        });
+      }
+
+      if (entry.userExternalId) {
+        await supabase.from("external_time_user_mappings").upsert(
+          {
+            organization_id: params.organizationId,
+            source: "everhour",
+            source_user_id: entry.userExternalId,
+            source_user_name: entry.userName ?? externalUserMapping?.source_user_name ?? null,
+            source_user_email: entry.userEmail ?? externalUserMapping?.source_user_email ?? null,
+            user_id: null,
+            created_by: params.importedBy,
+            metadata: {
+              imported_from: "everhour_time_json",
+              raw_user_id: entry.userExternalId,
+            },
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "organization_id,source,source_user_id" },
+        );
+      }
     }
 
     try {
@@ -1321,7 +1400,7 @@ export async function importEverhourJson(params: {
         "everhour",
         entry.externalId,
         taskId,
-        userId,
+        userId ?? entry.userExternalId,
         entry.startedAt,
         entry.endedAt,
         entry.durationSeconds,
@@ -1384,6 +1463,11 @@ export async function importEverhourJson(params: {
 
       if (error) throw new Error(error.message);
       result.imported += 1;
+      await assignImportedTimeUserToTask({
+        organizationId: params.organizationId,
+        taskId,
+        userId,
+      });
       await syncImportedTaskTimeCache({
         organizationId: params.organizationId,
         taskId,
@@ -2208,6 +2292,7 @@ export async function importTrelloBoardJson(params: {
 
 export type ExternalTimeUserMapping = {
   id: string;
+  source: string;
   source_user_id: string;
   source_user_name: string | null;
   source_user_email: string | null;
@@ -2217,9 +2302,9 @@ export type ExternalTimeUserMapping = {
 export async function getUnmatchedExternalTimeUsers(organizationId: string) {
   const { data, error } = await supabase
     .from("external_time_user_mappings")
-    .select("id, source_user_id, source_user_name, source_user_email, user_id")
+    .select("id, source, source_user_id, source_user_name, source_user_email, user_id")
     .eq("organization_id", organizationId)
-    .eq("source", "trello")
+    .in("source", ["trello", "everhour"])
     .is("user_id", null)
     .order("created_at", { ascending: false });
 
@@ -2246,15 +2331,45 @@ export async function mapExternalTimeUser(params: {
 
   if (mappingError) throw new Error(mappingError.message);
 
+  const { data: mapping } = await supabase
+    .from("external_time_user_mappings")
+    .select("source")
+    .eq("organization_id", params.organizationId)
+    .eq("id", params.mappingId)
+    .maybeSingle();
+  const source = (mapping?.source as string | null) ?? "trello";
+  const entrySource = source === "everhour" ? "everhour_import" : "trello_import";
+
   const { error: entriesError } = await supabase
     .from("time_entries")
     .update({
       user_id: params.userId,
     })
     .eq("organization_id", params.organizationId)
-    .eq("source", "trello_import")
+    .eq("source", entrySource)
     .eq("source_user_id", params.sourceUserId)
     .is("user_id", null);
 
   if (entriesError) throw new Error(entriesError.message);
+
+  const { data: mappedEntries, error: mappedEntriesError } = await supabase
+    .from("time_entries")
+    .select("task_id")
+    .eq("organization_id", params.organizationId)
+    .eq("source", entrySource)
+    .eq("source_user_id", params.sourceUserId)
+    .eq("user_id", params.userId);
+
+  if (mappedEntriesError) throw new Error(mappedEntriesError.message);
+
+  const taskIds = [
+    ...new Set((mappedEntries ?? []).map((entry) => entry.task_id).filter(Boolean)),
+  ] as string[];
+  for (const taskId of taskIds) {
+    await assignImportedTimeUserToTask({
+      organizationId: params.organizationId,
+      taskId,
+      userId: params.userId,
+    });
+  }
 }

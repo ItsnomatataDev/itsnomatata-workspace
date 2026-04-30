@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "../supabase/client";
+import {
+  clampToZimbabweCutoff,
+  isAtOrAfterZimbabweCutoff,
+} from "../utils/zimbabweCalendar";
 
 type DashboardStats = {
   openTasks: number;
@@ -429,6 +433,10 @@ export function useDashboard(params: {
           throw new Error("A timer is already running.");
         }
 
+        if (isAtOrAfterZimbabweCutoff()) {
+          throw new Error("Timers stop at 7:00 PM Harare time. Add manual time for today if needed.");
+        }
+
         const { error } = await supabase.from("time_entries").insert({
           organization_id: organizationId,
           user_id: userId,
@@ -456,7 +464,7 @@ export function useDashboard(params: {
     try {
       setBusy(true);
 
-      const endedAt = new Date().toISOString();
+      const endedAt = clampToZimbabweCutoff(activeTimer.started_at);
       const durationSeconds = diffInSeconds(activeTimer.started_at, endedAt);
 
       const { error } = await supabase

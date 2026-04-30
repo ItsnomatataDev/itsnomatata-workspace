@@ -50,6 +50,32 @@ export function makeZimbabweLocalIso(dateKey: string, time = "09:00:00") {
   return new Date(`${dateKey}T${time}+02:00`).toISOString();
 }
 
+export function getZimbabweCutoffIso(
+  value: Date | string | number,
+  time = "19:00:00",
+) {
+  return makeZimbabweLocalIso(getZimbabweDateKey(value), time);
+}
+
+export function isAtOrAfterZimbabweCutoff(
+  value: Date | string | number = new Date(),
+  time = "19:00:00",
+) {
+  const cutoff = getZimbabweCutoffIso(value, time);
+  return new Date(value).getTime() >= new Date(cutoff).getTime();
+}
+
+export function clampToZimbabweCutoff(
+  startedAt: Date | string | number,
+  endedAt: Date | string | number = new Date(),
+  time = "19:00:00",
+) {
+  const cutoff = getZimbabweCutoffIso(startedAt, time);
+  return new Date(endedAt).getTime() > new Date(cutoff).getTime()
+    ? cutoff
+    : new Date(endedAt).toISOString();
+}
+
 export function getZimbabweMonthRangeIso(value: Date | string | number = new Date()) {
   const dateKey = getZimbabweDateKey(value);
   const [yearText, monthText] = dateKey.split("-");

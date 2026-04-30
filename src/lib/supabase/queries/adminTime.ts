@@ -180,7 +180,7 @@ export async function getAdminTimeEntries(params: {
 
   let { data, error } = await buildAdminTimeEntriesQuery({
     ...queryParams,
-    select: ADMIN_TIME_ENTRY_LEGACY_SELECT,
+    select: ADMIN_TIME_ENTRY_SELECT,
   });
 
   if (error && missingColumnError(error)) {
@@ -426,7 +426,7 @@ async function getCalendarTimeEntriesFallback(params: {
   };
 
   let { data, error } = await buildCalendarFallbackQuery(
-    "id, organization_id, user_id, project_id, description, started_at, duration_seconds, is_billable, approval_status, source, metadata",
+    "id, organization_id, user_id, project_id, client_id, task_id, description, started_at, duration_seconds, is_billable, approval_status, source, entry_type, source_user_id, source_user_name, metadata",
   );
 
   if (error && missingColumnError(error)) {
@@ -444,6 +444,8 @@ async function getCalendarTimeEntriesFallback(params: {
     organization_id: string;
     user_id: string | null;
     project_id: string | null;
+    client_id?: string | null;
+    task_id?: string | null;
     description: string | null;
     started_at: string;
     duration_seconds: number;
@@ -507,6 +509,10 @@ async function getCalendarTimeEntriesFallback(params: {
       is_billable: item.is_billable,
       description: item.description ?? null,
       entry_count: 1,
+      source: item.source,
+      entry_type: item.entry_type,
+      task_id: item.task_id ?? null,
+      client_id: item.client_id ?? null,
     };
 
     const existing = grouped.get(key);
@@ -529,7 +535,7 @@ async function getCalendarTimeEntriesFallback(params: {
         user_id: userKey,
         user_name: item.user_id
           ? profileMap.get(item.user_id)?.full_name ?? null
-          : externalUserName ?? "Unmatched Trello user",
+          : externalUserName ?? "Unmatched Codex user",
         user_email: item.user_id ? profileMap.get(item.user_id)?.email ?? null : null,
         entry_date: entryDate,
         total_seconds: Number(item.duration_seconds ?? 0),
@@ -557,5 +563,9 @@ export type CalendarTimeEntry = {
     is_billable: boolean;
     description: string | null;
     entry_count: number;
+    source?: string | null;
+    entry_type?: string | null;
+    task_id?: string | null;
+    client_id?: string | null;
   }>;
 };

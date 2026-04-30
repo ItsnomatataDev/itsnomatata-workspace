@@ -35,7 +35,11 @@ import type { TaskItem, TaskStatus } from "../../../lib/supabase/queries/tasks";
 import type { Board, BoardStats, Card, List } from "../../../types/board";
 import { useTimeEntries } from "../../../lib/hooks/useTimeEntries";
 import { supabase } from "../../../lib/supabase/client";
-import { makeZimbabweLocalIso } from "../../../lib/utils/zimbabweCalendar";
+import {
+  clampToZimbabweCutoff,
+  isAtOrAfterZimbabweCutoff,
+  makeZimbabweLocalIso,
+} from "../../../lib/utils/zimbabweCalendar";
 
 
 type Task = Card;
@@ -868,6 +872,10 @@ export default function BoardViewPage() {
     try {
       setTimerBusy(true);
 
+      if (isAtOrAfterZimbabweCutoff()) {
+        throw new Error("Timers stop at 7:00 PM Harare time. Add manual time for today if needed.");
+      }
+
       // Check if there's already a running timer
       const { data: existingTimer } = await supabase
         .from("time_entries")
@@ -923,7 +931,7 @@ export default function BoardViewPage() {
     try {
       setTimerBusy(true);
 
-      const endedAt = new Date().toISOString();
+      const endedAt = clampToZimbabweCutoff(activeTimer.started_at);
       const startedAtMs = new Date(activeTimer.started_at).getTime();
       const endedAtMs = new Date(endedAt).getTime();
       const durationSeconds = Math.max(0, Math.floor((endedAtMs - startedAtMs) / 1000));
