@@ -149,7 +149,7 @@ export function useTimeEntries({
 
     try {
       const entry = await stopTimeEntry(activeEntry.id, {
-        userId: activeEntry.user_id,
+        userId: activeEntry.user_id ?? undefined,
         organizationId: activeEntry.organization_id,
       });
 

@@ -329,7 +329,7 @@ function BoardRow({
       </div>
 
       {/* Member avatars */}
-      <div className="flex items-center gap-1.5">
+      <div className="flex min-w-0 items-center gap-1.5">
         <div className="flex -space-x-1.5">
           {displayedMembers.map((m) => (
             <div
@@ -347,7 +347,15 @@ function BoardRow({
           )}
         </div>
         {memberAvatars.length > 0 && (
-          <span className="text-xs text-white/30">{memberAvatars.length}</span>
+          <div className="min-w-0">
+            <span className="block text-xs text-white/45">{memberAvatars.length}</span>
+            <span className="block max-w-24 truncate text-[10px] text-white/25">
+              {memberAvatars
+                .slice(0, 2)
+                .map((member) => member.name || member.email || "Member")
+                .join(", ")}
+            </span>
+          </div>
         )}
       </div>
 
@@ -953,7 +961,23 @@ export default function EverhourAdminPage() {
         tracked: 0,
         billable: 0,
       };
-      const memberAvatars = membersByBoard[board.id] ?? [];
+      const memberAvatars = [...(membersByBoard[board.id] ?? [])];
+      const seenMembers = new Set(memberAvatars.map((member) => member.id));
+      for (const entry of entries) {
+        const entryBoardId = (entry.client_id ?? null) ||
+          (entry.board_name && entry.board_name.toLowerCase() === board.name.toLowerCase()
+            ? board.id
+            : null);
+        if (entryBoardId !== board.id) continue;
+        const memberId = entry.user_id || entry.source_user_id || entry.source_user_name;
+        if (!memberId || seenMembers.has(memberId)) continue;
+        seenMembers.add(memberId);
+        memberAvatars.push({
+          id: memberId,
+          name: entry.user_name || entry.source_user_name || null,
+          email: entry.user_email || entry.source_user_email || null,
+        });
+      }
 
       const defaultBilling: BoardBillingConfig = {
         boardId: board.id,
@@ -971,7 +995,7 @@ export default function EverhourAdminPage() {
         billing: billingConfig[board.id] ?? defaultBilling,
       };
     });
-  }, [boards, timeTotalsByBoard, membersByBoard, billingConfig]);
+  }, [boards, timeTotalsByBoard, membersByBoard, billingConfig, entries]);
 
   const groups = useMemo((): GroupedBoards[] => {
     const q = searchValue.trim().toLowerCase();
@@ -1279,9 +1303,16 @@ export default function EverhourAdminPage() {
                       {importResult.usersMapped} users mapped ·{" "}
                       {importResult.projectsMapped} projects mapped ·{" "}
                       {importResult.estimatesUpdated} estimates updated ·{" "}
-                      {importResult.invoicesImported} invoices imported.
+                      {importResult.invoicesImported} invoices imported ·{" "}
+                      {formatHours(importResult.totalSeconds)} restored.
                       {importResult.unmatchedUsers.length > 0
                         ? ` ${importResult.unmatchedUsers.length} records need matching profiles by email or full name.`
+                        : ""}
+                      {importResult.unmatchedTasks > 0
+                        ? ` ${importResult.unmatchedTasks} rows imported without a matched card.`
+                        : ""}
+                      {importResult.unmatchedProjects > 0
+                        ? ` ${importResult.unmatchedProjects} rows imported without a matched board.`
                         : ""}
                     </p>
                     {importResult.errors.length > 0 && (

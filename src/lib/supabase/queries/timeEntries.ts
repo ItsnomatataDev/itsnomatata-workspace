@@ -13,13 +13,16 @@ export interface TimeEntryRow {
     ended_at: string | null;
     duration_seconds: number | null;
     source: string | null;
-    entry_type?: "timer" | "manual";
+    entry_type?: "timer" | "manual" | "imported";
     is_billable: boolean;
     hourly_rate_id: string | null;
     cost_amount: number | null;
     metadata: Record<string, unknown> | null;
     created_at: string;
     updated_at: string;
+    deleted_at?: string | null;
+    deleted_by?: string | null;
+    delete_reason?: string | null;
 }
 
 export interface GetTimeEntriesParams {
@@ -58,7 +61,8 @@ export async function getTimeEntries(
     let query = supabase
         .from("time_entries")
         .select("*")
-        .eq("organization_id", organizationId);
+        .eq("organization_id", organizationId)
+        .is("deleted_at", null);
 
     if (userId) query = query.eq("user_id", userId);
     if (projectId) query = query.eq("project_id", projectId);

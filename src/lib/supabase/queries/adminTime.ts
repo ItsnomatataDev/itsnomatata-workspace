@@ -23,8 +23,11 @@ export type AdminTimeEntryRow = {
   source_entry_id?: string | null;
   source_card_id?: string | null;
   source_board_id?: string | null;
+  source_task_id?: string | null;
+  source_project_id?: string | null;
   source_user_id?: string | null;
   source_user_name?: string | null;
+  source_user_email?: string | null;
   metadata?: Record<string, unknown> | null;
   approval_status: string;
   approved_by: string | null;
@@ -32,6 +35,9 @@ export type AdminTimeEntryRow = {
   locked_at: string | null;
   hourly_rate_snapshot: number | null;
   cost_amount: number | null;
+  deleted_at?: string | null;
+  deleted_by?: string | null;
+  delete_reason?: string | null;
   created_at: string;
   updated_at: string;
   email?: string | null;
@@ -64,8 +70,11 @@ const ADMIN_TIME_ENTRY_SELECT = `
   source_entry_id,
   source_card_id,
   source_board_id,
+  source_task_id,
+  source_project_id,
   source_user_id,
   source_user_name,
+  source_user_email,
   metadata,
   approval_status,
   approved_by,
@@ -73,6 +82,9 @@ const ADMIN_TIME_ENTRY_SELECT = `
   locked_at,
   hourly_rate_snapshot,
   cost_amount,
+  deleted_at,
+  deleted_by,
+  delete_reason,
   created_at,
   updated_at
 `;
@@ -124,6 +136,7 @@ function buildAdminTimeEntriesQuery(params: {
     .from("time_entries")
     .select(params.select)
     .eq("organization_id", params.organizationId)
+    .is("deleted_at", null)
     .order("started_at", { ascending: false })
     .limit(params.limit);
 
@@ -287,6 +300,7 @@ export async function getAdminTimeEntries(params: {
       ? profileMap.get(item.user_id)?.full_name ?? null
       : item.source_user_name ?? null,
     user_email: item.user_id ? profileMap.get(item.user_id)?.email ?? null : null,
+    source_user_email: item.source_user_email ?? null,
     task_title: item.task_id ? taskMap.get(item.task_id)?.title ?? null : null,
     project_name:
       (item.project_id
@@ -328,7 +342,8 @@ export async function getAdminTimeSummary(params: {
     .select(
       "duration_seconds, approval_status, is_billable, cost_amount, is_running, ended_at",
     )
-    .eq("organization_id", organizationId);
+    .eq("organization_id", organizationId)
+    .is("deleted_at", null);
 
   if (from) query = query.gte("started_at", from);
   if (to) query = query.lte("started_at", to);
@@ -416,6 +431,7 @@ async function getCalendarTimeEntriesFallback(params: {
       .select(select)
       .eq("organization_id", organizationId)
       .in("approval_status", ["pending", "approved"])
+      .is("deleted_at", null)
       .order("started_at", { ascending: false });
 
     if (from) nextQuery = nextQuery.gte("started_at", from);

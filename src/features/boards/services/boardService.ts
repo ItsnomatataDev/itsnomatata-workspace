@@ -426,6 +426,18 @@ function getFallbackLists(boardId: string): List[] {
   ];
 }
 
+function normalizeBoardListName(name: string | null | undefined) {
+  return (name ?? "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function toBoardList(column: Record<string, unknown>, boardId: string): List {
+  return {
+    ...column,
+    boardId,
+    taskCount: 0,
+  } as List;
+}
+
 export async function getLists(boardId: string): Promise<List[]> {
   const { data, error } = await supabase
     .from("task_board_columns")
@@ -436,11 +448,36 @@ export async function getLists(boardId: string): Promise<List[]> {
   if (error) throw error;
 
   if (data && data.length > 0) {
-    return data.map((column) => ({
-      ...column,
-      boardId,
-      taskCount: 0,
-    })) as List[];
+    const existing = data.map((column) => toBoardList(column, boardId));
+    const usedColumnIds = new Set<string>();
+    const defaultLists = getFallbackLists(boardId);
+
+    const workflowLists = defaultLists.map((fallback) => {
+      const exactMatch = existing.find(
+        (column) =>
+          normalizeBoardListName(column.name) ===
+          normalizeBoardListName(fallback.name),
+      );
+      if (exactMatch?.id) {
+        usedColumnIds.add(exactMatch.id);
+        return {
+          ...exactMatch,
+          name: fallback.name,
+          position: fallback.position,
+        };
+      }
+      return fallback;
+    });
+
+    const importedLists = existing
+      .filter((column) => !usedColumnIds.has(column.id))
+      .sort((a, b) => Number(a.position ?? 0) - Number(b.position ?? 0))
+      .map((column, index) => ({
+        ...column,
+        position: defaultLists.length + index,
+      }));
+
+    return [...workflowLists, ...importedLists] as List[];
   }
 
   return getFallbackLists(boardId);

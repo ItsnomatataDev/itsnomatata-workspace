@@ -10,12 +10,15 @@ export type EverhourImportResult = {
   imported: number;
   duplicates: number;
   skipped: number;
+  totalSeconds: number;
   boardsCreated: number;
   tasksCreated: number;
   usersMapped: number;
   projectsMapped: number;
   estimatesUpdated: number;
   invoicesImported: number;
+  unmatchedTasks: number;
+  unmatchedProjects: number;
   unmatchedUsers: Array<{
     name: string | null;
     email: string | null;
@@ -24,6 +27,8 @@ export type EverhourImportResult = {
   }>;
   errors: string[];
 };
+
+const EVERHOUR_TIME_SOURCE = "everhour_import";
 
 export type TrelloBoardImportResult = {
   boardName: string;
@@ -190,6 +195,13 @@ function extractTrelloIdFromValue(value: string | null | undefined) {
   if (boardUrl?.[1]) return boardUrl[1];
 
   return stripped;
+}
+
+function trelloObjectIdCreatedAt(value: string | null | undefined) {
+  if (!value || !/^[a-fA-F0-9]{24}$/.test(value)) return null;
+  const seconds = Number.parseInt(value.slice(0, 8), 16);
+  if (!Number.isFinite(seconds) || seconds <= 0) return null;
+  return new Date(seconds * 1000).toISOString();
 }
 
 function parseDurationSeconds(value: unknown): number | null {
@@ -510,10 +522,21 @@ function statusFromTrelloListName(name: string | null | undefined) {
   if (normalized.includes("review") || normalized.includes("approval")) {
     return "review";
   }
-  if (normalized.includes("progress") || normalized.includes("doing")) {
+  if (normalized.includes("todo")) {
+    return "todo";
+  }
+  if (
+    normalized.includes("progress") ||
+    normalized.includes("doing") ||
+    normalized.includes("active")
+  ) {
     return "in_progress";
   }
-  if (normalized.includes("backlog")) return "backlog";
+  if (
+    normalized.includes("backlog") ||
+    normalized.includes("ideas") ||
+    normalized.includes("pending")
+  ) return "backlog";
   return "todo";
 }
 
@@ -523,10 +546,10 @@ function normalizeColumnMatchKey(name: string | null | undefined) {
 
 function defaultStatusForTrelloListName(name: string | null | undefined) {
   const normalized = normalizeColumnMatchKey(name);
-  if (["todo", "to-do", "to_do"].includes(normalized) || normalized === "todo") return "todo";
+  if (normalized.includes("todo")) return "todo";
   if (["done", "complete", "completed"].includes(normalized)) return "done";
-  if (["doing", "inprogress", "progress"].includes(normalized)) return "in_progress";
-  if (["backlog", "ideas"].includes(normalized)) return "backlog";
+  if (["doing", "inprogress", "progress", "active"].includes(normalized)) return "in_progress";
+  if (["backlog", "ideas", "pending"].includes(normalized)) return "backlog";
   return null;
 }
 
@@ -902,6 +925,160 @@ async function assignImportedTimeUserToTask(params: {
   }
 }
 
+async function reconcileImportedTimeAssignments(params: {
+  organizationId: string;
+}) {
+  const [{ data: profiles }, { data: mappings }] = await Promise.all([
+    supabase
+      .from("profiles")
+      .select("id, full_name, email")
+      .eq("organization_id", params.organizationId),
+    supabase
+      .from("external_time_user_mappings")
+      .select("source, source_user_id, source_user_name, source_user_email, user_id")
+      .eq("organization_id", params.organizationId)
+      .in("source", ["everhour", "trello"]),
+  ]);
+
+  let entriesResult: Awaited<ReturnType<typeof supabase.from>> | any = await supabase
+    .from("time_entries")
+    .select("id, task_id, user_id, source, source_user_id, source_user_name, source_user_email")
+    .eq("organization_id", params.organizationId)
+    .in("source", [EVERHOUR_TIME_SOURCE, "everhour_import", "trello_import"])
+    .not("task_id", "is", null);
+
+  if (
+    entriesResult.error &&
+    (
+      entriesResult.error.message.includes("source_user_email") ||
+      entriesResult.error.message.includes("schema cache")
+    )
+  ) {
+    entriesResult = await supabase
+      .from("time_entries")
+      .select("id, task_id, user_id, source, source_user_id, source_user_name, metadata")
+      .eq("organization_id", params.organizationId)
+      .in("source", [EVERHOUR_TIME_SOURCE, "everhour_import", "trello_import"])
+      .not("task_id", "is", null);
+  }
+
+  if (entriesResult.error) {
+    console.warn("IMPORTED TIME ASSIGNMENT RECONCILE SKIPPED:", entriesResult.error.message);
+    return 0;
+  }
+
+  const profileByEmail = new Map(
+    (profiles ?? [])
+      .filter((profile) => profile.email)
+      .map((profile) => [normalizeKey(profile.email), profile.id as string]),
+  );
+  const profileByName = new Map(
+    (profiles ?? [])
+      .filter((profile) => profile.full_name)
+      .map((profile) => [normalizeKey(profile.full_name), profile.id as string]),
+  );
+  const mappingBySourceUser = new Map(
+    (mappings ?? []).map((mapping) => [
+      `${mapping.source}:${mapping.source_user_id}`,
+      mapping as {
+        source: string;
+        source_user_id: string;
+        source_user_name: string | null;
+        source_user_email: string | null;
+        user_id: string | null;
+      },
+    ]),
+  );
+
+  let assigned = 0;
+  for (const entry of entriesResult.data ?? []) {
+    const source = entry.source === "everhour_import" ? "everhour" : entry.source;
+    const mapping = entry.source_user_id
+      ? mappingBySourceUser.get(`${source}:${entry.source_user_id}`) ?? null
+      : null;
+    const metadata = asRecord((entry as { metadata?: unknown }).metadata);
+    const metadataEmail = getString(metadata, ["source_user_email", "userEmail", "email"]);
+    const userId =
+      (entry.user_id as string | null) ??
+      mapping?.user_id ??
+      profileByEmail.get(normalizeKey((entry as { source_user_email?: string | null }).source_user_email ?? metadataEmail ?? mapping?.source_user_email)) ??
+      profileByName.get(normalizeKey(entry.source_user_name ?? mapping?.source_user_name)) ??
+      null;
+
+    if (!userId || !entry.task_id) continue;
+
+    if (!entry.user_id) {
+      await supabase
+        .from("time_entries")
+        .update({ user_id: userId })
+        .eq("organization_id", params.organizationId)
+        .eq("id", entry.id);
+    }
+
+    await assignImportedTimeUserToTask({
+      organizationId: params.organizationId,
+      taskId: entry.task_id as string,
+      userId,
+    });
+    assigned += 1;
+  }
+
+  return assigned;
+}
+
+async function assignEverhourRawAssigneesToTask(params: {
+  organizationId: string;
+  taskId: string | null;
+  raw: JsonRecord;
+  everhourUserMappings: Map<string, {
+    user_id: string | null;
+    source_user_name: string | null;
+    source_user_email: string | null;
+  }>;
+}) {
+  if (!params.taskId) return;
+  const task = asRecord(params.raw.task);
+  const assignees = Array.isArray(task?.assignees) ? task.assignees : [];
+  for (const assignee of assignees) {
+    const assigneeRecord = asRecord(assignee);
+    const everhourUserId = getString(assigneeRecord, ["userId", "id"]);
+    const userId = everhourUserId
+      ? params.everhourUserMappings.get(everhourUserId)?.user_id ?? null
+      : null;
+    await assignImportedTimeUserToTask({
+      organizationId: params.organizationId,
+      taskId: params.taskId,
+      userId,
+    });
+  }
+}
+
+async function insertEverhourTimeEntry(payload: Record<string, unknown>) {
+  const insert = async (nextPayload: Record<string, unknown>) => {
+    return supabase.from("time_entries").insert(nextPayload);
+  };
+
+  let { error } = await insert(payload);
+  if (!error) return;
+
+  const message = error.message ?? "";
+  const missingNewSourceColumn =
+    message.includes("source_project_id") ||
+    message.includes("source_task_id") ||
+    message.includes("source_user_email") ||
+    message.includes("schema cache");
+
+  if (!missingNewSourceColumn) throw new Error(message);
+
+  const fallbackPayload = { ...payload };
+  delete fallbackPayload.source_project_id;
+  delete fallbackPayload.source_task_id;
+  delete fallbackPayload.source_user_email;
+
+  const fallback = await insert(fallbackPayload);
+  if (fallback.error) throw new Error(fallback.error.message);
+}
+
 async function resolveMappedTrelloBoard(params: {
   organizationId: string;
   externalId: string | null;
@@ -921,6 +1098,24 @@ async function resolveMappedTrelloBoard(params: {
       source: "trello",
       externalType: "board",
       externalId: trelloId,
+    }) ??
+    await getMapping({
+      organizationId: params.organizationId,
+      source: "trello",
+      externalType: "board",
+      externalId: params.externalId,
+    }) ??
+    await getMapping({
+      organizationId: params.organizationId,
+      source: "everhour",
+      externalType: "project",
+      externalId: trelloId,
+    }) ??
+    await getMapping({
+      organizationId: params.organizationId,
+      source: "everhour",
+      externalType: "project",
+      externalId: params.externalId,
     });
 
   return mapped?.internal_id ?? null;
@@ -1117,6 +1312,24 @@ async function importEverhourUsers(params: {
       { onConflict: "organization_id,source,source_user_id" },
     );
 
+    await supabase.from("everhour_user_mappings").upsert(
+      {
+        organization_id: params.organizationId,
+        everhour_user_id: user.externalId,
+        everhour_user_name: user.name,
+        everhour_user_email: user.email,
+        profile_id: userId,
+        created_by: params.importedBy,
+        metadata: {
+          role: user.role,
+          status: user.status,
+          raw: user.raw,
+        },
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "organization_id,everhour_user_id" },
+    );
+
     if (!error && userId) mapped += 1;
   }
 
@@ -1158,11 +1371,47 @@ async function importEverhourProjects(params: {
 
   let mapped = 0;
   for (const project of projects) {
-    const boardId = resolveExactBoardByName({
-      name: project.name,
-      boardMap: params.boardMap,
-    });
+    const normalizedProjectName = normalizeColumnMatchKey(project.name);
+    const boardId =
+      resolveExactBoardByName({
+        name: project.name,
+        boardMap: params.boardMap,
+      }) ??
+      Array.from(params.boardMap.values()).find(
+        (board) => normalizeColumnMatchKey(board.name) === normalizedProjectName,
+      )?.id ??
+      null;
     if (!boardId) continue;
+
+    await upsertMapping({
+      organizationId: params.organizationId,
+      source: "everhour",
+      externalType: "project",
+      externalId: stripTrelloPrefix(project.externalId),
+      internalTable: "clients",
+      internalId: boardId,
+      metadata: {
+        mapped_from: "everhour_projects_json",
+        status: project.status,
+        budget_seconds: project.budgetSeconds,
+        raw: project.raw,
+      },
+    });
+
+    await upsertMapping({
+      organizationId: params.organizationId,
+      source: "everhour",
+      externalType: "project",
+      externalId: project.externalId,
+      internalTable: "clients",
+      internalId: boardId,
+      metadata: {
+        mapped_from: "everhour_projects_json",
+        status: project.status,
+        budget_seconds: project.budgetSeconds,
+        raw: project.raw,
+      },
+    });
 
     await upsertMapping({
       organizationId: params.organizationId,
@@ -1239,12 +1488,15 @@ export async function importEverhourJson(params: {
     imported: 0,
     duplicates: 0,
     skipped: 0,
+    totalSeconds: 0,
     boardsCreated: 0,
     tasksCreated: 0,
     usersMapped: 0,
     projectsMapped: 0,
     estimatesUpdated: 0,
     invoicesImported: 0,
+    unmatchedTasks: 0,
+    unmatchedProjects: 0,
     unmatchedUsers: [],
     errors: [],
   };
@@ -1283,6 +1535,10 @@ export async function importEverhourJson(params: {
     organizationId: params.organizationId,
     importedBy: params.importedBy,
     json: params.json,
+    profiles: (profiles ?? []) as Array<{ id: string; full_name: string | null; email: string | null }>,
+  });
+  result.usersMapped += await autoMapExternalTimeUsers({
+    organizationId: params.organizationId,
     profiles: (profiles ?? []) as Array<{ id: string; full_name: string | null; email: string | null }>,
   });
   result.projectsMapped = await importEverhourProjects({
@@ -1342,6 +1598,22 @@ export async function importEverhourJson(params: {
           },
           { onConflict: "organization_id,source,source_user_id" },
         );
+        await supabase.from("everhour_user_mappings").upsert(
+          {
+            organization_id: params.organizationId,
+            everhour_user_id: entry.userExternalId,
+            everhour_user_name: entry.userName ?? externalUserMapping?.source_user_name ?? null,
+            everhour_user_email: entry.userEmail ?? externalUserMapping?.source_user_email ?? null,
+            profile_id: null,
+            created_by: params.importedBy,
+            metadata: {
+              imported_from: "everhour_time_json",
+              raw_user_id: entry.userExternalId,
+            },
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "organization_id,everhour_user_id" },
+        );
       }
     }
 
@@ -1361,14 +1633,7 @@ export async function importEverhourJson(params: {
           name: entry.clientName ?? entry.projectName,
           boardMap,
         });
-
-      if (!mappedBoardId) {
-        result.skipped += 1;
-        result.errors.push(
-          `Skipped Everhour time for "${entry.taskName ?? "unknown task"}": no matching imported board/project.`,
-        );
-        continue;
-      }
+      if (!mappedBoardId) result.unmatchedProjects += 1;
 
       const taskId =
         mappedTask?.taskId ??
@@ -1377,14 +1642,7 @@ export async function importEverhourJson(params: {
           title: entry.taskName,
           taskMap,
         });
-
-      if (!taskId) {
-        result.skipped += 1;
-        result.errors.push(
-          `Skipped Everhour time for "${entry.taskName ?? "unknown task"}": no matching imported card/task on board.`,
-        );
-        continue;
-      }
+      if (!taskId) result.unmatchedTasks += 1;
 
       const estimateSeconds = parseEstimateSeconds(entry);
       if (estimateSeconds && estimateSeconds > 0) {
@@ -1405,13 +1663,23 @@ export async function importEverhourJson(params: {
         entry.endedAt,
         entry.durationSeconds,
       ]);
+      const sourceEntryId =
+        entry.externalId ??
+        deterministicHash([
+          entry.userExternalId,
+          entry.taskExternalId,
+          entry.projectExternalId,
+          entry.startedAt,
+          entry.raw.createdAt as string | undefined,
+          entry.durationSeconds,
+        ]);
 
       const duplicate = await supabase
         .from("time_entries")
         .select("id")
         .eq("organization_id", params.organizationId)
-        .eq("source", "everhour_import")
-        .eq("import_hash", importHash)
+        .in("source", [EVERHOUR_TIME_SOURCE, "everhour_import"])
+        .or(`import_hash.eq.${importHash},source_entry_id.eq.${sourceEntryId}`)
         .limit(1)
         .maybeSingle();
 
@@ -1425,7 +1693,7 @@ export async function importEverhourJson(params: {
         entry.costAmount ??
         (entry.hourlyRate ? Math.round(entry.hourlyRate * (entry.durationSeconds / 3600) * 100) / 100 : null);
 
-      const { error } = await supabase.from("time_entries").insert({
+      await insertEverhourTimeEntry({
         organization_id: params.organizationId,
         user_id: userId,
         client_id: mappedBoardId,
@@ -1439,13 +1707,16 @@ export async function importEverhourJson(params: {
         hourly_rate_snapshot: entry.hourlyRate,
         cost_amount: costAmount,
         approval_status: entry.approvalStatus,
-        source: "everhour_import",
+        source: EVERHOUR_TIME_SOURCE,
         entry_type: "imported",
-        source_entry_id: entry.externalId,
+        source_entry_id: sourceEntryId,
         source_card_id: entry.taskExternalId,
         source_board_id: entry.projectExternalId,
+        source_task_id: entry.taskExternalId,
+        source_project_id: entry.projectExternalId,
         source_user_id: entry.userExternalId,
         source_user_name: entry.userName,
+        source_user_email: entry.userEmail,
         import_hash: importHash,
         metadata: {
           imported_from: "everhour_json",
@@ -1455,23 +1726,34 @@ export async function importEverhourJson(params: {
           everhour_user_external_id: entry.userExternalId,
           everhour_project_external_id: entry.projectExternalId,
           everhour_task_external_id: entry.taskExternalId,
+          everhour_task_name: entry.taskName,
+          everhour_project_name: entry.projectName,
+          unmatched_task: !taskId,
+          unmatched_project: !mappedBoardId,
           mapped_from_trello_import: Boolean(mappedBoardId || mappedTask),
           zimbabwe_date: getZimbabweDateKey(entry.startedAt!),
           raw: entry.raw,
         },
       });
-
-      if (error) throw new Error(error.message);
       result.imported += 1;
+      result.totalSeconds += entry.durationSeconds;
       await assignImportedTimeUserToTask({
         organizationId: params.organizationId,
         taskId,
         userId,
       });
-      await syncImportedTaskTimeCache({
+      await assignEverhourRawAssigneesToTask({
         organizationId: params.organizationId,
         taskId,
+        raw: entry.raw,
+        everhourUserMappings,
       });
+      if (taskId) {
+        await syncImportedTaskTimeCache({
+          organizationId: params.organizationId,
+          taskId,
+        });
+      }
     } catch (error) {
       result.skipped += 1;
       result.errors.push(error instanceof Error ? error.message : String(error));
@@ -1483,6 +1765,26 @@ export async function importEverhourJson(params: {
     importedBy: params.importedBy,
     json: params.json,
     boardMap,
+  });
+  await reconcileImportedTimeAssignments({
+    organizationId: params.organizationId,
+  });
+
+  await supabase.from("everhour_import_logs").insert({
+    organization_id: params.organizationId,
+    imported_by: params.importedBy,
+    status: result.errors.length > 0 ? "completed_with_errors" : "completed",
+    files: [],
+    total_rows: result.scanned,
+    imported_rows: result.imported,
+    skipped_duplicates: result.duplicates,
+    unmatched_users_count: result.unmatchedUsers.length,
+    unmatched_tasks_count: result.unmatchedTasks,
+    unmatched_projects_count: result.unmatchedProjects,
+    total_seconds: result.totalSeconds,
+    errors: result.errors,
+  }).then(({ error }) => {
+    if (error) console.warn("EVERHOUR IMPORT LOG SKIPPED:", error.message);
   });
 
   return result;
@@ -1902,6 +2204,18 @@ export async function importTrelloBoardJson(params: {
     }
 
     const nextCardPositionByList = new Map<string, number>();
+    const { data: existingBoardTasks } = await supabase
+      .from("tasks")
+      .select("column_id, status, position")
+      .eq("organization_id", params.organizationId)
+      .eq("client_id", board.boardId);
+
+    for (const task of existingBoardTasks ?? []) {
+      const key = (task.column_id as string | null) ?? (task.status as string | null) ?? "todo";
+      const current = nextCardPositionByList.get(key) ?? 0;
+      nextCardPositionByList.set(key, Math.max(current, Number(task.position ?? -1) + 1));
+    }
+
     for (const card of cardRecords) {
       const trelloCardId = getString(card, ["id"]);
       const mapped = await getMapping({
@@ -1932,15 +2246,24 @@ export async function importTrelloBoardJson(params: {
           .filter((id): id is string => Boolean(id));
 
         const title = getString(card, ["name"]) ?? "Untitled Trello card";
-        const status = getBoolean(card, ["closed"]) === true
+        const status = getBoolean(card, ["closed"]) === true ||
+          getBoolean(card, ["dueComplete"]) === true
           ? "done"
           : mappedStatus ?? statusFromTrelloListName(listName);
-        const positionKey = listId ?? "none";
+        const positionKey = columnId ?? status ?? listId ?? "none";
         const position = nextCardPositionByList.get(positionKey) ?? 0;
         nextCardPositionByList.set(positionKey, position + 1);
         const trelloPosition = getNumber(card, ["pos"]);
         const dueDate = parseDate(getString(card, ["due"]));
         const shortLink = getString(card, ["shortLink"]);
+        const trelloClosed = getBoolean(card, ["closed"]) === true;
+        const trelloDueComplete = getBoolean(card, ["dueComplete"]) === true;
+        const sourceCreatedAt =
+          parseDate(getString(card, ["createdAt", "dateCreated"])) ??
+          trelloObjectIdCreatedAt(trelloCardId) ??
+          parseDate(getString(card, ["dateLastActivity"])) ??
+          null;
+        const sourceLastActivityAt = parseDate(getString(card, ["dateLastActivity"]));
 
         let taskId = mapped?.internal_id ?? null;
         const isExistingCard = Boolean(taskId);
@@ -1965,19 +2288,31 @@ export async function importTrelloBoardJson(params: {
               position,
               is_billable: true,
               created_by: params.importedBy,
+              created_at: sourceCreatedAt ?? undefined,
+              updated_at: sourceLastActivityAt ?? undefined,
               imported_time_status: params.importTrackedTime === false ? "not_requested" : "no_time_data_found",
               metadata: {
                 imported_from: "trello_board_json",
                 trello_card_id: trelloCardId,
                 trello_short_link: shortLink,
+                trello_created_at: sourceCreatedAt,
                 trello_url: getString(card, ["url", "shortUrl"]),
                 trello_list_id: listId,
                 trello_list_name: listName,
                 original_trello_list_name: listName,
+                trello_closed: trelloClosed,
+                trello_due_complete: trelloDueComplete,
+                imported_column_mapping: {
+                  original_list_id: listId,
+                  original_list_name: listName,
+                  internal_column_id: columnId,
+                  internal_status: status,
+                  matched_default_column: !columnId,
+                },
                 trello_position: trelloPosition,
                 labels,
                 raw_badges: card.badges ?? null,
-                date_last_activity: getString(card, ["dateLastActivity"]),
+                date_last_activity: sourceLastActivityAt ?? getString(card, ["dateLastActivity"]),
               },
             })
             .select("id")
@@ -1986,6 +2321,42 @@ export async function importTrelloBoardJson(params: {
           if (error) throw new Error(error.message);
           taskId = task.id as string;
           result.cardsImported += 1;
+        } else {
+          await supabase
+            .from("tasks")
+            .update({
+              column_id: columnId,
+              status,
+              due_date: dueDate,
+              position,
+              created_at: sourceCreatedAt,
+              updated_at: sourceLastActivityAt ?? undefined,
+              metadata: {
+                imported_from: "trello_board_json",
+                trello_card_id: trelloCardId,
+                trello_short_link: shortLink,
+                trello_created_at: sourceCreatedAt,
+                trello_url: getString(card, ["url", "shortUrl"]),
+                trello_list_id: listId,
+                trello_list_name: listName,
+                original_trello_list_name: listName,
+                trello_closed: trelloClosed,
+                trello_due_complete: trelloDueComplete,
+                imported_column_mapping: {
+                  original_list_id: listId,
+                  original_list_name: listName,
+                  internal_column_id: columnId,
+                  internal_status: status,
+                  matched_default_column: !columnId,
+                },
+                trello_position: trelloPosition,
+                labels,
+                raw_badges: card.badges ?? null,
+                date_last_activity: sourceLastActivityAt ?? getString(card, ["dateLastActivity"]),
+              },
+            })
+            .eq("organization_id", params.organizationId)
+            .eq("id", taskId);
         }
 
         if (!isExistingCard) {
@@ -2014,7 +2385,7 @@ export async function importTrelloBoardJson(params: {
           }
         }
 
-        if (!isExistingCard && assigneeIds.length > 0) {
+        if (assigneeIds.length > 0) {
           const { error: assigneeError } = await supabase
             .from("task_assignees")
             .upsert(
@@ -2149,10 +2520,32 @@ export async function importTrelloBoardJson(params: {
           }
 
           for (const timeEntry of normalizedTimeEntries) {
-            const userId = profileByEmail.get(normalizeKey(timeEntry.sourceUserEmail));
             const effectiveSourceUserId =
               timeEntry.sourceUserId ??
               deterministicHash([timeEntry.sourceUserName, timeEntry.sourceUserEmail]);
+            const externalMapping = effectiveSourceUserId
+              ? await getMapping({
+                  organizationId: params.organizationId,
+                  source: "trello",
+                  externalType: "member",
+                  externalId: effectiveSourceUserId,
+                })
+              : null;
+            const existingExternalUser = effectiveSourceUserId
+              ? await supabase
+                  .from("external_time_user_mappings")
+                  .select("user_id")
+                  .eq("organization_id", params.organizationId)
+                  .eq("source", "trello")
+                  .eq("source_user_id", effectiveSourceUserId)
+                  .maybeSingle()
+              : { data: null };
+            const userId =
+              profileByEmail.get(normalizeKey(timeEntry.sourceUserEmail)) ??
+              profileByName.get(normalizeKey(timeEntry.sourceUserName)) ??
+              trelloMemberToProfile.get(effectiveSourceUserId) ??
+              (externalMapping?.internal_id ?? null) ??
+              ((existingExternalUser.data?.user_id as string | null | undefined) ?? null);
             const importHash = deterministicHash([
               "trello",
               timeEntry.sourceEntryId,
@@ -2172,7 +2565,14 @@ export async function importTrelloBoardJson(params: {
               .maybeSingle();
 
             if (duplicate.error) throw new Error(duplicate.error.message);
-            if (duplicate.data?.id) continue;
+            if (duplicate.data?.id) {
+              await assignImportedTimeUserToTask({
+                organizationId: params.organizationId,
+                taskId,
+                userId,
+              });
+              continue;
+            }
 
             const { error: timeError } = await supabase.from("time_entries").insert({
               organization_id: params.organizationId,
@@ -2212,6 +2612,11 @@ export async function importTrelloBoardJson(params: {
             result.timeEntriesImported += 1;
             result.totalImportedSeconds += timeEntry.durationSeconds;
             result.importedTimeStatus = "imported";
+            await assignImportedTimeUserToTask({
+              organizationId: params.organizationId,
+              taskId,
+              userId,
+            });
 
             if (!userId) {
               result.unmatchedTimeUsers.push({
@@ -2240,6 +2645,24 @@ export async function importTrelloBoardJson(params: {
                   { onConflict: "organization_id,source,source_user_id" },
                 );
               }
+            } else if (effectiveSourceUserId || timeEntry.sourceUserName || timeEntry.sourceUserEmail) {
+              await supabase.from("external_time_user_mappings").upsert(
+                {
+                  organization_id: params.organizationId,
+                  source: "trello",
+                  source_user_id: effectiveSourceUserId,
+                  source_user_name: timeEntry.sourceUserName,
+                  source_user_email: timeEntry.sourceUserEmail,
+                  user_id: userId,
+                  created_by: params.importedBy,
+                  metadata: {
+                    source_board_id: timeEntry.sourceBoardId,
+                    provider: timeEntry.provider,
+                  },
+                  updated_at: new Date().toISOString(),
+                },
+                { onConflict: "organization_id,source,source_user_id" },
+              );
             }
           }
 
@@ -2250,6 +2673,9 @@ export async function importTrelloBoardJson(params: {
             });
           }
         }
+        await reconcileImportedTimeAssignments({
+          organizationId: params.organizationId,
+        });
       } catch (error) {
         result.errors.push(error instanceof Error ? error.message : String(error));
       }
@@ -2299,7 +2725,63 @@ export type ExternalTimeUserMapping = {
   user_id: string | null;
 };
 
+async function autoMapExternalTimeUsers(params: {
+  organizationId: string;
+  profiles?: Array<{ id: string; full_name: string | null; email: string | null }>;
+}) {
+  const profiles = params.profiles ?? (
+    (await supabase
+      .from("profiles")
+      .select("id, full_name, email")
+      .eq("organization_id", params.organizationId)).data ?? []
+  ) as Array<{ id: string; full_name: string | null; email: string | null }>;
+
+  const profileByEmail = new Map(
+    profiles
+      .filter((profile) => profile.email)
+      .map((profile) => [normalizeKey(profile.email), profile.id]),
+  );
+  const profileByName = new Map(
+    profiles
+      .filter((profile) => profile.full_name)
+      .map((profile) => [normalizeKey(profile.full_name), profile.id]),
+  );
+
+  const { data, error } = await supabase
+    .from("external_time_user_mappings")
+    .select("id, source_user_id, source_user_name, source_user_email")
+    .eq("organization_id", params.organizationId)
+    .in("source", ["trello", "everhour"])
+    .is("user_id", null);
+
+  if (error) {
+    console.warn("AUTO EXTERNAL USER MAPPING SKIPPED:", error.message);
+    return 0;
+  }
+
+  let mapped = 0;
+  for (const mapping of data ?? []) {
+    const emailMatch = profileByEmail.get(normalizeKey(mapping.source_user_email));
+    const nameMatch = profileByName.get(normalizeKey(mapping.source_user_name));
+    const userId = emailMatch ?? nameMatch ?? null;
+    if (!userId) continue;
+
+    await mapExternalTimeUser({
+      organizationId: params.organizationId,
+      mappingId: mapping.id as string,
+      sourceUserId: mapping.source_user_id as string,
+      userId,
+    });
+    mapped += 1;
+  }
+
+  return mapped;
+}
+
 export async function getUnmatchedExternalTimeUsers(organizationId: string) {
+  await autoMapExternalTimeUsers({ organizationId });
+  await reconcileImportedTimeAssignments({ organizationId });
+
   const { data, error } = await supabase
     .from("external_time_user_mappings")
     .select("id, source, source_user_id, source_user_name, source_user_email, user_id")
@@ -2338,7 +2820,17 @@ export async function mapExternalTimeUser(params: {
     .eq("id", params.mappingId)
     .maybeSingle();
   const source = (mapping?.source as string | null) ?? "trello";
-  const entrySource = source === "everhour" ? "everhour_import" : "trello_import";
+  const entrySources = source === "everhour"
+    ? [EVERHOUR_TIME_SOURCE, "everhour_import"]
+    : ["trello_import"];
+
+  if (source === "everhour") {
+    await supabase
+      .from("everhour_user_mappings")
+      .update({ profile_id: params.userId, updated_at: now })
+      .eq("organization_id", params.organizationId)
+      .eq("everhour_user_id", params.sourceUserId);
+  }
 
   const { error: entriesError } = await supabase
     .from("time_entries")
@@ -2346,7 +2838,7 @@ export async function mapExternalTimeUser(params: {
       user_id: params.userId,
     })
     .eq("organization_id", params.organizationId)
-    .eq("source", entrySource)
+    .in("source", entrySources)
     .eq("source_user_id", params.sourceUserId)
     .is("user_id", null);
 
@@ -2356,7 +2848,7 @@ export async function mapExternalTimeUser(params: {
     .from("time_entries")
     .select("task_id")
     .eq("organization_id", params.organizationId)
-    .eq("source", entrySource)
+    .in("source", entrySources)
     .eq("source_user_id", params.sourceUserId)
     .eq("user_id", params.userId);
 

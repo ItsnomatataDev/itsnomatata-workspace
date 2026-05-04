@@ -28,6 +28,7 @@ import AssetForm from "../components/AssetForm";
 import AssetImportModal from "../components/AssetImportModal";
 import TotalCostCard from "../components/TotalCostCard";
 import ProductionAssetSearch from "../components/ProductionAssetSearch";
+import type { AssetSearchSuggestion } from "../components/ProductionAssetSearch";
 import { fetchActiveAssetAssignment } from "../services/stockService";
 import { exportAssetsToExcel } from "../services/assetExportService";
 import type { CreateAssetInput } from "../../../lib/supabase/mutations/assets";
@@ -599,6 +600,7 @@ export default function AssetsPage() {
   const [viewFilter, setViewFilter] = useState<
     "all" | "available" | "assigned" | "repair" | "attention" | "duplicate_serial"
   >("all");
+  const [locationFilter, setLocationFilter] = useState("all");
 
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
@@ -701,21 +703,75 @@ export default function AssetsPage() {
   );
 
   const displayedAssets = useMemo(() => {
+    let next: AssetRecord[];
     switch (viewFilter) {
       case "available":
-        return assetRows.filter((asset) => asset.status === "in_stock");
+        next = assetRows.filter((asset) => asset.status === "in_stock");
+        break;
       case "assigned":
-        return assetRows.filter((asset) => asset.status === "assigned");
+        next = assetRows.filter((asset) => asset.status === "assigned");
+        break;
       case "repair":
-        return assetRows.filter((asset) => asset.status === "in_repair");
+        next = assetRows.filter((asset) => asset.status === "in_repair");
+        break;
       case "attention":
-        return assetRows.filter((asset) => assetNeedsAttention(asset));
+        next = assetRows.filter((asset) => assetNeedsAttention(asset));
+        break;
       case "duplicate_serial":
-        return duplicateSerialAssets;
+        next = duplicateSerialAssets;
+        break;
       default:
-        return assetRows;
+        next = assetRows;
     }
-  }, [assetRows, viewFilter, duplicateSerialAssets]);
+
+    if (locationFilter === "unassigned") {
+      return next.filter((asset) => !asset.current_location_id && !asset.location?.id);
+    }
+
+    if (locationFilter !== "all") {
+      return next.filter((asset) =>
+        asset.current_location_id === locationFilter || asset.location?.id === locationFilter
+      );
+    }
+
+    return next;
+  }, [assetRows, viewFilter, duplicateSerialAssets, locationFilter]);
+
+  const assetSearchSuggestions = useMemo<AssetSearchSuggestion[]>(() => {
+    const suggestions: AssetSearchSuggestion[] = [];
+
+    for (const asset of assetRows) {
+      const locationName = asset.location?.name || asset.sub_location || "No location";
+      suggestions.push({
+        label: asset.asset_name,
+        value: asset.asset_name,
+        sublabel: `${asset.asset_tag || "No tag"} · ${locationName}`,
+      });
+      if (asset.asset_tag) {
+        suggestions.push({
+          label: asset.asset_tag,
+          value: asset.asset_tag,
+          sublabel: `${asset.asset_name} · Asset tag`,
+        });
+      }
+      if (asset.serial_number) {
+        suggestions.push({
+          label: asset.serial_number,
+          value: asset.serial_number,
+          sublabel: `${asset.asset_name} · Serial number`,
+        });
+      }
+      if (asset.location?.name) {
+        suggestions.push({
+          label: asset.location.name,
+          value: asset.location.name,
+          sublabel: "Location",
+        });
+      }
+    }
+
+    return suggestions;
+  }, [assetRows]);
 
   async function createPurchaseBatch(label: string) {
     const trimmed = label.trim();
@@ -1012,7 +1068,7 @@ export default function AssetsPage() {
 
       <main className="flex-1 px-4 pt-4 pb-6 md:px-6">
         <div className="space-y-6">
-          <section className="border border-white/10 bg-black p-4">
+          <section className="rounded-2xl border border-white/10 bg-black p-4">
             <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
               <div>
                 <p className="text-sm uppercase tracking-wide text-orange-300">
@@ -1032,7 +1088,7 @@ export default function AssetsPage() {
                 <button
                   type="button"
                   onClick={() => void reload()}
-                  className="border border-white/10 px-4 py-3 text-sm text-zinc-200 hover:border-white/20 hover:text-white"
+                  className="rounded-xl border border-white/10 px-4 py-3 text-sm text-zinc-200 hover:border-white/20 hover:text-white"
                 >
                   Refresh
                 </button>
@@ -1040,7 +1096,7 @@ export default function AssetsPage() {
                 <button
                   type="button"
                   onClick={() => exportAssetsToExcel(assetRows)}
-                  className="border border-white/10 px-4 py-3 text-sm text-zinc-200 hover:border-white/20 hover:text-white"
+                  className="rounded-xl border border-white/10 px-4 py-3 text-sm text-zinc-200 hover:border-white/20 hover:text-white"
                 >
                   Export All Assets
                 </button>
@@ -1048,7 +1104,7 @@ export default function AssetsPage() {
                 <button
                   type="button"
                   onClick={() => setImportModalOpen(true)}
-                  className="inline-flex items-center gap-2 border border-white/10 px-4 py-3 text-sm text-zinc-200 hover:border-white/20 hover:text-white"
+                  className="inline-flex items-center gap-2 rounded-xl border border-white/10 px-4 py-3 text-sm text-zinc-200 hover:border-white/20 hover:text-white"
                 >
                   <Upload size={16} />
                   Import Assets
@@ -1057,7 +1113,7 @@ export default function AssetsPage() {
                 <button
                   type="button"
                   onClick={handleAddClick}
-                  className="inline-flex items-center gap-2 border border-orange-500 bg-orange-500 px-4 py-3 text-sm font-medium text-black hover:bg-orange-400"
+                  className="inline-flex items-center gap-2 rounded-xl border border-orange-500 bg-orange-500 px-4 py-3 text-sm font-medium text-black hover:bg-orange-400"
                 >
                   <Plus size={16} />
                   Add Asset
@@ -1242,7 +1298,7 @@ export default function AssetsPage() {
             </div>
           </section>
 
-          <section className="border border-white/10 bg-black p-5">
+          <section className="rounded-2xl border border-white/10 bg-black p-5">
             <ProductionAssetSearch
               onSearch={(query: string) => {
                 // Production search implementation
@@ -1250,11 +1306,26 @@ export default function AssetsPage() {
                   search(query);
                 }
               }}
+              suggestions={assetSearchSuggestions}
               placeholder="Search assets by name, tag, or serial number..."
               className="w-full"
             />
 
             <div className="mt-4 flex flex-wrap items-center gap-2">
+              <select
+                value={locationFilter}
+                onChange={(event) => setLocationFilter(event.target.value)}
+                className="rounded-xl border border-white/10 bg-black px-3 py-2 text-sm text-zinc-200 outline-none transition hover:border-white/20 focus:border-orange-500/50"
+              >
+                <option value="all">All locations</option>
+                <option value="unassigned">No location</option>
+                {locations.map((location) => (
+                  <option key={location.id} value={location.id}>
+                    {location.name}
+                    {location.code ? ` (${location.code})` : ""}
+                  </option>
+                ))}
+              </select>
               {[
                 { id: "all", label: `All (${assetRows.length})` },
                 { id: "available", label: `Available (${stats.in_stock})` },
@@ -1286,7 +1357,7 @@ export default function AssetsPage() {
                           | "duplicate_serial",
                       )
                     }
-                    className={`px-3 py-2 text-sm transition ${
+                    className={`rounded-xl px-3 py-2 text-sm transition ${
                       active
                         ? "border border-orange-500 bg-orange-500 text-black"
                         : "border border-white/10 bg-black text-zinc-200 hover:border-white/20 hover:text-white"

@@ -45,11 +45,16 @@ import { supabase } from "../../../lib/supabase/client";
 import {
   startTimeEntry,
   stopTimeEntry,
-  createManualTimeEntry,
-  updateTimeEntry,
-  deleteTimeEntry,
   type TimeEntryItem,
+  type TimeEntryAuditLogItem,
 } from "../../../lib/supabase/mutations/timeEntries";
+import {
+  addManualTimeEntry,
+  getCardTimeAuditLogs,
+  getCardTimeEntries,
+  softDeleteCardTimeEntry,
+  updateCardTimeEntry,
+} from "../services/cardTimeService";
 import { uploadTaskSubmissionFile } from "../../../lib/supabase/storage";
 import type { TaskSubmissionFileResult } from "../../../lib/supabase/storage";
 import {
@@ -139,6 +144,8 @@ type CardMetadata = Record<string, unknown> & {
   coverColor?: string | null;
   watchedBy?: string[];
   customFields?: TrelloCustomField[];
+  original_trello_list_name?: string | null;
+  trello_list_name?: string | null;
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -182,6 +189,7 @@ function formatDateTime(iso: string) {
 
 function getEntrySourceLabel(entry: TimeEntryItem) {
   if (entry.source === "trello_import") return "Codex";
+  if (entry.source === "everhour" || entry.source === "everhour_import") return "Everhour";
   if (entry.entry_type === "imported") return "Imported";
   if (entry.entry_type === "manual" || entry.source?.includes("manual")) return "Manual";
   return "Timer";
@@ -223,6 +231,23 @@ function getInitials(name?: string | null, email?: string | null) {
   return parts.length >= 2
     ? `${parts[0][0]}${parts[1][0]}`.toUpperCase()
     : src.slice(0, 2).toUpperCase();
+}
+
+function getCardDisplayCreatedAt(card: CardDetailModalProps["card"]) {
+  const metadata = (card.metadata ?? {}) as Record<string, unknown>;
+  const sourceDate =
+    typeof metadata.trello_created_at === "string"
+      ? metadata.trello_created_at
+      : typeof metadata.date_last_activity === "string"
+        ? metadata.date_last_activity
+        : null;
+  return sourceDate || card.created_at;
+}
+
+function getCardCreatedLabel(card: CardDetailModalProps["card"]) {
+  const metadata = (card.metadata ?? {}) as Record<string, unknown>;
+  if (metadata.imported_from === "trello_board_json") return "Imported from Codex by";
+  return "Created by";
 }
 
 const STATUS_OPTIONS = [
@@ -271,6 +296,10 @@ interface TimeEntriesPanelProps {
   totalSeconds: number;
   loading: boolean;
   mutating: boolean;
+  currentUserId: string;
+  isAdmin: boolean;
+  profiles: Record<string, TimeEntryProfile>;
+  auditLogs: TimeEntryAuditLogItem[];
   onToggle: () => void;
   onManualLog: (input: {
     hours: number;
@@ -285,9 +314,10 @@ interface TimeEntriesPanelProps {
       minutes: number;
       description: string;
       isBillable: boolean;
+      reason: string;
     },
   ) => Promise<void>;
-  onDeleteEntry: (entryId: string) => Promise<void>;
+  onDeleteEntry: (entryId: string, reason: string) => Promise<void>;
 }
 
 function TimeEntriesPanel({
@@ -298,13 +328,18 @@ function TimeEntriesPanel({
   totalSeconds,
   loading,
   mutating,
+  currentUserId,
+  isAdmin,
+  profiles,
+  auditLogs,
   onToggle,
   onManualLog,
   onUpdateEntry,
   onDeleteEntry,
 }: TimeEntriesPanelProps) {
-  const completedEntries = entries.filter((e) => e.ended_at);
+  const completedEntries = entries.filter((e) => e.ended_at && !e.deleted_at);
   const activeCount = activeEntries.length;
+  const [timeTab, setTimeTab] = useState<"entries" | "summary" | "audit">("entries");
   const [manualOpen, setManualOpen] = useState(false);
   const [manualHours, setManualHours] = useState(0);
   const [manualMinutes, setManualMinutes] = useState(30);
@@ -315,7 +350,61 @@ function TimeEntriesPanel({
   const [editMinutes, setEditMinutes] = useState(0);
   const [editDescription, setEditDescription] = useState("");
   const [editBillable, setEditBillable] = useState(false);
+  const [editReason, setEditReason] = useState("");
   const manualTotalMinutes = manualHours * 60 + manualMinutes;
+
+  const getEntryUser = (entry: TimeEntryItem) => {
+    const profile = entry.user_id ? profiles[entry.user_id] : null;
+    return {
+      name:
+        profile?.full_name ||
+        profile?.email ||
+        entry.source_user_name ||
+        entry.source_user_email ||
+        "Unmatched imported user",
+      email: profile?.email || entry.source_user_email || null,
+      matched: Boolean(profile),
+    };
+  };
+
+  const canEditEntry = (entry: TimeEntryItem) => {
+    if (isAdmin) return true;
+    const isOwn = entry.user_id === currentUserId;
+    const isManual = entry.entry_type === "manual" || entry.source?.includes("manual");
+    return isOwn && isManual;
+  };
+
+  const groupedEntries = completedEntries.reduce(
+    (acc, entry) => {
+      const key = new Date(entry.started_at).toLocaleDateString("en-ZW", {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      });
+      if (!acc[key]) acc[key] = [];
+      acc[key].push(entry);
+      return acc;
+    },
+    {} as Record<string, TimeEntryItem[]>,
+  );
+
+  const summaryByUser = completedEntries.reduce(
+    (acc, entry) => {
+      const user = getEntryUser(entry);
+      acc[user.name] = (acc[user.name] ?? 0) + Number(entry.duration_seconds ?? 0);
+      return acc;
+    },
+    {} as Record<string, number>,
+  );
+
+  const summaryBySource = completedEntries.reduce(
+    (acc, entry) => {
+      const source = getEntrySourceLabel(entry);
+      acc[source] = (acc[source] ?? 0) + Number(entry.duration_seconds ?? 0);
+      return acc;
+    },
+    {} as Record<string, number>,
+  );
 
   const submitManualTime = async () => {
     if (manualTotalMinutes <= 0 || mutating || loading) return;
@@ -350,6 +439,7 @@ function TimeEntriesPanel({
     setEditMinutes(0);
     setEditDescription("");
     setEditBillable(false);
+    setEditReason("");
   };
 
   const saveEditEntry = async (entryId: string) => {
@@ -360,6 +450,7 @@ function TimeEntriesPanel({
       minutes: editMinutes,
       description: editDescription,
       isBillable: editBillable,
+      reason: editReason.trim() || "Updated from card time panel",
     });
     cancelEditEntry();
   };
@@ -564,7 +655,25 @@ function TimeEntriesPanel({
         </div>
       )}
 
+      <div className="flex gap-1 border-b border-white/10 px-4 py-2">
+        {(["entries", "summary", ...(isAdmin ? ["audit" as const] : [])] as const).map((tab) => (
+          <button
+            key={tab}
+            type="button"
+            onClick={() => setTimeTab(tab)}
+            className={`rounded-lg px-3 py-1.5 text-xs font-semibold capitalize transition ${
+              timeTab === tab
+                ? "bg-orange-500/15 text-orange-300"
+                : "text-white/40 hover:bg-white/5 hover:text-white"
+            }`}
+          >
+            {tab}
+          </button>
+        ))}
+      </div>
+
       {/* Entry history */}
+      {timeTab === "entries" && (
       <div className="px-4 py-3">
         <div className="flex items-center gap-1.5 mb-3">
           <History size={12} className="text-white/30" />
@@ -582,10 +691,20 @@ function TimeEntriesPanel({
             No completed sessions yet.
           </p>
         ) : (
-          <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
-            {completedEntries.map((entry) => {
+          <div className="max-h-72 space-y-4 overflow-y-auto pr-1">
+            {Object.entries(groupedEntries).map(([dateLabel, dateEntries]) => (
+              <div key={dateLabel} className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-semibold text-white/60">{dateLabel}</p>
+                  <p className="text-[10px] font-mono text-white/35">
+                    {formatDurationShort(dateEntries.reduce((sum, entry) => sum + Number(entry.duration_seconds ?? 0), 0))}
+                  </p>
+                </div>
+                {dateEntries.map((entry) => {
               const dur = entry.duration_seconds ?? 0;
               const isEditing = editingEntryId === entry.id;
+              const entryUser = getEntryUser(entry);
+              const editable = canEditEntry(entry);
               return (
                 <div
                   key={entry.id}
@@ -624,6 +743,12 @@ function TimeEntriesPanel({
                         onChange={(event) => setEditDescription(event.target.value)}
                         className="w-full rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-xs text-white outline-none focus:border-orange-500/50"
                         placeholder="Time entry note"
+                      />
+                      <input
+                        value={editReason}
+                        onChange={(event) => setEditReason(event.target.value)}
+                        className="w-full rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-xs text-white outline-none focus:border-orange-500/50"
+                        placeholder="Reason for edit"
                       />
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <button
@@ -670,9 +795,8 @@ function TimeEntriesPanel({
                         </div>
                         {(entry.source_user_name || entry.user_id) && (
                           <p className="mt-0.5 truncate text-[10px] text-white/35">
-                            {entry.source_user_name
-                              ? `Source user: ${entry.source_user_name}`
-                              : "Mapped internal user"}
+                            {entryUser.name}
+                            {entryUser.matched ? " · matched internal user" : " · source user"}
                           </p>
                         )}
                         <p className="text-[10px] text-white/35 mt-0.5">
@@ -695,6 +819,7 @@ function TimeEntriesPanel({
                         >
                           {entry.is_billable ? "billable" : entry.approval_status}
                         </p>
+                        {editable && (
                         <div className="mt-1 flex justify-end gap-1">
                           <button
                             type="button"
@@ -706,22 +831,68 @@ function TimeEntriesPanel({
                           </button>
                           <button
                             type="button"
-                            onClick={() => void onDeleteEntry(entry.id)}
+                            onClick={() => {
+                              const reason = window.prompt("Reason for removing this time entry?");
+                              if (reason !== null) void onDeleteEntry(entry.id, reason || "Removed from card time panel");
+                            }}
                             className="rounded-md p-1 text-white/30 hover:bg-red-500/10 hover:text-red-300"
                             title="Delete time"
                           >
                             <Trash2 size={11} />
                           </button>
                         </div>
+                        )}
                       </div>
                     </div>
                   )}
                 </div>
               );
-            })}
+                })}
+              </div>
+            ))}
           </div>
         )}
       </div>
+      )}
+      {timeTab === "summary" && (
+        <div className="grid gap-3 px-4 py-3 md:grid-cols-2">
+          <div className="rounded-xl border border-white/10 bg-white/3 p-3">
+            <p className="mb-2 text-[10px] uppercase tracking-wider text-white/35">Time by user</p>
+            {Object.entries(summaryByUser).map(([label, seconds]) => (
+              <div key={label} className="flex justify-between gap-3 py-1 text-xs">
+                <span className="truncate text-white/60">{label}</span>
+                <span className="font-mono text-white/80">{formatDurationShort(seconds)}</span>
+              </div>
+            ))}
+          </div>
+          <div className="rounded-xl border border-white/10 bg-white/3 p-3">
+            <p className="mb-2 text-[10px] uppercase tracking-wider text-white/35">Time by source</p>
+            {Object.entries(summaryBySource).map(([label, seconds]) => (
+              <div key={label} className="flex justify-between gap-3 py-1 text-xs">
+                <span className="truncate text-white/60">{label}</span>
+                <span className="font-mono text-white/80">{formatDurationShort(seconds)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {timeTab === "audit" && isAdmin && (
+        <div className="max-h-72 space-y-2 overflow-y-auto px-4 py-3">
+          {auditLogs.length === 0 ? (
+            <p className="text-xs text-white/30">No audit events yet.</p>
+          ) : auditLogs.map((log) => (
+            <div key={log.id} className="rounded-xl border border-white/10 bg-white/3 px-3 py-2">
+              <div className="flex items-center justify-between gap-3">
+                <span className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] font-semibold uppercase text-white/50">
+                  {log.action}
+                </span>
+                <span className="text-[10px] text-white/30">{formatDateTime(log.created_at)}</span>
+              </div>
+              {log.reason && <p className="mt-1 text-xs text-white/55">{log.reason}</p>}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -806,9 +977,12 @@ export default function CardDetailModal({
   const [taskTimeLoading, setTaskTimeLoading] = useState(false);
   const [taskTimeMutating, setTaskTimeMutating] = useState(false);
   const [liveNow, setLiveNow] = useState(Date.now());
+  const [timeAuditLogs, setTimeAuditLogs] = useState<TimeEntryAuditLogItem[]>([]);
+  const [currentUserRole, setCurrentUserRole] = useState<string | null>(null);
+  const isTimeAdmin = ["admin", "manager", "super_admin"].includes(currentUserRole ?? "");
 
   const taskActiveEntries = useMemo(
-    () => taskTimeEntries.filter((entry) => !entry.ended_at),
+    () => taskTimeEntries.filter((entry) => !entry.ended_at && !entry.deleted_at),
     [taskTimeEntries],
   );
 
@@ -844,9 +1018,38 @@ export default function CardDetailModal({
     [taskActiveEntries, timeEntryProfiles, liveNow, currentUserId],
   );
 
+  const importedTimeParticipants = useMemo(() => {
+    const seen = new Set<string>();
+    return taskTimeEntries
+      .filter((entry) =>
+        !entry.deleted_at &&
+        (entry.entry_type === "imported" ||
+          entry.source === "trello_import" ||
+          entry.source === "everhour_import" ||
+          entry.source === "everhour")
+      )
+      .map((entry) => {
+        const profile = entry.user_id ? timeEntryProfiles[entry.user_id] : null;
+        const id = entry.user_id || entry.source_user_id || entry.source_user_name || entry.id;
+        return {
+          id,
+          name: profile?.full_name || profile?.email || entry.source_user_name || "Imported user",
+          email: profile?.email || entry.source_user_email || null,
+          source: getEntrySourceLabel(entry),
+        };
+      })
+      .filter((participant) => {
+        if (seen.has(participant.id)) return false;
+        seen.add(participant.id);
+        return !assignees.some((assignee) => assignee.user_id === participant.id);
+      });
+  }, [assignees, taskTimeEntries, timeEntryProfiles]);
+
   const totalTrackedSeconds = useMemo(
     () =>
-      taskTimeEntries.reduce(
+      taskTimeEntries
+        .filter((entry) => !entry.deleted_at)
+        .reduce(
         (sum, entry) => sum + getLiveEntrySeconds(entry, liveNow),
         0,
       ),
@@ -864,16 +1067,10 @@ export default function CardDetailModal({
     if (!cardId || !organizationId) return null;
     setTaskTimeLoading(true);
     try {
-      const { data: allEntries, error } = await supabase
-        .from("time_entries")
-        .select("*")
-        .eq("task_id", cardId)
-        .eq("organization_id", organizationId)
-        .order("started_at", { ascending: false });
-
-      if (error) throw error;
-
-      const entries = (allEntries ?? []) as TimeEntryItem[];
+      const entries = await getCardTimeEntries({
+        organizationId,
+        cardId,
+      });
       setTaskTimeEntries(entries);
       const completedSeconds = entries.reduce(
         (sum, entry) => sum + Number(entry.duration_seconds ?? 0),
@@ -907,19 +1104,53 @@ export default function CardDetailModal({
     }
   }, [cardId, organizationId]);
 
+  const loadTimeAuditLogs = useCallback(async () => {
+    if (!organizationId || !cardId || !isTimeAdmin) {
+      setTimeAuditLogs([]);
+      return;
+    }
+    try {
+      const logs = await getCardTimeAuditLogs({
+        organizationId,
+        cardId,
+        limit: 100,
+      });
+      setTimeAuditLogs(logs);
+    } catch (error) {
+      console.warn("Failed to load time audit logs:", error);
+    }
+  }, [cardId, isTimeAdmin, organizationId]);
+
   const refreshTaskTimeAndCache = useCallback(async () => {
     const completedSeconds = await loadTaskTime();
+    await loadTimeAuditLogs();
     if (completedSeconds !== null) {
       onUpdate?.({
         tracked_seconds_cache: completedSeconds,
       } as Partial<TaskItem>);
     }
-  }, [loadTaskTime, onUpdate]);
+  }, [loadTaskTime, loadTimeAuditLogs, onUpdate]);
 
   // Load on open
   useEffect(() => {
     if (isOpen) loadTaskTime();
   }, [isOpen, loadTaskTime]);
+
+  useEffect(() => {
+    if (isOpen) void loadTimeAuditLogs();
+  }, [isOpen, loadTimeAuditLogs]);
+
+  useEffect(() => {
+    if (!isOpen || !organizationId || !currentUserId) return;
+    void Promise.resolve(supabase
+      .from("profiles")
+      .select("primary_role")
+      .eq("organization_id", organizationId)
+      .eq("id", currentUserId)
+      .maybeSingle())
+      .then(({ data }) => setCurrentUserRole(data?.primary_role ?? null))
+      .catch(() => setCurrentUserRole(null));
+  }, [currentUserId, isOpen, organizationId]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -1008,7 +1239,7 @@ export default function CardDetailModal({
     try {
       const endedAt = new Date();
       const startedAt = new Date(endedAt.getTime() - durationSeconds * 1000);
-      await createManualTimeEntry({
+      await addManualTimeEntry({
         organizationId,
         userId: currentUserId,
         taskId: cardId,
@@ -1019,6 +1250,8 @@ export default function CardDetailModal({
         endedAt: endedAt.toISOString(),
         isBillable: input.isBillable,
         source: "card_modal_manual",
+        actorUserId: currentUserId,
+        reason: "Manual time added from card modal",
         metadata: {
           origin: "board_card_detail_modal",
           reason: "forgot_to_track",
@@ -1039,6 +1272,7 @@ export default function CardDetailModal({
       minutes: number;
       description: string;
       isBillable: boolean;
+      reason: string;
     },
   ) => {
     if (!organizationId || taskTimeMutating) return;
@@ -1048,7 +1282,7 @@ export default function CardDetailModal({
     setTaskTimeMutating(true);
     try {
       const { startedAt, endedAt } = minutesToStartedEnded(totalMinutes);
-      await updateTimeEntry({
+      await updateCardTimeEntry({
         entryId,
         payload: {
           started_at: startedAt,
@@ -1056,6 +1290,8 @@ export default function CardDetailModal({
           description: input.description.trim() || "Manual time entry",
           is_billable: input.isBillable,
         },
+        actorUserId: currentUserId,
+        reason: input.reason,
       });
       await refreshTaskTimeAndCache();
     } catch (e) {
@@ -1065,11 +1301,15 @@ export default function CardDetailModal({
     }
   };
 
-  const handleDeleteTimeEntry = async (entryId: string) => {
+  const handleDeleteTimeEntry = async (entryId: string, reason: string) => {
     if (taskTimeMutating) return;
     setTaskTimeMutating(true);
     try {
-      await deleteTimeEntry(entryId);
+      await softDeleteCardTimeEntry({
+        entryId,
+        actorUserId: currentUserId,
+        reason,
+      });
       await refreshTaskTimeAndCache();
     } catch (e) {
       console.error("Delete time entry error:", e);
@@ -1493,7 +1733,7 @@ export default function CardDetailModal({
   // ── Render ────────────────────────────────────────────────────────────────────
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/70 backdrop-blur-sm p-4 pt-12">
-      <div className="relative w-full max-w-2xl rounded-2xl border border-white/10 bg-[#0f0f0f] shadow-2xl">
+      <div className="relative w-full max-w-5xl rounded-2xl border border-white/10 bg-[#0f0f0f] shadow-2xl">
         {/* Orange top bar */}
         <div
           className="h-2 w-full rounded-t-2xl"
@@ -1536,7 +1776,7 @@ export default function CardDetailModal({
               </h2>
             )}
             <p className="mt-1 text-xs text-white/35">
-              Created by{" "}
+              {getCardCreatedLabel(card)}{" "}
               <span className="text-white/55">
                 {card.created_by_full_name ||
                   card.created_by_email ||
@@ -1544,17 +1784,29 @@ export default function CardDetailModal({
                   "Unknown"}
               </span>{" "}
               on{" "}
-              {new Date(card.created_at).toLocaleDateString("en-ZW", {
+              {new Date(getCardDisplayCreatedAt(card)).toLocaleDateString("en-ZW", {
                 year: "numeric",
                 month: "short",
                 day: "numeric",
               })}{" "}
               at{" "}
-              {new Date(card.created_at).toLocaleTimeString("en-ZW", {
+              {new Date(getCardDisplayCreatedAt(card)).toLocaleTimeString("en-ZW", {
                 hour: "2-digit",
                 minute: "2-digit",
               })}
             </p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <span
+                className={`rounded-lg px-2.5 py-1 text-xs font-semibold capitalize ${STATUS_COLORS[status] ?? "bg-white/10 text-white/60"}`}
+              >
+                {status.replace("_", " ")}
+              </span>
+              {(cardMetadata.original_trello_list_name || cardMetadata.trello_list_name) && (
+                <span className="rounded-lg border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-white/45">
+                  Codex list: {cardMetadata.original_trello_list_name || cardMetadata.trello_list_name}
+                </span>
+              )}
+            </div>
             {(cardMetadata.labels ?? []).length > 0 && (
               <div className="mt-3 flex flex-wrap gap-1.5">
                 {(cardMetadata.labels ?? []).map((label) => (
@@ -1910,6 +2162,10 @@ export default function CardDetailModal({
                 totalSeconds={totalTrackedSeconds}
                 loading={taskTimeLoading}
                 mutating={taskTimeMutating}
+                currentUserId={currentUserId}
+                isAdmin={isTimeAdmin}
+                profiles={timeEntryProfiles}
+                auditLogs={timeAuditLogs}
                 onToggle={handleToggleTimer}
                 onManualLog={handleManualTimeLog}
                 onUpdateEntry={handleUpdateTimeEntry}
@@ -2041,6 +2297,23 @@ export default function CardDetailModal({
                       >
                         <X size={11} />
                       </button>
+                    </div>
+                  ))}
+                  {importedTimeParticipants.map((participant) => (
+                    <div
+                      key={participant.id}
+                      className="flex items-center gap-2 rounded-xl border border-orange-500/20 bg-orange-500/10 px-2.5 py-1.5"
+                      title={`Tracked imported time via ${participant.source}`}
+                    >
+                      <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-orange-500/30 bg-orange-500/20 text-[9px] font-bold text-orange-300">
+                        {getInitials(participant.name, participant.email)}
+                      </div>
+                      <span className="text-xs text-orange-100">
+                        {participant.name}
+                      </span>
+                      <span className="rounded-full border border-orange-500/20 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-orange-300">
+                        {participant.source}
+                      </span>
                     </div>
                   ))}
                 </div>

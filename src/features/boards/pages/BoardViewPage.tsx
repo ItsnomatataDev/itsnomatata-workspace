@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useParams } from "react-router-dom";
 import {
   Menu,
@@ -14,6 +14,7 @@ import {
   ChevronDown,
   Pause,
   Play,
+  Search,
   Trash2,
 } from "lucide-react";
 import CardTimeIndicator from "../components/CardTimeIndicator";
@@ -111,6 +112,14 @@ const PRIORITY_COLOR: Record<string, string> = {
   high: "text-orange-400",
   medium: "text-yellow-400",
   low: "text-white/30",
+};
+
+const STATUS_BADGE_COLOR: Record<string, string> = {
+  backlog: "bg-white/10 text-white/60",
+  todo: "bg-blue-500/15 text-blue-300",
+  in_progress: "bg-orange-500/15 text-orange-300",
+  review: "bg-yellow-500/15 text-yellow-300",
+  done: "bg-green-500/15 text-green-300",
 };
 
 // ── Codex inline add ──────────────────────────────────────────────────────────
@@ -222,15 +231,15 @@ function KanbanCard({
     task.due_date &&
     new Date(task.due_date) < new Date() &&
     task.status !== "done";
-  const initials = (() => {
-    const a = (task.assignees as any[])?.[0];
-    if (!a) return null;
-    const src = a.full_name ?? a.email ?? "";
+  const visibleAssignees = ((task.assignees as any[]) ?? []).slice(0, 3);
+  const extraAssignees = Math.max(0, ((task.assignees as any[]) ?? []).length - visibleAssignees.length);
+  const initialsFor = (assignee: any) => {
+    const src = assignee.full_name ?? assignee.email ?? "";
     const parts = src.split(" ").filter(Boolean);
     return parts.length >= 2
       ? `${parts[0][0]}${parts[1][0]}`.toUpperCase()
       : src.slice(0, 2).toUpperCase();
-  })();
+  };
 
   const formatLiveTime = (seconds: number) => {
     const hrs = Math.floor(seconds / 3600);
@@ -262,6 +271,15 @@ function KanbanCard({
         >
           <Trash2 size={13} />
         </button>
+      </div>
+      <div className="mb-2">
+        <span
+          className={`inline-flex rounded-md px-2 py-0.5 text-[10px] font-semibold capitalize ${
+            STATUS_BADGE_COLOR[task.status] ?? "bg-white/10 text-white/50"
+          }`}
+        >
+          {task.status.replace("_", " ")}
+        </span>
       </div>
       {/* Title */}
       {labels.length > 0 && (
@@ -364,9 +382,22 @@ function KanbanCard({
             className="text-[11px]"
             showTotalTime
           />
-          {initials ? (
-            <div className="flex h-6 w-6 items-center justify-center rounded-full bg-orange-500/20 border border-orange-500/30 text-[10px] font-bold text-orange-400">
-              {initials}
+          {visibleAssignees.length > 0 ? (
+            <div className="flex -space-x-1">
+              {visibleAssignees.map((assignee) => (
+                <div
+                  key={assignee.user_id ?? assignee.id}
+                  className="flex h-6 w-6 items-center justify-center rounded-full border border-orange-500/30 bg-orange-500/20 text-[10px] font-bold text-orange-400 ring-2 ring-[#131313]"
+                  title={assignee.full_name || assignee.email || "Team member"}
+                >
+                  {initialsFor(assignee)}
+                </div>
+              ))}
+              {extraAssignees > 0 && (
+                <div className="flex h-6 w-6 items-center justify-center rounded-full border border-white/10 bg-white/10 text-[9px] font-bold text-white/50 ring-2 ring-[#131313]">
+                  +{extraAssignees}
+                </div>
+              )}
             </div>
           ) : (
             <div className="flex h-6 w-6 items-center justify-center rounded-full border border-dashed border-white/15">
@@ -513,6 +544,7 @@ export default function BoardViewPage() {
   const [activeTimer, setActiveTimer] = useState<any>(null);
   const [liveSeconds, setLiveSeconds] = useState(0);
   const [timerBusy, setTimerBusy] = useState(false);
+  const [searchValue, setSearchValue] = useState("");
 
   // drag state
   const dragRef = useRef<{ id: string; status: TaskStatus } | null>(null);
@@ -601,8 +633,9 @@ export default function BoardViewPage() {
       const nextColumns = makeColumnViews(listsData);
       setColumns(nextColumns);
       const normalised = (cardsData as any[]).map(cardToTask);
-      setTasks(normalised);
-      setGroupedTasks(groupByColumn(normalised, nextColumns));
+      const aligned = alignImportedCardStatuses(normalised, nextColumns);
+      setTasks(aligned);
+      setGroupedTasks(groupByColumn(aligned, nextColumns));
 
       // Stats non-critical
       getBoardStats(organizationId, boardId).then(setStats).catch(console.warn);
@@ -612,7 +645,7 @@ export default function BoardViewPage() {
     } finally {
       setLoading(false);
     }
-  }, [boardId, organizationId]);
+  }, [boardId, organizationId, makeColumnViews]);
 
   useEffect(() => {
     void loadBoardData();
@@ -660,11 +693,85 @@ export default function BoardViewPage() {
 
   function statusFromTrelloListName(name: string | null | undefined): TaskStatus {
     const normalized = name?.trim().toLowerCase() ?? "";
+    const compact = normalized.replace(/[^a-z0-9]/g, "");
     if (normalized.includes("done") || normalized.includes("complete")) return "done";
     if (normalized.includes("review") || normalized.includes("approval")) return "review";
-    if (normalized.includes("progress") || normalized.includes("doing")) return "in_progress";
-    if (normalized.includes("backlog")) return "backlog";
+    if (normalized.includes("todo") || compact.includes("todo")) return "todo";
+    if (
+      normalized.includes("progress") ||
+      normalized.includes("doing") ||
+      normalized.includes("active")
+    ) return "in_progress";
+    if (
+      normalized.includes("backlog") ||
+      normalized.includes("ideas") ||
+      normalized.includes("pending")
+    ) return "backlog";
     return "todo";
+  }
+
+  function isKnownTrelloTodoListName(name: string) {
+    const normalized = name.trim().toLowerCase();
+    const compact = normalized.replace(/[^a-z0-9]/g, "");
+    return normalized.includes("todo") || compact.includes("todo");
+  }
+
+  function getImportedStatusFromMetadata(task: Task): TaskStatus | null {
+    const metadata = (task.metadata ?? {}) as Record<string, unknown>;
+    if (metadata.imported_from !== "trello_board_json") return null;
+
+    if (metadata.trello_closed === true || metadata.trello_due_complete === true) {
+      return "done";
+    }
+
+    const sourceListName =
+      typeof metadata.original_trello_list_name === "string"
+        ? metadata.original_trello_list_name
+        : typeof metadata.trello_list_name === "string"
+          ? metadata.trello_list_name
+          : null;
+
+    if (!sourceListName) return null;
+    const sourceStatus = statusFromTrelloListName(sourceListName);
+    return sourceStatus === "todo" && !isKnownTrelloTodoListName(sourceListName)
+      ? null
+      : sourceStatus;
+  }
+
+  function alignImportedCardStatuses(
+    list: Task[],
+    boardColumns: BoardColumnView[],
+  ): Task[] {
+    const changed: Array<{ taskId: string; updates: Partial<Card> }> = [];
+
+    const aligned = list.map((task) => {
+      const sourceStatus = getImportedStatusFromMetadata(task);
+      if (!sourceStatus) return task;
+
+      const workflowColumnId = getWorkflowColumnIdForStatus(
+        sourceStatus,
+        boardColumns,
+      );
+      const nextColumnId = workflowColumnId ?? null;
+      if (task.status === sourceStatus && (task.column_id ?? null) === nextColumnId) {
+        return task;
+      }
+
+      const updates: Partial<Card> = {
+        status: sourceStatus,
+        column_id: nextColumnId,
+      };
+      changed.push({ taskId: task.id, updates });
+      return { ...task, ...updates } as Task;
+    });
+
+    for (const change of changed) {
+      void updateCard(change.taskId, change.updates).catch((err) => {
+        console.warn("Failed to align imported card status", err);
+      });
+    }
+
+    return aligned;
   }
 
   function groupByColumn(
@@ -688,12 +795,51 @@ export default function BoardViewPage() {
     );
   }
 
+  const filteredTasks = useMemo(() => {
+    const q = searchValue.trim().toLowerCase();
+    if (!q) return tasks;
+
+    return tasks.filter((task) => {
+      const metadata = task.metadata ?? {};
+      const labels = Array.isArray(metadata.labels)
+        ? metadata.labels as Array<{ name?: string | null; color?: string | null }>
+        : [];
+      const assignees = (task.assignees as any[]) ?? [];
+      const haystack = [
+        task.title,
+        task.description,
+        task.status,
+        task.priority,
+        metadata.trello_list_name,
+        metadata.original_trello_list_name,
+        metadata.trello_short_link,
+        ...labels.flatMap((label) => [label.name, label.color]),
+        ...assignees.flatMap((assignee) => [assignee.full_name, assignee.email]),
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+
+      return haystack.includes(q);
+    });
+  }, [tasks, searchValue]);
+
+  const visibleGroupedTasks = useMemo(
+    () => groupByColumn(filteredTasks, columns),
+    [filteredTasks, columns],
+  );
+
   function getWorkflowColumnIdForStatus(
     status: TaskStatus,
     boardColumns: BoardColumnView[] = columns,
   ) {
+    const workflowLabel = COLUMNS.find((column) => column.status === status)?.label;
     const exact = boardColumns.find(
-      (column) => column.status === status && column.columnId,
+      (column) =>
+        column.status === status &&
+        column.columnId &&
+        workflowLabel &&
+        column.label.trim().toLowerCase() === workflowLabel.toLowerCase(),
     );
     return exact?.columnId ?? null;
   }
@@ -1027,6 +1173,31 @@ export default function BoardViewPage() {
             </div>
           </div>
 
+          <div className="hidden min-w-64 max-w-sm flex-1 items-center md:flex">
+            <div className="relative w-full">
+              <Search
+                size={14}
+                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-white/25"
+              />
+              <input
+                value={searchValue}
+                onChange={(event) => setSearchValue(event.target.value)}
+                placeholder="Search cards, members, labels..."
+                className="w-full rounded-xl border border-white/10 bg-white/5 py-2 pl-9 pr-9 text-sm text-white outline-none transition placeholder:text-white/25 focus:border-orange-500/40 focus:bg-white/8"
+              />
+              {searchValue && (
+                <button
+                  type="button"
+                  onClick={() => setSearchValue("")}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1 text-white/30 transition hover:bg-white/10 hover:text-white"
+                  aria-label="Clear card search"
+                >
+                  <X size={13} />
+                </button>
+              )}
+            </div>
+          </div>
+
           <div className="flex items-center gap-2 shrink-0">
             {!loading && stats && (
               <div className="hidden md:flex items-center gap-3 rounded-xl border border-white/10 bg-white/4 px-4 py-2 text-xs text-white/50">
@@ -1052,6 +1223,31 @@ export default function BoardViewPage() {
           </div>
         </div>
 
+        <div className="border-b border-white/10 bg-[#080808] px-5 py-3 md:hidden">
+          <div className="relative">
+            <Search
+              size={14}
+              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-white/25"
+            />
+            <input
+              value={searchValue}
+              onChange={(event) => setSearchValue(event.target.value)}
+              placeholder="Search cards..."
+              className="w-full rounded-xl border border-white/10 bg-white/5 py-2 pl-9 pr-9 text-sm text-white outline-none transition placeholder:text-white/25 focus:border-orange-500/40 focus:bg-white/8"
+            />
+            {searchValue && (
+              <button
+                type="button"
+                onClick={() => setSearchValue("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1 text-white/30 transition hover:bg-white/10 hover:text-white"
+                aria-label="Clear card search"
+              >
+                <X size={13} />
+              </button>
+            )}
+          </div>
+        </div>
+
         {/* ── Board + Sidebar ── */}
         <div className="flex flex-1 overflow-hidden">
           {/* Kanban */}
@@ -1069,7 +1265,7 @@ export default function BoardViewPage() {
                   <KanbanColumn
                     key={col.id}
                     {...col}
-                    tasks={groupedTasks[col.columnId ?? col.status] ?? []}
+                    tasks={visibleGroupedTasks[col.columnId ?? col.status] ?? []}
                     onOpen={handleOpenTask}
                     onDelete={handleDeleteTask}
                     onAddCard={handleAddCard}

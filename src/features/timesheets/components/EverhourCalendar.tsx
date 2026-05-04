@@ -146,6 +146,7 @@ export default function EverhourCalendar({
             hasImported: projects.some((project) =>
               project.source === "trello_import" ||
               project.source === "everhour_import" ||
+              project.source === "everhour" ||
               project.source === "imported"
             ),
             projects,
@@ -193,6 +194,7 @@ export default function EverhourCalendar({
               hasImported:
                 entry.source === "trello_import" ||
                 entry.source === "everhour_import" ||
+                entry.source === "everhour" ||
                 entry.entry_type === "imported",
               projects: [
                 {

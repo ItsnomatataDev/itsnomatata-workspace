@@ -11,7 +11,7 @@ export type TimeEntryApprovalStatus = "pending" | "approved" | "rejected";
 export interface TimeEntryItem {
   id: string;
   organization_id: string;
-  user_id: string;
+  user_id: string | null;
   task_id: string | null;
   project_id: string | null;
   client_id: string | null;
@@ -26,8 +26,11 @@ export interface TimeEntryItem {
   source_entry_id?: string | null;
   source_card_id?: string | null;
   source_board_id?: string | null;
+  source_task_id?: string | null;
+  source_project_id?: string | null;
   source_user_id?: string | null;
   source_user_name?: string | null;
+  source_user_email?: string | null;
   is_billable: boolean;
   hourly_rate_snapshot: number | null;
   cost_amount: number | null;
@@ -37,6 +40,9 @@ export interface TimeEntryItem {
   invoice_id: string | null;
   locked_at: string | null;
   metadata: Record<string, unknown>;
+  deleted_at?: string | null;
+  deleted_by?: string | null;
+  delete_reason?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -52,6 +58,8 @@ export interface StartTimeEntryInput {
   isBillable?: boolean;
   source?: string | null;
   metadata?: Record<string, unknown>;
+  actorUserId?: string | null;
+  reason?: string | null;
 }
 
 export interface ManualTimeEntryInput {
@@ -67,6 +75,8 @@ export interface ManualTimeEntryInput {
   isBillable?: boolean;
   source?: string | null;
   metadata?: Record<string, unknown>;
+  actorUserId?: string | null;
+  reason?: string | null;
 }
 
 export interface UpdateTimeEntryInput {
@@ -79,6 +89,20 @@ export interface UpdateTimeEntryInput {
   campaign_id?: string | null;
   is_billable?: boolean;
   metadata?: Record<string, unknown>;
+}
+
+export interface TimeEntryAuditLogItem {
+  id: string;
+  organization_id: string;
+  time_entry_id: string | null;
+  task_id: string | null;
+  actor_user_id: string | null;
+  target_user_id: string | null;
+  action: "created" | "updated" | "deleted" | "restored" | "imported" | "mapped_user";
+  previous_data: Record<string, unknown> | null;
+  new_data: Record<string, unknown> | null;
+  reason: string | null;
+  created_at: string;
 }
 
 interface TaskContextRow {
@@ -139,9 +163,40 @@ const TIME_ENTRY_SELECT = `
   invoice_id,
   locked_at,
   metadata,
+  deleted_at,
+  deleted_by,
+  delete_reason,
   created_at,
   updated_at
 `;
+
+async function writeTimeEntryAuditLog(params: {
+  organizationId: string;
+  timeEntryId?: string | null;
+  taskId?: string | null;
+  actorUserId?: string | null;
+  targetUserId?: string | null;
+  action: TimeEntryAuditLogItem["action"];
+  previousData?: Record<string, unknown> | null;
+  newData?: Record<string, unknown> | null;
+  reason?: string | null;
+}) {
+  if (!params.actorUserId) return;
+  const { error } = await supabase.from("time_entry_audit_logs").insert({
+    organization_id: params.organizationId,
+    time_entry_id: params.timeEntryId ?? null,
+    task_id: params.taskId ?? null,
+    actor_user_id: params.actorUserId,
+    target_user_id: params.targetUserId ?? null,
+    action: params.action,
+    previous_data: params.previousData ?? null,
+    new_data: params.newData ?? null,
+    reason: params.reason ?? null,
+  });
+  if (error) {
+    console.warn("TIME ENTRY AUDIT SKIPPED:", error.message);
+  }
+}
 
 async function getTaskContext(taskId: string): Promise<TaskContextRow> {
   const { data, error } = await supabase
@@ -260,6 +315,7 @@ export async function syncTaskTrackedSecondsCache(params: {
     .select("duration_seconds")
     .eq("organization_id", params.organizationId)
     .eq("task_id", params.taskId)
+    .is("deleted_at", null)
     .not("duration_seconds", "is", null);
 
   if (timeError) {
@@ -298,6 +354,7 @@ async function ensureNoOtherRunningEntry(params: {
     .eq("organization_id", params.organizationId)
     .eq("user_id", params.userId)
     .is("ended_at", null)
+    .is("deleted_at", null)
     .limit(1);
 
   if (params.ignoreEntryId) {
@@ -330,6 +387,7 @@ export const getActiveTimeEntry = async ({
     .eq("organization_id", organizationId)
     .eq("user_id", userId)
     .is("ended_at", null)
+    .is("deleted_at", null)
     .order("started_at", { ascending: false })
     .maybeSingle();
 
@@ -367,6 +425,7 @@ export const getTimeEntriesForUser = async ({
     .select(TIME_ENTRY_SELECT)
     .eq("organization_id", organizationId)
     .eq("user_id", userId)
+    .is("deleted_at", null)
     .order("started_at", { ascending: false });
 
   if (startDate) {
@@ -438,6 +497,7 @@ export const startTimeEntry = async (
       duration_seconds: 0,
       is_billable: payload.isBillable ?? false,
       source: payload.source ?? "timer",
+      entry_type: "timer",
       metadata: payload.metadata ?? {},
     })
     .select(TIME_ENTRY_SELECT)
@@ -447,7 +507,19 @@ export const startTimeEntry = async (
     throw new Error(error.message);
   }
 
-  return data as TimeEntryItem;
+  const result = data as TimeEntryItem;
+  await writeTimeEntryAuditLog({
+    organizationId: result.organization_id,
+    timeEntryId: result.id,
+    taskId: result.task_id,
+    actorUserId: payload.actorUserId ?? payload.userId,
+    targetUserId: payload.userId,
+    action: "created",
+    newData: result as unknown as Record<string, unknown>,
+    reason: payload.reason ?? "timer_started",
+  });
+
+  return result;
 };
 
 export const stopTimeEntry = async (
@@ -639,6 +711,7 @@ export const createManualTimeEntry = async (
       ),
       is_billable: payload.isBillable ?? false,
       source: payload.source ?? "manual",
+      entry_type: "manual",
       metadata: payload.metadata ?? {},
     })
     .select(TIME_ENTRY_SELECT)
@@ -649,6 +722,16 @@ export const createManualTimeEntry = async (
   }
 
   const result = data as TimeEntryItem;
+  await writeTimeEntryAuditLog({
+    organizationId: result.organization_id,
+    timeEntryId: result.id,
+    taskId: result.task_id,
+    actorUserId: payload.actorUserId ?? payload.userId,
+    targetUserId: payload.userId,
+    action: "created",
+    newData: result as unknown as Record<string, unknown>,
+    reason: payload.reason ?? "manual_time_added",
+  });
 
   // Log task update when time is tracked against a task
   if (result.task_id) {
@@ -677,9 +760,13 @@ export const createManualTimeEntry = async (
 export const updateTimeEntry = async ({
   entryId,
   payload,
+  actorUserId,
+  reason,
 }: {
   entryId: string;
   payload: UpdateTimeEntryInput;
+  actorUserId?: string | null;
+  reason?: string | null;
 }): Promise<TimeEntryItem> => {
   if (!entryId) {
     throw new Error("entryId is required");
@@ -748,6 +835,17 @@ export const updateTimeEntry = async ({
   }
 
   const result = data as TimeEntryItem;
+  await writeTimeEntryAuditLog({
+    organizationId: result.organization_id,
+    timeEntryId: result.id,
+    taskId: result.task_id,
+    actorUserId,
+    targetUserId: result.user_id,
+    action: "updated",
+    previousData: current as unknown as Record<string, unknown>,
+    newData: result as unknown as Record<string, unknown>,
+    reason: reason ?? null,
+  });
 
   if (result.task_id) {
     try {
@@ -763,14 +861,22 @@ export const updateTimeEntry = async ({
   return result;
 };
 
-export const deleteTimeEntry = async (entryId: string): Promise<void> => {
+export const softDeleteTimeEntry = async ({
+  entryId,
+  actorUserId,
+  reason,
+}: {
+  entryId: string;
+  actorUserId?: string | null;
+  reason?: string | null;
+}): Promise<void> => {
   if (!entryId) {
     throw new Error("entryId is required");
   }
 
   const { data: existing, error: existingError } = await supabase
     .from("time_entries")
-    .select("organization_id, task_id")
+    .select(TIME_ENTRY_SELECT)
     .eq("id", entryId)
     .maybeSingle();
 
@@ -778,14 +884,37 @@ export const deleteTimeEntry = async (entryId: string): Promise<void> => {
     throw new Error(existingError.message);
   }
 
-  const { error } = await supabase
+  if (!existing) return;
+
+  const deletedAt = new Date().toISOString();
+  const { data: updated, error } = await supabase
     .from("time_entries")
-    .delete()
-    .eq("id", entryId);
+    .update({
+      deleted_at: deletedAt,
+      deleted_by: actorUserId ?? null,
+      delete_reason: reason ?? "Removed from card time",
+      is_running: false,
+      ended_at: existing.ended_at ?? deletedAt,
+    })
+    .eq("id", entryId)
+    .select(TIME_ENTRY_SELECT)
+    .single();
 
   if (error) {
     throw new Error(error.message);
   }
+
+  await writeTimeEntryAuditLog({
+    organizationId: existing.organization_id,
+    timeEntryId: existing.id,
+    taskId: existing.task_id,
+    actorUserId,
+    targetUserId: existing.user_id,
+    action: "deleted",
+    previousData: existing as unknown as Record<string, unknown>,
+    newData: updated as unknown as Record<string, unknown>,
+    reason: reason ?? "Removed from card time",
+  });
 
   if (existing?.task_id) {
     try {
@@ -798,6 +927,95 @@ export const deleteTimeEntry = async (entryId: string): Promise<void> => {
     }
   }
 };
+
+export const deleteTimeEntry = async (
+  entryId: string,
+  options?: { actorUserId?: string | null; reason?: string | null },
+): Promise<void> => {
+  await softDeleteTimeEntry({
+    entryId,
+    actorUserId: options?.actorUserId,
+    reason: options?.reason,
+  });
+};
+
+export const restoreTimeEntry = async ({
+  entryId,
+  actorUserId,
+  reason,
+}: {
+  entryId: string;
+  actorUserId?: string | null;
+  reason?: string | null;
+}): Promise<TimeEntryItem> => {
+  const { data: existing, error: existingError } = await supabase
+    .from("time_entries")
+    .select(TIME_ENTRY_SELECT)
+    .eq("id", entryId)
+    .single();
+
+  if (existingError) throw new Error(existingError.message);
+
+  const { data, error } = await supabase
+    .from("time_entries")
+    .update({
+      deleted_at: null,
+      deleted_by: null,
+      delete_reason: null,
+    })
+    .eq("id", entryId)
+    .select(TIME_ENTRY_SELECT)
+    .single();
+
+  if (error) throw new Error(error.message);
+
+  const result = data as TimeEntryItem;
+  await writeTimeEntryAuditLog({
+    organizationId: result.organization_id,
+    timeEntryId: result.id,
+    taskId: result.task_id,
+    actorUserId,
+    targetUserId: result.user_id,
+    action: "restored",
+    previousData: existing as unknown as Record<string, unknown>,
+    newData: result as unknown as Record<string, unknown>,
+    reason: reason ?? "Time entry restored",
+  });
+
+  if (result.task_id) {
+    await syncTaskTrackedSecondsCache({
+      organizationId: result.organization_id,
+      taskId: result.task_id,
+    }).catch((cacheErr) => {
+      console.warn("Failed to sync task tracked time cache:", cacheErr);
+    });
+  }
+
+  return result;
+};
+
+export async function getTimeEntryAuditLogs(params: {
+  organizationId: string;
+  taskId?: string | null;
+  timeEntryId?: string | null;
+  limit?: number;
+}): Promise<TimeEntryAuditLogItem[]> {
+  let query = supabase
+    .from("time_entry_audit_logs")
+    .select("*")
+    .eq("organization_id", params.organizationId)
+    .order("created_at", { ascending: false })
+    .limit(params.limit ?? 100);
+
+  if (params.taskId) query = query.eq("task_id", params.taskId);
+  if (params.timeEntryId) query = query.eq("time_entry_id", params.timeEntryId);
+
+  const { data, error } = await query;
+  if (error) throw new Error(error.message);
+  return (data ?? []) as TimeEntryAuditLogItem[];
+}
+
+export const recalculateCardTotalTime = syncTaskTrackedSecondsCache;
 
 export async function getProjects(
   params: GetProjectsParams,
