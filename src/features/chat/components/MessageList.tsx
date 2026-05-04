@@ -106,7 +106,7 @@ export default function MessageList({
           >
             <div
               className={[
-                "max-w-[82%] rounded-2xl px-4 py-3 text-sm shadow-sm",
+                "max-w-[92%] overflow-hidden rounded-2xl px-4 py-3 text-sm shadow-sm sm:max-w-[82%]",
                 isMine
                   ? "bg-orange-500 text-black"
                   : "border border-white/10 bg-white/10 text-white",
@@ -160,9 +160,11 @@ export default function MessageList({
                     href={message.attachment_url}
                     target="_blank"
                     rel="noreferrer"
-                    className="inline-flex rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm underline"
+                    className="inline-flex max-w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm underline"
                   >
-                    {message.attachment_name || "Open attachment"}
+                    <span className="truncate">
+                      {message.attachment_name || "Open attachment"}
+                    </span>
                   </a>
                   {message.body ? (
                     <p className="whitespace-pre-wrap wrap-break-word">

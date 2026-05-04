@@ -262,14 +262,14 @@ function LivekitMeetingControls({
   }
 
   return (
-    <div className="border border-white/10 bg-black p-4">
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+    <div className="border border-white/10 bg-black p-3 sm:p-4">
+      <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-5">
         <button
           type="button"
           onClick={() => void toggleMic()}
           disabled={busy === "mic"}
           className={[
-            "inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold transition",
+            "inline-flex items-center justify-center gap-2 rounded-2xl px-3 py-3 text-sm font-semibold transition sm:px-4",
             isMuted
               ? "bg-red-500 text-white hover:bg-red-400"
               : "border border-white/10 bg-neutral-950 text-white hover:border-orange-500/30 hover:bg-orange-500/5",
@@ -284,7 +284,7 @@ function LivekitMeetingControls({
           onClick={() => void toggleCamera()}
           disabled={busy === "camera"}
           className={[
-            "inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold transition",
+            "inline-flex items-center justify-center gap-2 rounded-2xl px-3 py-3 text-sm font-semibold transition sm:px-4",
             !isCameraOn
               ? "bg-red-500 text-white hover:bg-red-400"
               : "border border-white/10 bg-neutral-950 text-white hover:border-orange-500/30 hover:bg-orange-500/5",
@@ -299,7 +299,7 @@ function LivekitMeetingControls({
           onClick={() => void toggleScreenShare()}
           disabled={busy === "screen"}
           className={[
-            "inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold transition",
+            "inline-flex items-center justify-center gap-2 rounded-2xl px-3 py-3 text-sm font-semibold transition sm:px-4",
             isScreenSharing
               ? "bg-orange-500 text-black hover:bg-orange-400"
               : "border border-white/10 bg-neutral-950 text-white hover:border-orange-500/30 hover:bg-orange-500/5",
@@ -319,7 +319,7 @@ function LivekitMeetingControls({
             End meeting
           </button>
         ) : (
-          <div />
+          <div className="hidden lg:block" />
         )}
 
         <button
@@ -633,10 +633,10 @@ export default function MeetingRoomPage() {
   }
 
   return (
-    <div className="min-h-full bg-black text-white">
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
+    <div className="min-h-full bg-black p-3 text-white sm:p-0">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px] xl:gap-6">
         <section className="space-y-5">
-          <div className="border border-white/10 bg-black px-6 py-6">
+          <div className="border border-white/10 bg-black px-4 py-5 sm:px-6 sm:py-6">
             <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
               <div className="max-w-3xl">
                 <div className="inline-flex items-center gap-2 border border-orange-500/20 bg-orange-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.25em] text-orange-300">
@@ -645,7 +645,7 @@ export default function MeetingRoomPage() {
                     : "Audio room"}
                 </div>
 
-                <h1 className="mt-4 text-3xl font-bold">
+                <h1 className="mt-4 text-2xl font-bold sm:text-3xl">
                   {meeting.title || "Meeting room"}
                 </h1>
 
@@ -662,11 +662,11 @@ export default function MeetingRoomPage() {
                   </span>
                 </div>
 
-                <div className="flex items-center gap-2 border border-white/10 bg-neutral-950 px-3 py-3">
+                <div className="flex min-w-0 items-center gap-2 border border-white/10 bg-neutral-950 px-3 py-3">
                   <input
                     value={joinLink}
                     readOnly
-                    className="w-55 bg-transparent text-xs text-white/60 outline-none"
+                    className="min-w-0 flex-1 bg-transparent text-xs text-white/60 outline-none"
                   />
                   <button
                     type="button"
@@ -687,13 +687,13 @@ export default function MeetingRoomPage() {
             </div>
           ) : null}
 
-          <div className="border border-white/10 bg-black p-4">
+          <div className="border border-white/10 bg-black p-2 sm:p-4">
             {!livekitSession ? (
-              <div className="flex min-h-[420px] items-center justify-center text-white/40">
+              <div className="flex min-h-[280px] items-center justify-center text-white/40 sm:min-h-[420px]">
                 Connecting to meeting media...
               </div>
             ) : (
-              <div data-lk-theme="default" className="min-h-[420px]">
+              <div data-lk-theme="default" className="min-h-[280px] sm:min-h-[420px]">
                 <LiveKitRoom
                   token={livekitSession.token}
                   serverUrl={livekitSession.url}
@@ -778,7 +778,7 @@ export default function MeetingRoomPage() {
           </div>
         </section>
 
-        <aside className="flex flex-col border border-white/10 bg-black p-4">
+        <aside className="flex max-h-[70dvh] min-h-[360px] flex-col border border-white/10 bg-black p-4 xl:max-h-none">
           <div className="border-b border-white/10 pb-4">
             <h2 className="text-lg font-semibold">Meeting chat</h2>
             <p className="mt-1 text-sm text-white/45">
@@ -845,13 +845,13 @@ export default function MeetingRoomPage() {
                   }
                 }}
                 placeholder="Type a message..."
-                className="flex-1 rounded-2xl border border-white/10 bg-neutral-950 px-4 py-3 text-sm text-white outline-none placeholder:text-white/25 focus:border-orange-500"
+                className="min-w-0 flex-1 rounded-2xl border border-white/10 bg-neutral-950 px-4 py-3 text-sm text-white outline-none placeholder:text-white/25 focus:border-orange-500"
               />
               <button
                 type="button"
                 onClick={() => void handleSendMessage()}
                 disabled={!chatInput.trim() || sending}
-                className="inline-flex items-center gap-2 rounded-2xl bg-orange-500 px-4 py-3 text-sm font-semibold text-black transition hover:bg-orange-400 disabled:opacity-50"
+                className="inline-flex shrink-0 items-center gap-2 rounded-2xl bg-orange-500 px-3 py-3 text-sm font-semibold text-black transition hover:bg-orange-400 disabled:opacity-50 sm:px-4"
               >
                 <SendHorizontal size={16} />
                 Send

@@ -59,6 +59,7 @@ export default function ChatSidebar({
   onNewChat,
   loading,
   currentUserId,
+  className = "",
 }: {
   conversations: ChatConversation[];
   activeConversationId: string | null;
@@ -66,9 +67,15 @@ export default function ChatSidebar({
   onNewChat: () => void;
   loading: boolean;
   currentUserId?: string | null;
+  className?: string;
 }) {
   return (
-    <aside className="flex w-full max-w-sm flex-col border-r border-white/10 bg-black/40">
+    <aside
+      className={[
+        "flex w-full flex-col border-r border-white/10 bg-black/40 md:max-w-sm",
+        className,
+      ].join(" ")}
+    >
       <div className="border-b border-white/10 px-5 py-4">
         <div className="flex items-center justify-between gap-3">
           <div>

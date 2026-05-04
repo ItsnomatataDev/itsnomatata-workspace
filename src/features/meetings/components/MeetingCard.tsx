@@ -31,8 +31,8 @@ export default function MeetingCard({
   const participantCount = meeting.participants?.length ?? 0;
 
   return (
-    <div className="border border-white/10 bg-black p-6 text-white transition duration-300 hover:border-orange-500/25 hover:bg-neutral-950">
-      <div className="flex items-start justify-between gap-4">
+    <div className="border border-white/10 bg-black p-4 text-white transition duration-300 hover:border-orange-500/25 hover:bg-neutral-950 sm:p-6">
+      <div className="flex items-start justify-between gap-3 sm:gap-4">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <span
@@ -58,7 +58,7 @@ export default function MeetingCard({
           </p>
         </div>
 
-        <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-orange-500/15 bg-orange-500/10">
+        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-orange-500/15 bg-orange-500/10 sm:h-14 sm:w-14">
           {meeting.meeting_type === "video" ? (
             <Video size={22} className="text-orange-400" />
           ) : (
@@ -88,7 +88,7 @@ export default function MeetingCard({
         </div>
       </div>
 
-      <div className="mt-6 flex items-center justify-between gap-4">
+      <div className="mt-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <p className="truncate text-xs text-white/30">
           Room code: <span className="text-white/55">{meeting.room_code}</span>
         </p>
@@ -96,7 +96,7 @@ export default function MeetingCard({
         <button
           type="button"
           onClick={() => onJoin(meeting.id)}
-          className="inline-flex items-center gap-2 rounded-2xl bg-orange-500 px-4 py-2.5 text-sm font-semibold text-black transition hover:bg-orange-400"
+          className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-orange-500 px-4 py-2.5 text-sm font-semibold text-black transition hover:bg-orange-400 sm:w-auto"
         >
           Join
           <ArrowRight size={16} />

@@ -102,7 +102,7 @@ export default function SignupPage() {
   return (
     <div className="min-h-screen bg-black text-white">
       <div className="grid min-h-screen lg:grid-cols-2">
-        <div className="hidden lg:flex flex-col justify-between border-r border-orange-500/20 bg-linear-to-br from-black via-black to-orange-950/20 p-10">
+        <div className="hidden flex-col justify-between border-r border-orange-500/20 bg-linear-to-br from-black via-black to-orange-950/20 p-10 lg:flex">
           <div>
             <div className="inline-flex items-center border border-orange-500/40 px-4 py-2 text-sm text-orange-400">
               ITs Nomatata Workspace
@@ -119,8 +119,8 @@ export default function SignupPage() {
           </div>
         </div>
 
-        <div className="flex items-center justify-center p-6">
-          <div className="w-full max-w-md border border-orange-500/20 bg-white/5 p-8 shadow-2xl">
+        <div className="flex items-center justify-center p-4 sm:p-6">
+          <div className="w-full max-w-md border border-orange-500/20 bg-white/5 p-5 shadow-2xl sm:p-8">
             <div className="mb-8">
               <h2 className="text-3xl font-bold text-white">Create Account</h2>
               <p className="mt-2 text-sm text-white/60">

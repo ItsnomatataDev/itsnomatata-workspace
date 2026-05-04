@@ -301,89 +301,58 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let mounted = true;
     let presenceInterval: ReturnType<typeof setInterval> | null = null;
-
-    const initialize = async () => {
-      try {
-        setLoading(true);
-
-        const {
-          data: { session },
-          error,
-        } = await supabase.auth.getSession();
-
-        if (error) {
-          console.error("GET SESSION ERROR:", error);
-        }
-
-        if (!mounted) return;
-
-        await loadAuthenticatedUser(session?.user ?? null);
-
-        if (session?.user) {
-          presenceInterval = setInterval(() => {
-            void touchUserPresence(session.user);
-          }, 60000);
-        }
-      } catch (err) {
-        console.error("AUTH INITIALIZE ERROR:", err);
-        if (mounted) {
-          setUser(null);
-          setProfile(null);
-        }
-      } finally {
-        if (mounted) {
-          setLoading(false);
-        }
-      }
-    };
-
-    void initialize();
+    let authStateTimeout: ReturnType<typeof setTimeout> | null = null;
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
       const sessionUser = session?.user ?? null;
 
-      if (presenceInterval) {
-        clearInterval(presenceInterval);
-        presenceInterval = null;
-      }
+      if (authStateTimeout) clearTimeout(authStateTimeout);
 
-      void (async () => {
-        if (!mounted) return;
-
-        try {
-          setLoading(true);
-
-          if (event === "SIGNED_OUT") {
-            setUser(null);
-            setProfile(null);
-            return;
-          }
-
-          await loadAuthenticatedUser(sessionUser);
-
-          if (sessionUser) {
-            presenceInterval = setInterval(() => {
-              void touchUserPresence(sessionUser);
-            }, 60000);
-          }
-        } catch (err) {
-          console.error("AUTH STATE CHANGE ERROR:", err);
-          if (mounted) {
-            setUser(sessionUser);
-            setProfile(null);
-          }
-        } finally {
-          if (mounted) {
-            setLoading(false);
-          }
+      authStateTimeout = setTimeout(() => {
+        if (presenceInterval) {
+          clearInterval(presenceInterval);
+          presenceInterval = null;
         }
-      })();
+
+        void (async () => {
+          if (!mounted) return;
+
+          try {
+            setLoading(true);
+
+            if (event === "SIGNED_OUT") {
+              setUser(null);
+              setProfile(null);
+              return;
+            }
+
+            await loadAuthenticatedUser(sessionUser);
+
+            if (sessionUser) {
+              presenceInterval = setInterval(() => {
+                void touchUserPresence(sessionUser);
+              }, 60000);
+            }
+          } catch (err) {
+            console.error("AUTH STATE CHANGE ERROR:", err);
+            if (mounted) {
+              setUser(sessionUser);
+              setProfile(null);
+            }
+          } finally {
+            if (mounted) {
+              setLoading(false);
+            }
+          }
+        })();
+      }, 0);
     });
 
     return () => {
       mounted = false;
+      if (authStateTimeout) clearTimeout(authStateTimeout);
       if (presenceInterval) clearInterval(presenceInterval);
       subscription.unsubscribe();
     };

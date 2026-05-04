@@ -424,7 +424,7 @@ export default function Sidebar({
   );
 
   return (
-    <>
+    <div className="app-sidebar-shell w-full shrink-0 lg:contents">
       <div className="sticky top-0 z-40 flex items-center justify-between border-b border-white/10 bg-black px-4 py-4 lg:hidden">
         <button
           type="button"
@@ -460,6 +460,6 @@ export default function Sidebar({
       <aside className="sticky top-0 hidden h-screen w-72 shrink-0 flex-col border-r border-white/10 bg-black lg:flex">
         {sidebarContent}
       </aside>
-    </>
+    </div>
   );
 }

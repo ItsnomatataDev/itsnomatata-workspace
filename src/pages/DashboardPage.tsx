@@ -208,7 +208,7 @@ export default function DashboardPage() {
     };
 
     fetchAdminSummary();
-    const interval = setInterval(fetchAdminSummary, 10000);
+    const interval = setInterval(fetchAdminSummary, 60000);
     return () => clearInterval(interval);
   }, [organizationId, isAdminView]);
 

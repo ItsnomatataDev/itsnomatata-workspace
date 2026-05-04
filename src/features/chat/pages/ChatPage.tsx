@@ -705,10 +705,11 @@ export default function ChatPage() {
     .slice(0, 2)
     .map((item) => item[0]?.toUpperCase() ?? "")
     .join("");
+  const hasActiveConversation = Boolean(activeConversationId);
 
   return (
     <>
-      <div className="flex h-[calc(100vh-2rem)] overflow-hidden border border-white/10 bg-neutral-950">
+      <div className="flex h-[100dvh] overflow-hidden border border-white/10 bg-neutral-950 md:h-[calc(100vh-2rem)]">
         <ChatSidebar
           conversations={conversations}
           activeConversationId={activeConversationId}
@@ -716,18 +717,36 @@ export default function ChatPage() {
           onNewChat={() => setNewChatOpen(true)}
           loading={loadingConversations}
           currentUserId={user?.id}
+          className={hasActiveConversation ? "hidden md:flex" : "flex"}
         />
 
-        <section className="flex min-w-0 flex-1 flex-col text-white">
-          <div className="border-b border-white/10 px-5 py-4">
+        <section
+          className={[
+            "min-w-0 flex-1 flex-col text-white",
+            hasActiveConversation ? "flex" : "hidden md:flex",
+          ].join(" ")}
+        >
+          <div className="border-b border-white/10 px-4 py-3 sm:px-5 sm:py-4">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              {hasActiveConversation ? (
+                <button
+                  type="button"
+                  onClick={handleCloseChat}
+                  className="inline-flex items-center gap-2 border border-white/10 bg-white/5 px-3 py-2 text-sm font-medium text-white transition hover:border-orange-500/40 hover:text-orange-300 md:hidden"
+                >
+                  <ArrowLeft size={16} />
+                  Chats
+                </button>
+              ) : null}
+
               <button
                 type="button"
                 onClick={() => navigate("/dashboard")}
-                className="inline-flex items-center gap-2 border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-white transition hover:border-orange-500/40 hover:text-orange-300"
+                className="inline-flex items-center gap-2 border border-white/10 bg-white/5 px-3 py-2 text-sm font-medium text-white transition hover:border-orange-500/40 hover:text-orange-300 sm:px-4"
               >
                 <ArrowLeft size={16} />
-                Back to Dashboard
+                <span className="hidden sm:inline">Back to Dashboard</span>
+                <span className="sm:hidden">Dashboard</span>
               </button>
 
               {activeConversationId ? (
@@ -789,7 +808,7 @@ export default function ChatPage() {
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto px-5 py-4">
+          <div className="flex-1 overflow-y-auto px-3 py-4 sm:px-5">
             {error ? (
               <div className="mb-4 border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">
                 {error}

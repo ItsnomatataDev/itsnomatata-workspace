@@ -2,6 +2,7 @@ import { useState } from "react";
 import { X } from "lucide-react";
 import {
   createDutyRosterEntry,
+  createWeeklyDutyRosterEntries,
   type ProfileRosterUserRow,
 } from "../services/adminService";
 
@@ -9,6 +10,7 @@ type CreateRosterEntryModalProps = {
   open: boolean;
   onClose: () => void;
   rosterId: string;
+  weekStart?: string | null;
   users: ProfileRosterUserRow[];
   onCreated: () => Promise<void> | void;
 };
@@ -17,9 +19,13 @@ export default function CreateRosterEntryModal({
   open,
   onClose,
   rosterId,
+  weekStart,
   users,
   onCreated,
 }: CreateRosterEntryModalProps) {
+  const [assignmentMode, setAssignmentMode] = useState<"single" | "week">(
+    "single",
+  );
   const [userId, setUserId] = useState("");
   const [shiftDate, setShiftDate] = useState("");
   const [shiftName, setShiftName] = useState("");
@@ -38,15 +44,31 @@ export default function CreateRosterEntryModal({
     try {
       setBusy(true);
 
-      await createDutyRosterEntry({
-        rosterId,
-        userId,
-        shiftDate,
-        shiftName,
-        startTime: startTime || null,
-        endTime: endTime || null,
-        notes,
-      });
+      if (assignmentMode === "week") {
+        if (!weekStart) {
+          throw new Error("Select a roster with a week start first.");
+        }
+
+        await createWeeklyDutyRosterEntries({
+          rosterId,
+          userId,
+          weekStart,
+          shiftName,
+          startTime: startTime || null,
+          endTime: endTime || null,
+          notes,
+        });
+      } else {
+        await createDutyRosterEntry({
+          rosterId,
+          userId,
+          shiftDate,
+          shiftName,
+          startTime: startTime || null,
+          endTime: endTime || null,
+          notes,
+        });
+      }
 
       await onCreated();
       onClose();
@@ -57,6 +79,7 @@ export default function CreateRosterEntryModal({
       setStartTime("");
       setEndTime("");
       setNotes("");
+      setAssignmentMode("single");
     } catch (err: any) {
       console.error("CREATE ROSTER ENTRY ERROR:", err);
       setError(err?.message || "Failed to add roster entry.");
@@ -67,7 +90,7 @@ export default function CreateRosterEntryModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-      <div className="w-full max-w-xl rounded-3xl border border-white/10 bg-zinc-950 p-6 shadow-2xl">
+      <div className="max-h-[92dvh] w-full max-w-xl overflow-y-auto rounded-3xl border border-white/10 bg-zinc-950 p-5 shadow-2xl sm:p-6">
         <div className="mb-6 flex items-center justify-between">
           <div>
             <h2 className="text-xl font-bold text-white">Add Shift</h2>
@@ -92,6 +115,33 @@ export default function CreateRosterEntryModal({
         ) : null}
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={() => setAssignmentMode("single")}
+              className={[
+                "rounded-2xl border px-4 py-3 text-left text-sm transition",
+                assignmentMode === "single"
+                  ? "border-orange-500 bg-orange-500/10 text-white"
+                  : "border-white/10 bg-black text-white/60 hover:bg-white/5",
+              ].join(" ")}
+            >
+              Single day
+            </button>
+            <button
+              type="button"
+              onClick={() => setAssignmentMode("week")}
+              className={[
+                "rounded-2xl border px-4 py-3 text-left text-sm transition",
+                assignmentMode === "week"
+                  ? "border-orange-500 bg-orange-500/10 text-white"
+                  : "border-white/10 bg-black text-white/60 hover:bg-white/5",
+              ].join(" ")}
+            >
+              Whole week duty
+            </button>
+          </div>
+
           <div>
             <label className="mb-2 block text-sm text-white/70">Employee</label>
             <select
@@ -109,18 +159,25 @@ export default function CreateRosterEntryModal({
             </select>
           </div>
 
-          <div>
-            <label className="mb-2 block text-sm text-white/70">
-              Shift Date
-            </label>
-            <input
-              type="date"
-              value={shiftDate}
-              onChange={(e) => setShiftDate(e.target.value)}
-              required
-              className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 text-white outline-none focus:border-orange-500"
-            />
-          </div>
+          {assignmentMode === "single" ? (
+            <div>
+              <label className="mb-2 block text-sm text-white/70">
+                Shift Date
+              </label>
+              <input
+                type="date"
+                value={shiftDate}
+                onChange={(e) => setShiftDate(e.target.value)}
+                required
+                className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 text-white outline-none focus:border-orange-500"
+              />
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-orange-500/20 bg-orange-500/10 px-4 py-3 text-sm text-orange-100">
+              This duty will be assigned every day for the roster week
+              {weekStart ? ` starting ${weekStart}` : ""}.
+            </div>
+          )}
 
           <div>
             <label className="mb-2 block text-sm text-white/70">
@@ -131,7 +188,9 @@ export default function CreateRosterEntryModal({
               value={shiftName}
               onChange={(e) => setShiftName(e.target.value)}
               required
-              placeholder="Morning Shift"
+              placeholder={
+                assignmentMode === "week" ? "Wash plates" : "Morning Shift"
+              }
               className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 text-white outline-none focus:border-orange-500"
             />
           </div>

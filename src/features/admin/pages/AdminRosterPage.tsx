@@ -9,6 +9,7 @@ import {
   getDutyRosters,
   getDutyRosterEntries,
   getOrganizationUsersForRoster,
+  ensureNextWeekDutyRosterRotation,
   type DutyRosterRow,
   type DutyRosterEntryRow,
   type ProfileRosterUserRow,
@@ -43,15 +44,27 @@ export default function AdminRosterPage() {
       setLoading(true);
       setError("");
 
-      const [rostersData, usersData] = await Promise.all([
+      let [rostersData, usersData] = await Promise.all([
         getDutyRosters(organizationId),
         getOrganizationUsersForRoster(organizationId),
       ]);
 
+      const generatedRoster = userId
+        ? await ensureNextWeekDutyRosterRotation({
+            organizationId,
+            createdBy: userId,
+          })
+        : null;
+
+      if (generatedRoster) {
+        rostersData = await getDutyRosters(organizationId);
+      }
+
       setRosters(rostersData);
       setUsers(usersData);
 
-      const rosterIdToUse = selectedRosterId || rostersData[0]?.id || "";
+      const rosterIdToUse =
+        selectedRosterId || generatedRoster?.id || rostersData[0]?.id || "";
       setSelectedRosterId(rosterIdToUse);
 
       if (rosterIdToUse) {
@@ -66,7 +79,7 @@ export default function AdminRosterPage() {
     } finally {
       setLoading(false);
     }
-  }, [organizationId, selectedRosterId]);
+  }, [organizationId, selectedRosterId, userId]);
 
   useEffect(() => {
     if (!organizationId) return;
@@ -234,6 +247,7 @@ export default function AdminRosterPage() {
         open={createEntryOpen}
         onClose={() => setCreateEntryOpen(false)}
         rosterId={selectedRosterId}
+        weekStart={selectedRoster?.week_start}
         users={users}
         onCreated={async () => {
           if (selectedRosterId) {

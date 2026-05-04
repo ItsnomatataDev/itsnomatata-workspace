@@ -1,17 +1,17 @@
 
 create table if not exists public.public_holidays (
-  id uuid primary key default gen_random_uuid(),
-  organization_id uuid not null references public.organizations(id) on delete cascade,
-  country_code text not null default 'ZW',
-  title text,
-  holiday_date date,
-  date date,
-  name text,
-  description text,
-  is_recurring boolean not null default false,
-  source text,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+id uuid primary key default gen_random_uuid(),
+organization_id uuid not null references public.organizations(id) on delete cascade,
+country_code text not null default 'ZW',
+title text,
+holiday_date date,
+date date,
+name text,
+description text,
+is_recurring boolean not null default false,
+source text,
+created_at timestamptz not null default now(),
+updated_at timestamptz not null default now()
 );
 
 alter table public.leave_requests

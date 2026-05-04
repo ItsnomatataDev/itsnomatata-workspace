@@ -26,9 +26,9 @@ export default function CreateMeetingModal({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/85 p-3 py-6 backdrop-blur-sm sm:p-4">
       <div className="w-full max-w-3xl border border-white/10 bg-black shadow-[0_20px_80px_rgba(0,0,0,0.65)]">
-        <div className="flex items-start justify-between gap-4 border-b border-white/10 px-7 py-6">
+        <div className="flex items-start justify-between gap-4 border-b border-white/10 px-4 py-5 sm:px-7 sm:py-6">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.3em] text-orange-400/80">
               Meetings
@@ -52,7 +52,7 @@ export default function CreateMeetingModal({
         </div>
 
         <form
-          className="space-y-6 px-7 py-7"
+          className="space-y-6 px-4 py-5 sm:px-7 sm:py-7"
           onSubmit={async (event) => {
             event.preventDefault();
 

@@ -25,7 +25,7 @@ export function useTeamTimesheetsRealtime(
         organizationId,
         from,
         to,
-        refreshIntervalMs = 2000,
+        refreshIntervalMs = 30000,
     }: UseTeamTimesheetsRealtimeProps,
 ) {
     const [entries, setEntries] = useState<AdminTimeEntryRow[]>([]);
@@ -43,13 +43,12 @@ export function useTeamTimesheetsRealtime(
             setLoading(true);
         }
         try {
-            await stopExpiredRunningTimersForOrganization(organizationId).catch(() => 0);
             const rows = await getAdminTimeEntries({
                 organizationId,
                 approvalStatus: "all",
                 from,
                 to,
-                limit: 5000,
+                limit: 1000,
             });
             setEntries(rows);
             setError(null);
@@ -62,6 +61,7 @@ export function useTeamTimesheetsRealtime(
 
     useEffect(() => {
         if (!organizationId) return;
+        void stopExpiredRunningTimersForOrganization(organizationId).catch(() => 0);
         loadEntries();
     }, [loadEntries]);
 

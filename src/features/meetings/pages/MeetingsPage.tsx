@@ -78,14 +78,14 @@ export default function MeetingsPage() {
 
   return (
     <>
-      <div className="min-h-full bg-black text-white">
+      <div className="min-h-full bg-black p-3 text-white sm:p-0">
         <section className="border border-white/10 bg-black">
-          <div className="border-b border-white/10 px-6 py-6">
+          <div className="border-b border-white/10 px-4 py-5 sm:px-6 sm:py-6">
             <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
-              <div className="flex items-center">
+              <div className="flex items-start gap-3">
                 <Link
                   to="/dashboard"
-                  className="flex justify-center items-center gap-2 text-white/75 hover:text-white w-8 h-8 rounded-full border text-center  border-orange-400"
+                  className="flex h-9 w-9 shrink-0 items-center justify-center gap-2 rounded-full border border-orange-400 text-center text-white/75 hover:text-white"
                 >
                   <ChevronLeft
                     size={20}
@@ -93,13 +93,13 @@ export default function MeetingsPage() {
                   />
                 </Link>
 
-                <div className="max-w-3xl  ml-2.5">
+                <div className="min-w-0 max-w-3xl">
                   <div className="inline-flex items-center gap-2 border border-orange-500/20 bg-orange-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.25em] text-orange-300">
                     <Video size={14} />
                     Meetings hub
                   </div>
 
-                  <h1 className="mt-5 text-3xl font-bold tracking-tight">
+                  <h1 className="mt-5 text-2xl font-bold tracking-tight sm:text-3xl">
                     Audio and video meetings
                   </h1>
 
@@ -112,7 +112,7 @@ export default function MeetingsPage() {
               <button
                 type="button"
                 onClick={() => setCreateOpen(true)}
-                className="inline-flex items-center justify-center gap-2 rounded-2xl bg-orange-500 px-5 py-3 text-sm font-semibold text-black transition hover:bg-orange-400"
+                className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-orange-500 px-5 py-3 text-sm font-semibold text-black transition hover:bg-orange-400 sm:w-auto"
               >
                 <PlusCircle size={18} />
                 Create meeting
@@ -120,7 +120,7 @@ export default function MeetingsPage() {
             </div>
           </div>
 
-          <div className="grid gap-0 md:grid-cols-3">
+          <div className="grid gap-0 sm:grid-cols-3">
             <div className="border-r border-t border-white/10 bg-black px-6 py-5 md:border-t-0">
               <p className="text-[11px] uppercase tracking-[0.2em] text-white/35">
                 Total meetings
@@ -154,7 +154,7 @@ export default function MeetingsPage() {
           </div>
         ) : null}
 
-        <section className="mt-8 space-y-4">
+        <section className="mt-6 space-y-4 sm:mt-8">
           <div className="flex items-center gap-2">
             <CalendarDays size={18} className="text-orange-400" />
             <h2 className="text-xl font-semibold">All meetings</h2>

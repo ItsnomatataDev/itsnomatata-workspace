@@ -92,7 +92,7 @@ export function useTimeEntries({
           event: "*",
           schema: "public",
           table: "time_entries",
-          filter: `organization_id=eq.${organizationId}`,
+          filter: `user_id=eq.${userId}`,
         },
         () => {
           loadEntries();

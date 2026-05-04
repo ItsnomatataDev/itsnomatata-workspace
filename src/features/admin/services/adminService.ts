@@ -300,6 +300,16 @@ export type DutyRosterEntryRow = {
   created_at: string;
 };
 
+export type WeeklyDutyInput = {
+  rosterId: string;
+  userId: string;
+  weekStart: string;
+  shiftName: string;
+  startTime?: string | null;
+  endTime?: string | null;
+  notes?: string;
+};
+
 export type ProfileRosterUserRow = {
   id: string;
   full_name: string | null;
@@ -1690,6 +1700,127 @@ export async function createDutyRosterEntry(params: {
   }
 
   return data as DutyRosterEntryRow;
+}
+
+function toDateKey(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function addDays(dateKey: string, days: number) {
+  const date = new Date(`${dateKey}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return toDateKey(date);
+}
+
+function getCurrentWeekStart() {
+  const date = new Date();
+  const day = date.getDay();
+  const diffToMonday = day === 0 ? -6 : 1 - day;
+  date.setDate(date.getDate() + diffToMonday);
+  date.setHours(0, 0, 0, 0);
+  return toDateKey(date);
+}
+
+export async function createWeeklyDutyRosterEntries(params: WeeklyDutyInput) {
+  const payload = Array.from({ length: 7 }, (_, index) => ({
+    roster_id: params.rosterId,
+    user_id: params.userId,
+    shift_date: addDays(params.weekStart, index),
+    shift_name: params.shiftName,
+    start_time: params.startTime ?? null,
+    end_time: params.endTime ?? null,
+    notes: params.notes ?? "",
+  }));
+
+  const { data, error } = await supabase
+    .from("duty_roster_entries")
+    .insert(payload)
+    .select(
+      "id, roster_id, user_id, shift_date, shift_name, start_time, end_time, notes, created_at",
+    );
+
+  if (error) throw error;
+  return (data ?? []) as DutyRosterEntryRow[];
+}
+
+export async function ensureNextWeekDutyRosterRotation(params: {
+  organizationId: string;
+  createdBy: string;
+}) {
+  const currentWeekStart = getCurrentWeekStart();
+
+  const existingCurrentWeek = await supabase
+    .from("duty_rosters")
+    .select("id")
+    .eq("organization_id", params.organizationId)
+    .eq("week_start", currentWeekStart)
+    .maybeSingle();
+
+  if (existingCurrentWeek.error) throw existingCurrentWeek.error;
+  if (existingCurrentWeek.data) return null;
+
+  const rosters = await getDutyRosters(params.organizationId);
+  const latestRoster = rosters[0];
+  if (!latestRoster || latestRoster.week_start >= currentWeekStart) return null;
+
+  const [previousEntries, users] = await Promise.all([
+    getDutyRosterEntries(latestRoster.id),
+    getOrganizationUsersForRoster(params.organizationId),
+  ]);
+
+  const activeUsers = users.filter((item) => item.id);
+  if (previousEntries.length === 0 || activeUsers.length < 2) return null;
+
+  const userIds = activeUsers.map((item) => item.id);
+  const rotatedEntries = previousEntries.map((entry) => {
+    const currentIndex = userIds.indexOf(entry.user_id);
+    const nextUserId =
+      currentIndex === -1
+        ? userIds[0]
+        : userIds[(currentIndex + 1) % userIds.length];
+
+    const previousDayOffset = Math.max(
+      0,
+      Math.round(
+        (new Date(`${entry.shift_date}T00:00:00.000Z`).getTime() -
+          new Date(`${latestRoster.week_start}T00:00:00.000Z`).getTime()) /
+          86400000,
+      ),
+    );
+
+    return {
+      userId: nextUserId,
+      shiftDate: addDays(currentWeekStart, previousDayOffset),
+      shiftName: entry.shift_name,
+      startTime: entry.start_time,
+      endTime: entry.end_time,
+      notes: entry.notes ?? "",
+    };
+  });
+
+  const nextRoster = await createDutyRoster({
+    organizationId: params.organizationId,
+    title: `${latestRoster.title.replace(/\s*\(Auto rotated\)$/i, "")} (Auto rotated)`,
+    department: latestRoster.department ?? undefined,
+    weekStart: currentWeekStart,
+    createdBy: params.createdBy,
+  });
+
+  const { error } = await supabase.from("duty_roster_entries").insert(
+    rotatedEntries.map((entry) => ({
+      roster_id: nextRoster.id,
+      user_id: entry.userId,
+      shift_date: entry.shiftDate,
+      shift_name: entry.shiftName,
+      start_time: entry.startTime,
+      end_time: entry.endTime,
+      notes: entry.notes,
+    })),
+  );
+
+  if (error) throw error;
+
+  return nextRoster;
 }
 
 export async function getAdminDashboardStats(organizationId: string) {

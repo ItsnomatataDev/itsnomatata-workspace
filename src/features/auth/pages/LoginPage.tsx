@@ -79,7 +79,7 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen bg-black text-white">
       <div className="grid min-h-screen lg:grid-cols-2">
-        <div className="hidden lg:flex flex-col items-start justify-between border-r border-orange-500/20 bg-linear-to-br from-black via-black to-orange-950/20 p-10">
+        <div className="hidden flex-col items-start justify-between border-r border-orange-500/20 bg-linear-to-br from-black via-black to-orange-950/20 p-10 lg:flex">
           <div className="flex flex-col items-start">
             <div className="w-20 h-20">
               <img
@@ -104,8 +104,8 @@ export default function LoginPage() {
           </div>
         </div>
 
-        <div className="flex items-center justify-center p-6">
-          <div className="w-full max-w-md border border-orange-500/20 bg-white/5 p-8 shadow-2xl">
+        <div className="flex items-center justify-center p-4 sm:p-6">
+          <div className="w-full max-w-md border border-orange-500/20 bg-white/5 p-5 shadow-2xl sm:p-8">
             <div className="mb-8">
               <h2 className="text-3xl font-bold text-white">Login</h2>
               <p className="mt-2 text-sm text-white/60">
