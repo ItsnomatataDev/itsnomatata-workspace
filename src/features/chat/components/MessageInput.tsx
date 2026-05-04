@@ -1,5 +1,11 @@
 import { useRef, useState, type KeyboardEvent } from "react";
-import { Image as ImageIcon, Mic, Square, SendHorizontal, Paperclip } from "lucide-react";
+import {
+  Image as ImageIcon,
+  Mic,
+  Square,
+  SendHorizontal,
+  Paperclip,
+} from "lucide-react";
 
 export default function MessageInput({
   value,
@@ -75,107 +81,113 @@ export default function MessageInput({
   }
 
   return (
-    <div className="border-t border-white/10 px-5 py-4">
-      <div className="flex items-center gap-3">
-        <button
-          type="button"
-          disabled={disabled || sending}
-          onClick={() => genericFileInputRef.current?.click()}
-          className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-white transition hover:border-orange-500/30 hover:bg-white/10 disabled:opacity-50"
-          title="Attach file"
-        >
-          <Paperclip size={18} />
-        </button>
-
-        <input
-          ref={genericFileInputRef}
-          type="file"
-          accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,.json,.zip,.rar"
-          hidden
-          onChange={(event) => {
-            const file = event.target.files?.[0];
-            if (file) {
-              if (file.type.startsWith('image/')) {
-                void onImageSelect?.(file);
-              } else {
-                void onFileSelect?.(file);
-              }
-            }
-            event.target.value = "";
-          }}
-        />
-
-        <button
-          type="button"
-          disabled={disabled || sending}
-          onClick={() => fileInputRef.current?.click()}
-          className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-white transition hover:border-orange-500/30 hover:bg-white/10 disabled:opacity-50"
-          title="Send image"
-        >
-          <ImageIcon size={18} />
-        </button>
-
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*"
-          hidden
-          onChange={(event) => {
-            const file = event.target.files?.[0];
-            if (file) {
+    <div className="border-t border-white/10 bg-black/95 px-3 py-3 sm:px-5 sm:py-4">
+      <input
+        ref={genericFileInputRef}
+        type="file"
+        accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,.json,.zip,.rar"
+        hidden
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          if (file) {
+            if (file.type.startsWith("image/")) {
               void onImageSelect?.(file);
-            }
-            event.target.value = "";
-          }}
-        />
-
-        <button
-          type="button"
-          disabled={disabled || sending}
-          onClick={() => {
-            if (recording) {
-              handleStopRecording();
             } else {
-              void handleStartRecording();
+              void onFileSelect?.(file);
             }
-          }}
-          className={[
-            "inline-flex h-11 w-11 items-center justify-center rounded-xl border transition disabled:opacity-50",
-            recording
-              ? "border-red-500 bg-red-500 text-white"
-              : "border-white/10 bg-white/5 text-white hover:border-orange-500/30 hover:bg-white/10",
-          ].join(" ")}
-          title={recording ? "Stop recording" : "Record voice note"}
-        >
-          {recording ? <Square size={16} /> : <Mic size={18} />}
-        </button>
+          }
+          event.target.value = "";
+        }}
+      />
 
-        <input
-          type="text"
-          value={value}
-          onChange={(event) => {
-            onChange(event.target.value);
-            onTyping?.();
-          }}
-          onKeyDown={handleKeyDown}
-          placeholder="Type a message..."
-          disabled={disabled || sending}
-          className="flex-1 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none transition placeholder:text-white/35 focus:border-orange-500"
-        />
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        hidden
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          if (file) {
+            void onImageSelect?.(file);
+          }
+          event.target.value = "";
+        }}
+      />
+
+      <div className="flex items-end gap-2">
+        <div className="flex min-w-0 flex-1 items-center gap-1 rounded-[26px] border border-white/10 bg-white/5 px-2 py-1.5 shadow-inner shadow-black/30 focus-within:border-orange-500/60 sm:gap-2 sm:px-3">
+          <button
+            type="button"
+            disabled={disabled || sending}
+            onClick={() => genericFileInputRef.current?.click()}
+            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white/70 transition hover:bg-white/10 hover:text-white disabled:opacity-50"
+            title="Attach file"
+            aria-label="Attach file"
+          >
+            <Paperclip size={18} />
+          </button>
+
+          <input
+            type="text"
+            value={value}
+            onChange={(event) => {
+              onChange(event.target.value);
+              onTyping?.();
+            }}
+            onKeyDown={handleKeyDown}
+            placeholder="Message"
+            disabled={disabled || sending}
+            className="h-10 min-w-0 flex-1 bg-transparent px-1 text-base text-white outline-none placeholder:text-white/35 sm:text-sm"
+          />
+
+          <button
+            type="button"
+            disabled={disabled || sending}
+            onClick={() => fileInputRef.current?.click()}
+            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white/70 transition hover:bg-white/10 hover:text-white disabled:opacity-50"
+            title="Send image"
+            aria-label="Send image"
+          >
+            <ImageIcon size={18} />
+          </button>
+
+          <button
+            type="button"
+            disabled={disabled || sending}
+            onClick={() => {
+              if (recording) {
+                handleStopRecording();
+              } else {
+                void handleStartRecording();
+              }
+            }}
+            className={[
+              "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition disabled:opacity-50",
+              recording
+                ? "bg-red-500 text-white"
+                : "text-white/70 hover:bg-white/10 hover:text-white",
+            ].join(" ")}
+            title={recording ? "Stop recording" : "Record voice note"}
+            aria-label={recording ? "Stop recording" : "Record voice note"}
+          >
+            {recording ? <Square size={15} /> : <Mic size={18} />}
+          </button>
+        </div>
 
         <button
           type="button"
           onClick={onSend}
           disabled={disabled || !value.trim() || sending}
-          className="inline-flex items-center gap-2 rounded-xl bg-orange-500 px-4 py-3 text-sm font-semibold text-black transition hover:bg-orange-400 disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-orange-500 text-black shadow-lg shadow-orange-500/20 transition hover:bg-orange-400 disabled:cursor-not-allowed disabled:opacity-50"
+          aria-label="Send message"
+          title="Send message"
         >
-          <SendHorizontal size={16} />
-          Send
+          <SendHorizontal size={19} />
         </button>
       </div>
 
       {recording ? (
-        <p className="mt-3 text-xs font-medium text-red-400">
+        <p className="mt-2 px-3 text-xs font-medium text-red-400">
           Recording voice note...
         </p>
       ) : null}
