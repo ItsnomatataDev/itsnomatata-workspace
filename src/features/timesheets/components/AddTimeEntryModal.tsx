@@ -291,7 +291,7 @@ export function AddTimeEntryModal({
             </label>
           </div>
 
-          <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
+          <div className="rounded-2xl border border-white/10 bg-white/3 px-4 py-3">
             <p className="text-sm text-white/50">
               Duration:{" "}
               <span className="font-semibold text-white">
@@ -363,7 +363,7 @@ export function AddTimeEntryModal({
             />
           </label>
 
-          <label className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
+          <label className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/3 px-4 py-3">
             <input
               type="checkbox"
               checked={isBillable}
