@@ -89,12 +89,19 @@ export async function getUserNotifications(params: {
   return (data ?? []) as NotificationRow[];
 }
 
-export async function getUnreadNotificationCount(userId: string) {
-  const { count, error } = await supabase
+export async function getUnreadNotificationCount(
+  userId: string,
+  organizationId?: string | null,
+) {
+  let query = supabase
     .from("notifications")
     .select("id", { count: "exact", head: true })
     .eq("user_id", userId)
     .eq("is_read", false);
+
+  if (organizationId) query = query.eq("organization_id", organizationId);
+
+  const { count, error } = await query;
 
   if (error) throw error;
   return count ?? 0;

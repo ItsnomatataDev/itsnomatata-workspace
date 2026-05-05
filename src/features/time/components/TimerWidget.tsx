@@ -66,6 +66,11 @@ export default function TimerWidget({
     return parts.filter(Boolean).join(" • ");
   }, [activeEntry]);
 
+  const displaySeconds = Math.max(
+    Number(activeEntry?.duration_seconds ?? 0),
+    liveSeconds,
+  );
+
   return (
     <section className="border border-white/10 bg-[#050505] p-5">
       <div className="mb-5 flex items-center gap-3">
@@ -87,7 +92,7 @@ export default function TimerWidget({
         </p>
 
         <p className="mt-3 text-4xl font-bold tracking-wide text-white">
-          {formatDuration(liveSeconds)}
+          {formatDuration(displaySeconds)}
         </p>
 
         <p className="mt-3 text-sm text-white/55">{subtitle}</p>
@@ -128,7 +133,7 @@ export default function TimerWidget({
           className="inline-flex items-center gap-2 border border-white/10 bg-black px-4 py-3 text-sm font-medium text-white/80"
         >
           <Plus size={16} />
-          Add manual entry
+          {activeEntry ? "Add time on top" : "Add manual entry"}
         </button>
 
         {!activeEntry ? (

@@ -5,6 +5,8 @@ export type NotificationPriority = "low" | "medium" | "high" | "urgent";
 export type NotificationChannel = "in_app" | "email" | "push";
 
 export type NotificationType =
+  | "welcome_user"
+  | "invited_to_workspace"
   | "general"
   | "system_alert"
   | "stock_alert"
@@ -13,6 +15,7 @@ export type NotificationType =
   | "meeting"
   | "meeting_reminder"
   | "chat_message"
+  | "chat_message_received"
   | "announcement"
   | "leave_update"
   | "leave_request_submitted"
@@ -22,9 +25,14 @@ export type NotificationType =
   | "approval_needed"
   | "approval_decision"
   | "project_update"
+  | "project_deadline_reminder"
   | "task_assigned"
   | "task_updated"
+  | "task_status_changed"
   | "task_comment"
+  | "task_comment_added"
+  | "task_mention"
+  | "task_due_soon"
   | "task_completed"
   | "duty_roster_assigned"
   | "duty_roster_updated"
@@ -34,12 +42,18 @@ export type NotificationType =
   | "campaign_update"
   | "campaign_assigned"
   | "timesheet_reminder"
+  | "weekly_time_summary"
+  | "monthly_time_summary"
+  | "time_tracking_not_started"
+  | "time_tracking_timer_left_running"
   | "invoice_update"
+  | "invoice_or_payment_notice"
   | "budget_alert"
   | "expense_submitted"
   | "expense_approved"
   | "expense_rejected"
-  | "task_collaboration_invite";
+  | "task_collaboration_invite"
+  | "workspace_admin_notice";
 
 const NOTIFICATION_SELECT = `
       id,
@@ -82,8 +96,11 @@ export async function markNotificationAsRead(notificationId: string) {
   return data as NotificationRow;
 }
 
-export async function markAllNotificationsAsRead(userId: string) {
-  const { error } = await supabase
+export async function markAllNotificationsAsRead(
+  userId: string,
+  organizationId?: string | null,
+) {
+  let query = supabase
     .from("notifications")
     .update({
       is_read: true,
@@ -91,6 +108,10 @@ export async function markAllNotificationsAsRead(userId: string) {
     })
     .eq("user_id", userId)
     .eq("is_read", false);
+
+  if (organizationId) query = query.eq("organization_id", organizationId);
+
+  const { error } = await query;
 
   if (error) throw error;
   return true;

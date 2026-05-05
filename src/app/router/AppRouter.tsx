@@ -4,6 +4,7 @@ import SignupPage from "../../features/auth/pages/SignupPage";
 import ForgotPasswordPage from "../../features/auth/pages/ForgotPasswordPage";
 import ResetPasswordPage from "../../features/auth/pages/ResetPasswordPage";
 import DashboardPage from "../../pages/DashboardPage";
+import SettingsPage from "../../pages/SettingsPage";
 import ClientsPage from "../../features/clients/pages/ClientsPage";
 import ClientDetailsPage from "../../features/clients/pages/ClientDetailsPage";
 import ClientWorkspacePage from "../../features/clients/pages/ClientWorkspacePage";
@@ -53,6 +54,7 @@ import BoardTimeManagementPage from "../../features/boards/pages/BoardTimeManage
 import TimeTrackingPage from "../../features/time-tracking/pages/TimeTrackingPage";
 import BoardDetailView from "../../features/boards/pages/BoardDetailView";
 import AttendancePage from "../../features/attendance/pages/AttendancePage";
+import UserTimesheetPage from "../../features/timesheets/pages/UserTimesheetPage";
 const AppRouter = () => {
   return (
     <BrowserRouter>
@@ -82,7 +84,7 @@ const AppRouter = () => {
             </ProtectedRoute>
           }
         />
-      
+
         <Route
           path="/boards/:boardId"
           element={
@@ -125,7 +127,7 @@ const AppRouter = () => {
             </ProtectedRoute>
           }
         />
-  
+
         <Route
           path="/tasks"
           element={
@@ -208,12 +210,7 @@ const AppRouter = () => {
           element={
             <ProtectedRoute>
               <RoleRoute
-                roles={[
-                  "social_media",
-                  "media_team",
-                  "admin",
-                  "manager",
-                ]}
+                roles={["social_media", "media_team", "admin", "manager"]}
               >
                 <SocialMediaDashboardPage />
               </RoleRoute>
@@ -421,6 +418,14 @@ const AppRouter = () => {
           }
         />
         <Route
+          path="/settings"
+          element={
+            <ProtectedRoute>
+              <SettingsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="/admin/notification-deliveries"
           element={
             <ProtectedRoute>
@@ -503,6 +508,14 @@ const AppRouter = () => {
               <RoleRoute roles={["admin", "manager"]}>
                 <BoardDetailView />
               </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/timesheet"
+          element={
+            <ProtectedRoute>
+              <UserTimesheetPage />
             </ProtectedRoute>
           }
         />

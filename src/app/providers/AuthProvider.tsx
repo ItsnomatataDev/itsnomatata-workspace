@@ -1,4 +1,11 @@
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { ReactNode } from "react";
 import type { User } from "@supabase/supabase-js";
 import { supabase } from "../../lib/supabase/client";
@@ -56,6 +63,10 @@ function isValidRole(value: unknown): value is AppRole {
   ].includes(String(value));
 }
 
+function isCompanyEmail(email?: string | null) {
+  return Boolean(email?.trim().toLowerCase().endsWith("@itsnomatata.com"));
+}
+
 function resolveUserRole(
   user: User | null,
   profile?: AuthProfile | null,
@@ -69,17 +80,15 @@ function resolveUserRole(
   return "social_media";
 }
 
-function isCompanyEmail(email?: string | null) {
-  return Boolean(email?.trim().toLowerCase().endsWith("@itsnomatata.com"));
-}
-
 function resolveAccountStatus(user: User, profile?: AuthProfile | null) {
   if (isCompanyEmail(user.email) && profile?.account_status === "pending") {
     return "active";
   }
+
   if (profile?.account_status) return profile.account_status;
   if (profile?.is_suspended) return "suspended";
   if (profile?.is_active) return "active";
+
   return isCompanyEmail(user.email) ? "active" : "pending";
 }
 
@@ -88,12 +97,9 @@ async function getOrganization() {
     .from("organizations")
     .select("id, name, slug")
     .eq("slug", ORGANIZATION_SLUG)
-    .single();
+    .maybeSingle();
 
-  if (error) {
-    console.error("GET ORGANIZATION ERROR:", error);
-    throw error;
-  }
+  if (error) throw error;
 
   if (!data) {
     throw new Error(
@@ -102,6 +108,85 @@ async function getOrganization() {
   }
 
   return data;
+}
+
+async function ensureProfile(user: User): Promise<AuthProfile | null> {
+  const organization = await getOrganization();
+
+  const { data: existing, error: selectError } = await supabase
+    .from("profiles")
+    .select("*")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  if (selectError) throw selectError;
+
+  const existingProfile = (existing as AuthProfile | null) ?? null;
+  const resolvedRole = resolveUserRole(user, existingProfile);
+  const resolvedStatus = resolveAccountStatus(user, existingProfile);
+
+  const payload = {
+    id: user.id,
+    email: user.email ?? existing?.email ?? null,
+    full_name: user.user_metadata?.full_name ?? existing?.full_name ?? null,
+    organization_id:
+      existing?.organization_id ??
+      user.user_metadata?.organization_id ??
+      organization.id,
+    primary_role: resolvedRole,
+    account_status: resolvedStatus,
+    is_active: resolvedStatus === "active",
+    is_suspended: resolvedStatus === "suspended",
+    last_seen_at: new Date().toISOString(),
+  };
+
+  const { error: upsertError } = await supabase
+    .from("profiles")
+    .upsert(payload, {
+      onConflict: "id",
+    });
+
+  if (upsertError) throw upsertError;
+
+  const { data: refreshed, error: refreshedError } = await supabase
+    .from("profiles")
+    .select(
+      `
+      *,
+      organization:organizations(*)
+    `,
+    )
+    .eq("id", user.id)
+    .maybeSingle();
+
+  if (refreshedError) throw refreshedError;
+
+  return (refreshed as AuthProfile | null) ?? null;
+}
+
+async function ensureOrganizationMembership(
+  user: User,
+  profile: AuthProfile | null,
+) {
+  if (!profile?.organization_id) return;
+  if (profile.account_status !== "active" || profile.is_suspended) return;
+
+  const role = resolveUserRole(user, profile);
+
+  const { error } = await supabase.from("organization_members").upsert(
+    {
+      organization_id: profile.organization_id,
+      user_id: user.id,
+      role,
+      status: "active",
+      joined_at: new Date().toISOString(),
+    },
+    {
+      onConflict: "organization_id,user_id",
+    },
+  );
+
+  if (error) throw error;
 }
 
 async function touchUserPresence(user: User | null) {
@@ -115,119 +200,8 @@ async function touchUserPresence(user: User | null) {
     .eq("id", user.id);
 
   if (error) {
-    console.error("TOUCH USER PRESENCE ERROR:", error);
+    console.warn("TOUCH USER PRESENCE ERROR:", error.message);
   }
-}
-
-async function ensureProfile(user: User | null): Promise<AuthProfile | null> {
-  if (!user?.id) return null;
-
-  const organization = await getOrganization();
-  const organizationId =
-    user.user_metadata?.organization_id ?? organization?.id ?? null;
-
-  const { data: existing, error: selectError } = await supabase
-    .from("profiles")
-    .select("*")
-    .eq("id", user.id)
-    .maybeSingle();
-
-  if (selectError) {
-    console.error("ENSURE PROFILE SELECT ERROR:", selectError);
-    throw selectError;
-  }
-
-  const resolvedRole = resolveUserRole(
-    user,
-    (existing as AuthProfile | null) ?? null,
-  );
-
-  const payload = {
-    id: user.id,
-    email: user.email ?? existing?.email ?? null,
-    full_name: user.user_metadata?.full_name ?? existing?.full_name ?? null,
-    organization_id: existing?.organization_id ?? organizationId,
-    primary_role: resolvedRole,
-    account_status: resolveAccountStatus(
-      user,
-      (existing as AuthProfile | null) ?? null,
-    ),
-    is_active:
-      resolveAccountStatus(user, (existing as AuthProfile | null) ?? null) ===
-      "active",
-    is_suspended:
-      resolveAccountStatus(user, (existing as AuthProfile | null) ?? null) ===
-      "suspended",
-    last_seen_at:
-      resolveAccountStatus(user, (existing as AuthProfile | null) ?? null) ===
-      "active"
-        ? new Date().toISOString()
-        : existing?.last_seen_at ?? null,
-  };
-
-  if (!existing) {
-    const { error: insertError } = await supabase
-      .from("profiles")
-      .insert(payload);
-
-    if (insertError) {
-      console.error("ENSURE PROFILE INSERT ERROR:", insertError);
-      throw insertError;
-    }
-  } else {
-    const { error: updateError } = await supabase
-      .from("profiles")
-      .update(payload)
-      .eq("id", user.id);
-
-    if (updateError) {
-      console.error("ENSURE PROFILE UPDATE ERROR:", updateError);
-      throw updateError;
-    }
-  }
-
-  const { data: refreshed, error: refreshedError } = await supabase
-    .from("profiles")
-    .select("*")
-    .eq("id", user.id)
-    .maybeSingle();
-
-  if (refreshedError) {
-    console.error("ENSURE PROFILE REFRESH ERROR:", refreshedError);
-    throw refreshedError;
-  }
-
-  return (refreshed as AuthProfile | null) ?? null;
-}
-
-async function ensureOrganizationMembership(
-  user: User | null,
-  profile: AuthProfile | null,
-) {
-  if (!user?.id || !profile?.organization_id) return null;
-  if (profile.account_status !== "active" || profile.is_suspended) return null;
-
-  const resolvedRole = resolveUserRole(user, profile);
-
-  const { error } = await supabase.from("organization_members").upsert(
-    {
-      organization_id: profile.organization_id,
-      user_id: user.id,
-      role: resolvedRole,
-      status: "active",
-      joined_at: new Date().toISOString(),
-    },
-    {
-      onConflict: "organization_id,user_id",
-    },
-  );
-
-  if (error) {
-    console.error("ENSURE ORG MEMBERSHIP ERROR:", error);
-    throw error;
-  }
-
-  return true;
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -235,125 +209,124 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<AuthProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const fetchProfile = async (userId: string) => {
-    try {
-      const { data, error } = await supabase
-        .from("profiles")
-        .select(
-          `
-          *,
-          organization:organizations(*)
-        `,
-        )
-        .eq("id", userId)
-        .maybeSingle();
+  const loadingProfileRef = useRef(false);
 
-      if (error) {
-        console.error("PROFILE FETCH ERROR:", error);
+  const loadUserProfile = async (sessionUser: User | null) => {
+    if (loadingProfileRef.current) return;
+
+    try {
+      loadingProfileRef.current = true;
+
+      if (!sessionUser) {
+        setUser(null);
         setProfile(null);
-        return null;
+        return;
       }
 
-      const nextProfile = (data as AuthProfile | null) ?? null;
+      setUser(sessionUser);
+
+      const nextProfile = await ensureProfile(sessionUser);
+      await ensureOrganizationMembership(sessionUser, nextProfile);
+      await touchUserPresence(sessionUser);
+
       setProfile(nextProfile);
-      return nextProfile;
     } catch (err) {
-      console.error("PROFILE FETCH CRASH:", err);
+      console.error("LOAD USER PROFILE ERROR:", err);
       setProfile(null);
-      return null;
+    } finally {
+      loadingProfileRef.current = false;
     }
-  };
-
-  const loadAuthenticatedUser = async (sessionUser: User | null) => {
-    setUser(sessionUser);
-
-    if (!sessionUser) {
-      setProfile(null);
-      return;
-    }
-
-    const ensuredProfile = await ensureProfile(sessionUser);
-    await ensureOrganizationMembership(sessionUser, ensuredProfile);
-    await touchUserPresence(sessionUser);
-    await fetchProfile(sessionUser.id);
   };
 
   const refreshProfile = async () => {
-    try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
+    const {
+      data: { session },
+      error,
+    } = await supabase.auth.getSession();
 
-      if (session?.user) {
-        const ensuredProfile = await ensureProfile(session.user);
-        await ensureOrganizationMembership(session.user, ensuredProfile);
-        await touchUserPresence(session.user);
-        await fetchProfile(session.user.id);
-      } else {
-        setUser(null);
-        setProfile(null);
-      }
-    } catch (err) {
-      console.error("REFRESH PROFILE ERROR:", err);
+    if (error) {
+      console.error("REFRESH PROFILE ERROR:", error);
+      return;
     }
+
+    await loadUserProfile(session?.user ?? null);
   };
 
   useEffect(() => {
     let mounted = true;
     let presenceInterval: ReturnType<typeof setInterval> | null = null;
-    let authStateTimeout: ReturnType<typeof setTimeout> | null = null;
+
+    const init = async () => {
+      try {
+        setLoading(true);
+
+        const {
+          data: { session },
+          error,
+        } = await supabase.auth.getSession();
+
+        if (error) throw error;
+
+        if (!mounted) return;
+
+        const sessionUser = session?.user ?? null;
+
+        await loadUserProfile(sessionUser);
+
+        if (sessionUser) {
+          presenceInterval = setInterval(() => {
+            void touchUserPresence(sessionUser);
+          }, 60000);
+        }
+      } catch (err) {
+        console.error("AUTH INIT ERROR:", err);
+
+        if (mounted) {
+          setUser(null);
+          setProfile(null);
+        }
+      } finally {
+        if (mounted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    void init();
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
       const sessionUser = session?.user ?? null;
 
-      if (authStateTimeout) clearTimeout(authStateTimeout);
+      if (event === "SIGNED_OUT") {
+        setUser(null);
+        setProfile(null);
 
-      authStateTimeout = setTimeout(() => {
         if (presenceInterval) {
           clearInterval(presenceInterval);
           presenceInterval = null;
         }
 
-        void (async () => {
-          if (!mounted) return;
+        return;
+      }
 
-          try {
-            setLoading(true);
-
-            if (event === "SIGNED_OUT") {
-              setUser(null);
-              setProfile(null);
-              return;
-            }
-
-            await loadAuthenticatedUser(sessionUser);
-
-            if (sessionUser) {
-              presenceInterval = setInterval(() => {
-                void touchUserPresence(sessionUser);
-              }, 60000);
-            }
-          } catch (err) {
-            console.error("AUTH STATE CHANGE ERROR:", err);
-            if (mounted) {
-              setUser(sessionUser);
-              setProfile(null);
-            }
-          } finally {
-            if (mounted) {
-              setLoading(false);
-            }
-          }
-        })();
-      }, 0);
+      if (
+        event === "SIGNED_IN" ||
+        event === "TOKEN_REFRESHED" ||
+        event === "USER_UPDATED"
+      ) {
+        void loadUserProfile(sessionUser);
+      }
     });
 
     return () => {
       mounted = false;
-      if (authStateTimeout) clearTimeout(authStateTimeout);
-      if (presenceInterval) clearInterval(presenceInterval);
+
+      if (presenceInterval) {
+        clearInterval(presenceInterval);
+      }
+
       subscription.unsubscribe();
     };
   }, []);

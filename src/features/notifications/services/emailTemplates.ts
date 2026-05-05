@@ -31,6 +31,11 @@ export class EmailTemplateService {
     const contextWithFullUrl = { ...context, actionUrl: fullActionUrl };
 
     switch (type) {
+      case "welcome_user":
+      case "welcome":
+        return this.welcomeTemplate(contextWithFullUrl, appName, appUrl);
+      case "invited_to_workspace":
+        return this.userInviteTemplate(contextWithFullUrl, appName, appUrl);
       case "leave_request_submitted":
         return this.leaveRequestTemplate(contextWithFullUrl, appName, appUrl);
       case "leave_request_approved":
@@ -47,11 +52,18 @@ export class EmailTemplateService {
         return this.announcementTemplate(contextWithFullUrl, appName, appUrl);
       case "task_assigned":
         return this.taskAssignedTemplate(contextWithFullUrl, appName, appUrl);
+      case "task_due_soon":
+        return this.taskDueSoonTemplate(contextWithFullUrl, appName, appUrl);
       case "task_updated":
+      case "task_status_changed":
         return this.taskUpdatedTemplate(contextWithFullUrl, appName, appUrl);
       case "task_comment":
+      case "task_comment_added":
         return this.taskCommentTemplate(contextWithFullUrl, appName, appUrl);
+      case "task_mention":
+        return this.taskMentionTemplate(contextWithFullUrl, appName, appUrl);
       case "chat_message":
+      case "chat_message_received":
         return this.chatMessageTemplate(contextWithFullUrl, appName, appUrl);
       case "user_invite":
         return this.userInviteTemplate(contextWithFullUrl, appName, appUrl);
@@ -63,6 +75,8 @@ export class EmailTemplateService {
         return this.approvalDecisionTemplate(contextWithFullUrl, appName, appUrl);
       case "system_alert":
         return this.systemAlertTemplate(contextWithFullUrl, appName, appUrl);
+      case "workspace_admin_notice":
+        return this.workspaceAdminNoticeTemplate(contextWithFullUrl, appName, appUrl);
       case "leave_update":
         return this.defaultTemplate(contextWithFullUrl, appName, appUrl);
       case "meeting":
@@ -83,7 +97,16 @@ export class EmailTemplateService {
         return this.campaignAssignedTemplate(contextWithFullUrl, appName, appUrl);
       case "timesheet_reminder":
         return this.timesheetReminderTemplate(contextWithFullUrl, appName, appUrl);
+      case "time_tracking_not_started":
+        return this.timeTrackingNotStartedTemplate(contextWithFullUrl, appName, appUrl);
+      case "time_tracking_timer_left_running":
+        return this.runningTimerReminderTemplate(contextWithFullUrl, appName, appUrl);
+      case "weekly_time_summary":
+        return this.weeklyTimeSummaryTemplate(contextWithFullUrl, appName, appUrl);
+      case "monthly_time_summary":
+        return this.monthlyTimeSummaryTemplate(contextWithFullUrl, appName, appUrl);
       case "invoice_update":
+      case "invoice_or_payment_notice":
         return this.invoiceUpdateTemplate(contextWithFullUrl, appName, appUrl);
       case "budget_alert":
         return this.budgetAlertTemplate(contextWithFullUrl, appName, appUrl);
@@ -150,196 +173,196 @@ export class EmailTemplateService {
       ${this.renderMetadata(context)}
     `;
     return {
-      subject: `Leave Request Submitted — ${appName}`,
+      subject: `Leave Request Submitted - ${appName}`,
       html: this.baseTemplate(content, appName, appUrl),
     };
   }
 
   private static leaveApprovedTemplate(context: EmailContext, appName: string, appUrl: string): EmailTemplate {
     const content = `
-      <h2>Leave Request Approved ✅</h2>
+      <h2>Leave Request Approved</h2>
       <p>Hi ${context.firstName},</p>
       <p>${context.message}</p>
       <a href="${context.actionUrl}" class="button">View Details</a>
       ${this.renderMetadata(context)}
     `;
     return {
-      subject: `Leave Request Approved — ${appName}`,
+      subject: `Leave Request Approved - ${appName}`,
       html: this.baseTemplate(content, appName, appUrl),
     };
   }
 
   private static leaveRejectedTemplate(context: EmailContext, appName: string, appUrl: string): EmailTemplate {
     const content = `
-      <h2>Leave Request Rejected ❌</h2>
+      <h2>Leave Request Rejected</h2>
       <p>Hi ${context.firstName},</p>
       <p>${context.message}</p>
       <a href="${context.actionUrl}" class="button">View Details</a>
       ${this.renderMetadata(context)}
     `;
     return {
-      subject: `Leave Request Rejected — ${appName}`,
+      subject: `Leave Request Rejected - ${appName}`,
       html: this.baseTemplate(content, appName, appUrl),
     };
   }
 
   private static meetingInvitationTemplate(context: EmailContext, appName: string, appUrl: string): EmailTemplate {
     const content = `
-      <h2>Meeting Invitation 📅</h2>
+      <h2>Meeting Invitation</h2>
       <p>Hi ${context.firstName},</p>
       <p>${context.message}</p>
       <a href="${context.actionUrl}" class="button">Accept Invitation</a>
       ${this.renderMetadata(context)}
     `;
     return {
-      subject: `Meeting Invitation — ${appName}`,
+      subject: `Meeting Invitation - ${appName}`,
       html: this.baseTemplate(content, appName, appUrl),
     };
   }
 
   private static meetingReminderTemplate(context: EmailContext, appName: string, appUrl: string): EmailTemplate {
     const content = `
-      <h2>Meeting Reminder ⏰</h2>
+      <h2>Meeting Reminder</h2>
       <p>Hi ${context.firstName},</p>
       <p>${context.message}</p>
       <a href="${context.actionUrl}" class="button">Join Meeting</a>
       ${this.renderMetadata(context)}
     `;
     return {
-      subject: `Meeting Reminder — ${appName}`,
+      subject: `Meeting Reminder - ${appName}`,
       html: this.baseTemplate(content, appName, appUrl),
     };
   }
 
   private static approvalRequiredTemplate(context: EmailContext, appName: string, appUrl: string): EmailTemplate {
     const content = `
-      <h2>Approval Required 📋</h2>
+      <h2>Approval Required</h2>
       <p>Hi ${context.firstName},</p>
       <p>${context.message}</p>
       <a href="${context.actionUrl}" class="button">Review & Approve</a>
       ${this.renderMetadata(context)}
     `;
     return {
-      subject: `Approval Required — ${appName}`,
+      subject: `Approval Required - ${appName}`,
       html: this.baseTemplate(content, appName, appUrl),
     };
   }
 
   private static approvalApprovedTemplate(context: EmailContext, appName: string, appUrl: string): EmailTemplate {
     const content = `
-      <h2>Request Approved ✅</h2>
+      <h2>Request Approved</h2>
       <p>Hi ${context.firstName},</p>
       <p>${context.message}</p>
       <a href="${context.actionUrl}" class="button">View Details</a>
       ${this.renderMetadata(context)}
     `;
     return {
-      subject: `Request Approved — ${appName}`,
+      subject: `Request Approved - ${appName}`,
       html: this.baseTemplate(content, appName, appUrl),
     };
   }
 
   private static approvalRejectedTemplate(context: EmailContext, appName: string, appUrl: string): EmailTemplate {
     const content = `
-      <h2>Request Rejected ❌</h2>
+      <h2>Request Rejected</h2>
       <p>Hi ${context.firstName},</p>
       <p>${context.message}</p>
       <a href="${context.actionUrl}" class="button">View Details</a>
       ${this.renderMetadata(context)}
     `;
     return {
-      subject: `Request Rejected — ${appName}`,
+      subject: `Request Rejected - ${appName}`,
       html: this.baseTemplate(content, appName, appUrl),
     };
   }
 
   private static socialMediaPublishedTemplate(context: EmailContext, appName: string, appUrl: string): EmailTemplate {
     const content = `
-      <h2>Social Media Post Published 📱</h2>
+      <h2>Social Media Post Published</h2>
       <p>Hi ${context.firstName},</p>
       <p>${context.message}</p>
       <a href="${context.actionUrl}" class="button">View Post</a>
       ${this.renderMetadata(context)}
     `;
     return {
-      subject: `Social Media Post Published — ${appName}`,
+      subject: `Social Media Post Published - ${appName}`,
       html: this.baseTemplate(content, appName, appUrl),
     };
   }
 
   private static socialMediaFailedTemplate(context: EmailContext, appName: string, appUrl: string): EmailTemplate {
     const content = `
-      <h2>Social Media Post Failed ⚠️</h2>
+      <h2>Social Media Post Failed</h2>
       <p>Hi ${context.firstName},</p>
       <p>${context.message}</p>
       <a href="${context.actionUrl}" class="button">View Details</a>
       ${this.renderMetadata(context)}
     `;
     return {
-      subject: `Social Media Post Failed — ${appName}`,
+      subject: `Social Media Post Failed - ${appName}`,
       html: this.baseTemplate(content, appName, appUrl),
     };
   }
 
   private static taskAssignedTemplate(context: EmailContext, appName: string, appUrl: string): EmailTemplate {
     const content = `
-      <h2>New Task Assigned 📝</h2>
+      <h2>New Task Assigned</h2>
       <p>Hi ${context.firstName},</p>
       <p>${context.message}</p>
       <a href="${context.actionUrl}" class="button">View Task</a>
       ${this.renderMetadata(context)}
     `;
     return {
-      subject: `New Task Assigned — ${appName}`,
+      subject: `New Task Assigned - ${appName}`,
       html: this.baseTemplate(content, appName, appUrl),
     };
   }
 
   private static taskDueSoonTemplate(context: EmailContext, appName: string, appUrl: string): EmailTemplate {
     const content = `
-      <h2>Task Due Soon ⏰</h2>
+      <h2>Task Due Soon</h2>
       <p>Hi ${context.firstName},</p>
       <p>${context.message}</p>
       <a href="${context.actionUrl}" class="button">View Task</a>
       ${this.renderMetadata(context)}
     `;
     return {
-      subject: `Task Due Soon — ${appName}`,
+      subject: `Task Due Soon - ${appName}`,
       html: this.baseTemplate(content, appName, appUrl),
     };
   }
 
   private static taskOverdueTemplate(context: EmailContext, appName: string, appUrl: string): EmailTemplate {
     const content = `
-      <h2>Task Overdue 🚨</h2>
+      <h2>Task Overdue</h2>
       <p>Hi ${context.firstName},</p>
       <p>${context.message}</p>
       <a href="${context.actionUrl}" class="button">View Task</a>
       ${this.renderMetadata(context)}
     `;
     return {
-      subject: `Task Overdue — ${appName}`,
+      subject: `Task Overdue - ${appName}`,
       html: this.baseTemplate(content, appName, appUrl),
     };
   }
 
   private static chatMessageTemplate(context: EmailContext, appName: string, appUrl: string): EmailTemplate {
     const content = `
-      <h2>New Message 💬</h2>
+      <h2>New Message</h2>
       <p>Hi ${context.firstName},</p>
       <p>${context.message}</p>
       <a href="${context.actionUrl}" class="button">Reply to Message</a>
       ${this.renderMetadata(context)}
     `;
     return {
-      subject: `New Message — ${appName}`,
+      subject: `New Message - ${appName}`,
       html: this.baseTemplate(content, appName, appUrl),
     };
   }
 
   private static welcomeTemplate(context: EmailContext, appName: string, appUrl: string): EmailTemplate {
     const content = `
-      <h2>Welcome to ${appName}! 🎉</h2>
+      <h2>Welcome to ${appName}!</h2>
       <p>Hi ${context.firstName},</p>
       <p>${context.message}</p>
       <a href="${context.actionUrl}" class="button">Get Started</a>
@@ -352,42 +375,42 @@ export class EmailTemplateService {
 
   private static passwordResetTemplate(context: EmailContext, appName: string, appUrl: string): EmailTemplate {
     const content = `
-      <h2>Password Reset Request 🔐</h2>
+      <h2>Password Reset Request</h2>
       <p>Hi ${context.firstName},</p>
       <p>${context.message}</p>
       <a href="${context.actionUrl}" class="button">Reset Password</a>
       <p style="font-size: 12px; color: #737373;">If you didn't request this, please ignore this email.</p>
     `;
     return {
-      subject: `Password Reset — ${appName}`,
+      subject: `Password Reset - ${appName}`,
       html: this.baseTemplate(content, appName, appUrl),
     };
   }
 
   private static leaveReminderTemplate(context: EmailContext, appName: string, appUrl: string): EmailTemplate {
     const content = `
-      <h2>Leave Reminder 📅</h2>
+      <h2>Leave Reminder</h2>
       <p>Hi ${context.firstName},</p>
       <p>${context.message}</p>
       <a href="${context.actionUrl}" class="button">View Leave Request</a>
       ${this.renderMetadata(context)}
     `;
     return {
-      subject: `Leave Reminder — ${appName}`,
+      subject: `Leave Reminder - ${appName}`,
       html: this.baseTemplate(content, appName, appUrl),
     };
   }
 
   private static meetingTemplate(context: EmailContext, appName: string, appUrl: string): EmailTemplate {
     const content = `
-      <h2>New Meeting 📅</h2>
+      <h2>New Meeting</h2>
       <p>Hi ${context.firstName},</p>
       <p>${context.message}</p>
       <a href="${context.actionUrl}" class="button">View Meeting</a>
       ${this.renderMetadata(context)}
     `;
     return {
-      subject: `New Meeting — ${appName}`,
+      subject: `New Meeting - ${appName}`,
       html: this.baseTemplate(content, appName, appUrl),
     };
   }
@@ -401,126 +424,156 @@ export class EmailTemplateService {
       ${this.renderMetadata(context)}
     `;
     return {
-      subject: `Approval Decision — ${appName}`,
+      subject: `Approval Decision - ${appName}`,
       html: this.baseTemplate(content, appName, appUrl),
     };
   }
 
   private static taskUpdatedTemplate(context: EmailContext, appName: string, appUrl: string): EmailTemplate {
     const content = `
-      <h2>Task Updated 📝</h2>
+      <h2>Task Updated</h2>
       <p>Hi ${context.firstName},</p>
       <p>${context.message}</p>
       <a href="${context.actionUrl}" class="button">View Task</a>
       ${this.renderMetadata(context)}
     `;
     return {
-      subject: `Task Updated — ${appName}`,
+      subject: `Task Updated - ${appName}`,
       html: this.baseTemplate(content, appName, appUrl),
     };
   }
 
   private static taskCompletedTemplate(context: EmailContext, appName: string, appUrl: string): EmailTemplate {
     const content = `
-      <h2>Task Completed ✅</h2>
+      <h2>Task Completed</h2>
       <p>Hi ${context.firstName},</p>
       <p>${context.message}</p>
       <a href="${context.actionUrl}" class="button">View Task</a>
       ${this.renderMetadata(context)}
     `;
     return {
-      subject: `Task Completed — ${appName}`,
+      subject: `Task Completed - ${appName}`,
       html: this.baseTemplate(content, appName, appUrl),
     };
   }
 
   private static taskCommentTemplate(context: EmailContext, appName: string, appUrl: string): EmailTemplate {
     const content = `
-      <h2>New Task Comment 💬</h2>
+      <h2>New Task Comment</h2>
       <p>Hi ${context.firstName},</p>
       <p>${context.message}</p>
       <a href="${context.actionUrl}" class="button">View Comment</a>
       ${this.renderMetadata(context)}
     `;
     return {
-      subject: `New Task Comment — ${appName}`,
+      subject: `New Task Comment - ${appName}`,
       html: this.baseTemplate(content, appName, appUrl),
+    };
+  }
+
+  private static taskMentionTemplate(context: EmailContext, appName: string, appUrl: string): EmailTemplate {
+    const content = `
+      <h2>You Were Mentioned in a Task</h2>
+      <p>Hi ${context.firstName},</p>
+      <p>${context.message}</p>
+      <a href="${context.actionUrl}" class="button">View Task</a>
+      ${this.renderMetadata(context)}
+    `;
+    return {
+      subject: `Task Mention - ${appName}`,
+      html: this.baseTemplate(content, appName, appUrl),
+      text: context.message,
     };
   }
 
   private static taskCollaborationInviteTemplate(context: EmailContext, appName: string, appUrl: string): EmailTemplate {
     const content = `
-      <h2>Task Collaboration Invite 🤝</h2>
+      <h2>Task Collaboration Invite</h2>
       <p>Hi ${context.firstName},</p>
       <p>${context.message}</p>
       <a href="${context.actionUrl}" class="button">Accept Invite</a>
       ${this.renderMetadata(context)}
     `;
     return {
-      subject: `Task Collaboration Invite — ${appName}`,
+      subject: `Task Collaboration Invite - ${appName}`,
       html: this.baseTemplate(content, appName, appUrl),
     };
   }
 
   private static announcementTemplate(context: EmailContext, appName: string, appUrl: string): EmailTemplate {
     const content = `
-      <h2>New Announcement 📢</h2>
+      <h2>New Announcement</h2>
       <p>Hi ${context.firstName},</p>
       <p>${context.message}</p>
       <a href="${context.actionUrl}" class="button">View Announcement</a>
       ${this.renderMetadata(context)}
     `;
     return {
-      subject: `New Announcement — ${appName}`,
+      subject: `New Announcement - ${appName}`,
       html: this.baseTemplate(content, appName, appUrl),
     };
   }
 
   private static systemAlertTemplate(context: EmailContext, appName: string, appUrl: string): EmailTemplate {
     const content = `
-      <h2>System Alert 🚨</h2>
+      <h2>System Alert</h2>
       <p>Hi ${context.firstName},</p>
       <p>${context.message}</p>
       <a href="${context.actionUrl}" class="button">View Details</a>
       ${this.renderMetadata(context)}
     `;
     return {
-      subject: `System Alert — ${appName}`,
+      subject: `System Alert - ${appName}`,
       html: this.baseTemplate(content, appName, appUrl),
+    };
+  }
+
+  private static workspaceAdminNoticeTemplate(context: EmailContext, appName: string, appUrl: string): EmailTemplate {
+    const content = `
+      <h2>Workspace Notice</h2>
+      <p>Hi ${context.firstName},</p>
+      <p>${context.message}</p>
+      <a href="${context.actionUrl}" class="button">View Notice</a>
+      ${this.renderMetadata(context)}
+    `;
+    return {
+      subject: `Workspace Notice - ${appName}`,
+      html: this.baseTemplate(content, appName, appUrl),
+      text: context.message,
     };
   }
 
   private static automationTemplate(context: EmailContext, appName: string, appUrl: string): EmailTemplate {
     const content = `
-      <h2>Automation Alert ⚙️</h2>
+      <h2>Automation Alert</h2>
       <p>Hi ${context.firstName},</p>
       <p>${context.message}</p>
       <a href="${context.actionUrl}" class="button">View Details</a>
       ${this.renderMetadata(context)}
     `;
     return {
-      subject: `Automation Alert — ${appName}`,
+      subject: `Automation Alert - ${appName}`,
       html: this.baseTemplate(content, appName, appUrl),
     };
   }
 
   private static userSignupTemplate(context: EmailContext, appName: string, appUrl: string): EmailTemplate {
     const content = `
-      <h2>New User Signup 🎉</h2>
+      <h2>New User Signup</h2>
       <p>Hi ${context.firstName},</p>
       <p>${context.message}</p>
       <a href="${context.actionUrl}" class="button">View Profile</a>
       ${this.renderMetadata(context)}
     `;
     return {
-      subject: `New User Signup — ${appName}`,
+      subject: `New User Signup - ${appName}`,
       html: this.baseTemplate(content, appName, appUrl),
     };
   }
 
   private static userInviteTemplate(context: EmailContext, appName: string, appUrl: string): EmailTemplate {
     const content = `
-      <h2>You're Invited! 📨</h2>
+      <h2>You're Invited!</h2>
       <p>Hi ${context.firstName},</p>
       <p>${context.message}</p>
       <a href="${context.actionUrl}" class="button">Accept Invitation</a>
@@ -534,154 +587,214 @@ export class EmailTemplateService {
 
   private static dutyRosterAssignedTemplate(context: EmailContext, appName: string, appUrl: string): EmailTemplate {
     const content = `
-      <h2>Duty Roster Assigned 📋</h2>
+      <h2>Duty Roster Assigned</h2>
       <p>Hi ${context.firstName},</p>
       <p>${context.message}</p>
       <a href="${context.actionUrl}" class="button">View Roster</a>
       ${this.renderMetadata(context)}
     `;
     return {
-      subject: `Duty Roster Assigned — ${appName}`,
+      subject: `Duty Roster Assigned - ${appName}`,
       html: this.baseTemplate(content, appName, appUrl),
     };
   }
 
   private static dutyRosterUpdatedTemplate(context: EmailContext, appName: string, appUrl: string): EmailTemplate {
     const content = `
-      <h2>Duty Roster Updated 📋</h2>
+      <h2>Duty Roster Updated</h2>
       <p>Hi ${context.firstName},</p>
       <p>${context.message}</p>
       <a href="${context.actionUrl}" class="button">View Roster</a>
       ${this.renderMetadata(context)}
     `;
     return {
-      subject: `Duty Roster Updated — ${appName}`,
+      subject: `Duty Roster Updated - ${appName}`,
       html: this.baseTemplate(content, appName, appUrl),
     };
   }
 
   private static shiftReminderTemplate(context: EmailContext, appName: string, appUrl: string): EmailTemplate {
     const content = `
-      <h2>Shift Reminder ⏰</h2>
+      <h2>Shift Reminder</h2>
       <p>Hi ${context.firstName},</p>
       <p>${context.message}</p>
       <a href="${context.actionUrl}" class="button">View Schedule</a>
       ${this.renderMetadata(context)}
     `;
     return {
-      subject: `Shift Reminder — ${appName}`,
+      subject: `Shift Reminder - ${appName}`,
       html: this.baseTemplate(content, appName, appUrl),
     };
   }
 
   private static campaignUpdateTemplate(context: EmailContext, appName: string, appUrl: string): EmailTemplate {
     const content = `
-      <h2>Campaign Update 📢</h2>
+      <h2>Campaign Update</h2>
       <p>Hi ${context.firstName},</p>
       <p>${context.message}</p>
       <a href="${context.actionUrl}" class="button">View Campaign</a>
       ${this.renderMetadata(context)}
     `;
     return {
-      subject: `Campaign Update — ${appName}`,
+      subject: `Campaign Update - ${appName}`,
       html: this.baseTemplate(content, appName, appUrl),
     };
   }
 
   private static campaignAssignedTemplate(context: EmailContext, appName: string, appUrl: string): EmailTemplate {
     const content = `
-      <h2>Campaign Assigned 🎯</h2>
+      <h2>Campaign Assigned</h2>
       <p>Hi ${context.firstName},</p>
       <p>${context.message}</p>
       <a href="${context.actionUrl}" class="button">View Campaign</a>
       ${this.renderMetadata(context)}
     `;
     return {
-      subject: `Campaign Assigned — ${appName}`,
+      subject: `Campaign Assigned - ${appName}`,
       html: this.baseTemplate(content, appName, appUrl),
     };
   }
 
   private static timesheetReminderTemplate(context: EmailContext, appName: string, appUrl: string): EmailTemplate {
     const content = `
-      <h2>Timesheet Reminder ⏰</h2>
+      <h2>Timesheet Reminder</h2>
       <p>Hi ${context.firstName},</p>
       <p>${context.message}</p>
       <a href="${context.actionUrl}" class="button">Submit Timesheet</a>
       ${this.renderMetadata(context)}
     `;
     return {
-      subject: `Timesheet Reminder — ${appName}`,
+      subject: `Timesheet Reminder - ${appName}`,
       html: this.baseTemplate(content, appName, appUrl),
+    };
+  }
+
+  private static timeTrackingNotStartedTemplate(context: EmailContext, appName: string, appUrl: string): EmailTemplate {
+    const content = `
+      <h2>Time Tracking Reminder</h2>
+      <p>Hi ${context.firstName},</p>
+      <p>${context.message}</p>
+      <a href="${context.actionUrl}" class="button">Open Time Tracking</a>
+      ${this.renderMetadata(context)}
+    `;
+    return {
+      subject: `Time Tracking Reminder - ${appName}`,
+      html: this.baseTemplate(content, appName, appUrl),
+      text: context.message,
+    };
+  }
+
+  private static runningTimerReminderTemplate(context: EmailContext, appName: string, appUrl: string): EmailTemplate {
+    const content = `
+      <h2>Running Timer Reminder</h2>
+      <p>Hi ${context.firstName},</p>
+      <p>${context.message}</p>
+      <a href="${context.actionUrl}" class="button">Review Timer</a>
+      ${this.renderMetadata(context)}
+    `;
+    return {
+      subject: `Running Timer Reminder - ${appName}`,
+      html: this.baseTemplate(content, appName, appUrl),
+      text: context.message,
+    };
+  }
+
+  private static weeklyTimeSummaryTemplate(context: EmailContext, appName: string, appUrl: string): EmailTemplate {
+    const content = `
+      <h2>Weekly Time Summary</h2>
+      <p>Hi ${context.firstName},</p>
+      <p>${context.message}</p>
+      <a href="${context.actionUrl}" class="button">View Timesheet</a>
+      ${this.renderMetadata(context)}
+    `;
+    return {
+      subject: `Weekly Time Summary - ${appName}`,
+      html: this.baseTemplate(content, appName, appUrl),
+      text: context.message,
+    };
+  }
+
+  private static monthlyTimeSummaryTemplate(context: EmailContext, appName: string, appUrl: string): EmailTemplate {
+    const content = `
+      <h2>Monthly Time Summary</h2>
+      <p>Hi ${context.firstName},</p>
+      <p>${context.message}</p>
+      <a href="${context.actionUrl}" class="button">View Timesheet</a>
+      ${this.renderMetadata(context)}
+    `;
+    return {
+      subject: `Monthly Time Summary - ${appName}`,
+      html: this.baseTemplate(content, appName, appUrl),
+      text: context.message,
     };
   }
 
   private static invoiceUpdateTemplate(context: EmailContext, appName: string, appUrl: string): EmailTemplate {
     const content = `
-      <h2>Invoice Update 💰</h2>
+      <h2>Invoice Update</h2>
       <p>Hi ${context.firstName},</p>
       <p>${context.message}</p>
       <a href="${context.actionUrl}" class="button">View Invoice</a>
       ${this.renderMetadata(context)}
     `;
     return {
-      subject: `Invoice Update — ${appName}`,
+      subject: `Invoice Update - ${appName}`,
       html: this.baseTemplate(content, appName, appUrl),
     };
   }
 
   private static budgetAlertTemplate(context: EmailContext, appName: string, appUrl: string): EmailTemplate {
     const content = `
-      <h2>Budget Alert 💸</h2>
+      <h2>Budget Alert</h2>
       <p>Hi ${context.firstName},</p>
       <p>${context.message}</p>
       <a href="${context.actionUrl}" class="button">View Budget</a>
       ${this.renderMetadata(context)}
     `;
     return {
-      subject: `Budget Alert — ${appName}`,
+      subject: `Budget Alert - ${appName}`,
       html: this.baseTemplate(content, appName, appUrl),
     };
   }
 
   private static expenseSubmittedTemplate(context: EmailContext, appName: string, appUrl: string): EmailTemplate {
     const content = `
-      <h2>Expense Submitted 💳</h2>
+      <h2>Expense Submitted</h2>
       <p>Hi ${context.firstName},</p>
       <p>${context.message}</p>
       <a href="${context.actionUrl}" class="button">View Expense</a>
       ${this.renderMetadata(context)}
     `;
     return {
-      subject: `Expense Submitted — ${appName}`,
+      subject: `Expense Submitted - ${appName}`,
       html: this.baseTemplate(content, appName, appUrl),
     };
   }
 
   private static expenseApprovedTemplate(context: EmailContext, appName: string, appUrl: string): EmailTemplate {
     const content = `
-      <h2>Expense Approved ✅</h2>
+      <h2>Expense Approved</h2>
       <p>Hi ${context.firstName},</p>
       <p>${context.message}</p>
       <a href="${context.actionUrl}" class="button">View Expense</a>
       ${this.renderMetadata(context)}
     `;
     return {
-      subject: `Expense Approved — ${appName}`,
+      subject: `Expense Approved - ${appName}`,
       html: this.baseTemplate(content, appName, appUrl),
     };
   }
 
   private static expenseRejectedTemplate(context: EmailContext, appName: string, appUrl: string): EmailTemplate {
     const content = `
-      <h2>Expense Rejected ❌</h2>
+      <h2>Expense Rejected</h2>
       <p>Hi ${context.firstName},</p>
       <p>${context.message}</p>
       <a href="${context.actionUrl}" class="button">View Expense</a>
       ${this.renderMetadata(context)}
     `;
     return {
-      subject: `Expense Rejected — ${appName}`,
+      subject: `Expense Rejected - ${appName}`,
       html: this.baseTemplate(content, appName, appUrl),
     };
   }
@@ -695,7 +808,7 @@ export class EmailTemplateService {
       ${this.renderMetadata(context)}
     `;
     return {
-      subject: `${context.title} — ${appName}`,
+      subject: `${context.title} - ${appName}`,
       html: this.baseTemplate(content, appName, appUrl),
     };
   }

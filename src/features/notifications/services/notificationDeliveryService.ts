@@ -7,6 +7,11 @@ import {
 import type { NotificationRow } from "../../../lib/supabase/queries/notifications";
 import { supabase } from "../../../lib/supabase/client";
 import { EmailTemplateService, type EmailContext } from "./emailTemplates";
+import {
+  getGlobalNotificationPreferences,
+  queueNotificationEmailEvent,
+  shouldCreateEmailEvent,
+} from "./advancedNotificationService";
 
 export type NotificationDeliveryStatus =
   | "queued"
@@ -86,7 +91,21 @@ async function isChannelEnabled(params: {
   type: NotificationType;
   channel: NotificationChannel;
 }) {
-  if (params.channel === "in_app") return true;
+  if (params.channel === "in_app") {
+    const preferences = await getGlobalNotificationPreferences({
+      organizationId: params.organizationId,
+      userId: params.userId,
+    });
+    return preferences.in_app_enabled;
+  }
+
+  if (params.channel === "email") {
+    return shouldCreateEmailEvent({
+      organizationId: params.organizationId,
+      userId: params.userId,
+      type: params.type,
+    });
+  }
 
   const { data, error } = await supabase
     .from("notification_preferences")
@@ -281,33 +300,25 @@ async function processEmailDelivery(params: {
   });
 
   try {
-    const result = await sendEmail({
-      notification: params.notification,
-      to: destination,
-      fullName: profile?.full_name,
-      type: params.type,
+    await queueNotificationEmailEvent({
+      organizationId: params.notification.organization_id,
+      userId: params.notification.user_id,
+      notificationId: params.notification.id,
+      eventType: params.type,
+      recipientEmail: destination,
+      recipientName: profile?.full_name,
+      title: params.notification.title,
+      body: params.notification.message ?? "",
+      actionUrl: params.notification.action_url ?? "/notifications",
       priority: params.priority,
+      metadata: params.notification.metadata ?? {},
     });
 
-    if (!result.ok) {
-      await updateDelivery(deliveryId, {
-        status: "failed",
-        errorMessage: result.error,
-      });
-      return {
-        channel: "email" as const,
-        ok: false,
-        status: "failed" as const,
-        deliveryId,
-        error: result.error,
-      };
-    }
-
-    await updateDelivery(deliveryId, { status: "sent" });
+    await updateDelivery(deliveryId, { status: "queued" });
     return {
       channel: "email" as const,
       ok: true,
-      status: "sent" as const,
+      status: "queued" as const,
       deliveryId,
     };
   } catch (err) {

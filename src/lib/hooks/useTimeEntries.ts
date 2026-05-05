@@ -35,6 +35,7 @@ export function useTimeEntries({
   const [loading, setLoading] = useState(autoLoad);
   const [mutating, setMutating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [now, setNow] = useState(Date.now());
 
   const canQuery = Boolean(organizationId && userId);
 
@@ -79,6 +80,11 @@ export function useTimeEntries({
     if (!autoLoad) return;
     void loadEntries();
   }, [autoLoad, loadEntries]);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(interval);
+  }, []);
 
   // Realtime subscription so cross-session timer changes reflect immediately
   useEffect(() => {
@@ -295,13 +301,40 @@ export function useTimeEntries({
     [activeEntry],
   );
 
+  const liveEntries = useMemo(() => {
+    return entries.map((entry) => {
+      const isRunning = entry.is_running || !entry.ended_at;
+      if (!isRunning) return entry;
+
+      const startedMs = new Date(entry.started_at).getTime();
+      const elapsedSeconds = Number.isNaN(startedMs)
+        ? 0
+        : Math.max(0, Math.floor((now - startedMs) / 1000));
+
+      return {
+        ...entry,
+        is_running: true,
+        duration_seconds: Math.max(
+          Number(entry.duration_seconds ?? 0),
+          elapsedSeconds,
+        ),
+      };
+    });
+  }, [entries, now]);
+
+  const liveActiveEntry = useMemo(() => {
+    if (!activeEntry) return null;
+    return liveEntries.find((entry) => entry.id === activeEntry.id) ??
+      activeEntry;
+  }, [activeEntry, liveEntries]);
+
   const totals = useMemo(() => {
-    const totalSeconds = entries.reduce(
+    const totalSeconds = liveEntries.reduce(
       (sum, entry) => sum + (entry.duration_seconds ?? 0),
       0,
     );
 
-    const billableSeconds = entries
+    const billableSeconds = liveEntries
       .filter((entry) => entry.is_billable)
       .reduce((sum, entry) => sum + (entry.duration_seconds ?? 0), 0);
 
@@ -312,11 +345,11 @@ export function useTimeEntries({
       billableSeconds,
       nonBillableSeconds,
     };
-  }, [entries]);
+  }, [liveEntries]);
 
   return {
-    entries,
-    activeEntry,
+    entries: liveEntries,
+    activeEntry: liveActiveEntry,
     loading,
     mutating,
     error,
@@ -329,6 +362,6 @@ export function useTimeEntries({
     createManualEntry: handleCreateManual,
     updateEntry: handleUpdate,
     deleteEntry: handleDelete,
-    hasRunningTimer: Boolean(activeEntry),
+    hasRunningTimer: Boolean(liveActiveEntry),
   };
 }

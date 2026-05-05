@@ -164,17 +164,14 @@ export function useDashboard(params: {
     const apiKey = import.meta.env.VITE_GNEWS_API_KEY;
 
     if (!apiKey) {
-      console.error("Missing GNews API key");
       setRoleNews([]);
       return;
     }
 
     try {
-      const url = `https://gnews.io/api/v4/search?q=${
-        encodeURIComponent(
-          roleNewsTopic,
-        )
-      }&lang=en&max=5&token=${apiKey}`;
+      const url = `https://gnews.io/api/v4/search?q=${encodeURIComponent(
+        roleNewsTopic,
+      )}&lang=en&max=5&token=${apiKey}`;
 
       const res = await fetch(url);
 
@@ -220,73 +217,47 @@ export function useDashboard(params: {
       setLoading(true);
       setError("");
 
-      // Get task IDs from task_assignees junction table
-      const { data: taskAssignments } = await supabase
-        .from("task_assignees")
-        .select("task_id")
-        .eq("user_id", userId);
+      const { data: taskAssignments, error: taskAssignmentsError } =
+        await supabase
+          .from("task_assignees")
+          .select("task_id")
+          .eq("user_id", userId);
 
-      const assignedTaskIds = taskAssignments?.map((a) => a.task_id) || [];
+      if (taskAssignmentsError) throw taskAssignmentsError;
 
-      // Also get task IDs from active time entries (tasks user is tracking but not assigned to)
-      const { data: timeEntryTasks } = await supabase
-        .from("time_entries")
-        .select("task_id")
-        .eq("user_id", userId)
-        .is("ended_at", null)
-        .not("task_id", "is", null);
+      const assignedTaskIds =
+        taskAssignments?.map((assignment: any) => assignment.task_id).filter(Boolean) ||
+        [];
 
-      const trackedTaskIds = timeEntryTasks?.map((t) =>
-        t.task_id
-      ).filter(Boolean) || [];
+      const { data: timeEntryTasks, error: timeEntryTasksError } =
+        await supabase
+          .from("time_entries")
+          .select("task_id")
+          .eq("organization_id", organizationId)
+          .eq("user_id", userId)
+          .not("task_id", "is", null)
+          .is("deleted_at", null)
+          .order("started_at", { ascending: false })
+          .limit(20);
 
-      // Combine all task IDs the user cares about
+      if (timeEntryTasksError) throw timeEntryTasksError;
+
+      const trackedTaskIds =
+        timeEntryTasks?.map((entry: any) => entry.task_id).filter(Boolean) || [];
+
       const allTaskIds = Array.from(
         new Set([...assignedTaskIds, ...trackedTaskIds]),
       );
 
-      const assignmentFilter = allTaskIds.length > 0
-        ? `,id.in.(${allTaskIds.join(",")})`
-        : "";
-
       const [
-        openRes,
-        progressRes,
-        reviewRes,
-        doneRes,
         notificationsRes,
         approvalsRes,
         myProjectsRes,
         completedProjectsRes,
-        recentTasksRes,
         announcementsRes,
         timeEntriesRes,
         activeTimerRes,
       ] = await Promise.all([
-        supabase
-          .from("tasks")
-          .select("id", { head: true, count: "exact" })
-          .or(`assigned_to.eq.${userId}${assignmentFilter}`)
-          .in("status", ["todo", "backlog", "blocked"]),
-
-        supabase
-          .from("tasks")
-          .select("id", { head: true, count: "exact" })
-          .or(`assigned_to.eq.${userId}${assignmentFilter}`)
-          .eq("status", "in_progress"),
-
-        supabase
-          .from("tasks")
-          .select("id", { head: true, count: "exact" })
-          .or(`assigned_to.eq.${userId}${assignmentFilter}`)
-          .eq("status", "review"),
-
-        supabase
-          .from("tasks")
-          .select("id", { head: true, count: "exact" })
-          .or(`assigned_to.eq.${userId}${assignmentFilter}`)
-          .eq("status", "done"),
-
         supabase
           .from("notifications")
           .select("id", { head: true, count: "exact" })
@@ -311,16 +282,6 @@ export function useDashboard(params: {
           .eq("status", "completed"),
 
         supabase
-          .from("tasks")
-          .select(`
-            id,title,status,priority,due_date,created_at,created_by,
-            profiles:created_by(full_name,email)
-          `)
-          .or(`assigned_to.eq.${userId}${assignmentFilter}`)
-          .order("updated_at", { ascending: false })
-          .limit(6),
-
-        supabase
           .from("announcements")
           .select("id,title,content,created_at,target_roles")
           .eq("organization_id", organizationId)
@@ -336,7 +297,9 @@ export function useDashboard(params: {
         supabase
           .from("time_entries")
           .select("id,started_at,ended_at,duration_seconds,description,task_id")
+          .eq("organization_id", organizationId)
           .eq("user_id", userId)
+          .is("deleted_at", null)
           .gte("started_at", startOfToday()),
 
         supabase
@@ -344,30 +307,78 @@ export function useDashboard(params: {
           .select(
             "id,organization_id,user_id,task_id,description,started_at,ended_at,duration_seconds",
           )
+          .eq("organization_id", organizationId)
           .eq("user_id", userId)
+          .is("deleted_at", null)
           .is("ended_at", null)
           .order("started_at", { ascending: false })
           .limit(1)
           .maybeSingle(),
       ]);
 
-      const errors = [
-        openRes.error,
-        progressRes.error,
-        reviewRes.error,
-        doneRes.error,
+      const baseErrors = [
         notificationsRes.error,
         approvalsRes.error,
         myProjectsRes.error,
         completedProjectsRes.error,
-        recentTasksRes.error,
         announcementsRes.error,
         timeEntriesRes.error,
         activeTimerRes.error,
       ].filter(Boolean);
 
-      if (errors.length > 0) {
-        throw errors[0];
+      if (baseErrors.length > 0) {
+        throw baseErrors[0];
+      }
+
+      let dashboardTasks: DashboardTask[] = [];
+      let openTasks = 0;
+      let inProgressTasks = 0;
+      let reviewTasks = 0;
+      let doneTasks = 0;
+
+      if (allTaskIds.length > 0) {
+        const { data: taskRows, error: taskRowsError } = await supabase
+          .from("tasks")
+          .select(`
+            id,
+            title,
+            status,
+            priority,
+            due_date,
+            created_at,
+            created_by,
+            profiles:created_by (
+              full_name,
+              email
+            )
+          `)
+          .eq("organization_id", organizationId)
+          .in("id", allTaskIds)
+          .order("updated_at", { ascending: false })
+          .limit(10);
+
+        if (taskRowsError) throw taskRowsError;
+
+        dashboardTasks = ((taskRows ?? []) as any[]).map((task) => ({
+          ...task,
+          created_by_full_name: task.profiles?.full_name ?? null,
+          created_by_email: task.profiles?.email ?? null,
+        }));
+
+        openTasks = dashboardTasks.filter((task) =>
+          ["todo", "backlog", "blocked"].includes(task.status),
+        ).length;
+
+        inProgressTasks = dashboardTasks.filter(
+          (task) => task.status === "in_progress",
+        ).length;
+
+        reviewTasks = dashboardTasks.filter(
+          (task) => task.status === "review",
+        ).length;
+
+        doneTasks = dashboardTasks.filter((task) => task.status === "done")
+          .length;
       }
 
       const todaySeconds = (timeEntriesRes.data ?? []).reduce(
@@ -382,10 +393,10 @@ export function useDashboard(params: {
       );
 
       setStats({
-        openTasks: openRes.count ?? 0,
-        inProgressTasks: progressRes.count ?? 0,
-        reviewTasks: reviewRes.count ?? 0,
-        doneTasks: doneRes.count ?? 0,
+        openTasks,
+        inProgressTasks,
+        reviewTasks,
+        doneTasks,
         unreadNotifications: notificationsRes.count ?? 0,
         pendingApprovals: approvalsRes.count ?? 0,
         todaySeconds,
@@ -393,7 +404,7 @@ export function useDashboard(params: {
         completedProjects: completedProjectsRes.count ?? 0,
       });
 
-      setTasks((recentTasksRes.data ?? []) as DashboardTask[]);
+      setTasks(dashboardTasks);
       setAnnouncements((announcementsRes.data ?? []) as Announcement[]);
       setActiveTimer((activeTimerRes.data as ActiveTimer) ?? null);
 
@@ -404,7 +415,14 @@ export function useDashboard(params: {
     } finally {
       setLoading(false);
     }
-  }, [enabled, userId, organizationId, role, loadWeather, loadRoleNews]);
+  }, [
+    enabled,
+    userId,
+    organizationId,
+    role,
+    loadWeather,
+    loadRoleNews,
+  ]);
 
   const startTimer = useCallback(
     async (taskId?: string | null, description?: string) => {
@@ -423,7 +441,9 @@ export function useDashboard(params: {
           await supabase
             .from("time_entries")
             .select("id")
+            .eq("organization_id", organizationId)
             .eq("user_id", userId)
+            .is("deleted_at", null)
             .is("ended_at", null)
             .maybeSingle();
 
@@ -434,18 +454,44 @@ export function useDashboard(params: {
         }
 
         if (isAtOrAfterZimbabweCutoff()) {
-          throw new Error("Timers stop at 7:00 PM Harare time. Add manual time for today if needed.");
+          throw new Error(
+            "Timers stop at 7:00 PM Harare time. Add manual time for today if needed.",
+          );
+        }
+
+        let finalProjectId: string | null = null;
+        let finalClientId: string | null = null;
+        let finalCampaignId: string | null = null;
+
+        if (taskId) {
+          const { data: taskContext, error: taskContextError } = await supabase
+            .from("tasks")
+            .select("id,organization_id,project_id,client_id,campaign_id")
+            .eq("id", taskId)
+            .eq("organization_id", organizationId)
+            .maybeSingle();
+
+          if (taskContextError) throw taskContextError;
+
+          finalProjectId = taskContext?.project_id ?? null;
+          finalClientId = taskContext?.client_id ?? null;
+          finalCampaignId = taskContext?.campaign_id ?? null;
         }
 
         const { error } = await supabase.from("time_entries").insert({
           organization_id: organizationId,
           user_id: userId,
           task_id: taskId ?? null,
+          project_id: finalProjectId,
+          client_id: finalClientId,
+          campaign_id: finalCampaignId,
           description: description ?? null,
           started_at: new Date().toISOString(),
           ended_at: null,
           is_running: true,
           duration_seconds: 0,
+          source: "timer",
+          entry_type: "timer",
         });
 
         if (error) throw error;

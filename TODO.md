@@ -1,27 +1,46 @@
-# Implementation Progress
+# User Timesheet Module Implementation Plan
 
-## Phase 1: Consolidate Time Tracking
+## Status: ✅ Approved & In Progress
 
-- [ ] Fix BoardViewPage.tsx to use useTimeEntries
-- [ ] Fix useDashboard.ts timer logic
-- [ ] Fix DashboardPage.tsx task links
+## Breakdown Steps:
 
-## Phase 2: Fix Broken Pages
+### Phase 1: Database Migration (2/2 ✅)
 
-- [ ] Remove time-tracking feature folder
-- [ ] Update AppRouter.tsx
+- [x] Create `supabase/migrations/202605100001_user_timesheet_adjustments.sql`
+- [x] Apply migration (`supabase db push` ✅)
 
-## Phase 3: Improve Board & Task Card Flow
+### Phase 2: Core Services (0/3)
 
-- [ ] Wire BoardView CardDetailModal properly
-- [ ] Fix drag-and-drop position updates
+- [ ] Extend `src/lib/supabase/mutations/timeEntries.ts` (adjustment functions)
+- [ ] Update `src/lib/supabase/queries/timeEntries.ts` (grouping queries)
+- [ ] New hook `src/lib/hooks/useUserTimesheet.ts`
 
-## Phase 4: Dashboard My Tasks Improvements
+### Phase 3: Route & Navigation (0/2)
 
-- [ ] Add task detail navigation
-- [ ] Add quick status changes
+- [ ] Add `/timesheet` route in `src/app/router/AppRouter.tsx`
+- [ ] Add nav item in `src/components/dashboard/components/Sidebar.tsx`
 
-## Phase 5: Cleanup
+### Phase 4: Main Page & Views (0/5)
 
-- [ ] Clean unused imports
-- [ ] Run lint
+- [ ] Create `src/features/timesheets/pages/UserTimesheetPage.tsx`
+- [ ] Implement Today view + entries list
+- [ ] Week/Month/All Time tabs
+- [ ] Calendar integration
+- [ ] Stats & totals
+
+### Phase 5: Modals & Actions (0/4)
+
+- [ ] `AddTimeModal.tsx` (manual entry)
+- [ ] `RequestAdjustmentModal.tsx` (past edits)
+- [ ] `TimeEntryActions.tsx` (edit/delete/adjust)
+- [ ] Integrate timer controls
+
+### Phase 6: Testing & Integration (0/3)
+
+- [ ] Test adjustment workflow end-to-end
+- [ ] Verify admin realtime reflection
+- [ ] Performance: pagination for all-time view
+
+## Current Progress: Phase 1 Next
+
+**Next Action:** Create DB migration file

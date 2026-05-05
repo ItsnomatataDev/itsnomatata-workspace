@@ -7,9 +7,10 @@ import "react-toastify/dist/ReactToastify.css";
 function AppContent() {
   const auth = useAuth();
   const userId = auth?.user?.id ?? null;
+  const organizationId = auth?.profile?.organization_id ?? null;
 
   return (
-    <NotificationProvider userId={userId}>
+    <NotificationProvider userId={userId} organizationId={organizationId}>
       <AppRouter />
       <ToastContainer
         position="top-right"

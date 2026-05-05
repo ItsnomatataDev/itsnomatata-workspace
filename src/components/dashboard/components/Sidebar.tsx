@@ -2,7 +2,6 @@ import { useState } from "react";
 import {
   LayoutDashboard,
   Users,
-  Bell,
   Clock3,
   BriefcaseBusiness,
   Megaphone,
@@ -26,12 +25,11 @@ import {
   Timer,
   Package,
   ClipboardList,
+  Settings,
 } from "lucide-react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { signOutUser } from "../../../lib/supabase/auth";
 import NotificationBell from "../../../features/notifications/components/NotificationBell";
-
-// ── Types ──────────────────────────────────────────────────
 
 type LinkItem = {
   to: string;
@@ -45,7 +43,7 @@ type GroupItem = {
   label: string;
   icon: React.ComponentType<{ size?: number; className?: string }>;
   color: string;
-  activePaths: string[]; // any of these being active expands + highlights the group
+  activePaths: string[];
   children: LinkItem[];
 };
 
@@ -57,19 +55,17 @@ type SidebarCounts = {
   openIssues?: number;
 };
 
-// ── Common links (all roles) ───────────────────────────────
-
 const commonLinks: LinkItem[] = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { to: "/boards", label: "Boards", icon: BriefcaseBusiness },
+  { to: "/timesheet", label: "Timesheet", icon: Clock3 },
   { to: "/leave", label: "Leave", icon: CalendarDays },
   { to: "/roster", label: "Duty Roster", icon: CalendarClock },
   { to: "/chat", label: "Team Chat", icon: MessageSquare },
   { to: "/meetings", label: "Meetings", icon: Video },
   { to: "/ai-workspace", label: "AI Workspace", icon: Sparkles },
+  { to: "/settings", label: "Settings", icon: Settings },
 ];
-
-// ── Role nav builders ──────────────────────────────────────
 
 function getRoleNav(role?: string | null, counts?: SidebarCounts): NavItem[] {
   switch (role) {
@@ -80,10 +76,18 @@ function getRoleNav(role?: string | null, counts?: SidebarCounts): NavItem[] {
           label: "Social Media",
           icon: Megaphone,
           color: "text-pink-400",
-          activePaths: ["/social-media", "/social-media-manager", "/social-posts"],
+          activePaths: [
+            "/social-media",
+            "/social-media-manager",
+            "/social-posts",
+          ],
           children: [
             { to: "/social-media", label: "Command Center", icon: BarChart3 },
-            { to: "/social-media-manager", label: "AI Content Manager", icon: Sparkles },
+            {
+              to: "/social-media-manager",
+              label: "AI Content Manager",
+              icon: Sparkles,
+            },
             { to: "/social-posts", label: "Social Posts", icon: Megaphone },
           ],
         },
@@ -156,7 +160,11 @@ function getRoleNav(role?: string | null, counts?: SidebarCounts): NavItem[] {
           activePaths: ["/timesheets", "/board-management"],
           children: [
             { to: "/timesheets/team", label: "Team Timesheet", icon: Clock3 },
-            { to: "/board-management", label: "Board Management", icon: BriefcaseBusiness },
+            {
+              to: "/board-management",
+              label: "Board Management",
+              icon: BriefcaseBusiness,
+            },
           ],
         },
         {
@@ -164,10 +172,22 @@ function getRoleNav(role?: string | null, counts?: SidebarCounts): NavItem[] {
           label: "Social Media",
           icon: Megaphone,
           color: "text-pink-400",
-          activePaths: ["/social-media", "/social-media-manager", "/social-posts"],
+          activePaths: [
+            "/social-media",
+            "/social-media-manager",
+            "/social-posts",
+          ],
           children: [
-            { to: "/social-media", label: "Social Media Dashboard", icon: BarChart3 },
-            { to: "/social-media-manager", label: "AI Content Manager", icon: Sparkles },
+            {
+              to: "/social-media",
+              label: "Social Media Dashboard",
+              icon: BarChart3,
+            },
+            {
+              to: "/social-media-manager",
+              label: "AI Content Manager",
+              icon: Sparkles,
+            },
             { to: "/social-posts", label: "Social Posts", icon: Megaphone },
           ],
         },
@@ -184,8 +204,6 @@ function getRoleNav(role?: string | null, counts?: SidebarCounts): NavItem[] {
         { to: "/admin/leave", label: "Leave Request", icon: CalendarDays },
         { to: "/admin/roster", label: "Duty Roster", icon: CalendarClock },
         { to: "/admin/crm", label: "CRM", icon: BriefcaseBusiness },
-
-
         {
           type: "group",
           label: "Assets",
@@ -197,7 +215,6 @@ function getRoleNav(role?: string | null, counts?: SidebarCounts): NavItem[] {
             { to: "/scan", label: "Scan Asset", icon: ScanLine },
           ],
         },
-
         {
           type: "group",
           label: "Time Management",
@@ -205,16 +222,8 @@ function getRoleNav(role?: string | null, counts?: SidebarCounts): NavItem[] {
           color: "text-orange-400",
           activePaths: ["/timesheets", "/everhour", "/board-management"],
           children: [
-            {
-              to: "/timesheets/team",
-              label: "Team Timesheet",
-              icon: Clock3,
-            },
-            {
-              to: "/timesheets/reports",
-              label: "Reports",
-              icon: BarChart3,
-            },
+            { to: "/timesheets/team", label: "Team Timesheet", icon: Clock3 },
+            { to: "/timesheets/reports", label: "Reports", icon: BarChart3 },
             {
               to: "/timesheets/everhouradmin",
               label: "Admin Everhour",
@@ -235,7 +244,6 @@ function getRoleNav(role?: string | null, counts?: SidebarCounts): NavItem[] {
   }
 }
 
-
 function NavGroup({
   item,
   onNavigate,
@@ -244,10 +252,9 @@ function NavGroup({
   onNavigate: () => void;
 }) {
   const location = useLocation();
-
-  const isAnyChildActive = item.children.some((child) =>
-    location.pathname.startsWith(child.to),
-  );
+  const isAnyChildActive =
+    item.activePaths.some((path) => location.pathname.startsWith(path)) ||
+    item.children.some((child) => location.pathname.startsWith(child.to));
 
   const [open, setOpen] = useState(isAnyChildActive);
   const Icon = item.icon;
@@ -256,10 +263,10 @@ function NavGroup({
     <div>
       <button
         type="button"
-        onClick={() => setOpen((p) => !p)}
-        className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition-all duration-200 ${
+        onClick={() => setOpen((previous) => !previous)}
+        className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition-all ${
           isAnyChildActive
-            ? "bg-white/8 text-white"
+            ? "bg-white/10 text-white"
             : "text-white/60 hover:bg-white/5 hover:text-white"
         }`}
       >
@@ -268,23 +275,16 @@ function NavGroup({
           className={isAnyChildActive ? item.color : "text-white/40"}
         />
         <span className="flex-1 text-left">{item.label}</span>
-        {isAnyChildActive ? (
-          <span
-            className={`rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide ${item.color} bg-current/10`}
-            style={{ backgroundColor: "rgba(249,115,22,0.12)" }}
-          >
-            {item.children.length}
-          </span>
-        ) : null}
-
-        <span className="text-white/25 transition-transform duration-200">
-          {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+        <span className="text-white/30">
+          {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
         </span>
       </button>
+
       {open && (
-        <div className="ml-4 mt-0.5 space-y-0.5 border-l border-white/8 pl-3">
+        <div className="ml-4 mt-1 space-y-1 border-l border-white/10 pl-3">
           {item.children.map((child) => {
             const ChildIcon = child.icon;
+
             return (
               <NavLink
                 key={child.to}
@@ -292,7 +292,7 @@ function NavGroup({
                 onClick={onNavigate}
                 className={({ isActive }) =>
                   [
-                    "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-150",
+                    "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all",
                     isActive
                       ? "bg-orange-500 text-white shadow-sm shadow-orange-500/20"
                       : "text-white/50 hover:bg-white/5 hover:text-white",
@@ -301,11 +301,11 @@ function NavGroup({
               >
                 <ChildIcon size={15} />
                 <span className="flex-1">{child.label}</span>
-                {typeof child.badge === "number" && child.badge > 0 && (
+                {typeof child.badge === "number" && child.badge > 0 ? (
                   <span className="rounded-full bg-orange-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
                     {child.badge}
                   </span>
-                )}
+                ) : null}
               </NavLink>
             );
           })}
@@ -314,7 +314,6 @@ function NavGroup({
     </div>
   );
 }
-
 
 export default function Sidebar({
   role,
@@ -326,8 +325,7 @@ export default function Sidebar({
   const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  const roleNav = getRoleNav(role, counts);
-  const allNav: NavItem[] = [...commonLinks, ...roleNav];
+  const allNav: NavItem[] = [...commonLinks, ...getRoleNav(role, counts)];
 
   const handleLogout = async () => {
     try {
@@ -338,29 +336,31 @@ export default function Sidebar({
     }
   };
 
-  const handleNavigateMobile = () => setMobileOpen(false);
+  const closeMobileMenu = () => setMobileOpen(false);
 
   const sidebarContent = (
     <>
-      <div className="flex items-center justify-between border-b border-white/10 px-6 py-6">
+      <div className="flex items-center justify-between border-b border-white/10 px-5 py-5">
         <div className="min-w-0">
           <p className="text-xs uppercase tracking-[0.3em] text-white/40">
             Workspace
           </p>
-          <div className="mt-2 w-28 truncate text-2xl font-bold text-white">
+
+          <div className="mt-2 w-28">
             <img
               src="https://res.cloudinary.com/dnqjax5ut/image/upload/v1776754504/Itsnomatata-Logo-White-with-tagline-2-768x643_u3n4j0.png"
-              alt="it's no matata logo"
-              className="h-full w-full"
+              alt="IT's Nomatata logo"
+              className="h-auto w-full"
             />
           </div>
         </div>
 
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex items-center gap-2">
           <NotificationBell />
+
           <button
             type="button"
-            onClick={() => setMobileOpen(false)}
+            onClick={closeMobileMenu}
             className="rounded-lg p-2 text-white/70 hover:bg-white/10 hover:text-white lg:hidden"
             aria-label="Close menu"
           >
@@ -369,29 +369,29 @@ export default function Sidebar({
         </div>
       </div>
 
-      <nav className="flex-1 space-y-0.5 overflow-y-auto p-4">
-        {allNav.map((item, i) => {
-  
+      <nav className="flex-1 space-y-1 overflow-y-auto px-4 py-4">
+        {allNav.map((item, index) => {
           if ("type" in item && item.type === "group") {
             return (
               <NavGroup
-                key={`group-${item.label}-${i}`}
+                key={`group-${item.label}-${index}`}
                 item={item}
-                onNavigate={handleNavigateMobile}
+                onNavigate={closeMobileMenu}
               />
             );
           }
 
           const link = item as LinkItem;
           const Icon = link.icon;
+
           return (
             <NavLink
               key={link.to}
               to={link.to}
-              onClick={handleNavigateMobile}
+              onClick={closeMobileMenu}
               className={({ isActive }) =>
                 [
-                  "flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition-all duration-200",
+                  "flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition-all",
                   isActive
                     ? "bg-orange-500 text-white shadow-md shadow-orange-500/20"
                     : "text-white/70 hover:bg-white/5 hover:text-white",
@@ -400,11 +400,12 @@ export default function Sidebar({
             >
               <Icon size={18} />
               <span className="flex-1">{link.label}</span>
-              {typeof link.badge === "number" && link.badge > 0 && (
+
+              {typeof link.badge === "number" && link.badge > 0 ? (
                 <span className="rounded-full bg-orange-500 px-2 py-0.5 text-xs font-semibold text-white">
                   {link.badge}
                 </span>
-              )}
+              ) : null}
             </NavLink>
           );
         })}
@@ -424,8 +425,9 @@ export default function Sidebar({
   );
 
   return (
-    <div className="app-sidebar-shell w-full shrink-0 lg:contents">
-      <div className="sticky top-0 z-40 flex items-center justify-between border-b border-white/10 bg-black px-4 py-4 lg:hidden">
+    <>
+      {/* Mobile top bar */}
+      <div className="sticky top-0 z-40 flex h-16 items-center justify-between border-b border-white/10 bg-black px-4 lg:hidden">
         <button
           type="button"
           onClick={() => setMobileOpen(true)}
@@ -439,27 +441,32 @@ export default function Sidebar({
           IT's<span className="text-orange-500">No matata</span>
         </h1>
 
-        <div className="shrink-0">
-          <NotificationBell />
-        </div>
+        <NotificationBell />
       </div>
 
+      {/* Desktop spacer prevents overlap */}
+      <div className="hidden w-72 shrink-0 lg:block" />
+
+      {/* Desktop fixed sidebar */}
+      <aside className="fixed left-0 top-0 z-40 hidden h-screen w-72 flex-col border-r border-white/10 bg-black lg:flex">
+        {sidebarContent}
+      </aside>
+
+      {/* Mobile drawer */}
       {mobileOpen && (
         <div className="fixed inset-0 z-50 lg:hidden">
           <button
             type="button"
-            aria-label="Close menu overlay"
-            className="absolute inset-0 bg-black/70"
+            aria-label="Close sidebar overlay"
+            className="absolute inset-0 bg-black/75"
             onClick={() => setMobileOpen(false)}
           />
+
           <aside className="absolute left-0 top-0 flex h-full w-72 max-w-[85vw] flex-col border-r border-white/10 bg-black shadow-2xl">
             {sidebarContent}
           </aside>
         </div>
       )}
-      <aside className="sticky top-0 hidden h-screen w-72 shrink-0 flex-col border-r border-white/10 bg-black lg:flex">
-        {sidebarContent}
-      </aside>
-    </div>
+    </>
   );
 }

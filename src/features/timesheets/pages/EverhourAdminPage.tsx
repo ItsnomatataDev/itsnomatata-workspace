@@ -25,6 +25,7 @@ import { useAuth } from "../../../app/providers/AuthProvider";
 import { deleteBoard, getBoards } from "../../boards/services/boardService";
 import { useTeamTimesheetsRealtime } from "../../../lib/hooks/useTeamTimesheetsRealtime";
 import { supabase } from "../../../lib/supabase/client";
+import { createManualTimeEntry } from "../../../lib/supabase/mutations/timeEntries";
 import type { Board } from "../../../types/board";
 import type { AdminTimeEntryRow } from "../../../lib/supabase/queries/adminTime";
 import {
@@ -561,16 +562,19 @@ function GroupSection({
 
 function AddHoursModal({
   boards,
+  profileOptions,
   organizationId,
   onClose,
   onAdded,
 }: {
   boards: BoardWithTime[];
+  profileOptions: ProfileOption[];
   organizationId: string;
   onClose: () => void;
   onAdded: () => void;
 }) {
   const [boardId, setBoardId] = useState(boards[0]?.id ?? "");
+  const [targetUserId, setTargetUserId] = useState(profileOptions[0]?.id ?? "");
   const [hours, setHours] = useState("");
   const [minutes, setMinutes] = useState("0");
   const [isBillable, setIsBillable] = useState(true);
@@ -581,12 +585,19 @@ function AddHoursModal({
   const auth = useAuth();
   const userId = auth?.user?.id ?? null;
 
+  useEffect(() => {
+    if (!targetUserId && profileOptions[0]?.id) {
+      setTargetUserId(profileOptions[0].id);
+    }
+  }, [profileOptions, targetUserId]);
+
   const handleSave = async () => {
     const h = parseFloat(hours) || 0;
     const m = parseFloat(minutes) || 0;
     const totalSeconds = Math.round(h * 3600 + m * 60);
 
     if (!boardId) return setError("Select a board.");
+    if (!targetUserId) return setError("Select a team member.");
     if (totalSeconds <= 0) return setError("Enter at least 1 minute.");
     if (!userId) return setError("Not authenticated.");
 
@@ -599,19 +610,23 @@ function AddHoursModal({
         new Date(startedAt).getTime() + totalSeconds * 1000,
       ).toISOString();
 
-      const { error: dbError } = await supabase.from("time_entries").insert({
-        organization_id: organizationId,
-        user_id: userId,
-        client_id: boardId,
-        duration_seconds: totalSeconds,
-        started_at: startedAt,
-        ended_at: endedAt,
-        description: note.trim() || null,
-        is_billable: isBillable,
-        is_running: false,
+      await createManualTimeEntry({
+        organizationId,
+        userId: targetUserId,
+        actorUserId: userId,
+        clientId: boardId,
+        startedAt,
+        endedAt,
+        description: note.trim() || "Admin-added board time",
+        isBillable,
+        source: "everhour_admin_manual",
+        reason: "everhour_admin_added_hours",
+        metadata: {
+          created_from: "everhour_admin_add_hours",
+          board_id: boardId,
+          added_while_timers_may_be_running: true,
+        },
       });
-
-      if (dbError) throw dbError;
       onAdded();
       onClose();
     } catch (err) {
@@ -651,6 +666,26 @@ function AddHoursModal({
           )}
 
           {/* Board select */}
+          <div>
+            <label className="mb-1.5 block text-[10px] uppercase tracking-widest text-white/35">
+              Team member
+            </label>
+            <select
+              value={targetUserId}
+              onChange={(e) => setTargetUserId(e.target.value)}
+              className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none focus:border-orange-500/50 transition"
+            >
+              <option value="" className="bg-[#111]">
+                Select member
+              </option>
+              {profileOptions.map((profile) => (
+                <option key={profile.id} value={profile.id} className="bg-[#111]">
+                  {profile.full_name || profile.email || profile.id}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <div>
             <label className="mb-1.5 block text-[10px] uppercase tracking-widest text-white/35">
               Board / Client
@@ -1526,6 +1561,7 @@ export default function EverhourAdminPage() {
       {showAddHours && organizationId && (
         <AddHoursModal
           boards={boardsWithTime}
+          profileOptions={profileOptions}
           organizationId={organizationId}
           onClose={() => setShowAddHours(false)}
           onAdded={refetch}

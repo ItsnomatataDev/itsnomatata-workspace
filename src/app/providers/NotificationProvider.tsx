@@ -35,9 +35,11 @@ const NotificationContext = createContext<NotificationContextValue | undefined>(
 
 export function NotificationProvider({
   userId,
+  organizationId,
   children,
 }: {
   userId?: string | null;
+  organizationId?: string | null;
   children: React.ReactNode;
 }) {
   const [notifications, setNotifications] = useState<NotificationRow[]>([]);
@@ -60,8 +62,8 @@ export function NotificationProvider({
       setError("");
 
       const [items, unread] = await Promise.all([
-        getUserNotifications({ userId, limit: 50 }),
-        getUnreadNotificationCount(userId),
+        getUserNotifications({ userId, organizationId: organizationId ?? undefined, limit: 50 }),
+        getUnreadNotificationCount(userId, organizationId),
       ]);
 
       setNotifications(items);
@@ -74,7 +76,7 @@ export function NotificationProvider({
     } finally {
       setLoading(false);
     }
-  }, [userId]);
+  }, [organizationId, userId]);
 
   useEffect(() => {
     void reload();
@@ -95,6 +97,12 @@ export function NotificationProvider({
         },
         (payload) => {
           const incoming = payload.new as NotificationRow;
+          if (
+            organizationId &&
+            incoming.organization_id !== organizationId
+          ) {
+            return;
+          }
 
           setNotifications((prev) => {
             const exists = prev.some((item) => item.id === incoming.id);
@@ -127,6 +135,12 @@ export function NotificationProvider({
         },
         (payload) => {
           const updated = payload.new as NotificationRow;
+          if (
+            organizationId &&
+            updated.organization_id !== organizationId
+          ) {
+            return;
+          }
 
           setNotifications((prev) => {
             const existing = prev.find((item) => item.id === updated.id);
@@ -159,7 +173,7 @@ export function NotificationProvider({
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [userId]);
+  }, [organizationId, userId]);
 
   const markOneAsRead = useCallback(
     async (notificationId: string) => {
@@ -216,7 +230,7 @@ export function NotificationProvider({
       );
       setUnreadCount(0);
 
-      await markAllNotificationsAsRead(userId);
+      await markAllNotificationsAsRead(userId, organizationId);
     } catch (err) {
       console.error("MARK ALL NOTIFICATIONS READ ERROR:", err);
       setError(
@@ -228,7 +242,7 @@ export function NotificationProvider({
     } finally {
       setActionLoading(false);
     }
-  }, [userId, reload]);
+  }, [organizationId, userId, reload]);
 
   const value = useMemo(
     () => ({
