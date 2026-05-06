@@ -8,18 +8,40 @@ export type MeetingLivekitTokenResponse = {
   name: string;
 };
 
+function isMeetingLivekitTokenResponse(
+  value: unknown,
+): value is MeetingLivekitTokenResponse {
+  if (!value || typeof value !== "object") return false;
+
+  const payload = value as Partial<MeetingLivekitTokenResponse>;
+
+  return (
+    typeof payload.token === "string" &&
+    payload.token.length > 0 &&
+    typeof payload.url === "string" &&
+    payload.url.length > 0 &&
+    typeof payload.roomName === "string" &&
+    payload.roomName.length > 0 &&
+    typeof payload.identity === "string" &&
+    payload.identity.length > 0 &&
+    typeof payload.name === "string" &&
+    payload.name.length > 0
+  );
+}
+
 export async function getMeetingLivekitToken(
   meetingId: string,
 ): Promise<MeetingLivekitTokenResponse> {
+  if (!meetingId.trim()) {
+    throw new Error("Meeting ID is required.");
+  }
+
   const {
     data: { session },
     error: sessionError,
   } = await supabase.auth.getSession();
 
-  console.log("SESSION DEBUG:", session);
-
   if (sessionError) {
-    console.error("LIVEKIT TOKEN SESSION ERROR:", sessionError);
     throw new Error(sessionError.message || "Failed to get auth session.");
   }
 
@@ -35,14 +57,12 @@ export async function getMeetingLivekitToken(
   });
 
   if (error) {
-    console.error("LIVEKIT TOKEN FUNCTION ERROR:", error);
     throw new Error(error.message || "Failed to get LiveKit token.");
   }
 
-  if (!data?.token || !data?.url || !data?.roomName) {
-    console.error("LIVEKIT TOKEN BAD RESPONSE:", data);
+  if (!isMeetingLivekitTokenResponse(data)) {
     throw new Error("LiveKit token response was incomplete.");
   }
 
-  return data as MeetingLivekitTokenResponse;
+  return data;
 }

@@ -52,7 +52,7 @@ export async function createMeeting(
   const scheduledStart = input.scheduled_start ?? null;
   const isScheduled = Boolean(scheduledStart);
 
-  // — insert the meeting —
+
   const { data, error } = await supabase
     .from("meetings")
     .insert({
@@ -72,7 +72,7 @@ export async function createMeeting(
 
   if (error) throw error;
 
-  // — add host as participant —
+
   const { error: participantError } = await supabase
     .from("meeting_participants")
     .insert({

@@ -1,29 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Copy,
-  Mic,
-  MicOff,
-  MonitorUp,
-  PhoneOff,
+  MessageSquare,
+  Radio,
   SendHorizontal,
   Users,
-  Video,
-  VideoOff,
+  X,
 } from "lucide-react";
 import {
   LiveKitRoom,
   RoomAudioRenderer,
   StartAudio,
-  VideoTrack,
-  useLocalParticipant,
-  useRoomContext,
-  useTracks,
 } from "@livekit/components-react";
-import type { TrackReferenceOrPlaceholder } from "@livekit/components-core";
-import { Track } from "livekit-client";
 import { useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../../../lib/hooks/useAuth";
-import { supabase } from "../../../lib/supabase/client";
 import {
   endMeeting,
   getMeetingById,
@@ -34,6 +24,8 @@ import {
 } from "../services/meetingService";
 import { subscribeToMeetingRoom } from "../services/meetingRealtime";
 import { getMeetingLivekitToken } from "../services/meetingLivekitService";
+import LivekitParticipantGrid from "../components/LivekitParticipantGrid";
+import LivekitMeetingControls from "../components/LivekitMeetingControls";
 import type {
   MeetingMessage,
   MeetingParticipant,
@@ -65,276 +57,6 @@ function getInitials(label: string) {
     .join("");
 }
 
-function getGridClass(count: number) {
-  if (count <= 1) return "grid gap-4 grid-cols-1";
-  if (count === 2) return "grid gap-4 md:grid-cols-2";
-  if (count <= 4) return "grid gap-4 md:grid-cols-2";
-  if (count <= 6) return "grid gap-4 sm:grid-cols-2 xl:grid-cols-3";
-  if (count <= 9) return "grid gap-4 sm:grid-cols-2 lg:grid-cols-3";
-  return "grid gap-4 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4";
-}
-
-function hasPublication(
-  trackRef: TrackReferenceOrPlaceholder,
-): trackRef is Extract<TrackReferenceOrPlaceholder, { publication: unknown }> {
-  return "publication" in trackRef && !!trackRef.publication;
-}
-
-function isPlaceholderTrack(trackRef: TrackReferenceOrPlaceholder): boolean {
-  return !hasPublication(trackRef);
-}
-
-function LivekitParticipantGrid() {
-  const cameraTracks = useTracks([
-    { source: Track.Source.Camera, withPlaceholder: true },
-  ]);
-
-  const screenTracks = useTracks([
-    { source: Track.Source.ScreenShare, withPlaceholder: false },
-  ]);
-
-  const allTracks = useMemo(() => {
-    const seen = new Set<string>();
-    const ordered = [...screenTracks, ...cameraTracks];
-
-    return ordered.filter((trackRef) => {
-      const key = `${trackRef.participant.identity}:${trackRef.source}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-  }, [cameraTracks, screenTracks]);
-
-  return (
-    <div className={getGridClass(allTracks.length || 1)}>
-      {allTracks.length === 0 ? (
-        <div className="flex min-h-55 items-center justify-center border border-white/10 bg-neutral-950 text-sm text-white/35">
-          Waiting for participants to join
-        </div>
-      ) : (
-        allTracks.map((trackRef) => {
-          const participantName =
-            trackRef.participant.name ||
-            trackRef.participant.identity ||
-            "Participant";
-
-          const isScreenShare = trackRef.source === Track.Source.ScreenShare;
-          const isPlaceholder = isPlaceholderTrack(trackRef);
-
-          return (
-            <div
-              key={`${trackRef.participant.identity}:${trackRef.source}`}
-              className="group relative min-h-55 overflow-hidden border border-white/10 bg-neutral-950 text-white"
-            >
-              <div className="absolute inset-x-0 top-0 z-10 flex items-start justify-between gap-2 p-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="rounded-full bg-black/70 px-3 py-1 text-xs font-medium text-white">
-                    {participantName}
-                  </span>
-
-                  {isScreenShare ? (
-                    <span className="rounded-full border border-orange-500/20 bg-orange-500/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-orange-300">
-                      Sharing
-                    </span>
-                  ) : null}
-
-                  {trackRef.participant.isLocal ? (
-                    <span className="rounded-full border border-white/10 bg-white/10 px-2.5 py-1 text-[11px] font-medium text-white/80">
-                      You
-                    </span>
-                  ) : null}
-                </div>
-              </div>
-
-              <div className="flex h-full min-h-55 items-center justify-center bg-black">
-                {!hasPublication(trackRef) ? (
-                  <div className="flex h-full w-full flex-col items-center justify-center bg-black">
-                    <div className="flex h-20 w-20 items-center justify-center rounded-full border border-white/10 bg-white/5 text-2xl font-semibold text-orange-400">
-                      {getInitials(participantName)}
-                    </div>
-                    <p className="mt-4 text-sm text-white/45">Camera off</p>
-                  </div>
-                ) : (
-                  <VideoTrack
-                    trackRef={trackRef}
-                    className="h-full w-full object-cover"
-                  />
-                )}
-              </div>
-
-              <div className="absolute inset-x-0 bottom-0 z-10 flex items-center justify-between gap-3 bg-linear-to-t from-black/90 to-transparent p-3">
-                <div className="flex flex-wrap gap-2 text-[11px]">
-                  <span
-                    className={[
-                      "rounded-full px-2 py-1",
-                      trackRef.participant.isMicrophoneEnabled
-                        ? "bg-green-500/15 text-green-300"
-                        : "bg-red-500/15 text-red-300",
-                    ].join(" ")}
-                  >
-                    {trackRef.participant.isMicrophoneEnabled
-                      ? "Mic on"
-                      : "Muted"}
-                  </span>
-
-                  <span
-                    className={[
-                      "rounded-full px-2 py-1",
-                      isScreenShare || trackRef.participant.isCameraEnabled
-                        ? "bg-green-500/15 text-green-300"
-                        : "bg-white/10 text-white/60",
-                    ].join(" ")}
-                  >
-                    {isScreenShare
-                      ? "Screen share"
-                      : trackRef.participant.isCameraEnabled
-                        ? "Camera on"
-                        : "Camera off"}
-                  </span>
-                </div>
-              </div>
-            </div>
-          );
-        })
-      )}
-    </div>
-  );
-}
-
-function LivekitMeetingControls({
-  onLeave,
-  onEndMeeting,
-  isHost,
-}: {
-  onLeave: () => Promise<void> | void;
-  onEndMeeting?: () => Promise<void> | void;
-  isHost: boolean;
-}) {
-  const room = useRoomContext();
-  const { localParticipant } = useLocalParticipant();
-  const [busy, setBusy] = useState<"" | "mic" | "camera" | "screen">("");
-
-  const isMuted = !localParticipant.isMicrophoneEnabled;
-  const isCameraOn = localParticipant.isCameraEnabled;
-  const isScreenSharing = localParticipant.isScreenShareEnabled;
-
-  async function toggleMic() {
-    try {
-      setBusy("mic");
-      await localParticipant.setMicrophoneEnabled(
-        !localParticipant.isMicrophoneEnabled,
-      );
-    } finally {
-      setBusy("");
-    }
-  }
-
-  async function toggleCamera() {
-    try {
-      setBusy("camera");
-      await localParticipant.setCameraEnabled(
-        !localParticipant.isCameraEnabled,
-      );
-    } finally {
-      setBusy("");
-    }
-  }
-
-  async function toggleScreenShare() {
-    try {
-      setBusy("screen");
-      await localParticipant.setScreenShareEnabled(
-        !localParticipant.isScreenShareEnabled,
-      );
-    } finally {
-      setBusy("");
-    }
-  }
-
-  async function handleLeave() {
-    await room.disconnect();
-    await onLeave();
-  }
-
-  async function handleEndMeeting() {
-    await room.disconnect();
-    await onEndMeeting?.();
-  }
-
-  return (
-    <div className="border border-white/10 bg-black p-3 sm:p-4">
-      <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-5">
-        <button
-          type="button"
-          onClick={() => void toggleMic()}
-          disabled={busy === "mic"}
-          className={[
-            "inline-flex items-center justify-center gap-2 rounded-2xl px-3 py-3 text-sm font-semibold transition sm:px-4",
-            isMuted
-              ? "bg-red-500 text-white hover:bg-red-400"
-              : "border border-white/10 bg-neutral-950 text-white hover:border-orange-500/30 hover:bg-orange-500/5",
-          ].join(" ")}
-        >
-          {isMuted ? <MicOff size={16} /> : <Mic size={16} />}
-          {isMuted ? "Unmute" : "Mute"}
-        </button>
-
-        <button
-          type="button"
-          onClick={() => void toggleCamera()}
-          disabled={busy === "camera"}
-          className={[
-            "inline-flex items-center justify-center gap-2 rounded-2xl px-3 py-3 text-sm font-semibold transition sm:px-4",
-            !isCameraOn
-              ? "bg-red-500 text-white hover:bg-red-400"
-              : "border border-white/10 bg-neutral-950 text-white hover:border-orange-500/30 hover:bg-orange-500/5",
-          ].join(" ")}
-        >
-          {isCameraOn ? <Video size={16} /> : <VideoOff size={16} />}
-          {isCameraOn ? "Stop camera" : "Start camera"}
-        </button>
-
-        <button
-          type="button"
-          onClick={() => void toggleScreenShare()}
-          disabled={busy === "screen"}
-          className={[
-            "inline-flex items-center justify-center gap-2 rounded-2xl px-3 py-3 text-sm font-semibold transition sm:px-4",
-            isScreenSharing
-              ? "bg-orange-500 text-black hover:bg-orange-400"
-              : "border border-white/10 bg-neutral-950 text-white hover:border-orange-500/30 hover:bg-orange-500/5",
-          ].join(" ")}
-        >
-          <MonitorUp size={16} />
-          {isScreenSharing ? "Stop share" : "Share screen"}
-        </button>
-
-        {isHost ? (
-          <button
-            type="button"
-            onClick={() => void handleEndMeeting()}
-            className="inline-flex items-center justify-center gap-2 rounded-2xl bg-red-500 px-4 py-3 text-sm font-semibold text-white transition hover:bg-red-400"
-          >
-            <PhoneOff size={16} />
-            End meeting
-          </button>
-        ) : (
-          <div className="hidden lg:block" />
-        )}
-
-        <button
-          type="button"
-          onClick={() => void handleLeave()}
-          className="inline-flex items-center justify-center gap-2 rounded-2xl bg-red-500 px-4 py-3 text-sm font-semibold text-white transition hover:bg-red-400"
-        >
-          <PhoneOff size={16} />
-          Leave
-        </button>
-      </div>
-    </div>
-  );
-}
-
 export default function MeetingRoomPage() {
   const { meetingId } = useParams();
   const navigate = useNavigate();
@@ -349,10 +71,14 @@ export default function MeetingRoomPage() {
   const [livekitSession, setLivekitSession] = useState<LivekitSession | null>(
     null,
   );
+  const [chatOpen, setChatOpen] = useState(true);
+  const [participantsOpen, setParticipantsOpen] = useState(false);
+  const [unreadMessages, setUnreadMessages] = useState(0);
 
   const realtimeCleanupRef = useRef<null | (() => void)>(null);
   const joinedRef = useRef(false);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const previousMessageCountRef = useRef(0);
 
   const participants = useMemo(
     () => meeting?.participants ?? [],
@@ -381,8 +107,23 @@ export default function MeetingRoomPage() {
   const isHost = meeting?.host_id === user?.id;
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+    if (chatOpen) {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      setUnreadMessages(0);
+    }
+  }, [messages, chatOpen]);
+
+  useEffect(() => {
+    const previousCount = previousMessageCountRef.current;
+
+    if (!chatOpen && messages.length > previousCount) {
+      setUnreadMessages(
+        (current) => current + (messages.length - previousCount),
+      );
+    }
+
+    previousMessageCountRef.current = messages.length;
+  }, [messages.length, chatOpen]);
 
   useEffect(() => {
     if (!meetingId || !user?.id || joinedRef.current) return;
@@ -445,32 +186,21 @@ export default function MeetingRoomPage() {
       }
 
       joinedRef.current = false;
+      setLivekitSession(null);
     };
   }, [meetingId, user?.id]);
 
   useEffect(() => {
-    if (!meetingId || !meeting || !user?.id) return;
+    if (!meetingId || !meeting?.id || !user?.id || livekitSession) return;
 
     let cancelled = false;
 
     void (async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      console.log("SESSION DEBUG:", session);
-
-      if (!session?.access_token) {
-        console.warn("NO SESSION → skipping LiveKit request");
-        return;
-      }
-
       try {
         const sessionResult = await getMeetingLivekitToken(meetingId);
 
         if (cancelled) return;
 
-        console.log("LIVEKIT SESSION:", sessionResult);
         setLivekitSession(sessionResult);
       } catch (err) {
         console.error("LIVEKIT SESSION FETCH FAILED:", err);
@@ -488,7 +218,7 @@ export default function MeetingRoomPage() {
     return () => {
       cancelled = true;
     };
-  }, [meetingId, meeting, user?.id]);
+  }, [meetingId, meeting?.id, user?.id, livekitSession]);
 
   useEffect(() => {
     if (!meetingId) return;
@@ -576,6 +306,7 @@ export default function MeetingRoomPage() {
       }
 
       joinedRef.current = false;
+      setLivekitSession(null);
       navigate("/meetings");
     } catch (err: unknown) {
       console.error(err);
@@ -597,6 +328,7 @@ export default function MeetingRoomPage() {
       }
 
       joinedRef.current = false;
+      setLivekitSession(null);
       navigate("/meetings");
     } catch (err: unknown) {
       console.error(err);
@@ -618,247 +350,327 @@ export default function MeetingRoomPage() {
 
   if (loading) {
     return (
-      <div className="border border-white/10 bg-black px-6 py-8 text-sm text-white/50">
-        Loading meeting room...
+      <div className="flex min-h-[60vh] items-center justify-center bg-black text-white">
+        <div className="rounded-3xl border border-white/10 bg-neutral-950 px-8 py-6 text-center shadow-2xl shadow-black/40">
+          <div className="mx-auto mb-4 h-10 w-10 animate-pulse rounded-full bg-orange-500/20" />
+          <p className="text-sm text-white/50">Loading meeting room...</p>
+        </div>
       </div>
     );
   }
 
-  if (!meeting) {
+  if (!meeting || !meetingId || !user?.id) {
     return (
-      <div className="border border-red-500/20 bg-red-500/10 px-6 py-8 text-sm text-red-300">
+      <div className="rounded-3xl border border-red-500/20 bg-red-500/10 px-6 py-8 text-sm text-red-300">
         Meeting room not found or unavailable.
       </div>
     );
   }
 
   return (
-    <div className="min-h-full bg-black p-3 text-white sm:p-0">
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px] xl:gap-6">
+    <div className="min-h-full bg-black text-white">
+      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top_left,rgba(249,115,22,0.18),transparent_36%),radial-gradient(circle_at_bottom_right,rgba(255,255,255,0.06),transparent_30%)]" />
+
+      <div className="relative grid gap-5 p-3 xl:grid-cols-[minmax(0,1fr)_380px] xl:gap-6 xl:p-0">
         <section className="space-y-5">
-          <div className="border border-white/10 bg-black px-4 py-5 sm:px-6 sm:py-6">
-            <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
-              <div className="max-w-3xl">
-                <div className="inline-flex items-center gap-2 border border-orange-500/20 bg-orange-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.25em] text-orange-300">
-                  {meeting.meeting_type === "video"
-                    ? "Video room"
-                    : "Audio room"}
+          <div className="overflow-hidden rounded-3xl border border-white/10 bg-neutral-950/80 shadow-2xl shadow-black/40 backdrop-blur">
+            <div className="border-b border-white/10 bg-white/3 px-5 py-5 sm:px-6">
+              <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
+                <div className="max-w-3xl">
+                  <div className="inline-flex items-center gap-2 rounded-full border border-orange-500/20 bg-orange-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.22em] text-orange-300">
+                    <Radio size={14} />
+                    {meeting.meeting_type === "video"
+                      ? "Live video room"
+                      : "Live audio room"}
+                  </div>
+
+                  <h1 className="mt-4 text-2xl font-bold tracking-tight sm:text-4xl">
+                    {meeting.title || "Meeting room"}
+                  </h1>
+
+                  <p className="mt-2 max-w-2xl text-sm leading-6 text-white/45">
+                    {meeting.description || "Live team collaboration room"}
+                  </p>
+
+                  <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-white/45">
+                    <span className="rounded-full border border-white/10 bg-black/40 px-3 py-1">
+                      {activeParticipants.length} active participant
+                      {activeParticipants.length === 1 ? "" : "s"}
+                    </span>
+
+                    {isHost ? (
+                      <span className="rounded-full border border-orange-500/20 bg-orange-500/10 px-3 py-1 text-orange-300">
+                        You are host
+                      </span>
+                    ) : null}
+
+                    <button
+                      type="button"
+                      onClick={() => setParticipantsOpen((current) => !current)}
+                      className="rounded-full border border-white/10 bg-black/40 px-3 py-1 text-white/55 transition hover:border-orange-500/30 hover:text-orange-300"
+                    >
+                      {participantsOpen
+                        ? "Hide participants"
+                        : "Show participants"}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setChatOpen((current) => !current);
+                        setUnreadMessages(0);
+                      }}
+                      className="relative rounded-full border border-white/10 bg-black/40 px-3 py-1 text-white/55 transition hover:border-orange-500/30 hover:text-orange-300 xl:hidden"
+                    >
+                      {chatOpen ? "Hide chat" : "Show chat"}
+                      {unreadMessages > 0 ? (
+                        <span className="absolute -right-2 -top-2 rounded-full bg-orange-500 px-1.5 py-0.5 text-[10px] font-bold text-black">
+                          {unreadMessages}
+                        </span>
+                      ) : null}
+                    </button>
+                  </div>
                 </div>
 
-                <h1 className="mt-4 text-2xl font-bold sm:text-3xl">
-                  {meeting.title || "Meeting room"}
-                </h1>
+                <div className="space-y-3 xl:w-90">
+                  <div className="rounded-2xl border border-white/10 bg-black/50 px-4 py-3 text-sm text-white/55">
+                    Room code:{" "}
+                    <span className="font-semibold text-white">
+                      {meeting.room_code}
+                    </span>
+                  </div>
 
-                <p className="mt-2 text-sm leading-6 text-white/45">
-                  {meeting.description || "Live team collaboration room"}
-                </p>
-              </div>
-
-              <div className="space-y-3">
-                <div className="border border-white/10 bg-neutral-950 px-4 py-3 text-sm text-white/55">
-                  Room code:{" "}
-                  <span className="font-semibold text-white">
-                    {meeting.room_code}
-                  </span>
-                </div>
-
-                <div className="flex min-w-0 items-center gap-2 border border-white/10 bg-neutral-950 px-3 py-3">
-                  <input
-                    value={joinLink}
-                    readOnly
-                    className="min-w-0 flex-1 bg-transparent text-xs text-white/60 outline-none"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => void handleCopyJoinLink()}
-                    className="inline-flex items-center gap-2 rounded-xl bg-orange-500 px-3 py-2 text-xs font-semibold text-black hover:bg-orange-400"
-                  >
-                    <Copy size={14} />
-                    Copy link
-                  </button>
+                  <div className="flex min-w-0 items-center gap-2 rounded-2xl border border-white/10 bg-black/50 px-3 py-3">
+                    <input
+                      value={joinLink}
+                      readOnly
+                      className="min-w-0 flex-1 bg-transparent text-xs text-white/60 outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void handleCopyJoinLink()}
+                      className="inline-flex items-center gap-2 rounded-xl bg-orange-500 px-3 py-2 text-xs font-semibold text-black transition hover:bg-orange-400"
+                    >
+                      <Copy size={14} />
+                      Copy
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
+
+            {error ? (
+              <div className="mx-5 mt-5 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300 sm:mx-6">
+                {error}
+              </div>
+            ) : null}
+
+            <div className="p-3 sm:p-5">
+              {!livekitSession ? (
+                <div className="flex min-h-80 items-center justify-center rounded-3xl border border-white/10 bg-black/60 text-white/40 sm:min-h-130">
+                  Connecting to meeting media...
+                </div>
+              ) : (
+                <div
+                  data-lk-theme="default"
+                  className="min-h-80 sm:min-h-130"
+                >
+                  <LiveKitRoom
+                    key={livekitSession.roomName}
+                    token={livekitSession.token}
+                    serverUrl={livekitSession.url}
+                    connect={true}
+                    audio={true}
+                    video={meeting.meeting_type === "video"}
+                    className="space-y-4"
+                    onError={(err) => {
+                      console.error("LIVEKIT ROOM ERROR:", err);
+                      setError(
+                        err.message || "Failed to connect to LiveKit room.",
+                      );
+                    }}
+                  >
+                    <RoomAudioRenderer />
+                    <StartAudio label="Enable audio" />
+                    <LivekitParticipantGrid />
+                    <LivekitMeetingControls
+                      meetingId={meetingId}
+                      userId={user.id}
+                      isHost={!!isHost}
+                      onLeave={handleLeaveMeeting}
+                      onEndMeeting={handleEndMeeting}
+                    />
+                  </LiveKitRoom>
+                </div>
+              )}
+            </div>
           </div>
 
-          {error ? (
-            <div className="border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">
-              {error}
+          {participantsOpen ? (
+            <div className="rounded-3xl border border-white/10 bg-neutral-950/80 p-5 shadow-2xl shadow-black/30 backdrop-blur">
+              <div className="mb-4 flex items-center gap-2">
+                <Users size={18} className="text-orange-400" />
+                <h2 className="text-lg font-semibold">
+                  Participants ({activeParticipants.length})
+                </h2>
+              </div>
+
+              {activeParticipants.length === 0 ? (
+                <div className="rounded-2xl border border-white/10 bg-black/40 px-4 py-4 text-sm text-white/45">
+                  No participants have joined yet.
+                </div>
+              ) : (
+                <div className="grid gap-3 md:grid-cols-2">
+                  {activeParticipants.map((participant) => {
+                    const isYou = participant.user_id === user.id;
+                    const label = getParticipantLabel(participant);
+
+                    return (
+                      <div
+                        key={participant.id}
+                        className="rounded-2xl border border-white/10 bg-black/40 px-4 py-4"
+                      >
+                        <div className="flex items-start gap-3">
+                          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-orange-500/10 text-sm font-bold text-orange-300">
+                            {getInitials(label)}
+                          </div>
+
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate font-medium">
+                              {label}
+                              {isYou ? (
+                                <span className="ml-2 text-xs text-orange-400">
+                                  (You)
+                                </span>
+                              ) : null}
+                            </p>
+
+                            <p className="mt-1 text-xs uppercase tracking-[0.15em] text-white/35">
+                              {participant.role}
+                            </p>
+
+                            <p className="mt-2 text-[11px] text-white/30">
+                              Joined:{" "}
+                              {participant.joined_at
+                                ? new Date(
+                                    participant.joined_at,
+                                  ).toLocaleTimeString()
+                                : "Unknown"}
+                            </p>
+                          </div>
+
+                          <span className="rounded-full bg-green-500/15 px-2 py-1 text-[11px] font-medium text-green-300">
+                            Live
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           ) : null}
+        </section>
 
-          <div className="border border-white/10 bg-black p-2 sm:p-4">
-            {!livekitSession ? (
-              <div className="flex min-h-[280px] items-center justify-center text-white/40 sm:min-h-[420px]">
-                Connecting to meeting media...
-              </div>
-            ) : (
-              <div data-lk-theme="default" className="min-h-[280px] sm:min-h-[420px]">
-                <LiveKitRoom
-                  token={livekitSession.token}
-                  serverUrl={livekitSession.url}
-                  connect={true}
-                  audio={true}
-                  video={meeting.meeting_type === "video"}
-                  className="space-y-4"
-                  onError={(err) => {
-                    console.error("LIVEKIT ROOM ERROR:", err);
-                    setError(
-                      err.message || "Failed to connect to LiveKit room.",
-                    );
-                  }}
+        {chatOpen ? (
+          <aside className="flex max-h-[80dvh] min-h-96 flex-col rounded-3xl border border-white/10 bg-neutral-950/80 p-4 shadow-2xl shadow-black/30 backdrop-blur xl:sticky xl:top-4 xl:max-h-[calc(100dvh-2rem)]">
+            <div className="border-b border-white/10 pb-4">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <MessageSquare size={18} className="text-orange-400" />
+                  <h2 className="text-lg font-semibold">Meeting chat</h2>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setChatOpen(false)}
+                  className="rounded-full border border-white/10 bg-black/40 p-2 text-white/50 transition hover:text-white xl:hidden"
                 >
-                  <RoomAudioRenderer />
-                  <StartAudio label="Enable audio" />
-                  <LivekitParticipantGrid />
-                  <LivekitMeetingControls
-                    isHost={!!isHost}
-                    onLeave={handleLeaveMeeting}
-                    onEndMeeting={handleEndMeeting}
-                  />
-                </LiveKitRoom>
+                  <X size={15} />
+                </button>
               </div>
-            )}
-          </div>
 
-          <div className="border border-white/10 bg-black p-5">
-            <div className="mb-4 flex items-center gap-2">
-              <Users size={18} className="text-orange-400" />
-              <h2 className="text-lg font-semibold">
-                Participants ({activeParticipants.length})
-              </h2>
+              <p className="mt-1 text-sm text-white/45">
+                Share quick updates during the session
+              </p>
             </div>
 
-            {activeParticipants.length === 0 ? (
-              <div className="rounded-2xl border border-white/10 bg-neutral-950 px-4 py-4 text-sm text-white/45">
-                No participants have joined yet.
-              </div>
-            ) : (
-              <div className="grid gap-3 md:grid-cols-2">
-                {activeParticipants.map((participant) => {
-                  const isYou = participant.user_id === user?.id;
+            <div className="mt-4 flex-1 space-y-3 overflow-y-auto pr-1">
+              {messages.length === 0 ? (
+                <div className="rounded-2xl border border-white/10 bg-black/40 p-4 text-sm text-white/45">
+                  No messages yet.
+                </div>
+              ) : (
+                messages.map((message) => {
+                  const isMe = message.sender_id === user.id;
 
                   return (
                     <div
-                      key={participant.id}
-                      className="rounded-2xl border border-white/10 bg-neutral-950 px-4 py-4"
+                      key={message.id}
+                      className={[
+                        "max-w-[88%] rounded-2xl px-4 py-3 shadow-lg",
+                        isMe
+                          ? "ml-auto bg-orange-500 text-black"
+                          : "border border-white/10 bg-black/50 text-white",
+                      ].join(" ")}
                     >
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="font-medium">
-                            {getParticipantLabel(participant)}
-                            {isYou ? (
-                              <span className="ml-2 text-xs text-orange-400">
-                                (You)
-                              </span>
-                            ) : null}
-                          </p>
+                      <p
+                        className={[
+                          "text-xs font-semibold",
+                          isMe ? "text-black/70" : "text-orange-400",
+                        ].join(" ")}
+                      >
+                        {isMe
+                          ? "You"
+                          : message.sender?.full_name ||
+                            message.sender?.email ||
+                            "User"}
+                      </p>
 
-                          <p className="mt-1 text-xs uppercase tracking-[0.15em] text-white/45">
-                            {participant.role}
-                          </p>
-                        </div>
+                      <p className="mt-1 text-sm leading-5">{message.body}</p>
 
-                        <span className="rounded-full bg-green-500/15 px-2 py-1 text-[11px] font-medium text-green-300">
-                          Joined
-                        </span>
-                      </div>
-
-                      <p className="mt-3 text-[11px] text-white/30">
-                        Joined:{" "}
-                        {participant.joined_at
-                          ? new Date(participant.joined_at).toLocaleTimeString()
-                          : "Unknown"}
+                      <p
+                        className={[
+                          "mt-2 text-[11px]",
+                          isMe ? "text-black/60" : "text-white/30",
+                        ].join(" ")}
+                      >
+                        {new Date(message.created_at).toLocaleString()}
                       </p>
                     </div>
                   );
-                })}
-              </div>
-            )}
-          </div>
-        </section>
-
-        <aside className="flex max-h-[70dvh] min-h-[360px] flex-col border border-white/10 bg-black p-4 xl:max-h-none">
-          <div className="border-b border-white/10 pb-4">
-            <h2 className="text-lg font-semibold">Meeting chat</h2>
-            <p className="mt-1 text-sm text-white/45">
-              Share quick updates during the session
-            </p>
-          </div>
-
-          <div className="mt-4 flex-1 space-y-3 overflow-y-auto pr-1">
-            {messages.length === 0 ? (
-              <div className="rounded-2xl border border-white/10 bg-neutral-950 p-4 text-sm text-white/45">
-                No messages yet.
-              </div>
-            ) : (
-              messages.map((message) => {
-                const isMe = message.sender_id === user?.id;
-
-                return (
-                  <div
-                    key={message.id}
-                    className={[
-                      "max-w-[88%] rounded-2xl px-4 py-3",
-                      isMe
-                        ? "ml-auto bg-orange-500 text-black"
-                        : "border border-white/10 bg-neutral-950 text-white",
-                    ].join(" ")}
-                  >
-                    <p
-                      className={[
-                        "text-xs font-semibold",
-                        isMe ? "text-black/70" : "text-orange-400",
-                      ].join(" ")}
-                    >
-                      {isMe
-                        ? "You"
-                        : message.sender?.full_name ||
-                          message.sender?.email ||
-                          "User"}
-                    </p>
-                    <p className="mt-1 text-sm">{message.body}</p>
-                    <p
-                      className={[
-                        "mt-2 text-[11px]",
-                        isMe ? "text-black/60" : "text-white/30",
-                      ].join(" ")}
-                    >
-                      {new Date(message.created_at).toLocaleString()}
-                    </p>
-                  </div>
-                );
-              })
-            )}
-            <div ref={messagesEndRef} />
-          </div>
-
-          <div className="mt-4 border-t border-white/10 pt-4">
-            <div className="flex items-center gap-2">
-              <input
-                value={chatInput}
-                onChange={(event) => setChatInput(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" && !event.shiftKey) {
-                    event.preventDefault();
-                    void handleSendMessage();
-                  }
-                }}
-                placeholder="Type a message..."
-                className="min-w-0 flex-1 rounded-2xl border border-white/10 bg-neutral-950 px-4 py-3 text-sm text-white outline-none placeholder:text-white/25 focus:border-orange-500"
-              />
-              <button
-                type="button"
-                onClick={() => void handleSendMessage()}
-                disabled={!chatInput.trim() || sending}
-                className="inline-flex shrink-0 items-center gap-2 rounded-2xl bg-orange-500 px-3 py-3 text-sm font-semibold text-black transition hover:bg-orange-400 disabled:opacity-50 sm:px-4"
-              >
-                <SendHorizontal size={16} />
-                Send
-              </button>
+                })
+              )}
+              <div ref={messagesEndRef} />
             </div>
-          </div>
-        </aside>
+
+            <div className="mt-4 border-t border-white/10 pt-4">
+              <div className="flex items-center gap-2">
+                <input
+                  value={chatInput}
+                  onChange={(event) => setChatInput(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && !event.shiftKey) {
+                      event.preventDefault();
+                      void handleSendMessage();
+                    }
+                  }}
+                  placeholder="Type a message..."
+                  className="min-w-0 flex-1 rounded-2xl border border-white/10 bg-black/50 px-4 py-3 text-sm text-white outline-none placeholder:text-white/25 focus:border-orange-500"
+                />
+
+                <button
+                  type="button"
+                  onClick={() => void handleSendMessage()}
+                  disabled={!chatInput.trim() || sending}
+                  className="inline-flex shrink-0 items-center gap-2 rounded-2xl bg-orange-500 px-4 py-3 text-sm font-semibold text-black transition hover:bg-orange-400 disabled:opacity-50"
+                >
+                  <SendHorizontal size={16} />
+                </button>
+              </div>
+            </div>
+          </aside>
+        ) : null}
       </div>
     </div>
   );
