@@ -76,17 +76,6 @@ export async function updateBoardTimeSettings(
   settings: Partial<Omit<BoardTimeSettings, "id" | "boardId" | "organizationId" | "createdAt" | "updatedAt">>,
 ): Promise<BoardTimeSettings> {
   try {
-    console.log("Updating board time settings:", { boardId, organizationId, settings });
-    
-    // Debug authentication context
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    console.log("Authentication context:", { 
-      user: user ? { id: user.id, email: user.email } : null,
-      authError,
-      userMetadata: user?.user_metadata,
-      appMetadata: user?.app_metadata
-    });
-    
     // Check if settings already exist
     const existing = await getBoardTimeSettings(boardId, organizationId);
     
@@ -101,14 +90,10 @@ export async function updateBoardTimeSettings(
       updated_at: new Date().toISOString(),
     };
     
-    console.log("Update data:", updateData);
-    console.log("Existing settings:", existing);
-    
     let data, error;
     
     if (existing) {
       // Update existing record
-      console.log("Updating existing record...");
       const result = await supabase
         .from("board_time_settings")
         .update({
@@ -128,7 +113,6 @@ export async function updateBoardTimeSettings(
       error = result.error;
     } else {
       // Insert new record
-      console.log("Inserting new record...");
       const result = await supabase
         .from("board_time_settings")
         .insert(updateData)
@@ -162,8 +146,6 @@ export async function updateBoardTimeSettings(
       throw new Error("No data returned from update operation");
     }
 
-    console.log("Board time settings updated successfully:", data);
-    
     // Map database column names back to interface
     return {
       id: data.id,
@@ -294,15 +276,11 @@ export async function assignUsersToBoard(
   assignedBy?: string,
 ): Promise<void> {
   try {
-    console.log("Assigning users to board:", { boardId, organizationId, userIds, boardName, assignedBy });
-    
     if (!userIds || userIds.length === 0) {
-      console.log("No users to assign");
       return;
     }
 
     // First, remove existing assignments for this board to avoid duplicates
-    console.log("Removing existing assignments...");
     const { error: deleteError } = await supabase
       .from("board_assignments")
       .delete()
@@ -321,9 +299,7 @@ export async function assignUsersToBoard(
       user_id: userId,
     }));
 
-    console.log("Inserting new assignments:", assignments);
-
-    const { data, error } = await supabase
+    const { error } = await supabase
       .from("board_assignments")
       .insert(assignments)
       .select();
@@ -338,11 +314,8 @@ export async function assignUsersToBoard(
       throw new Error(`Failed to assign users: ${error.message}`);
     }
 
-    console.log("Users assigned successfully:", data);
-
     // Send notifications to assigned users
     if (boardName && assignedBy) {
-      console.log("Sending notifications to users...");
       for (const userId of userIds) {
         try {
           await sendBoardAssignmentNotification(boardId, userId, assignedBy, boardName);
@@ -353,7 +326,6 @@ export async function assignUsersToBoard(
       }
     }
 
-    console.log("User assignment completed successfully");
   } catch (error) {
     console.error("Error assigning users to board:", error);
     

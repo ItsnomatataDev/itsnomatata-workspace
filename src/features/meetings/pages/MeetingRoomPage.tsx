@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Copy,
+  Globe2,
   MessageSquare,
   Radio,
   SendHorizontal,
@@ -21,6 +22,7 @@ import {
   joinMeeting,
   leaveMeeting,
   sendMeetingMessage,
+  updateMeetingGuestAccess,
 } from "../services/meetingService";
 import { subscribeToMeetingRoom } from "../services/meetingRealtime";
 import { getMeetingLivekitToken } from "../services/meetingLivekitService";
@@ -60,7 +62,7 @@ function getInitials(label: string) {
 export default function MeetingRoomPage() {
   const { meetingId } = useParams();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
 
   const [meeting, setMeeting] = useState<MeetingWithParticipants | null>(null);
   const [messages, setMessages] = useState<MeetingMessage[]>([]);
@@ -105,6 +107,15 @@ export default function MeetingRoomPage() {
   }, [meetingId]);
 
   const isHost = meeting?.host_id === user?.id;
+  const canManageGuests =
+    isHost ||
+    profile?.primary_role === "admin" ||
+    profile?.primary_role === "manager";
+
+  const guestJoinLink = useMemo(() => {
+    if (typeof window === "undefined" || !meeting?.guest_code) return "";
+    return `${window.location.origin}/join/${meeting.guest_code}`;
+  }, [meeting?.guest_code]);
 
   useEffect(() => {
     if (chatOpen) {
@@ -348,6 +359,44 @@ export default function MeetingRoomPage() {
     }
   }
 
+  async function handleCopyGuestLink() {
+    if (!guestJoinLink) return;
+
+    try {
+      await navigator.clipboard.writeText(guestJoinLink);
+    } catch (err) {
+      console.error("COPY GUEST LINK ERROR:", err);
+    }
+  }
+
+  async function handleToggleGuestAccess() {
+    if (!meetingId || !canManageGuests) return;
+
+    try {
+      const next = await updateMeetingGuestAccess({
+        meetingId,
+        allowGuestAccess: !meeting?.allow_guest_access,
+      });
+
+      setMeeting((current) =>
+        current
+          ? {
+              ...current,
+              allow_guest_access: next.allow_guest_access,
+              guest_code: next.guest_code,
+            }
+          : current,
+      );
+    } catch (err) {
+      console.error("GUEST ACCESS UPDATE ERROR:", err);
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to update guest access.",
+      );
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center bg-black text-white">
@@ -455,6 +504,60 @@ export default function MeetingRoomPage() {
                       Copy
                     </button>
                   </div>
+
+                  {canManageGuests ? (
+                    <div className="rounded-2xl border border-white/10 bg-black/50 px-3 py-3">
+                      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                        <div className="flex items-center gap-2">
+                          <Globe2 size={16} className="text-orange-400" />
+                          <span className="text-sm font-semibold text-white">
+                            Guest access
+                          </span>
+                          <span
+                            className={[
+                              "rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em]",
+                              meeting.allow_guest_access
+                                ? "border-green-500/20 bg-green-500/10 text-green-300"
+                                : "border-white/10 bg-white/5 text-white/40",
+                            ].join(" ")}
+                          >
+                            {meeting.allow_guest_access ? "Enabled" : "Off"}
+                          </span>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => void handleToggleGuestAccess()}
+                          className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-white/70 transition hover:border-orange-500/30 hover:bg-orange-500/10 hover:text-orange-200"
+                        >
+                          {meeting.allow_guest_access ? "Disable" : "Enable"}
+                        </button>
+                      </div>
+
+                      {meeting.allow_guest_access && guestJoinLink ? (
+                        <div className="flex min-w-0 items-center gap-2">
+                          <input
+                            value={guestJoinLink}
+                            readOnly
+                            className="min-w-0 flex-1 bg-transparent text-xs text-white/60 outline-none"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => void handleCopyGuestLink()}
+                            className="inline-flex items-center gap-2 rounded-xl bg-orange-500 px-3 py-2 text-xs font-semibold text-black transition hover:bg-orange-400"
+                          >
+                            <Copy size={14} />
+                            Copy guest
+                          </button>
+                        </div>
+                      ) : (
+                        <p className="text-xs leading-5 text-white/35">
+                          Enable this only for meetings where external clients
+                          should join without an account.
+                        </p>
+                      )}
+                    </div>
+                  ) : null}
                 </div>
               </div>
             </div>
@@ -473,6 +576,7 @@ export default function MeetingRoomPage() {
               ) : (
                 <div
                   data-lk-theme="default"
+                  data-meeting-media-root="true"
                   className="min-h-80 sm:min-h-130"
                 >
                   <LiveKitRoom

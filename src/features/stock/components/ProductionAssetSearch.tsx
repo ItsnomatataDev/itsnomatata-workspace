@@ -75,7 +75,7 @@ export default function ProductionAssetSearch({
   return (
     <div className={`relative ${className}`}>
       <div className="relative flex items-center">
-        <Search size={20} className="absolute left-3 text-white/40" />
+        <Search size={18} className="absolute left-3 text-white/40" />
         <input
           ref={inputRef}
           type="text"
@@ -85,20 +85,20 @@ export default function ProductionAssetSearch({
           onFocus={() => setFocused(true)}
           onBlur={() => window.setTimeout(() => setFocused(false), 120)}
           placeholder={placeholder}
-          className="w-full rounded-xl border border-white/10 bg-white/5 py-2.5 pl-10 pr-10 text-white placeholder-white/40 transition-all focus:border-orange-500/50 focus:bg-white/10 focus:outline-none"
+          className="w-full rounded-2xl border border-white/10 bg-black/40 py-3 pl-10 pr-10 text-sm text-white placeholder-white/35 transition-all focus:border-orange-500/50 focus:bg-white/8 focus:outline-none"
         />
         
         {query && (
           <button
             onClick={clearSearch}
-            className="absolute right-3 p-1 rounded-full hover:bg-white/10 transition-colors"
+            className="absolute right-3 rounded-full p-1 transition-colors hover:bg-white/10"
           >
             <X size={16} className="text-white/60" />
           </button>
         )}
       </div>
       {visibleSuggestions.length > 0 && (
-        <div className="absolute z-30 mt-2 w-full overflow-hidden rounded-xl border border-white/10 bg-[#080808] shadow-2xl">
+        <div className="absolute z-30 mt-2 w-full overflow-hidden rounded-2xl border border-white/10 bg-neutral-950 shadow-2xl shadow-black/50">
           {visibleSuggestions.map((suggestion) => (
             <button
               key={`${suggestion.value}-${suggestion.label}`}

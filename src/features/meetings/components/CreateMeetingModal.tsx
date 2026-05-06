@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { CalendarDays, Phone, Video, X } from "lucide-react";
+import { CalendarDays, Globe2, Phone, Video, X } from "lucide-react";
 import type { MeetingType } from "../types/meeting";
 
 export default function CreateMeetingModal({
@@ -16,12 +16,14 @@ export default function CreateMeetingModal({
     description: string;
     meetingType: MeetingType;
     scheduledFor: string | null;
+    allowGuestAccess: boolean;
   }) => Promise<void> | void;
 }) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [meetingType, setMeetingType] = useState<MeetingType>("video");
   const [scheduledFor, setScheduledFor] = useState("");
+  const [allowGuestAccess, setAllowGuestAccess] = useState(false);
 
   if (!open) return null;
 
@@ -61,12 +63,14 @@ export default function CreateMeetingModal({
               description,
               meetingType,
               scheduledFor: scheduledFor || null,
+              allowGuestAccess,
             });
 
             setTitle("");
             setDescription("");
             setMeetingType("video");
             setScheduledFor("");
+            setAllowGuestAccess(false);
           }}
         >
           <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
@@ -189,6 +193,25 @@ export default function CreateMeetingModal({
                   stay visible in the meetings dashboard until started.
                 </p>
               </div>
+
+              <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-white/10 bg-neutral-950 p-4 transition hover:border-orange-500/25 hover:bg-orange-500/5">
+                <input
+                  type="checkbox"
+                  checked={allowGuestAccess}
+                  onChange={(event) => setAllowGuestAccess(event.target.checked)}
+                  className="mt-1 h-4 w-4 accent-orange-500"
+                />
+                <span>
+                  <span className="flex items-center gap-2 text-sm font-semibold text-white">
+                    <Globe2 size={16} className="text-orange-400" />
+                    Allow guest access
+                  </span>
+                  <span className="mt-1 block text-xs leading-5 text-white/40">
+                    Creates a public guest link for clients who do not have an
+                    account.
+                  </span>
+                </span>
+              </label>
             </div>
           </div>
 

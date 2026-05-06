@@ -14,6 +14,10 @@ function generateRoomCode() {
   return Math.random().toString(36).slice(2, 8).toUpperCase();
 }
 
+function generateGuestCode() {
+  return `G-${Math.random().toString(36).slice(2, 10).toUpperCase()}`;
+}
+
 export async function getMeetings(
   organizationId: string,
 ): Promise<MeetingWithParticipants[]> {
@@ -66,6 +70,8 @@ export async function createMeeting(
       started_at: isScheduled ? null : new Date().toISOString(),
       ended_at: null,
       room_code: roomCode,
+      allow_guest_access: input.allow_guest_access ?? false,
+      guest_code: input.allow_guest_access ? generateGuestCode() : null,
     })
     .select("*")
     .single();
@@ -299,6 +305,33 @@ export async function leaveMeeting(params: {
     .eq("user_id", params.userId);
 
   if (error) throw error;
+}
+
+export async function updateMeetingGuestAccess(params: {
+  meetingId: string;
+  allowGuestAccess: boolean;
+}): Promise<Pick<Meeting, "id" | "allow_guest_access" | "guest_code">> {
+  if (!params.meetingId) throw new Error("meetingId is required");
+
+  const payload = params.allowGuestAccess
+    ? {
+        allow_guest_access: true,
+        guest_code: generateGuestCode(),
+      }
+    : {
+        allow_guest_access: false,
+        guest_code: null,
+      };
+
+  const { data, error } = await supabase
+    .from("meetings")
+    .update(payload)
+    .eq("id", params.meetingId)
+    .select("id, allow_guest_access, guest_code")
+    .single();
+
+  if (error) throw error;
+  return data as Pick<Meeting, "id" | "allow_guest_access" | "guest_code">;
 }
 
 export async function updateMeetingMediaState(params: {

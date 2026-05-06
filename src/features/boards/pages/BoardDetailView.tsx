@@ -142,7 +142,6 @@ export default function BoardDetailView() {
       // Get assigned users
       try {
         const assignedUserIds = await getBoardAssignments(boardId, organizationId);
-        console.log("Assigned user IDs:", assignedUserIds);
         
         if (assignedUserIds.length > 0) {
           // Get user profiles for assigned users
@@ -162,7 +161,6 @@ export default function BoardDetailView() {
           }));
           
           setAssignedUsers(usersWithInitials);
-          console.log("Assigned users loaded:", usersWithInitials);
         } else {
           setAssignedUsers([]);
         }

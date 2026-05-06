@@ -38,6 +38,7 @@ import NotificationsPage from "../../features/notifications/pages/NotificationsP
 import ChatPage from "../../features/chat/pages/ChatPage";
 import MeetingsPage from "../../features/meetings/pages/MeetingsPage";
 import MeetingRoomPage from "../../features/meetings/pages/MeetingRoomPage";
+import GuestMeetingJoinPage from "../../features/meetings/pages/GuestMeetingJoinPage";
 import SocialPostsPage from "../../features/social-posts/pages/SocialPostsPage";
 import SocialMediaDashboardPage from "../../features/social-media/pages/SocialMediaDashboardPage";
 import AssetsPage from "../../features/stock/pages/AssetsPage";
@@ -76,6 +77,11 @@ const AppRouter = () => {
         />
         <Route path="/meetings" element={<MeetingsPage />} />
         <Route path="/meetings/:meetingId" element={<MeetingRoomPage />} />
+        <Route path="/join/:meetingCode" element={<GuestMeetingJoinPage />} />
+        <Route
+          path="/guest/meetings/:meetingId"
+          element={<GuestMeetingJoinPage />}
+        />
         <Route
           path="/boards"
           element={

@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "../supabase/client";
 import {
-  clampToZimbabweCutoff,
-  isAtOrAfterZimbabweCutoff,
-} from "../utils/zimbabweCalendar";
+  getActiveTimeEntry,
+  startTimeEntry,
+  stopTimeEntry,
+  type TimeEntryItem,
+} from "../supabase/mutations/timeEntries";
 
 type DashboardStats = {
   openTasks: number;
@@ -56,16 +58,7 @@ type RoleNewsItem = {
   source?: string;
 };
 
-type ActiveTimer = {
-  id: string;
-  organization_id?: string | null;
-  user_id: string;
-  task_id?: string | null;
-  description?: string | null;
-  started_at: string;
-  ended_at?: string | null;
-  duration_seconds?: number | null;
-} | null;
+type ActiveTimer = TimeEntryItem | null;
 
 const startOfToday = () => {
   const now = new Date();
@@ -309,18 +302,10 @@ export function useDashboard(params: {
           .is("deleted_at", null)
           .gte("started_at", startOfToday()),
 
-        supabase
-          .from("time_entries")
-          .select(
-            "id,organization_id,user_id,task_id,description,started_at,ended_at,duration_seconds",
-          )
-          .eq("organization_id", organizationId)
-          .eq("user_id", userId)
-          .is("deleted_at", null)
-          .is("ended_at", null)
-          .order("started_at", { ascending: false })
-          .limit(1)
-          .maybeSingle(),
+        getActiveTimeEntry({
+          organizationId,
+          userId,
+        }),
       ]);
 
       const baseErrors = [
@@ -330,7 +315,6 @@ export function useDashboard(params: {
         completedProjectsRes.error,
         announcementsRes.error,
         timeEntriesRes.error,
-        activeTimerRes.error,
       ].filter(Boolean);
 
       if (baseErrors.length > 0) {
@@ -423,7 +407,7 @@ export function useDashboard(params: {
 
       setTasks(dashboardTasks);
       setAnnouncements((announcementsRes.data ?? []) as Announcement[]);
-      setActiveTimer((activeTimerRes.data as ActiveTimer) ?? null);
+      setActiveTimer((activeTimerRes as ActiveTimer) ?? null);
 
       await Promise.all([loadWeather(), loadRoleNews()]);
     } catch (err: any) {
@@ -447,64 +431,13 @@ export function useDashboard(params: {
       try {
         setBusy(true);
 
-        const { data: existingTimer, error: existingTimerError } =
-          await supabase
-            .from("time_entries")
-            .select("id")
-            .eq("organization_id", organizationId)
-            .eq("user_id", userId)
-            .is("deleted_at", null)
-            .is("ended_at", null)
-            .maybeSingle();
-
-        if (existingTimerError) throw existingTimerError;
-
-        if (existingTimer) {
-          throw new Error("A timer is already running.");
-        }
-
-        if (isAtOrAfterZimbabweCutoff()) {
-          throw new Error(
-            "Timers stop at 7:00 PM Harare time. Add manual time for today if needed.",
-          );
-        }
-
-        let finalProjectId: string | null = null;
-        let finalClientId: string | null = null;
-        let finalCampaignId: string | null = null;
-
-        if (taskId) {
-          const { data: taskContext, error: taskContextError } = await supabase
-            .from("tasks")
-            .select("id,organization_id,project_id,client_id,campaign_id")
-            .eq("id", taskId)
-            .eq("organization_id", organizationId)
-            .maybeSingle();
-
-          if (taskContextError) throw taskContextError;
-
-          finalProjectId = taskContext?.project_id ?? null;
-          finalClientId = taskContext?.client_id ?? null;
-          finalCampaignId = taskContext?.campaign_id ?? null;
-        }
-
-        const { error } = await supabase.from("time_entries").insert({
-          organization_id: organizationId,
-          user_id: userId,
-          task_id: taskId ?? null,
-          project_id: finalProjectId,
-          client_id: finalClientId,
-          campaign_id: finalCampaignId,
+        await startTimeEntry({
+          organizationId,
+          userId,
+          taskId: taskId ?? null,
           description: description ?? null,
-          started_at: new Date().toISOString(),
-          ended_at: null,
-          is_running: true,
-          duration_seconds: 0,
-          source: "timer",
-          entry_type: "timer",
+          source: "dashboard",
         });
-
-        if (error) throw error;
 
         await load();
       } finally {
@@ -520,25 +453,16 @@ export function useDashboard(params: {
     try {
       setBusy(true);
 
-      const endedAt = clampToZimbabweCutoff(activeTimer.started_at);
-      const durationSeconds = diffInSeconds(activeTimer.started_at, endedAt);
-
-      const { error } = await supabase
-        .from("time_entries")
-        .update({
-          ended_at: endedAt,
-          is_running: false,
-          duration_seconds: durationSeconds,
-        })
-        .eq("id", activeTimer.id);
-
-      if (error) throw error;
+      await stopTimeEntry(activeTimer.id, {
+        userId,
+        organizationId: organizationId ?? undefined,
+      });
 
       await load();
     } finally {
       setBusy(false);
     }
-  }, [activeTimer, load]);
+  }, [activeTimer, load, organizationId, userId]);
 
   useEffect(() => {
     void load();

@@ -144,13 +144,13 @@ function StatBox({
   icon: React.ReactNode;
 }) {
   return (
-    <div className="border border-white/10 bg-black p-5">
+    <div className="rounded-2xl border border-white/10 bg-white/5 p-5 shadow-lg shadow-black/20">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="text-sm text-zinc-400">{title}</p>
+          <p className="text-sm text-white/60">{title}</p>
           <p className="mt-3 text-2xl font-semibold text-white">{value}</p>
         </div>
-        <div className="border border-orange-500/20 bg-orange-500/10 p-3 text-orange-300">
+        <div className="rounded-2xl border border-orange-500/20 bg-orange-500/10 p-3 text-orange-300">
           {icon}
         </div>
       </div>
@@ -408,11 +408,11 @@ function AssignAssetModal({
   if (!open || !asset) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/80 px-4 py-8">
-      <div className="w-full max-w-lg border border-white/10 bg-black p-6">
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/80 px-4 py-8 backdrop-blur-sm">
+      <div className="w-full max-w-lg rounded-3xl border border-white/10 bg-neutral-950 p-6 shadow-2xl shadow-black/50">
         <div className="mb-5">
           <h2 className="text-xl font-semibold text-white">Assign Asset</h2>
-          <p className="mt-2 text-sm text-zinc-400">
+          <p className="mt-2 text-sm text-white/50">
             Assign <span className="text-white">{asset.asset_name}</span> to a
             registered user.
           </p>
@@ -420,11 +420,11 @@ function AssignAssetModal({
 
         <div className="space-y-4">
           <label className="block space-y-2">
-            <span className="text-sm text-zinc-300">Select User</span>
+            <span className="text-sm text-white/70">Select User</span>
             <select
               value={selectedUserId}
               onChange={(e) => setSelectedUserId(e.target.value)}
-              className="w-full border border-white/10 bg-black px-4 py-3 text-sm text-white outline-none focus:border-orange-500"
+              className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 text-sm text-white outline-none transition focus:border-orange-500"
             >
               <option value="">Choose a registered user</option>
               {users.map((item) => (
@@ -441,7 +441,7 @@ function AssignAssetModal({
             type="button"
             disabled={!selectedUserId || saving}
             onClick={() => void onAssign(selectedUserId)}
-            className="border border-orange-500 bg-orange-500 px-5 py-3 text-sm font-medium text-black hover:bg-orange-400 disabled:cursor-not-allowed disabled:opacity-60"
+            className="rounded-2xl border border-orange-500 bg-orange-500 px-5 py-3 text-sm font-medium text-black transition hover:bg-orange-400 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {saving ? "Assigning..." : "Assign Asset"}
           </button>
@@ -449,7 +449,7 @@ function AssignAssetModal({
           <button
             type="button"
             onClick={onClose}
-            className="border border-white/10 px-5 py-3 text-sm text-zinc-200 hover:border-white/20 hover:text-white"
+            className="rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-sm text-white/75 transition hover:border-white/20 hover:text-white"
           >
             Cancel
           </button>
@@ -477,19 +477,19 @@ function ReturnAssetModal({
   if (!open || !asset) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/80 px-4 py-8">
-      <div className="w-full max-w-lg border border-white/10 bg-black p-6">
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/80 px-4 py-8 backdrop-blur-sm">
+      <div className="w-full max-w-lg rounded-3xl border border-white/10 bg-neutral-950 p-6 shadow-2xl shadow-black/50">
         <div className="mb-5">
           <h2 className="text-xl font-semibold text-white">Return Asset</h2>
-          <p className="mt-2 text-sm text-zinc-400">
+          <p className="mt-2 text-sm text-white/50">
             Return <span className="text-white">{asset.asset_name}</span> from
             the current assignee.
           </p>
         </div>
 
-        <div className="space-y-3 border border-white/10 p-4">
+        <div className="space-y-3 rounded-2xl border border-white/10 bg-black/40 p-4">
           <div>
-            <p className="text-xs uppercase tracking-wide text-zinc-500">
+            <p className="text-xs uppercase tracking-wide text-white/35">
               Assigned To
             </p>
             <p className="mt-1 text-sm text-white">
@@ -500,7 +500,7 @@ function ReturnAssetModal({
           </div>
 
           <div>
-            <p className="text-xs uppercase tracking-wide text-zinc-500">
+            <p className="text-xs uppercase tracking-wide text-white/35">
               Assigned At
             </p>
             <p className="mt-1 text-sm text-white">
@@ -511,7 +511,7 @@ function ReturnAssetModal({
           </div>
 
           <div>
-            <p className="text-xs uppercase tracking-wide text-zinc-500">
+            <p className="text-xs uppercase tracking-wide text-white/35">
               Notes
             </p>
             <p className="mt-1 text-sm text-white">
@@ -525,7 +525,7 @@ function ReturnAssetModal({
             type="button"
             disabled={!assignment?.id || saving}
             onClick={() => void onReturn()}
-            className="border border-emerald-500 bg-emerald-500 px-5 py-3 text-sm font-medium text-black hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-60"
+            className="rounded-2xl border border-emerald-500 bg-emerald-500 px-5 py-3 text-sm font-medium text-black transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {saving ? "Returning..." : "Return Asset"}
           </button>
@@ -533,7 +533,7 @@ function ReturnAssetModal({
           <button
             type="button"
             onClick={onClose}
-            className="border border-white/10 px-5 py-3 text-sm text-zinc-200 hover:border-white/20 hover:text-white"
+            className="rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-sm text-white/75 transition hover:border-white/20 hover:text-white"
           >
             Cancel
           </button>
@@ -1066,18 +1066,18 @@ export default function AssetsPage() {
     <div className="min-h-screen bg-black text-white lg:flex">
       <Sidebar role={profile.primary_role} />
 
-      <main className="flex-1 px-4 pt-4 pb-6 md:px-6">
+      <main className="min-w-0 flex-1 px-4 pt-4 pb-6 md:px-6 lg:px-8">
         <div className="space-y-6">
-          <section className="rounded-2xl border border-white/10 bg-black p-4">
+          <section className="rounded-3xl border border-white/10 bg-neutral-950/90 p-5 shadow-2xl shadow-black/30">
             <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
               <div>
-                <p className="text-sm uppercase tracking-wide text-orange-300">
+                <p className="text-xs uppercase tracking-[0.3em] text-orange-400">
                   Stock & Assets
                 </p>
                 <h1 className="mt-2 text-3xl font-semibold text-white">
                   Serialized Assets
                 </h1>
-                <p className="mt-3 max-w-3xl text-sm text-zinc-400">
+                <p className="mt-3 max-w-3xl text-sm leading-6 text-white/50">
                   Track asset tags, serial numbers, pricing, insurance, photos,
                   location/site details, and assignment status for physical
                   company equipment.
@@ -1088,7 +1088,7 @@ export default function AssetsPage() {
                 <button
                   type="button"
                   onClick={() => void reload()}
-                  className="rounded-xl border border-white/10 px-4 py-3 text-sm text-zinc-200 hover:border-white/20 hover:text-white"
+                  className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/75 transition hover:border-white/20 hover:bg-white/10 hover:text-white"
                 >
                   Refresh
                 </button>
@@ -1096,7 +1096,7 @@ export default function AssetsPage() {
                 <button
                   type="button"
                   onClick={() => exportAssetsToExcel(assetRows)}
-                  className="rounded-xl border border-white/10 px-4 py-3 text-sm text-zinc-200 hover:border-white/20 hover:text-white"
+                  className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/75 transition hover:border-white/20 hover:bg-white/10 hover:text-white"
                 >
                   Export All Assets
                 </button>
@@ -1104,7 +1104,7 @@ export default function AssetsPage() {
                 <button
                   type="button"
                   onClick={() => setImportModalOpen(true)}
-                  className="inline-flex items-center gap-2 rounded-xl border border-white/10 px-4 py-3 text-sm text-zinc-200 hover:border-white/20 hover:text-white"
+                  className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/75 transition hover:border-white/20 hover:bg-white/10 hover:text-white"
                 >
                   <Upload size={16} />
                   Import Assets
@@ -1113,7 +1113,7 @@ export default function AssetsPage() {
                 <button
                   type="button"
                   onClick={handleAddClick}
-                  className="inline-flex items-center gap-2 rounded-xl border border-orange-500 bg-orange-500 px-4 py-3 text-sm font-medium text-black hover:bg-orange-400"
+                  className="inline-flex items-center gap-2 rounded-2xl border border-orange-500 bg-orange-500 px-4 py-3 text-sm font-semibold text-black shadow-lg shadow-orange-500/15 transition hover:bg-orange-400"
                 >
                   <Plus size={16} />
                   Add Asset
@@ -1147,7 +1147,7 @@ export default function AssetsPage() {
           </section>
 
           <section className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
-            <div className="border border-white/10 bg-black p-5">
+            <div className="rounded-3xl border border-white/10 bg-white/5 p-5 shadow-lg shadow-black/20">
               <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                 <div>
                   <p className="text-xs uppercase tracking-[0.24em] text-orange-300">
@@ -1156,20 +1156,20 @@ export default function AssetsPage() {
                   <h2 className="mt-2 text-xl font-semibold text-white">
                     Save time with smarter asset actions
                   </h2>
-                  <p className="mt-2 max-w-2xl text-sm text-zinc-400">
+                  <p className="mt-2 max-w-2xl text-sm leading-6 text-white/50">
                     Use live Supabase asset data to spot idle equipment, reduce
                     repair delays, prepare audits faster, and avoid unnecessary
                     purchases.
                   </p>
                 </div>
 
-                <div className="border border-orange-500/20 bg-orange-500/10 p-3 text-orange-300">
+                <div className="rounded-2xl border border-orange-500/20 bg-orange-500/10 p-3 text-orange-300">
                   <Bot size={20} />
                 </div>
               </div>
 
               {assetAIError ? (
-                <div className="mt-4 border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+                <div className="mt-4 rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
                   {assetAIError}
                 </div>
               ) : null}
@@ -1179,7 +1179,7 @@ export default function AssetsPage() {
                   type="button"
                   onClick={() => void handleRunAssetAssistant("weekly_report")}
                   disabled={assetAIloading}
-                  className="inline-flex items-center gap-2 border border-orange-500 bg-orange-500 px-4 py-2.5 text-sm font-medium text-black hover:bg-orange-400 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="inline-flex items-center gap-2 rounded-2xl border border-orange-500 bg-orange-500 px-4 py-2.5 text-sm font-semibold text-black transition hover:bg-orange-400 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {assetAIloading ? (
                     <Loader2 size={16} className="animate-spin" />
@@ -1193,7 +1193,7 @@ export default function AssetsPage() {
                   type="button"
                   onClick={() => void handleRunAssetAssistant("summary")}
                   disabled={assetAIloading}
-                  className="inline-flex items-center gap-2 border border-white/10 px-4 py-2.5 text-sm text-zinc-200 hover:border-white/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                  className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-black/30 px-4 py-2.5 text-sm text-white/75 transition hover:border-white/20 hover:bg-white/8 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <ArrowRight size={16} />
                   Time-saving plan
@@ -1203,7 +1203,7 @@ export default function AssetsPage() {
                   type="button"
                   onClick={() => void handleRunAssetAssistant("audit")}
                   disabled={assetAIloading}
-                  className="inline-flex items-center gap-2 border border-white/10 px-4 py-2.5 text-sm text-zinc-200 hover:border-white/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                  className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-black/30 px-4 py-2.5 text-sm text-white/75 transition hover:border-white/20 hover:bg-white/8 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <ClipboardList size={16} />
                   Audit checklist
@@ -1215,7 +1215,7 @@ export default function AssetsPage() {
                     void handleRunAssetAssistant("repair_followup")
                   }
                   disabled={assetAIloading}
-                  className="inline-flex items-center gap-2 border border-white/10 px-4 py-2.5 text-sm text-zinc-200 hover:border-white/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                  className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-black/30 px-4 py-2.5 text-sm text-white/75 transition hover:border-white/20 hover:bg-white/8 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <MessageSquareText size={16} />
                   Repair follow-up
@@ -1225,7 +1225,7 @@ export default function AssetsPage() {
                   type="button"
                   onClick={() => void handleRunAssetAssistant("savings")}
                   disabled={assetAIloading}
-                  className="inline-flex items-center gap-2 border border-white/10 px-4 py-2.5 text-sm text-zinc-200 hover:border-white/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                  className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-black/30 px-4 py-2.5 text-sm text-white/75 transition hover:border-white/20 hover:bg-white/8 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <Bot size={16} />
                   Cost-saving ideas
@@ -1235,7 +1235,7 @@ export default function AssetsPage() {
                   type="button"
                   onClick={() => exportAssetsToExcel(attentionAssets)}
                   disabled={attentionAssets.length === 0}
-                  className="inline-flex items-center gap-2 border border-white/10 px-4 py-2.5 text-sm text-zinc-200 hover:border-white/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                  className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-black/30 px-4 py-2.5 text-sm text-white/75 transition hover:border-white/20 hover:bg-white/8 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <Download size={16} />
                   Export needs attention
@@ -1245,7 +1245,7 @@ export default function AssetsPage() {
                   type="button"
                   onClick={() => exportAssetsToExcel(displayedAssets)}
                   disabled={displayedAssets.length === 0}
-                  className="inline-flex items-center gap-2 border border-white/10 px-4 py-2.5 text-sm text-zinc-200 hover:border-white/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                  className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-black/30 px-4 py-2.5 text-sm text-white/75 transition hover:border-white/20 hover:bg-white/8 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <Download size={16} />
                   Export current view
@@ -1254,15 +1254,15 @@ export default function AssetsPage() {
                 <button
                   type="button"
                   onClick={() => navigate("/scan")}
-                  className="inline-flex items-center gap-2 border border-white/10 px-4 py-2.5 text-sm text-zinc-200 hover:border-white/20 hover:text-white"
+                  className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-black/30 px-4 py-2.5 text-sm text-white/75 transition hover:border-white/20 hover:bg-white/8 hover:text-white"
                 >
                   <ScanLine size={16} />
                   Open scanner
                 </button>
               </div>
 
-              <div className="mt-4 border border-white/10 bg-zinc-950 p-4">
-                <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">
+              <div className="mt-4 rounded-2xl border border-white/10 bg-black/40 p-4">
+                <p className="text-xs uppercase tracking-[0.22em] text-white/35">
                   {assetAIHeading}
                 </p>
                 <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-white">
@@ -1272,7 +1272,7 @@ export default function AssetsPage() {
               </div>
             </div>
 
-            <div className="border border-white/10 bg-black p-5">
+            <div className="rounded-3xl border border-white/10 bg-white/5 p-5 shadow-lg shadow-black/20">
               <div className="flex items-center gap-2 text-orange-300">
                 <ShieldAlert size={18} />
                 <h3 className="text-base font-semibold">
@@ -1284,12 +1284,12 @@ export default function AssetsPage() {
                 {timeSavingIdeas.map((item) => (
                   <div
                     key={item.title}
-                    className="border border-white/10 bg-zinc-950 p-3"
+                    className="rounded-2xl border border-white/10 bg-black/40 p-4"
                   >
                     <p className="text-sm font-medium text-white">
                       {item.title}
                     </p>
-                    <p className="mt-1 text-sm leading-6 text-zinc-400">
+                    <p className="mt-1 text-sm leading-6 text-white/50">
                       {item.description}
                     </p>
                   </div>
@@ -1298,7 +1298,7 @@ export default function AssetsPage() {
             </div>
           </section>
 
-          <section className="rounded-2xl border border-white/10 bg-black p-5">
+          <section className="rounded-3xl border border-white/10 bg-neutral-950/90 p-5 shadow-lg shadow-black/20">
             <ProductionAssetSearch
               onSearch={(query: string) => {
                 // Production search implementation
@@ -1315,7 +1315,7 @@ export default function AssetsPage() {
               <select
                 value={locationFilter}
                 onChange={(event) => setLocationFilter(event.target.value)}
-                className="rounded-xl border border-white/10 bg-black px-3 py-2 text-sm text-zinc-200 outline-none transition hover:border-white/20 focus:border-orange-500/50"
+                className="rounded-2xl border border-white/10 bg-black px-3 py-2 text-sm text-white/75 outline-none transition hover:border-white/20 focus:border-orange-500/50"
               >
                 <option value="all">All locations</option>
                 <option value="unassigned">No location</option>
@@ -1359,8 +1359,8 @@ export default function AssetsPage() {
                     }
                     className={`rounded-xl px-3 py-2 text-sm transition ${
                       active
-                        ? "border border-orange-500 bg-orange-500 text-black"
-                        : "border border-white/10 bg-black text-zinc-200 hover:border-white/20 hover:text-white"
+                        ? "border border-orange-500 bg-orange-500 text-black shadow-lg shadow-orange-500/10"
+                        : "border border-white/10 bg-black text-white/75 hover:border-white/20 hover:bg-white/8 hover:text-white"
                     }`}
                   >
                     {filter.label}
@@ -1368,14 +1368,14 @@ export default function AssetsPage() {
                 );
               })}
 
-              <p className="ml-auto text-xs text-zinc-500">
+              <p className="ml-auto text-xs text-white/35">
                 Showing {displayedAssets.length} of {assetRows.length} asset(s)
               </p>
             </div>
           </section>
 
           {error ? (
-            <section className="border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+            <section className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">
               {error}
             </section>
           ) : null}

@@ -323,9 +323,6 @@ export default function TasksWorkspacePage({
 
      alert("Task card created successfully");
    } catch (err) {
-     console.error("Full error object:", err);
-     console.error("Error type:", typeof err);
-     console.error("Error JSON:", JSON.stringify(err, null, 2));
      const errorMessage =
        err instanceof Error ? err.message : JSON.stringify(err);
      alert(`Failed to create task: ${errorMessage}`);
@@ -334,8 +331,6 @@ export default function TasksWorkspacePage({
    }
  };
   const handleTrack = async (taskId: string, title: string) => {
-    console.log("handleTrack called:", { taskId, title, currentUserId, currentOrganizationId });
-    
     if (!currentOrganizationId) {
       alert("Organization is not available yet. Please wait and try again.");
       return;

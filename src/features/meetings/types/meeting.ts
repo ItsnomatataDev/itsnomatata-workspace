@@ -10,6 +10,8 @@ export type Meeting = {
   status: MeetingStatus;
   meeting_type: MeetingType;
   room_code: string;
+  allow_guest_access?: boolean;
+  guest_code?: string | null;
   scheduled_start: string | null;
   started_at: string | null;
   ended_at: string | null;
@@ -57,6 +59,7 @@ export type CreateMeetingInput = {
   meeting_type: MeetingType;
   scheduled_start?: string | null;
   participant_ids?: string[]; 
+  allow_guest_access?: boolean;
 };
 
 export type MeetingWithParticipants = Meeting & {

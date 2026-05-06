@@ -34,11 +34,14 @@ import {
 import CardDetailModal from "../components/Carddetailmodal";
 import type { TaskItem, TaskStatus } from "../../../lib/supabase/queries/tasks";
 import type { Board, BoardStats, Card, List } from "../../../types/board";
-import { useTimeEntries } from "../../../lib/hooks/useTimeEntries";
 import { supabase } from "../../../lib/supabase/client";
 import {
-  clampToZimbabweCutoff,
-  isAtOrAfterZimbabweCutoff,
+  getActiveTimeEntry,
+  startTimeEntry,
+  stopTimeEntry,
+  type TimeEntryItem,
+} from "../../../lib/supabase/mutations/timeEntries";
+import {
   makeZimbabweLocalIso,
 } from "../../../lib/utils/zimbabweCalendar";
 
@@ -539,7 +542,7 @@ export default function BoardViewPage() {
   const [error, setError] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
-  const [activeTimer, setActiveTimer] = useState<any>(null);
+  const [activeTimer, setActiveTimer] = useState<TimeEntryItem | null>(null);
   const [liveSeconds, setLiveSeconds] = useState(0);
   const [timerBusy, setTimerBusy] = useState(false);
   const [searchValue, setSearchValue] = useState("");
@@ -549,14 +552,6 @@ export default function BoardViewPage() {
 
   // drag state
   const dragRef = useRef<{ id: string; status: TaskStatus } | null>(null);
-
-  // Timer state
-  const { entries } = useTimeEntries({
-    organizationId,
-    userId: auth?.user?.id,
-    startDate: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    endDate: new Date().toISOString(),
-  });
 
   const makeColumnViews = useCallback((lists: List[]): BoardColumnView[] => {
     return lists.map((list, index) => {
@@ -579,16 +574,12 @@ export default function BoardViewPage() {
 
   const loadActiveTimer = useCallback(async () => {
     if (!auth?.user?.id || !organizationId) return;
-    
-    const { data: runningEntry } = await supabase
-      .from("time_entries")
-      .select("*")
-      .eq("user_id", auth.user.id)
-      .is("ended_at", null)
-      .order("started_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    
+
+    const runningEntry = await getActiveTimeEntry({
+      organizationId,
+      userId: auth.user.id,
+    });
+
     setActiveTimer(runningEntry);
   }, [auth?.user?.id, organizationId]);
 
@@ -653,10 +644,18 @@ export default function BoardViewPage() {
   }, [loadBoardData]);
 
   useEffect(() => {
-    if (loading || !requestedCardId) return;
+    if (!requestedCardId) {
+      setSelectedTask(null);
+      return;
+    }
+
+    if (loading) return;
 
     const nextSelectedTask = tasks.find((task) => task.id === requestedCardId);
-    if (!nextSelectedTask) return;
+    if (!nextSelectedTask) {
+      setSelectedTask(null);
+      return;
+    }
 
     setSelectedTask((current) =>
       current?.id === nextSelectedTask.id ? current : nextSelectedTask,
@@ -1055,38 +1054,16 @@ export default function BoardViewPage() {
     try {
       setTimerBusy(true);
 
-      if (isAtOrAfterZimbabweCutoff()) {
-        throw new Error("Timers stop at 7:00 PM Harare time. Add manual time for today if needed.");
-      }
-
-      // Check if there's already a running timer
-      const { data: existingTimer } = await supabase
-        .from("time_entries")
-        .select("id")
-        .eq("user_id", auth.user.id)
-        .is("ended_at", null)
-        .maybeSingle();
-
-      if (existingTimer) {
-        throw new Error("A timer is already running. Stop it first.");
-      }
-
       const inProgressColumnId = getWorkflowColumnIdForStatus("in_progress");
 
-      // Start new timer
-      const { error } = await supabase.from("time_entries").insert({
-        organization_id: organizationId,
-        user_id: auth.user.id,
-        client_id: boardId ?? null,
-        task_id: taskId,
+      await startTimeEntry({
+        organizationId,
+        userId: auth.user.id,
+        taskId,
+        clientId: boardId ?? null,
         description: `Working on ${title}`,
-        started_at: new Date().toISOString(),
-        ended_at: null,
-        is_running: true,
-        duration_seconds: 0,
+        source: "board",
       });
-
-      if (error) throw error;
 
       await updateCard(taskId, {
         status: "in_progress",
@@ -1114,23 +1091,11 @@ export default function BoardViewPage() {
     try {
       setTimerBusy(true);
 
-      const endedAt = clampToZimbabweCutoff(activeTimer.started_at);
-      const startedAtMs = new Date(activeTimer.started_at).getTime();
-      const endedAtMs = new Date(endedAt).getTime();
-      const durationSeconds = Math.max(0, Math.floor((endedAtMs - startedAtMs) / 1000));
+      await stopTimeEntry(activeTimer.id, {
+        userId: auth?.user?.id,
+        organizationId: organizationId ?? undefined,
+      });
 
-      const { error } = await supabase
-        .from("time_entries")
-        .update({
-          ended_at: endedAt,
-          is_running: false,
-          duration_seconds: durationSeconds,
-        })
-        .eq("id", activeTimer.id);
-
-      if (error) throw error;
-
-      // Reload active timer
       await loadActiveTimer();
     } catch (err: any) {
       console.error("Failed to stop timer:", err);
@@ -1138,7 +1103,7 @@ export default function BoardViewPage() {
     } finally {
       setTimerBusy(false);
     }
-  }, [activeTimer, loadActiveTimer]);
+  }, [activeTimer, auth?.user?.id, loadActiveTimer, organizationId]);
 
   // ── Guards ───────────────────────────────────────────────────────────────────
 

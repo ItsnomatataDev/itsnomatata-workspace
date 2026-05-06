@@ -27,6 +27,7 @@ export type ChatConversationLastMessage = {
   sender_id: string;
   body: string | null;
   message_type?: ChatMessageType;
+  metadata?: ChatMessageMetadata | null;
   created_at: string;
 };
 
@@ -48,6 +49,27 @@ export type ChatConversation = {
 
 export type ChatMessageType = "text" | "image" | "audio" | "file" | "system";
 
+export type ChatMessageMetadata = {
+  type?: "text" | "gif" | "meme";
+  media_url?: string | null;
+  media_provider?: string | null;
+  caption?: string | null;
+  [key: string]: unknown;
+};
+
+export type ChatMessageReaction = {
+  id: string;
+  message_id: string;
+  user_id: string;
+  emoji: string;
+  created_at: string;
+  profile?: {
+    id: string;
+    full_name: string | null;
+    email: string | null;
+  } | null;
+};
+
 export type ChatMessageSender = {
   id: string;
   full_name: string | null;
@@ -64,11 +86,16 @@ export type ChatMessage = {
   reply_to_message_id: string | null;
   attachment_url: string | null;
   attachment_name: string | null;
+  metadata?: ChatMessageMetadata | null;
+  reactions?: ChatMessageReaction[];
   is_edited: boolean;
   is_deleted: boolean;
   created_at: string;
   updated_at: string;
   sender_profile?: ChatMessageSender | null;
+  local_status?: "sending" | "sent" | "failed";
+  local_error?: string | null;
+  client_id?: string;
 };
 
 export type ChatUser = {
@@ -86,4 +113,5 @@ export type SendChatMessageInput = {
   messageType?: ChatMessageType;
   attachmentUrl?: string | null;
   attachmentName?: string | null;
+  metadata?: ChatMessageMetadata | null;
 };

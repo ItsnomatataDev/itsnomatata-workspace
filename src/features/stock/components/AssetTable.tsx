@@ -88,7 +88,7 @@ export default function AssetTable({
 }) {
   if (loading) {
     return (
-      <div className="border border-white/10 bg-black p-4 text-sm text-zinc-300">
+      <div className="rounded-3xl border border-white/10 bg-neutral-950 p-6 text-sm text-white/60 shadow-lg shadow-black/20">
         Loading assets...
       </div>
     );
@@ -96,28 +96,29 @@ export default function AssetTable({
 
   if (!assets.length) {
     return (
-      <div className="border border-white/10 bg-black p-6 text-center text-sm text-zinc-400">
+      <div className="rounded-3xl border border-white/10 bg-neutral-950 p-8 text-center text-sm text-white/50 shadow-lg shadow-black/20">
         No assets found.
       </div>
     );
   }
 
   return (
-    <div className="overflow-x-auto border border-white/10 bg-black">
+    <div className="overflow-hidden rounded-3xl border border-white/10 bg-neutral-950 shadow-2xl shadow-black/30">
+      <div className="overflow-x-auto">
       <table className="min-w-full text-left text-sm text-white">
         <thead className="border-b border-white/10 bg-white/5">
           <tr>
-            <th className="px-4 py-3 font-medium text-zinc-300">Asset</th>
-            <th className="px-4 py-3 font-medium text-zinc-300">Tag</th>
-            <th className="px-4 py-3 font-medium text-zinc-300">Serial</th>
-            <th className="px-4 py-3 font-medium text-zinc-300">Category</th>
-            <th className="px-4 py-3 font-medium text-zinc-300">Location</th>
-            <th className="px-4 py-3 font-medium text-zinc-300">Assigned To</th>
-            <th className="px-4 py-3 font-medium text-zinc-300">
+            <th className="px-4 py-3 font-medium text-white/65">Asset</th>
+            <th className="px-4 py-3 font-medium text-white/65">Tag</th>
+            <th className="px-4 py-3 font-medium text-white/65">Serial</th>
+            <th className="px-4 py-3 font-medium text-white/65">Category</th>
+            <th className="px-4 py-3 font-medium text-white/65">Location</th>
+            <th className="px-4 py-3 font-medium text-white/65">Assigned To</th>
+            <th className="px-4 py-3 font-medium text-white/65">
               Purchase Date
             </th>
-            <th className="px-4 py-3 font-medium text-zinc-300">Status</th>
-            <th className="px-4 py-3 font-medium text-zinc-300">Actions</th>
+            <th className="px-4 py-3 font-medium text-white/65">Status</th>
+            <th className="px-4 py-3 font-medium text-white/65">Actions</th>
           </tr>
         </thead>
 
@@ -125,11 +126,11 @@ export default function AssetTable({
           {assets.map((asset) => (
             <tr
               key={asset.id}
-              className="border-b border-white/5 hover:bg-white/5"
+              className="border-b border-white/5 transition hover:bg-white/5"
             >
               <td className="px-4 py-4 align-top">
                 <div className="flex items-start gap-3">
-                  <div className="h-14 w-14 shrink-0 overflow-hidden border border-white/10 bg-zinc-950">
+                  <div className="h-14 w-14 shrink-0 overflow-hidden rounded-2xl border border-white/10 bg-black">
                     {asset.asset_image_url ? (
                       <img
                         src={asset.asset_image_url}
@@ -151,7 +152,7 @@ export default function AssetTable({
                     >
                       {asset.asset_name}
                     </button>
-                    <div className="mt-1 text-xs text-zinc-400">
+                    <div className="mt-1 text-xs text-white/45">
                       {[asset.brand, asset.model].filter(Boolean).join(" • ") ||
                         "—"}
                     </div>
@@ -159,29 +160,29 @@ export default function AssetTable({
                 </div>
               </td>
 
-              <td className="px-4 py-4 align-top text-zinc-200">
+              <td className="px-4 py-4 align-top text-white/75">
                 {asset.asset_tag}
               </td>
-              <td className="px-4 py-4 align-top text-zinc-200">
+              <td className="px-4 py-4 align-top text-white/75">
                 {asset.serial_number}
               </td>
-              <td className="px-4 py-4 align-top text-zinc-200">
+              <td className="px-4 py-4 align-top text-white/75">
                 {asset.category?.name ?? "—"}
               </td>
-              <td className="px-4 py-4 align-top text-zinc-200">
+              <td className="px-4 py-4 align-top text-white/75">
                 {asset.location?.name ?? "—"}
               </td>
-              <td className="px-4 py-4 align-top text-zinc-200">
+              <td className="px-4 py-4 align-top text-white/75">
                 {asset.assigned_profile?.full_name ||
                   asset.assigned_profile?.email ||
                   "—"}
               </td>
-              <td className="px-4 py-4 align-top text-zinc-200">
+              <td className="px-4 py-4 align-top text-white/75">
                 {formatDate(asset.purchase_date)}
               </td>
               <td className="px-4 py-4 align-top">
                 <span
-                  className={`inline-flex px-2 py-1 text-xs font-medium capitalize ${getStatusClasses(
+                  className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium capitalize ${getStatusClasses(
                     asset.status,
                   )}`}
                 >
@@ -194,7 +195,7 @@ export default function AssetTable({
                   <button
                     type="button"
                     onClick={() => onView(asset)}
-                    className="inline-flex items-center gap-2 border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-xs text-blue-300 hover:bg-blue-500/20"
+                    className="inline-flex items-center gap-2 rounded-2xl border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-xs text-blue-300 transition hover:bg-blue-500/20"
                   >
                     <Eye size={14} />
                     View
@@ -203,7 +204,7 @@ export default function AssetTable({
                   <button
                     type="button"
                     onClick={() => onEdit(asset)}
-                    className="inline-flex items-center gap-2 border border-white/10 px-3 py-2 text-xs text-zinc-200 hover:border-orange-500 hover:text-orange-300"
+                    className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/75 transition hover:border-orange-500 hover:text-orange-300"
                   >
                     <Edit3 size={14} />
                     Edit
@@ -213,7 +214,7 @@ export default function AssetTable({
                     <button
                       type="button"
                       onClick={() => onAssign(asset)}
-                      className="inline-flex items-center gap-2 border border-orange-500/30 bg-orange-500/10 px-3 py-2 text-xs text-orange-300 hover:bg-orange-500/20"
+                      className="inline-flex items-center gap-2 rounded-2xl border border-orange-500/30 bg-orange-500/10 px-3 py-2 text-xs text-orange-300 transition hover:bg-orange-500/20"
                     >
                       <RotateCcw size={14} />
                       Assign
@@ -222,7 +223,7 @@ export default function AssetTable({
                     <button
                       type="button"
                       onClick={() => onReturn(asset)}
-                      className="inline-flex items-center gap-2 border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-300 hover:bg-emerald-500/20"
+                      className="inline-flex items-center gap-2 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-300 transition hover:bg-emerald-500/20"
                     >
                       <RotateCcw size={14} />
                       Return
@@ -232,7 +233,7 @@ export default function AssetTable({
                   <button
                     type="button"
                     onClick={() => onRepair(asset)}
-                    className="inline-flex items-center gap-2 border border-yellow-500/30 bg-yellow-500/10 px-3 py-2 text-xs text-yellow-300 hover:bg-yellow-500/20"
+                    className="inline-flex items-center gap-2 rounded-2xl border border-yellow-500/30 bg-yellow-500/10 px-3 py-2 text-xs text-yellow-300 transition hover:bg-yellow-500/20"
                   >
                     <Wrench size={14} />
                     Repair
@@ -241,7 +242,7 @@ export default function AssetTable({
                   <button
                     type="button"
                     onClick={() => onRetire(asset)}
-                    className="inline-flex items-center gap-2 border border-zinc-500/30 bg-zinc-500/10 px-3 py-2 text-xs text-zinc-300 hover:bg-zinc-500/20"
+                    className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/65 transition hover:bg-white/10 hover:text-white"
                   >
                     <Archive size={14} />
                     Retire
@@ -250,7 +251,7 @@ export default function AssetTable({
                   <button
                     type="button"
                     onClick={() => onDelete(asset)}
-                    className="inline-flex items-center gap-2 border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300 hover:bg-red-500/20"
+                    className="inline-flex items-center gap-2 rounded-2xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300 transition hover:bg-red-500/20"
                   >
                     <Trash2 size={14} />
                     Delete
@@ -261,6 +262,7 @@ export default function AssetTable({
           ))}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }

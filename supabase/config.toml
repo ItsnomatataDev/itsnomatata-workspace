@@ -1,2 +1,5 @@
 [functions.livekit-token]
 verify_jwt = false
+
+[functions.livekit-guest-token]
+verify_jwt = false

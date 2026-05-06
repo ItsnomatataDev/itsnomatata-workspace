@@ -358,8 +358,6 @@ export default function BoardTimeManagementPage() {
     setEditFormErrors({});
 
     try {
-      console.log("Creating new board:", createForm.name);
-
       // Validate form
       if (!createForm.name.trim()) {
         throw new Error("Board name is required");
@@ -386,8 +384,6 @@ export default function BoardTimeManagementPage() {
         boardType: createForm.boardType,
       });
 
-      console.log("Board created successfully:", newBoard.id);
-
       // Set time settings
       await updateBoardTimeSettings(newBoard.id, organizationId, {
         estimatedHours: createForm.boardType === "internal" ? null : createForm.estimatedHours,
@@ -396,8 +392,6 @@ export default function BoardTimeManagementPage() {
         hourlyRate: createForm.boardType === "internal" ? 0 : createForm.hourlyRate,
         fixedPrice: createForm.boardType === "internal" ? 0 : createForm.fixedPrice,
       });
-
-      console.log("Time settings created successfully");
 
       // Auto-assign the board creator as a member
       if (auth?.profile?.id) {
@@ -408,7 +402,6 @@ export default function BoardTimeManagementPage() {
           newBoard.name,
           auth.profile.id
         );
-        console.log("Board creator assigned successfully");
       }
 
       // Assign additional users if selected
@@ -420,7 +413,6 @@ export default function BoardTimeManagementPage() {
           newBoard.name, 
           auth?.profile?.id
         );
-        console.log("Additional users assigned successfully");
       }
 
       // Reset form and reload
@@ -439,7 +431,6 @@ export default function BoardTimeManagementPage() {
       
       // Reload data to ensure synchronization
       await loadBoardsWithTimeData();
-      console.log("Board creation completed successfully");
 
     } catch (error) {
       console.error("Failed to create board:", error);
@@ -504,8 +495,6 @@ export default function BoardTimeManagementPage() {
     setEditFormErrors({});
 
     try {
-      console.log("Updating board:", editingBoard.id, "for organization:", organizationId);
-
       // Check if name is being changed and if it conflicts with another board
       if (editingBoard.name !== editingBoard.originalName) {
         const trimmedName = editingBoard.name.trim();
@@ -527,7 +516,6 @@ export default function BoardTimeManagementPage() {
 
       // Update board basic info if changed
       if (editingBoard.name !== editingBoard.originalName || editingBoard.description !== editingBoard.originalDescription || editingBoard.boardType !== editingBoard.originalBoardType) {
-        console.log("Updating board basic info...");
         const { error: boardUpdateError } = await supabase
           .from("clients")
           .update({
@@ -543,11 +531,9 @@ export default function BoardTimeManagementPage() {
           console.error("Board update error:", boardUpdateError);
           throw new Error(`Failed to update board info: ${boardUpdateError.message}`);
         }
-        console.log("Board basic info updated successfully");
       }
 
       // Update board time settings
-      console.log("Updating board time settings...");
       try {
         await updateBoardTimeSettings(editingBoard.id, organizationId, {
           estimatedHours: editingBoard.boardType === "internal" ? null : editingBoard.estimatedHours,
@@ -556,7 +542,6 @@ export default function BoardTimeManagementPage() {
           hourlyRate: editingBoard.boardType === "internal" ? 0 : editingBoard.hourlyRate,
           fixedPrice: editingBoard.boardType === "internal" ? 0 : editingBoard.fixedPrice,
         });
-        console.log("Board time settings updated successfully");
       } catch (timeSettingsError) {
         console.error("Time settings update error:", timeSettingsError);
         const errorMessage = timeSettingsError instanceof Error ? timeSettingsError.message : 'Unknown error';
@@ -570,9 +555,7 @@ export default function BoardTimeManagementPage() {
       setEditingBoard(null);
       
       // Reload data to ensure synchronization
-      console.log("Reloading board data...");
       await loadBoardsWithTimeData();
-      console.log("Board data reloaded successfully");
       
     } catch (error) {
       console.error("Failed to update board:", error);

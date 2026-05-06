@@ -1,7 +1,8 @@
-import { Check, CheckCheck, Trash2 } from "lucide-react";
+import { Check, CheckCheck, RotateCcw, Trash2 } from "lucide-react";
 import type { ChatConversation } from "../types/chat";
 import type { ChatMessage } from "../types/chat";
 import { deleteMessage } from "../services/chatService";
+import MessageReactions from "./MessageReactions";
 
 function isRecentlyOnline(lastSeenAt?: string | null) {
   if (!lastSeenAt) return false;
@@ -38,6 +39,48 @@ function getSeenStatus(params: {
   return lastReadIndex >= messageIndex ? "seen" : "sent";
 }
 
+function isSameDay(a: string, b?: string) {
+  if (!b) return false;
+  return new Date(a).toDateString() === new Date(b).toDateString();
+}
+
+function formatDateSeparator(value: string) {
+  const date = new Date(value);
+  const today = new Date();
+  const yesterday = new Date();
+  yesterday.setDate(today.getDate() - 1);
+
+  if (date.toDateString() === today.toDateString()) return "Today";
+  if (date.toDateString() === yesterday.toDateString()) return "Yesterday";
+
+  return date.toLocaleDateString([], {
+    weekday: "short",
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function getMediaMetadata(message: ChatMessage) {
+  const metadata = message.metadata ?? {};
+  const type = metadata.type;
+  if (type !== "gif" && type !== "meme") return null;
+
+  const mediaUrl = typeof metadata.media_url === "string"
+    ? metadata.media_url
+    : null;
+  if (!mediaUrl) return null;
+
+  return {
+    type,
+    mediaUrl,
+    provider: typeof metadata.media_provider === "string"
+      ? metadata.media_provider
+      : null,
+    caption: typeof metadata.caption === "string" ? metadata.caption : null,
+  };
+}
+
 export default function MessageList({
   messages,
   currentUserId,
@@ -45,6 +88,8 @@ export default function MessageList({
   hasConversation,
   conversation,
   onMessageDeleted,
+  onRetryMessage,
+  onToggleReaction,
   currentUserRole,
 }: {
   messages: ChatMessage[];
@@ -53,6 +98,8 @@ export default function MessageList({
   hasConversation: boolean;
   conversation: ChatConversation | null;
   onMessageDeleted?: (messageId: string) => void;
+  onRetryMessage?: (message: ChatMessage) => void;
+  onToggleReaction?: (messageId: string, emoji: string) => void;
   currentUserRole?: string | null;
 }) {
   if (!hasConversation) {
@@ -77,8 +124,13 @@ export default function MessageList({
 
   return (
     <div className="space-y-4">
-      {messages.map((message) => {
+      {messages.map((message, index) => {
         const isMine = message.sender_id === currentUserId;
+        const previousMessage = messages[index - 1];
+        const showDateSeparator = !isSameDay(
+          message.created_at,
+          previousMessage?.created_at,
+        );
         const senderName =
           message.sender_profile?.full_name ||
           message.sender_profile?.email ||
@@ -92,6 +144,7 @@ export default function MessageList({
           Boolean(currentUserId) &&
           (isMine ||
             currentUserRole === "admin" ||
+            currentUserRole === "manager" ||
             membership?.role === "owner" ||
             membership?.role === "admin");
         const seenStatus = getSeenStatus({
@@ -117,19 +170,33 @@ export default function MessageList({
           }
         };
 
+        const media = getMediaMetadata(message);
+        const failed = message.local_status === "failed";
+        const sending = message.local_status === "sending";
+
         return (
-          <div
-            key={message.id}
-            className={`flex ${isMine ? "justify-end" : "justify-start"}`}
-          >
-            <div
-              className={[
-                "max-w-[92%] overflow-hidden rounded-2xl px-4 py-3 text-sm shadow-sm sm:max-w-[82%]",
-                isMine
-                  ? "bg-orange-500 text-black"
-                  : "border border-white/10 bg-white/10 text-white",
-              ].join(" ")}
-            >
+          <div key={message.id} className="space-y-3">
+            {showDateSeparator ? (
+              <div className="flex items-center gap-3">
+                <div className="h-px flex-1 bg-white/10" />
+                <span className="rounded-full border border-white/10 bg-black/50 px-3 py-1 text-[11px] font-medium text-white/40">
+                  {formatDateSeparator(message.created_at)}
+                </span>
+                <div className="h-px flex-1 bg-white/10" />
+              </div>
+            ) : null}
+
+            <div className={`group flex ${isMine ? "justify-end" : "justify-start"}`}>
+              <div
+                className={[
+                  "max-w-[92%] overflow-hidden rounded-2xl px-4 py-3 text-sm shadow-sm sm:max-w-[82%]",
+                  isMine
+                    ? "bg-orange-500 text-black"
+                    : "border border-white/10 bg-white/10 text-white",
+                  failed ? "ring-2 ring-red-500/40" : "",
+                  sending ? "opacity-70" : "",
+                ].join(" ")}
+              >
               {!isMine ? (
                 <div className="mb-2 flex items-center gap-2">
                   <span className="text-xs font-semibold text-orange-400">
@@ -146,6 +213,20 @@ export default function MessageList({
 
               {message.is_deleted ? (
                 <p className="italic opacity-70">This message was deleted.</p>
+              ) : media ? (
+                <div className="space-y-2">
+                  <img
+                    src={media.mediaUrl}
+                    alt={media.type === "gif" ? "Shared GIF" : "Shared meme"}
+                    className="max-h-86 w-full rounded-xl object-cover"
+                    loading="lazy"
+                  />
+                  {media.caption || message.body ? (
+                    <p className="whitespace-pre-wrap wrap-break-word">
+                      {media.caption || message.body}
+                    </p>
+                  ) : null}
+                </div>
               ) : message.message_type === "image" && message.attachment_url ? (
                 <div className="space-y-2">
                   <img
@@ -203,10 +284,28 @@ export default function MessageList({
                     isMine ? "text-black/70" : "text-white/40",
                   ].join(" ")}
                 >
-                  {new Date(message.created_at).toLocaleString()}
+                  {sending
+                    ? "Sending..."
+                    : failed
+                      ? message.local_error ?? "Failed to send"
+                      : new Date(message.created_at).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
                 </p>
 
                 <div className="flex items-center gap-2">
+                  {failed && onRetryMessage ? (
+                    <button
+                      type="button"
+                      onClick={() => onRetryMessage(message)}
+                      className="rounded p-1 text-red-200 transition hover:bg-red-500/20"
+                      title="Retry sending"
+                    >
+                      <RotateCcw size={12} />
+                    </button>
+                  ) : null}
+
                   {canDelete ? (
                     <button
                       type="button"
@@ -239,6 +338,16 @@ export default function MessageList({
                     </span>
                   ) : null}
                 </div>
+              </div>
+
+              {!message.is_deleted ? (
+                <MessageReactions
+                  reactions={message.reactions ?? []}
+                  currentUserId={currentUserId}
+                  disabled={!currentUserId || sending}
+                  onToggle={(emoji) => onToggleReaction?.(message.id, emoji)}
+                />
+              ) : null}
               </div>
             </div>
           </div>

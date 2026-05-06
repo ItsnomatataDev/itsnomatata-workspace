@@ -7,6 +7,7 @@ import type {
   ChatConversationMember,
   ChatConversationMemberProfile,
   ChatMessage,
+  ChatMessageReaction,
   ChatMessageType,
   ChatUser,
   SendChatMessageInput,
@@ -42,6 +43,7 @@ type LastMessageRow = {
   body: string | null;
   message_type: ChatMessageType;
   attachment_name: string | null;
+  metadata?: Record<string, unknown> | null;
   created_at: string;
   is_deleted: boolean;
 };
@@ -57,12 +59,28 @@ function getChatMessagePreview(params: {
   body?: string | null;
   messageType?: string | null;
   attachmentName?: string | null;
+  metadata?: Record<string, unknown> | null;
   isDeleted?: boolean;
 }) {
   if (params.isDeleted) return "This message was deleted.";
 
   const body = params.body?.trim() ?? "";
   const type = params.messageType ?? "text";
+  const metadataType = typeof params.metadata?.type === "string"
+    ? params.metadata.type
+    : null;
+
+  if (metadataType === "gif") {
+    return params.metadata?.caption
+      ? `GIF: ${String(params.metadata.caption)}`
+      : "GIF";
+  }
+
+  if (metadataType === "meme") {
+    return params.metadata?.caption
+      ? `Meme: ${String(params.metadata.caption)}`
+      : "Meme";
+  }
 
   if (type === "image") {
     return params.attachmentName ? `Image: ${params.attachmentName}` : "Image";
@@ -202,7 +220,7 @@ async function dispatchChatNotificationsWithFallback(params: {
 
     return result;
   } catch (primaryError) {
-    console.error(
+    logChatError(
       "CHAT notification primary send failed, trying edge fallback:",
       primaryError,
     );
@@ -215,8 +233,15 @@ function buildMessagePreview(params: {
   body?: string | null;
   messageType?: string | null;
   attachmentName?: string | null;
+  metadata?: Record<string, unknown> | null;
 }) {
   return getChatMessagePreview(params);
+}
+
+function logChatError(message: string, error: unknown) {
+  if (import.meta.env.DEV) {
+    console.error(message, error);
+  }
 }
 
 async function getConversationMeta(conversationId: string) {
@@ -262,6 +287,7 @@ async function notifyConversationMembers(params: {
   body?: string | null;
   messageType?: string | null;
   attachmentName?: string | null;
+  metadata?: Record<string, unknown> | null;
 }) {
   try {
     const [conversation, recipientIds] = await Promise.all([
@@ -277,6 +303,7 @@ async function notifyConversationMembers(params: {
       body: params.body,
       messageType: params.messageType,
       attachmentName: params.attachmentName,
+      metadata: params.metadata,
     });
 
     const title = conversation.type === "direct"
@@ -301,6 +328,7 @@ async function notifyConversationMembers(params: {
         senderName: params.senderName,
         messageId: params.messageId,
         messageType: params.messageType ?? "text",
+        messageMetadata: params.metadata ?? null,
       },
       referenceId: conversation.id,
       referenceType: "chat_conversation" as const,
@@ -313,7 +341,7 @@ async function notifyConversationMembers(params: {
 
     await dispatchChatNotificationsWithFallback(payload);
   } catch (error) {
-    console.error("CHAT NOTIFICATION ERROR:", error);
+    logChatError("CHAT NOTIFICATION ERROR:", error);
   }
 }
 export async function getConversations(
@@ -383,9 +411,7 @@ export async function getConversations(
   const profilesData = profilesResult.data as ChatConversationMemberProfile[];
   const profilesError = profilesResult.error;
 
-  if (profilesError) {
-    console.error("Failed to fetch profiles:", profilesError);
-  }
+  if (profilesError) logChatError("Failed to fetch profiles:", profilesError);
 
   // Create a map of user_id -> profile
   const profilesMap = new Map((profilesData ?? []).map((p) => [p.id, p]));
@@ -397,7 +423,7 @@ export async function getConversations(
       ? await supabase
           .from("chat_messages")
           .select(
-            "conversation_id, id, sender_id, body, message_type, attachment_name, created_at, is_deleted",
+            "conversation_id, id, sender_id, body, message_type, attachment_name, metadata, created_at, is_deleted",
           )
           .in("conversation_id", conversationIds)
           .order("created_at", { ascending: false })
@@ -407,7 +433,7 @@ export async function getConversations(
   const lastMessagesError = lastMessagesResult.error;
 
   if (lastMessagesError) {
-    console.error("Failed to fetch last messages:", lastMessagesError);
+    logChatError("Failed to fetch last messages:", lastMessagesError);
   }
 
   // Create a map of conversation_id -> last message
@@ -433,7 +459,7 @@ export async function getConversations(
   const allMessagesError = allMessagesResult.error;
 
   if (allMessagesError) {
-    console.error("Failed to fetch all messages for unread count:", allMessagesError);
+    logChatError("Failed to fetch all messages for unread count:", allMessagesError);
   }
 
   // Create a map of conversation_id -> array of messages
@@ -471,6 +497,7 @@ export async function getConversations(
           body: lastMessage.body,
           messageType: lastMessage.message_type,
           attachmentName: lastMessage.attachment_name,
+          metadata: lastMessage.metadata,
           isDeleted: lastMessage.is_deleted,
         })
       : null;
@@ -503,6 +530,7 @@ export async function getConversations(
         sender_id: lastMessage.sender_id,
         body: messageBody,
         message_type: lastMessage.message_type,
+        metadata: lastMessage.metadata ?? null,
         created_at: lastMessage.created_at,
       } : null,
     };
@@ -529,13 +557,19 @@ export async function getMessages(
   });
 
   // Fetch all sender profiles in a single query
-  const { data: profilesData, error: profilesError } = await supabase
-    .from("profiles")
-    .select("id, full_name, email")
-    .in("id", Array.from(senderIds));
+  const profileIds = Array.from(senderIds);
+  const profilesResult = profileIds.length > 0
+    ? await supabase
+        .from("profiles")
+        .select("id, full_name, email")
+        .in("id", profileIds)
+    : { data: [], error: null };
+
+  const profilesData = profilesResult.data;
+  const profilesError = profilesResult.error;
 
   if (profilesError) {
-    console.error("Failed to fetch sender profiles:", profilesError);
+    logChatError("Failed to fetch sender profiles:", profilesError);
   }
 
   // Create a map of user_id -> profile
@@ -543,10 +577,55 @@ export async function getMessages(
     (profilesData ?? []).map((p) => [p.id, p]),
   );
 
-  // Attach sender profile to each message
+  const reactions = await getMessageReactions(messages.map((message) => message.id));
+  const reactionsByMessage = new Map<string, ChatMessageReaction[]>();
+  for (const reaction of reactions) {
+    const list = reactionsByMessage.get(reaction.message_id) ?? [];
+    list.push(reaction);
+    reactionsByMessage.set(reaction.message_id, list);
+  }
+
   return messages.map((message) => ({
     ...message,
     sender_profile: profilesMap.get(message.sender_id) || null,
+    reactions: reactionsByMessage.get(message.id) ?? [],
+  }));
+}
+
+export async function getMessageReactions(
+  messageIds: string[],
+): Promise<ChatMessageReaction[]> {
+  const uniqueIds = Array.from(new Set(messageIds.filter(Boolean)));
+  if (uniqueIds.length === 0) return [];
+
+  const { data, error } = await supabase
+    .from("message_reactions")
+    .select("*")
+    .in("message_id", uniqueIds)
+    .order("created_at", { ascending: true });
+
+  if (error) throw error;
+
+  const reactions = (data ?? []) as ChatMessageReaction[];
+  const userIds = Array.from(new Set(reactions.map((item) => item.user_id)));
+  const profilesResult = userIds.length > 0
+    ? await supabase
+        .from("profiles")
+        .select("id, full_name, email")
+        .in("id", userIds)
+    : { data: [], error: null };
+
+  if (profilesResult.error) {
+    logChatError("Failed to fetch reaction profiles:", profilesResult.error);
+  }
+
+  const profileMap = new Map(
+    (profilesResult.data ?? []).map((profile) => [profile.id, profile]),
+  );
+
+  return reactions.map((reaction) => ({
+    ...reaction,
+    profile: profileMap.get(reaction.user_id) ?? null,
   }));
 }
 
@@ -594,6 +673,7 @@ export async function sendMessage(
     message_type: messageType,
     attachment_url: params.attachmentUrl ?? null,
     attachment_name: params.attachmentName ?? null,
+    metadata: params.metadata ?? {},
   };
 
   const { data, error } = await supabase
@@ -626,10 +706,53 @@ export async function sendMessage(
       body,
       messageType,
       attachmentName: params.attachmentName ?? null,
+      metadata: params.metadata ?? null,
     });
   }
 
   return message;
+}
+
+export async function toggleMessageReaction(params: {
+  messageId: string;
+  userId: string;
+  emoji: string;
+}): Promise<{ removed: boolean; reaction: ChatMessageReaction | null }> {
+  const emoji = params.emoji.trim();
+  if (!emoji) throw new Error("emoji is required");
+
+  const { data: existing, error: existingError } = await supabase
+    .from("message_reactions")
+    .select("*")
+    .eq("message_id", params.messageId)
+    .eq("user_id", params.userId)
+    .eq("emoji", emoji)
+    .maybeSingle();
+
+  if (existingError) throw existingError;
+
+  if (existing) {
+    const { error } = await supabase
+      .from("message_reactions")
+      .delete()
+      .eq("id", existing.id);
+
+    if (error) throw error;
+    return { removed: true, reaction: null };
+  }
+
+  const { data, error } = await supabase
+    .from("message_reactions")
+    .insert({
+      message_id: params.messageId,
+      user_id: params.userId,
+      emoji,
+    })
+    .select("*")
+    .single();
+
+  if (error) throw error;
+  return { removed: false, reaction: data as ChatMessageReaction };
 }
 
 export async function markConversationAsRead(params: {
@@ -853,7 +976,7 @@ export async function createGroupConversation(params: {
       referenceType: "chat_conversation",
       sendEmail: true,
     }).catch(async (error) => {
-      console.error("GROUP CHAT NOTIFICATION ERROR:", error);
+      logChatError("GROUP CHAT NOTIFICATION ERROR:", error);
 
       try {
         await supabase.functions.invoke("create-notification", {
@@ -877,7 +1000,7 @@ export async function createGroupConversation(params: {
           },
         });
       } catch (fallbackError) {
-        console.error(
+        logChatError(
           "GROUP CHAT NOTIFICATION EDGE FALLBACK ERROR:",
           fallbackError,
         );

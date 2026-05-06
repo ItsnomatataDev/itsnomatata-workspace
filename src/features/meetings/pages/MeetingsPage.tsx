@@ -54,6 +54,7 @@ export default function MeetingsPage() {
     description: string;
     meetingType: MeetingType;
     scheduledFor: string | null;
+    allowGuestAccess: boolean;
   }) {
     if (!profile?.organization_id || !user?.id) return;
 
@@ -70,6 +71,7 @@ export default function MeetingsPage() {
         scheduled_start: values.scheduledFor
           ? new Date(values.scheduledFor).toISOString()
           : null,
+        allow_guest_access: values.allowGuestAccess,
       });
 
       setCreateOpen(false);

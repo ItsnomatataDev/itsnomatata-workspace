@@ -1,11 +1,14 @@
 import { useRef, useState, type KeyboardEvent } from "react";
 import {
+  Clapperboard,
   Image as ImageIcon,
   Mic,
   Square,
   SendHorizontal,
   Paperclip,
 } from "lucide-react";
+import EmojiPickerButton from "./EmojiPickerButton";
+import GifPickerPanel, { type GifSelection } from "./GifPickerPanel";
 
 export default function MessageInput({
   value,
@@ -15,6 +18,7 @@ export default function MessageInput({
   onImageSelect,
   onAudioReady,
   onFileSelect,
+  onGifSelect,
   disabled,
   sending,
 }: {
@@ -25,6 +29,7 @@ export default function MessageInput({
   onImageSelect?: (file: File) => void | Promise<void>;
   onAudioReady?: (file: File) => void | Promise<void>;
   onFileSelect?: (file: File) => void | Promise<void>;
+  onGifSelect?: (selection: GifSelection) => void | Promise<void>;
   disabled: boolean;
   sending: boolean;
 }) {
@@ -33,6 +38,7 @@ export default function MessageInput({
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const [recording, setRecording] = useState(false);
+  const [gifOpen, setGifOpen] = useState(false);
 
   const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === "Enter" && !event.shiftKey) {
@@ -127,6 +133,14 @@ export default function MessageInput({
             <Paperclip size={18} />
           </button>
 
+          <EmojiPickerButton
+            disabled={disabled || sending}
+            onSelect={(emoji) => {
+              onChange(`${value}${emoji}`);
+              onTyping?.();
+            }}
+          />
+
           <input
             type="text"
             value={value}
@@ -139,6 +153,27 @@ export default function MessageInput({
             disabled={disabled || sending}
             className="h-10 min-w-0 flex-1 bg-transparent px-1 text-base text-white outline-none placeholder:text-white/35 sm:text-sm"
           />
+
+          <div className="relative">
+            <button
+              type="button"
+              disabled={disabled || sending}
+              onClick={() => setGifOpen((current) => !current)}
+              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white/70 transition hover:bg-white/10 hover:text-white disabled:opacity-50"
+              title="Send GIF or meme"
+              aria-label="Send GIF or meme"
+              aria-haspopup="dialog"
+              aria-expanded={gifOpen}
+            >
+              <Clapperboard size={18} />
+            </button>
+            <GifPickerPanel
+              open={gifOpen}
+              disabled={disabled || sending}
+              onClose={() => setGifOpen(false)}
+              onSelect={(selection) => void onGifSelect?.(selection)}
+            />
+          </div>
 
           <button
             type="button"

@@ -1,12 +1,18 @@
 import { supabase } from "../../../lib/supabase/client";
 import type { RealtimeChannel } from "@supabase/supabase-js";
-import type { ChatConversationMember, ChatMessage } from "../types/chat";
+import type {
+  ChatConversationMember,
+  ChatMessage,
+  ChatMessageReaction,
+} from "../types/chat";
 
 export function subscribeToConversationMessages(params: {
   conversationId: string;
   onMessage: (message: ChatMessage) => void;
   onUpdate?: (message: ChatMessage) => void;
   onDelete?: (messageId: string) => void;
+  onReactionInsert?: (reaction: ChatMessageReaction) => void;
+  onReactionDelete?: (reaction: ChatMessageReaction) => void;
 }) {
   const channel: RealtimeChannel = supabase
     .channel(`chat:conversation:${params.conversationId}`)
@@ -46,15 +52,41 @@ export function subscribeToConversationMessages(params: {
         params.onDelete?.(payload.old.id as string);
       },
     )
+    .on(
+      "postgres_changes",
+      {
+        event: "INSERT",
+        schema: "public",
+        table: "message_reactions",
+      },
+      (payload) => {
+        params.onReactionInsert?.(payload.new as ChatMessageReaction);
+      },
+    )
+    .on(
+      "postgres_changes",
+      {
+        event: "DELETE",
+        schema: "public",
+        table: "message_reactions",
+      },
+      (payload) => {
+        params.onReactionDelete?.(payload.old as ChatMessageReaction);
+      },
+    )
     .subscribe((status) => {
       if (status === "CHANNEL_ERROR") {
-        console.error(
-          `[chat] realtime error for conversation ${params.conversationId}`,
-        );
+        if (import.meta.env.DEV) {
+          console.error(
+            `[chat] realtime error for conversation ${params.conversationId}`,
+          );
+        }
       } else if (status === "TIMED_OUT") {
-        console.error(
-          `[chat] realtime timeout for conversation ${params.conversationId}`,
-        );
+        if (import.meta.env.DEV) {
+          console.error(
+            `[chat] realtime timeout for conversation ${params.conversationId}`,
+          );
+        }
       }
     });
 
