@@ -114,7 +114,7 @@ export default function AttendanceHistoryTable({ userId }: AttendanceHistoryTabl
           >
             <ChevronLeft className="w-5 h-5 text-white/60" />
           </button>
-          <span className="text-sm font-medium text-white/80 min-w-[140px] text-center">
+          <span className="text-sm font-medium text-white/80 min-w-35 text-center">
             {currentMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
           </span>
           <button

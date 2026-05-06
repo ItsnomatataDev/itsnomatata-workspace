@@ -139,7 +139,7 @@ export default function TeamAttendancePanel({ organizationId }: TeamAttendancePa
               className="flex items-center justify-between rounded-lg bg-white/5 p-4 hover:bg-white/10 transition-all"
             >
               <div className="flex items-center gap-4">
-                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-500 to-blue-500 flex items-center justify-center text-white font-semibold">
+                <div className="w-10 h-10 rounded-full bg-linear-to-br from-emerald-500 to-blue-500 flex items-center justify-center text-white font-semibold">
                   {member.full_name.charAt(0).toUpperCase()}
                 </div>
                 <div>

@@ -103,7 +103,7 @@ function MessageBubble({
 
   return (
     <div className="flex items-end gap-3 group">
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-orange-500/30 to-orange-600/20 ring-1 ring-orange-500/20">
+      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-linear-to-br from-orange-500/30 to-orange-600/20 ring-1 ring-orange-500/20">
         <Bot size={14} className="text-orange-400" />
       </div>
       <div className="max-w-[80%] space-y-1">

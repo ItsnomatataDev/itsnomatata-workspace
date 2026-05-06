@@ -1,5 +1,3 @@
-// src/features/ai-workspace/components/AIQuickSearch.tsx
-
 import { useState } from "react";
 import { Search } from "lucide-react";
 

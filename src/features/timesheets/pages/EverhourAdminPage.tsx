@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  AlertTriangle,
+  CalendarRange,
+  Check,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   Clock,
   DollarSign,
@@ -8,17 +12,15 @@ import {
   Eye,
   EyeOff,
   Layers,
+  LayoutGrid,
   Loader2,
   Plus,
   Search,
   TrendingUp,
   Trash2,
+  Upload,
   Users,
   X,
-  Check,
-  AlertTriangle,
-  LayoutGrid,
-  Upload,
 } from "lucide-react";
 import Sidebar from "../../../components/dashboard/components/Sidebar";
 import { useAuth } from "../../../app/providers/AuthProvider";
@@ -27,7 +29,6 @@ import { useTeamTimesheetsRealtime } from "../../../lib/hooks/useTeamTimesheetsR
 import { supabase } from "../../../lib/supabase/client";
 import { createManualTimeEntry } from "../../../lib/supabase/mutations/timeEntries";
 import type { Board } from "../../../types/board";
-import type { AdminTimeEntryRow } from "../../../lib/supabase/queries/adminTime";
 import {
   importEverhourJson,
   importTrelloBoardJson,
@@ -42,9 +43,8 @@ import {
   makeZimbabweLocalIso,
 } from "../../../lib/utils/zimbabweCalendar";
 
-
-
 type BillingType = "fixed" | "hourly" | "non_billable";
+type BoardTimeView = "day" | "week" | "month" | "year";
 
 interface BoardBillingConfig {
   boardId: string;
@@ -89,8 +89,6 @@ type ClientInvoiceRow = {
   file_name: string | null;
 };
 
-// ── Helpers ────────────────────────────────────────────────────────────────────
-
 function formatHours(seconds: number): string {
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
@@ -104,6 +102,117 @@ function formatHoursShort(seconds: number): string {
   return `${h.toFixed(0)}h`;
 }
 
+function startOfDay(date: Date) {
+  const next = new Date(date);
+  next.setHours(0, 0, 0, 0);
+  return next;
+}
+
+function endOfDay(date: Date) {
+  const next = new Date(date);
+  next.setHours(23, 59, 59, 999);
+  return next;
+}
+
+function getBoardPeriodRange(view: BoardTimeView, anchorDate: Date) {
+  const start = startOfDay(anchorDate);
+  const end = endOfDay(anchorDate);
+
+  if (view === "day") {
+    return { start, end };
+  }
+
+  if (view === "week") {
+    const day = start.getDay();
+    const diffToMonday = day === 0 ? -6 : 1 - day;
+
+    start.setDate(start.getDate() + diffToMonday);
+    end.setTime(start.getTime());
+    end.setDate(start.getDate() + 6);
+    end.setHours(23, 59, 59, 999);
+
+    return { start, end };
+  }
+
+  if (view === "year") {
+    start.setMonth(0, 1);
+    end.setFullYear(start.getFullYear(), 11, 31);
+    end.setHours(23, 59, 59, 999);
+
+    return { start, end };
+  }
+
+  start.setDate(1);
+  end.setFullYear(start.getFullYear(), start.getMonth() + 1, 0);
+  end.setHours(23, 59, 59, 999);
+
+  return { start, end };
+}
+
+function formatBoardPeriodLabel(view: BoardTimeView, anchorDate: Date) {
+  const { start, end } = getBoardPeriodRange(view, anchorDate);
+
+  if (view === "day") {
+    return start.toLocaleDateString("en-ZW", {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    });
+  }
+
+  if (view === "week") {
+    return `${start.toLocaleDateString("en-ZW", {
+      day: "numeric",
+      month: "short",
+    })} - ${end.toLocaleDateString("en-ZW", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    })}`;
+  }
+
+  if (view === "year") {
+    return String(start.getFullYear());
+  }
+
+  return start.toLocaleDateString("en-ZW", {
+    month: "long",
+    year: "numeric",
+  });
+}
+
+function shiftBoardPeriod(
+  view: BoardTimeView,
+  anchorDate: Date,
+  amount: number,
+) {
+  const next = new Date(anchorDate);
+
+  if (view === "day") next.setDate(next.getDate() + amount);
+  if (view === "week") next.setDate(next.getDate() + amount * 7);
+  if (view === "month") next.setMonth(next.getMonth() + amount);
+  if (view === "year") next.setFullYear(next.getFullYear() + amount);
+
+  return next;
+}
+
+function getEntryDate(entry: any): Date | null {
+  const rawDate =
+    entry.started_at ||
+    entry.start_time ||
+    entry.date ||
+    entry.created_at ||
+    entry.ended_at;
+
+  if (!rawDate) return null;
+
+  const date = new Date(rawDate);
+  if (Number.isNaN(date.getTime())) return null;
+
+  return date;
+}
+
 function getInitials(
   name: string | null | undefined,
   email?: string | null,
@@ -115,7 +224,6 @@ function getInitials(
     : src.slice(0, 2).toUpperCase();
 }
 
-// Deterministic color per user
 const AVATAR_COLORS = [
   "bg-orange-500",
   "bg-blue-500",
@@ -126,10 +234,12 @@ const AVATAR_COLORS = [
   "bg-cyan-500",
   "bg-lime-500",
 ];
+
 function avatarColor(userId: string): string {
   let h = 0;
-  for (let i = 0; i < userId.length; i++)
+  for (let i = 0; i < userId.length; i++) {
     h = userId.charCodeAt(i) + ((h << 5) - h);
+  }
   return AVATAR_COLORS[Math.abs(h) % AVATAR_COLORS.length];
 }
 
@@ -144,8 +254,6 @@ const BILLING_COLORS: Record<BillingType, string> = {
   hourly: "text-blue-400 border-blue-500/25 bg-blue-500/10",
   non_billable: "text-white/30 border-white/10 bg-white/5",
 };
-
-// ── Local storage helpers for billing config (no DB migration needed) ──────────
 
 const STORAGE_KEY = "everhour_board_billing_v1";
 
@@ -162,11 +270,9 @@ function saveBillingConfig(config: Record<string, BoardBillingConfig>): void {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
   } catch {
-    /* ignore */
+    // ignore local storage errors
   }
 }
-
-// ── Budget Edit Inline ─────────────────────────────────────────────────────────
 
 function BudgetEditor({
   current,
@@ -222,8 +328,6 @@ function BudgetEditor({
   );
 }
 
-// ── Billing Type Selector ──────────────────────────────────────────────────────
-
 function BillingSelector({
   current,
   onChange,
@@ -256,7 +360,7 @@ function BillingSelector({
                 setOpen(false);
               }}
               className={`flex w-full items-center gap-2 px-3 py-2 text-xs transition hover:bg-white/5 ${
-                current === t ? "text-white font-semibold" : "text-white/60"
+                current === t ? "font-semibold text-white" : "text-white/60"
               }`}
             >
               <DollarSign size={10} />
@@ -271,8 +375,6 @@ function BillingSelector({
     </div>
   );
 }
-
-// ── Board Row ──────────────────────────────────────────────────────────────────
 
 function BoardRow({
   board,
@@ -291,7 +393,7 @@ function BoardRow({
   onDeleteBoard: (board: BoardWithTime) => void;
 }) {
   const [editingBudget, setEditingBudget] = useState(false);
-  const { billing, trackedSeconds, billableSeconds, memberAvatars } = board;
+  const { billing, trackedSeconds, memberAvatars } = board;
 
   const budgetSeconds =
     billing.budgetHours != null ? billing.budgetHours * 3600 : null;
@@ -314,9 +416,8 @@ function BoardRow({
           : "1fr 160px 240px 120px 100px",
       }}
     >
-      {/* Name */}
-      <div className="flex items-center gap-3 min-w-0">
-        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-blue-500/15 border border-blue-500/20">
+      <div className="flex min-w-0 items-center gap-3">
+        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-blue-500/20 bg-blue-500/15">
           <LayoutGrid size={12} className="text-blue-400" />
         </div>
         <div className="min-w-0">
@@ -329,7 +430,6 @@ function BoardRow({
         </div>
       </div>
 
-      {/* Member avatars */}
       <div className="flex min-w-0 items-center gap-1.5">
         <div className="flex -space-x-1.5">
           {displayedMembers.map((m) => (
@@ -347,9 +447,12 @@ function BoardRow({
             </div>
           )}
         </div>
+
         {memberAvatars.length > 0 && (
           <div className="min-w-0">
-            <span className="block text-xs text-white/45">{memberAvatars.length}</span>
+            <span className="block text-xs text-white/45">
+              {memberAvatars.length}
+            </span>
             <span className="block max-w-24 truncate text-[10px] text-white/25">
               {memberAvatars
                 .slice(0, 2)
@@ -360,14 +463,13 @@ function BoardRow({
         )}
       </div>
 
-      {/* Time progress */}
       <div className="space-y-1">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5 text-xs">
             <Clock size={11} className="text-white/30" />
             <span
               className={
-                isOverBudget ? "text-red-400 font-semibold" : "text-white/70"
+                isOverBudget ? "font-semibold text-red-400" : "text-white/70"
               }
             >
               {formatHours(trackedSeconds)}
@@ -379,7 +481,6 @@ function BoardRow({
             )}
           </div>
 
-          {/* Budget edit */}
           {editingBudget ? (
             <BudgetEditor
               current={billing.budgetHours}
@@ -406,7 +507,6 @@ function BoardRow({
           )}
         </div>
 
-        {/* Progress bar */}
         <div className="h-1.5 overflow-hidden rounded-full bg-white/8">
           {pct != null ? (
             <div
@@ -428,7 +528,6 @@ function BoardRow({
         </div>
       </div>
 
-      {/* Visibility toggle */}
       <div className="flex justify-center">
         <button
           type="button"
@@ -443,7 +542,6 @@ function BoardRow({
         </button>
       </div>
 
-      {/* Billing type */}
       <div className="flex justify-end">
         <BillingSelector
           current={billing.billingType}
@@ -475,8 +573,6 @@ function BoardRow({
   );
 }
 
-// ── Group Row ──────────────────────────────────────────────────────────────────
-
 function GroupSection({
   group,
   canDelete,
@@ -497,16 +593,15 @@ function GroupSection({
 
   return (
     <div className="overflow-hidden rounded-2xl border border-white/8 bg-[#080808]">
-      {/* Group header */}
       <button
         type="button"
         onClick={() => setCollapsed((p) => !p)}
         className="flex w-full items-center gap-3 border-b border-white/8 px-4 py-3 text-left transition hover:bg-white/3"
       >
         {collapsed ? (
-          <ChevronRight size={14} className="text-white/40 shrink-0" />
+          <ChevronRight size={14} className="shrink-0 text-white/40" />
         ) : (
-          <ChevronDown size={14} className="text-white/40 shrink-0" />
+          <ChevronDown size={14} className="shrink-0 text-white/40" />
         )}
         <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-white/8">
           <Users size={12} className="text-white/50" />
@@ -523,7 +618,6 @@ function GroupSection({
         </div>
       </button>
 
-      {/* Column headers */}
       {!collapsed && (
         <>
           <div
@@ -557,8 +651,6 @@ function GroupSection({
     </div>
   );
 }
-
-// ── Add Hours Modal ────────────────────────────────────────────────────────────
 
 function AddHoursModal({
   boards,
@@ -627,6 +719,7 @@ function AddHoursModal({
           added_while_timers_may_be_running: true,
         },
       });
+
       onAdded();
       onClose();
     } catch (err) {
@@ -637,7 +730,7 @@ function AddHoursModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
       <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[#0f0f0f] shadow-2xl">
         <div className="h-0.5 w-full rounded-t-2xl bg-linear-to-r from-orange-500 to-amber-400" />
 
@@ -651,7 +744,7 @@ function AddHoursModal({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg p-1.5 text-white/30 hover:bg-white/8 hover:text-white transition"
+            className="rounded-lg p-1.5 text-white/30 transition hover:bg-white/8 hover:text-white"
           >
             <X size={16} />
           </button>
@@ -665,7 +758,6 @@ function AddHoursModal({
             </div>
           )}
 
-          {/* Board select */}
           <div>
             <label className="mb-1.5 block text-[10px] uppercase tracking-widest text-white/35">
               Team member
@@ -673,13 +765,17 @@ function AddHoursModal({
             <select
               value={targetUserId}
               onChange={(e) => setTargetUserId(e.target.value)}
-              className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none focus:border-orange-500/50 transition"
+              className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none transition focus:border-orange-500/50"
             >
               <option value="" className="bg-[#111]">
                 Select member
               </option>
               {profileOptions.map((profile) => (
-                <option key={profile.id} value={profile.id} className="bg-[#111]">
+                <option
+                  key={profile.id}
+                  value={profile.id}
+                  className="bg-[#111]"
+                >
                   {profile.full_name || profile.email || profile.id}
                 </option>
               ))}
@@ -693,7 +789,7 @@ function AddHoursModal({
             <select
               value={boardId}
               onChange={(e) => setBoardId(e.target.value)}
-              className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none focus:border-orange-500/50 transition"
+              className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none transition focus:border-orange-500/50"
             >
               {boards.map((b) => (
                 <option key={b.id} value={b.id} className="bg-[#111]">
@@ -703,7 +799,6 @@ function AddHoursModal({
             </select>
           </div>
 
-          {/* Date */}
           <div>
             <label className="mb-1.5 block text-[10px] uppercase tracking-widest text-white/35">
               Date
@@ -712,11 +807,10 @@ function AddHoursModal({
               type="date"
               value={date}
               onChange={(e) => setDate(e.target.value)}
-              className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none focus:border-orange-500/50 transition scheme-dark"
+              className="scheme-dark w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none transition focus:border-orange-500/50"
             />
           </div>
 
-          {/* Hours + Minutes */}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="mb-1.5 block text-[10px] uppercase tracking-widest text-white/35">
@@ -728,7 +822,7 @@ function AddHoursModal({
                 value={hours}
                 onChange={(e) => setHours(e.target.value)}
                 placeholder="0"
-                className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none focus:border-orange-500/50 transition"
+                className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none transition focus:border-orange-500/50"
               />
             </div>
             <div>
@@ -742,12 +836,11 @@ function AddHoursModal({
                 value={minutes}
                 onChange={(e) => setMinutes(e.target.value)}
                 placeholder="0"
-                className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none focus:border-orange-500/50 transition"
+                className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none transition focus:border-orange-500/50"
               />
             </div>
           </div>
 
-          {/* Note */}
           <div>
             <label className="mb-1.5 block text-[10px] uppercase tracking-widest text-white/35">
               Note (optional)
@@ -757,11 +850,10 @@ function AddHoursModal({
               value={note}
               onChange={(e) => setNote(e.target.value)}
               placeholder="What was worked on?"
-              className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white placeholder:text-white/20 outline-none focus:border-orange-500/50 transition"
+              className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none transition placeholder:text-white/20 focus:border-orange-500/50"
             />
           </div>
 
-          {/* Billable toggle */}
           <button
             type="button"
             onClick={() => setIsBillable((p) => !p)}
@@ -792,7 +884,7 @@ function AddHoursModal({
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 rounded-xl border border-white/10 py-2.5 text-sm text-white/50 hover:bg-white/5 transition"
+              className="flex-1 rounded-xl border border-white/10 py-2.5 text-sm text-white/50 transition hover:bg-white/5"
             >
               Cancel
             </button>
@@ -800,7 +892,7 @@ function AddHoursModal({
               type="button"
               onClick={handleSave}
               disabled={saving}
-              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-orange-500 py-2.5 text-sm font-semibold text-white hover:bg-orange-400 disabled:opacity-50 transition"
+              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-orange-500 py-2.5 text-sm font-semibold text-white transition hover:bg-orange-400 disabled:opacity-50"
             >
               {saving ? (
                 <Loader2 size={14} className="animate-spin" />
@@ -815,8 +907,6 @@ function AddHoursModal({
     </div>
   );
 }
-
-// ── Main Page ──────────────────────────────────────────────────────────────────
 
 export default function EverhourAdminPage() {
   const auth = useAuth();
@@ -835,15 +925,21 @@ export default function EverhourAdminPage() {
     >
   >({});
   const [searchValue, setSearchValue] = useState("");
+  const [boardTimeView, setBoardTimeView] = useState<BoardTimeView>("month");
+  const [boardAnchorDate, setBoardAnchorDate] = useState(() => new Date());
   const [showAddHours, setShowAddHours] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importingTrello, setImportingTrello] = useState(false);
-  const [importResult, setImportResult] = useState<EverhourImportResult | null>(null);
+  const [importResult, setImportResult] = useState<EverhourImportResult | null>(
+    null,
+  );
   const [trelloImportResult, setTrelloImportResult] =
     useState<TrelloBoardImportResult | null>(null);
   const [importError, setImportError] = useState("");
   const [profileOptions, setProfileOptions] = useState<ProfileOption[]>([]);
-  const [unmatchedExternalUsers, setUnmatchedExternalUsers] = useState<ExternalTimeUserMapping[]>([]);
+  const [unmatchedExternalUsers, setUnmatchedExternalUsers] = useState<
+    ExternalTimeUserMapping[]
+  >([]);
   const [mappingBusyId, setMappingBusyId] = useState<string | null>(null);
   const [clientInvoices, setClientInvoices] = useState<ClientInvoiceRow[]>([]);
   const [deletingBoardId, setDeletingBoardId] = useState<string | null>(null);
@@ -855,7 +951,6 @@ export default function EverhourAdminPage() {
   } = useTeamTimesheetsRealtime({
     organizationId,
   });
-
 
   useEffect(() => {
     if (!organizationId) return;
@@ -876,7 +971,9 @@ export default function EverhourAdminPage() {
     if (!organizationId) return;
     const { data, error } = await supabase
       .from("client_invoices")
-      .select("id, client_id, invoice_number, invoice_date, total, currency, status, public_url, file_name")
+      .select(
+        "id, client_id, invoice_number, invoice_date, total, currency, status, public_url, file_name",
+      )
       .eq("organization_id", organizationId)
       .order("invoice_date", { ascending: false })
       .limit(12);
@@ -898,7 +995,6 @@ export default function EverhourAdminPage() {
     void loadClientInvoices();
   }, [loadClientInvoices, loadExternalUserMappings, organizationId]);
 
- 
   useEffect(() => {
     setBillingConfig(loadBillingConfig());
   }, []);
@@ -910,62 +1006,80 @@ export default function EverhourAdminPage() {
 
     (async () => {
       try {
-      const { data: tasks } = await supabase
-        .from("tasks")
-        .select("id, client_id")
-        .eq("organization_id", organizationId)
-        .in("client_id", boardIds);
+        const { data: tasks } = await supabase
+          .from("tasks")
+          .select("id, client_id")
+          .eq("organization_id", organizationId)
+          .in("client_id", boardIds);
 
-      if (!tasks || tasks.length === 0) return;
+        if (!tasks || tasks.length === 0) return;
 
-      const taskIds = tasks.map((t) => t.id as string);
-      const taskToBoard = new Map(
-        tasks.map((t) => [t.id as string, t.client_id as string]),
-      );
+        const taskIds = tasks.map((t) => t.id as string);
+        const taskToBoard = new Map(
+          tasks.map((t) => [t.id as string, t.client_id as string]),
+        );
 
-      const { data: assignees } = await supabase
-        .from("task_assignees")
-        .select("task_id, user_id, profiles:user_id(id, full_name, email)")
-        .in("task_id", taskIds);
+        const { data: assignees } = await supabase
+          .from("task_assignees")
+          .select("task_id, user_id, profiles:user_id(id, full_name, email)")
+          .in("task_id", taskIds);
 
-      const byBoard: Record<
-        string,
-        Array<{ id: string; name: string | null; email: string | null }>
-      > = {};
+        const byBoard: Record<
+          string,
+          Array<{ id: string; name: string | null; email: string | null }>
+        > = {};
 
-      const seen = new Map<string, Set<string>>();
+        const seen = new Map<string, Set<string>>();
 
-      for (const row of assignees ?? []) {
-        const boardId = taskToBoard.get(row.task_id);
-        if (!boardId) continue;
-        if (!seen.has(boardId)) seen.set(boardId, new Set());
-        const profile = (row as any).profiles as {
-          id: string;
-          full_name: string | null;
-          email: string | null;
-        } | null;
-        if (profile && !seen.get(boardId)!.has(profile.id)) {
-          seen.get(boardId)!.add(profile.id);
-          if (!byBoard[boardId]) byBoard[boardId] = [];
-          byBoard[boardId].push({
-            id: profile.id,
-            name: profile.full_name,
-            email: profile.email,
-          });
+        for (const row of assignees ?? []) {
+          const boardId = taskToBoard.get(row.task_id);
+          if (!boardId) continue;
+          if (!seen.has(boardId)) seen.set(boardId, new Set());
+
+          const rowProfile = (row as any).profiles as {
+            id: string;
+            full_name: string | null;
+            email: string | null;
+          } | null;
+
+          if (rowProfile && !seen.get(boardId)!.has(rowProfile.id)) {
+            seen.get(boardId)!.add(rowProfile.id);
+            if (!byBoard[boardId]) byBoard[boardId] = [];
+            byBoard[boardId].push({
+              id: rowProfile.id,
+              name: rowProfile.full_name,
+              email: rowProfile.email,
+            });
+          }
         }
-      }
 
-      setMembersByBoard(byBoard);
+        setMembersByBoard(byBoard);
       } catch (error) {
         console.error(error);
       }
     })();
   }, [organizationId, boards]);
 
+  const boardPeriodRange = useMemo(
+    () => getBoardPeriodRange(boardTimeView, boardAnchorDate),
+    [boardTimeView, boardAnchorDate],
+  );
+
+  const periodEntries = useMemo(() => {
+    return entries.filter((entry) => {
+      const entryDate = getEntryDate(entry);
+      if (!entryDate) return false;
+
+      return (
+        entryDate >= boardPeriodRange.start && entryDate <= boardPeriodRange.end
+      );
+    });
+  }, [entries, boardPeriodRange]);
+
   const timeTotalsByBoard = useMemo(() => {
     const map = new Map<string, { tracked: number; billable: number }>();
 
-    for (const entry of entries) {
+    for (const entry of periodEntries) {
       const clientId = (entry as any).client_id as string | null;
       const boardName = entry.board_name;
 
@@ -988,7 +1102,7 @@ export default function EverhourAdminPage() {
     }
 
     return map;
-  }, [entries, boards]);
+  }, [periodEntries, boards]);
 
   const boardsWithTime = useMemo((): BoardWithTime[] => {
     return boards.map((board) => {
@@ -996,16 +1110,25 @@ export default function EverhourAdminPage() {
         tracked: 0,
         billable: 0,
       };
+
       const memberAvatars = [...(membersByBoard[board.id] ?? [])];
       const seenMembers = new Set(memberAvatars.map((member) => member.id));
-      for (const entry of entries) {
-        const entryBoardId = (entry.client_id ?? null) ||
-          (entry.board_name && entry.board_name.toLowerCase() === board.name.toLowerCase()
+
+      for (const entry of periodEntries) {
+        const entryBoardId =
+          (entry.client_id ?? null) ||
+          (entry.board_name &&
+          entry.board_name.toLowerCase() === board.name.toLowerCase()
             ? board.id
             : null);
+
         if (entryBoardId !== board.id) continue;
-        const memberId = entry.user_id || entry.source_user_id || entry.source_user_name;
+
+        const memberId =
+          entry.user_id || entry.source_user_id || entry.source_user_name;
+
         if (!memberId || seenMembers.has(memberId)) continue;
+
         seenMembers.add(memberId);
         memberAvatars.push({
           id: memberId,
@@ -1030,7 +1153,7 @@ export default function EverhourAdminPage() {
         billing: billingConfig[board.id] ?? defaultBilling,
       };
     });
-  }, [boards, timeTotalsByBoard, membersByBoard, billingConfig, entries]);
+  }, [boards, timeTotalsByBoard, membersByBoard, billingConfig, periodEntries]);
 
   const groups = useMemo((): GroupedBoards[] => {
     const q = searchValue.trim().toLowerCase();
@@ -1043,6 +1166,7 @@ export default function EverhourAdminPage() {
       : boardsWithTime;
 
     const groupMap = new Map<string, BoardWithTime[]>();
+
     for (const board of filtered) {
       const key = board.industry?.trim() || "Stand Alone";
       const arr = groupMap.get(key) ?? [];
@@ -1059,7 +1183,6 @@ export default function EverhourAdminPage() {
       .sort((a, b) => a.groupName.localeCompare(b.groupName));
   }, [boardsWithTime, searchValue]);
 
-
   const summary = useMemo(() => {
     const totalTracked = boardsWithTime.reduce(
       (s, b) => s + b.trackedSeconds,
@@ -1073,6 +1196,7 @@ export default function EverhourAdminPage() {
       if (!b.billing.budgetHours) return false;
       return b.trackedSeconds > b.billing.budgetHours * 3600;
     }).length;
+
     return {
       totalTracked,
       totalBillable,
@@ -1110,6 +1234,7 @@ export default function EverhourAdminPage() {
 
       setDeletingBoardId(board.id);
       setImportError("");
+
       try {
         await deleteBoard(organizationId, board.id);
         setBoards((prev) => prev.filter((item) => item.id !== board.id));
@@ -1140,6 +1265,7 @@ export default function EverhourAdminPage() {
     async (mapping: ExternalTimeUserMapping, userId: string) => {
       if (!organizationId || !userId) return;
       setMappingBusyId(mapping.id);
+
       try {
         await mapExternalTimeUser({
           organizationId,
@@ -1150,7 +1276,9 @@ export default function EverhourAdminPage() {
         await Promise.all([loadExternalUserMappings(), refetch()]);
       } catch (error) {
         setImportError(
-          error instanceof Error ? error.message : "Failed to map external user.",
+          error instanceof Error
+            ? error.message
+            : "Failed to map external user.",
         );
       } finally {
         setMappingBusyId(null);
@@ -1178,10 +1306,16 @@ export default function EverhourAdminPage() {
           boards,
         });
         setImportResult(result);
-        await Promise.all([refetch(), getBoards(organizationId).then(setBoards), loadClientInvoices()]);
+        await Promise.all([
+          refetch(),
+          getBoards(organizationId).then(setBoards),
+          loadClientInvoices(),
+        ]);
       } catch (error) {
         setImportError(
-          error instanceof Error ? error.message : "Failed to import Everhour JSON.",
+          error instanceof Error
+            ? error.message
+            : "Failed to import Everhour JSON.",
         );
       } finally {
         setImporting(false);
@@ -1211,10 +1345,16 @@ export default function EverhourAdminPage() {
           importTrackedTime: false,
         });
         setTrelloImportResult(result);
-        await Promise.all([refetch(), getBoards(organizationId).then(setBoards), loadClientInvoices()]);
+        await Promise.all([
+          refetch(),
+          getBoards(organizationId).then(setBoards),
+          loadClientInvoices(),
+        ]);
       } catch (error) {
         setImportError(
-          error instanceof Error ? error.message : "Failed to import Codex board JSON.",
+          error instanceof Error
+            ? error.message
+            : "Failed to import Codex board JSON.",
         );
       } finally {
         setImportingTrello(false);
@@ -1263,6 +1403,7 @@ export default function EverhourAdminPage() {
                     }}
                   />
                 </label>
+
                 <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-orange-500/25 bg-orange-500/10 px-4 py-2.5 text-sm font-semibold text-orange-100 transition hover:bg-orange-500/15">
                   <LayoutGrid size={15} />
                   {importingTrello ? "Importing..." : "Import Codex Board"}
@@ -1272,11 +1413,14 @@ export default function EverhourAdminPage() {
                     className="hidden"
                     disabled={importingTrello}
                     onChange={(event) => {
-                      void handleImportTrelloJson(event.target.files?.[0] ?? null);
+                      void handleImportTrelloJson(
+                        event.target.files?.[0] ?? null,
+                      );
                       event.currentTarget.value = "";
                     }}
                   />
                 </label>
+
                 <button
                   type="button"
                   onClick={() => setShowAddHours(true)}
@@ -1310,10 +1454,10 @@ export default function EverhourAdminPage() {
                       {trelloImportResult.assigneesLinked} assignees linked.
                     </p>
                     <p className="text-xs text-white/45">
-                      Checklists: {trelloImportResult.checklistsImported} · items:{" "}
-                      {trelloImportResult.checklistItemsImported} · attachments:{" "}
-                      {trelloImportResult.attachmentsImported} · comments:{" "}
-                      {trelloImportResult.commentsImported}
+                      Checklists: {trelloImportResult.checklistsImported} ·
+                      items: {trelloImportResult.checklistItemsImported} ·
+                      attachments: {trelloImportResult.attachmentsImported} ·
+                      comments: {trelloImportResult.commentsImported}
                       {trelloImportResult.unmatchedMembers.length > 0
                         ? ` · ${trelloImportResult.unmatchedMembers.length} Codex members need profile matching.`
                         : ""}
@@ -1330,13 +1474,14 @@ export default function EverhourAdminPage() {
                 ) : importResult ? (
                   <div className="space-y-1">
                     <p className="font-semibold">
-                      Everhour import complete: {importResult.imported} imported,
-                      {" "}{importResult.duplicates} duplicates, {importResult.skipped} skipped.
+                      Everhour import complete: {importResult.imported}{" "}
+                      imported, {importResult.duplicates} duplicates,{" "}
+                      {importResult.skipped} skipped.
                     </p>
                     <p className="text-xs text-white/55">
-                      Scanned {importResult.scanned} records · matched time to existing boards/cards ·{" "}
-                      {importResult.usersMapped} users mapped ·{" "}
-                      {importResult.projectsMapped} projects mapped ·{" "}
+                      Scanned {importResult.scanned} records · matched time to
+                      existing boards/cards · {importResult.usersMapped} users
+                      mapped · {importResult.projectsMapped} projects mapped ·{" "}
                       {importResult.estimatesUpdated} estimates updated ·{" "}
                       {importResult.invoicesImported} invoices imported ·{" "}
                       {formatHours(importResult.totalSeconds)} restored.
@@ -1360,51 +1505,134 @@ export default function EverhourAdminPage() {
               </div>
             )}
 
-            {profile.primary_role === "admin" && unmatchedExternalUsers.length > 0 && (
-              <div className="mt-4 rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3">
-                <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-amber-100">
-                  <AlertTriangle size={15} />
-                  Unmatched Codex time users
-                </div>
-                <div className="grid gap-2 md:grid-cols-2">
-                  {unmatchedExternalUsers.slice(0, 6).map((mapping) => (
-                    <div
-                      key={mapping.id}
-                      className="flex items-center gap-2 rounded-xl border border-white/10 bg-black/25 p-2"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-xs font-semibold text-white/80">
-                          {mapping.source_user_name || mapping.source_user_email || mapping.source_user_id}
-                        </p>
-                        <p className="truncate text-[10px] text-white/35">
-                          {mapping.source === "everhour" ? "Everhour" : "Codex"} source: {mapping.source_user_id}
-                        </p>
-                      </div>
-                      <select
-                        disabled={mappingBusyId === mapping.id}
-                        defaultValue=""
-                        onChange={(event) => {
-                          void handleMapExternalUser(mapping, event.target.value);
-                          event.currentTarget.value = "";
-                        }}
-                        className="max-w-48 rounded-lg border border-white/10 bg-black px-2 py-1.5 text-xs text-white outline-none"
+            {profile.primary_role === "admin" &&
+              unmatchedExternalUsers.length > 0 && (
+                <div className="mt-4 rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3">
+                  <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-amber-100">
+                    <AlertTriangle size={15} />
+                    Unmatched Codex time users
+                  </div>
+                  <div className="grid gap-2 md:grid-cols-2">
+                    {unmatchedExternalUsers.slice(0, 6).map((mapping) => (
+                      <div
+                        key={mapping.id}
+                        className="flex items-center gap-2 rounded-xl border border-white/10 bg-black/25 p-2"
                       >
-                        <option value="" disabled>
-                          Map user
-                        </option>
-                        {profileOptions.map((option) => (
-                          <option key={option.id} value={option.id}>
-                            {option.full_name || option.email || option.id}
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-xs font-semibold text-white/80">
+                            {mapping.source_user_name ||
+                              mapping.source_user_email ||
+                              mapping.source_user_id}
+                          </p>
+                          <p className="truncate text-[10px] text-white/35">
+                            {mapping.source === "everhour"
+                              ? "Everhour"
+                              : "Codex"}{" "}
+                            source: {mapping.source_user_id}
+                          </p>
+                        </div>
+                        <select
+                          disabled={mappingBusyId === mapping.id}
+                          defaultValue=""
+                          onChange={(event) => {
+                            void handleMapExternalUser(
+                              mapping,
+                              event.target.value,
+                            );
+                            event.currentTarget.value = "";
+                          }}
+                          className="max-w-48 rounded-lg border border-white/10 bg-black px-2 py-1.5 text-xs text-white outline-none"
+                        >
+                          <option value="" disabled>
+                            Map user
                           </option>
-                        ))}
-                      </select>
-                    </div>
-                  ))}
+                          {profileOptions.map((option) => (
+                            <option key={option.id} value={option.id}>
+                              {option.full_name || option.email || option.id}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+            <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/8 bg-white/3 p-3">
+              <div className="flex items-center gap-2">
+                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-orange-500/10">
+                  <CalendarRange size={16} className="text-orange-400" />
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase tracking-wide text-white/30">
+                    Reporting period
+                  </p>
+                  <p className="text-sm font-semibold text-white/80">
+                    {formatBoardPeriodLabel(boardTimeView, boardAnchorDate)}
+                  </p>
                 </div>
               </div>
-            )}
 
-            {/* Summary strip */}
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex rounded-2xl border border-white/8 bg-black/30 p-1">
+                  {(["day", "week", "month", "year"] as BoardTimeView[]).map(
+                    (view) => (
+                      <button
+                        key={view}
+                        type="button"
+                        onClick={() => setBoardTimeView(view)}
+                        className={[
+                          "rounded-xl px-3 py-2 text-xs font-semibold capitalize transition",
+                          boardTimeView === view
+                            ? "bg-orange-500 text-white"
+                            : "text-white/45 hover:bg-white/8 hover:text-white",
+                        ].join(" ")}
+                      >
+                        {view}
+                      </button>
+                    ),
+                  )}
+                </div>
+
+                <div className="flex items-center gap-1 rounded-2xl border border-white/8 bg-black/30 p-1">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setBoardAnchorDate((current) =>
+                        shiftBoardPeriod(boardTimeView, current, -1),
+                      )
+                    }
+                    className="rounded-xl p-2 text-white/45 transition hover:bg-white/8 hover:text-white"
+                    title="Previous period"
+                  >
+                    <ChevronLeft size={15} />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setBoardAnchorDate(new Date())}
+                    className="min-w-28 rounded-xl bg-white/5 px-3 py-2 text-xs font-semibold text-white/70 transition hover:bg-white/8"
+                    title="Return to current period"
+                  >
+                    Current
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setBoardAnchorDate((current) =>
+                        shiftBoardPeriod(boardTimeView, current, 1),
+                      )
+                    }
+                    className="rounded-xl p-2 text-white/45 transition hover:bg-white/8 hover:text-white"
+                    title="Next period"
+                  >
+                    <ChevronRight size={15} />
+                  </button>
+                </div>
+              </div>
+            </div>
+
             <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
               {[
                 {
@@ -1473,7 +1701,10 @@ export default function EverhourAdminPage() {
                 </div>
                 <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
                   {clientInvoices.map((invoice) => {
-                    const boardName = boards.find((board) => board.id === invoice.client_id)?.name ?? "Matched board";
+                    const boardName =
+                      boards.find((board) => board.id === invoice.client_id)
+                        ?.name ?? "Matched board";
+
                     return (
                       <a
                         key={invoice.id}
@@ -1484,17 +1715,23 @@ export default function EverhourAdminPage() {
                       >
                         <div className="flex items-center justify-between gap-2">
                           <p className="truncate text-xs font-semibold text-white/80">
-                            {invoice.invoice_number || invoice.file_name || "Invoice"}
+                            {invoice.invoice_number ||
+                              invoice.file_name ||
+                              "Invoice"}
                           </p>
                           <span className="shrink-0 text-xs font-bold text-green-300">
                             {invoice.total != null
-                              ? `${invoice.currency ?? "USD"} ${Number(invoice.total).toFixed(2)}`
-                              : invoice.status ?? "imported"}
+                              ? `${invoice.currency ?? "USD"} ${Number(
+                                  invoice.total,
+                                ).toFixed(2)}`
+                              : (invoice.status ?? "imported")}
                           </span>
                         </div>
                         <p className="mt-1 truncate text-[10px] text-white/35">
                           {boardName}
-                          {invoice.invoice_date ? ` · ${invoice.invoice_date}` : ""}
+                          {invoice.invoice_date
+                            ? ` · ${invoice.invoice_date}`
+                            : ""}
                           {invoice.public_url ? " · PDF" : ""}
                         </p>
                       </a>
@@ -1505,9 +1742,8 @@ export default function EverhourAdminPage() {
             )}
           </div>
 
-          {/* ── Toolbar ── */}
-          <div className="flex items-center gap-3 border-b border-white/6 px-8 py-4">
-            <div className="relative flex-1 max-w-sm">
+          <div className="flex flex-wrap items-center gap-3 border-b border-white/6 px-8 py-4">
+            <div className="relative max-w-sm flex-1">
               <Search
                 size={14}
                 className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-white/25"
@@ -1516,15 +1752,15 @@ export default function EverhourAdminPage() {
                 value={searchValue}
                 onChange={(e) => setSearchValue(e.target.value)}
                 placeholder="Search boards or clients…"
-                className="w-full rounded-xl border border-white/8 bg-white/4 py-2 pl-9 pr-4 text-sm text-white placeholder:text-white/20 outline-none focus:border-orange-500/40 transition"
+                className="w-full rounded-xl border border-white/8 bg-white/4 py-2 pl-9 pr-4 text-sm text-white outline-none transition placeholder:text-white/20 focus:border-orange-500/40"
               />
             </div>
             <span className="text-xs text-white/25">
-              {boards.length} boards · {groups.length} groups
+              {boards.length} boards · {groups.length} groups ·{" "}
+              {formatBoardPeriodLabel(boardTimeView, boardAnchorDate)}
             </span>
           </div>
 
-          {/* ── Content ── */}
           <div className="space-y-3 p-8">
             {loading && (
               <div className="flex items-center justify-center py-20">
@@ -1537,7 +1773,7 @@ export default function EverhourAdminPage() {
                 <Layers size={32} className="mb-4 text-white/15" />
                 <p className="text-sm font-medium text-white/40">
                   {searchValue
-                    ? "No boards match your search"
+                    ? "No boards match your search for this period"
                     : "No boards yet"}
                 </p>
               </div>

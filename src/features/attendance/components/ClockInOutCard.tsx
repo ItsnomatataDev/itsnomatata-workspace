@@ -153,7 +153,7 @@ export default function ClockInOutCard({ userId, organizationId, onSessionChange
   const isOnBreak = activeSession && activeSession.break_start && !activeSession.break_end;
 
   return (
-    <div className="rounded-3xl border border-white/10 bg-gradient-to-br from-slate-900 to-slate-950 p-8 shadow-2xl">
+    <div className="rounded-3xl border border-white/10 bg-linear-to-br from-slate-900 to-slate-950 p-8 shadow-2xl">
       <div className="flex items-center justify-between mb-8">
         <div>
           <h2 className="text-2xl font-bold text-white">Attendance</h2>
@@ -193,7 +193,7 @@ export default function ClockInOutCard({ userId, organizationId, onSessionChange
                 <button
                   onClick={handleClockOut}
                   disabled={isLoading}
-                  className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-red-500 to-rose-600 px-6 py-4 text-base font-semibold text-white shadow-xl shadow-red-500/30 transition-all hover:from-red-600 hover:to-rose-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-linear-to-r from-red-500 to-rose-600 px-6 py-4 text-base font-semibold text-white shadow-xl shadow-red-500/30 transition-all hover:from-red-600 hover:to-rose-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <Pause className="w-5 h-5" />
                   {isLoading ? 'Clocking out...' : 'Clock Out'}
@@ -212,7 +212,7 @@ export default function ClockInOutCard({ userId, organizationId, onSessionChange
                 <button
                   onClick={handleClockOut}
                   disabled={isLoading}
-                  className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-red-500 to-rose-600 px-6 py-4 text-base font-semibold text-white shadow-xl shadow-red-500/30 transition-all hover:from-red-600 hover:to-rose-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-linear-to-r from-red-500 to-rose-600 px-6 py-4 text-base font-semibold text-white shadow-xl shadow-red-500/30 transition-all hover:from-red-600 hover:to-rose-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <Pause className="w-5 h-5" />
                   {isLoading ? 'Clocking out...' : 'Clock Out'}
@@ -234,7 +234,7 @@ export default function ClockInOutCard({ userId, organizationId, onSessionChange
           <button
             onClick={handleClockIn}
             disabled={isLoading}
-            className="w-full flex items-center justify-center gap-3 rounded-2xl bg-gradient-to-r from-emerald-500 to-green-600 px-8 py-5 text-lg font-semibold text-white shadow-xl shadow-emerald-500/30 transition-all hover:from-emerald-600 hover:to-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full flex items-center justify-center gap-3 rounded-2xl bg-linear-to-r from-emerald-500 to-green-600 px-8 py-5 text-lg font-semibold text-white shadow-xl shadow-emerald-500/30 transition-all hover:from-emerald-600 hover:to-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Play className="w-6 h-6" />
             {isLoading ? 'Clocking in...' : 'Clock In'}

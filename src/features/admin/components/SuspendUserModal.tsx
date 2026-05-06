@@ -181,7 +181,7 @@ export default function SuspendUserModal({
           {!isSuspended ? (
             <>
               <div className="mb-4 flex items-start gap-3 rounded-lg border border-amber-500/20 bg-amber-500/10 p-4">
-                <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-400" />
+                <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-400" />
                 <div className="text-sm text-amber-200">
                   <p className="font-semibold">Warning</p>
                   <p className="mt-1">
@@ -218,7 +218,7 @@ export default function SuspendUserModal({
           ) : (
             <div className="space-y-4">
               <div className="flex items-start gap-3 rounded-lg border border-emerald-500/20 bg-emerald-500/10 p-4">
-                <Shield className="mt-0.5 h-5 w-5 flex-shrink-0 text-emerald-400" />
+                <Shield className="mt-0.5 h-5 w-5 shrink-0 text-emerald-400" />
                 <div className="text-sm text-emerald-200">
                   <p className="font-semibold">Restore Access</p>
                   <p className="mt-1">

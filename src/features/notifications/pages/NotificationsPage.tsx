@@ -5,15 +5,16 @@ import {
   BriefcaseBusiness,
   CalendarClock,
   CalendarDays,
+  CheckCircle2,
   CheckSquare,
   Info,
   MessageSquare,
+  RefreshCw,
   Shield,
+  Smartphone,
   UserPlus,
   Video,
   Zap,
-  RefreshCw,
-  Smartphone,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import Sidebar from "../../../components/dashboard/components/Sidebar";
@@ -66,36 +67,6 @@ const CATEGORY_META: Record<NotificationCategory, CategoryMeta> = {
   approvals: { label: "Approvals", icon: Shield, color: "text-yellow-300" },
 };
 
-function getCategory(type: string | null | undefined): NotificationCategory {
-  if (!type) return "all";
-
-  const t = type.toLowerCase();
-
-  if (t.includes("roster") || t.includes("duty") || t.includes("shift")) {
-    return "roster";
-  }
-  if (t.includes("leave")) return "leave";
-  if (t.includes("meeting")) return "meetings";
-  if (t.includes("chat") || t.includes("message")) return "chat";
-  if (t.includes("task")) return "tasks";
-  if (
-    t.includes("system") ||
-    t.includes("alert") ||
-    t.includes("it_") ||
-    t.includes("monitor") ||
-    t.includes("automation")
-  ) {
-    return "system";
-  }
-  if (t.includes("user") || t.includes("signup") || t.includes("invite")) {
-    return "users";
-  }
-  if (t.includes("campaign")) return "campaigns";
-  if (t.includes("approval")) return "approvals";
-
-  return "all";
-}
-
 const ROLE_CATEGORY_VISIBILITY: Record<string, NotificationCategory[]> = {
   admin: [
     "all",
@@ -128,7 +99,7 @@ const ROLE_CATEGORY_VISIBILITY: Record<string, NotificationCategory[]> = {
 const PRIORITY_STYLES: Record<string, string> = {
   urgent: "border-red-500/40 bg-red-500/10",
   high: "border-orange-500/30 bg-orange-500/10",
-  medium: "border-white/10 bg-white/5",
+  medium: "border-white/10 bg-white/[0.04]",
   low: "border-white/10 bg-black/30",
 };
 
@@ -138,6 +109,36 @@ const PRIORITY_DOT: Record<string, string> = {
   medium: "bg-amber-400",
   low: "bg-white/30",
 };
+
+function getCategory(type: string | null | undefined): NotificationCategory {
+  if (!type) return "all";
+
+  const t = type.toLowerCase();
+
+  if (t.includes("roster") || t.includes("duty") || t.includes("shift")) {
+    return "roster";
+  }
+  if (t.includes("leave")) return "leave";
+  if (t.includes("meeting")) return "meetings";
+  if (t.includes("chat") || t.includes("message")) return "chat";
+  if (t.includes("task")) return "tasks";
+  if (
+    t.includes("system") ||
+    t.includes("alert") ||
+    t.includes("it_") ||
+    t.includes("monitor") ||
+    t.includes("automation")
+  ) {
+    return "system";
+  }
+  if (t.includes("user") || t.includes("signup") || t.includes("invite")) {
+    return "users";
+  }
+  if (t.includes("campaign")) return "campaigns";
+  if (t.includes("approval")) return "approvals";
+
+  return "all";
+}
 
 function timeAgo(dateString: string) {
   const diffMs = Date.now() - new Date(dateString).getTime();
@@ -166,30 +167,30 @@ function NotificationCard({
   return (
     <div
       className={[
-        "border p-4 transition",
+        "rounded-3xl border p-4 shadow-xl shadow-black/20 transition hover:border-orange-500/25",
         item.is_read
-          ? "border-white/10 bg-black/30"
+          ? "border-white/10 bg-black/35"
           : (PRIORITY_STYLES[priority] ?? PRIORITY_STYLES.medium),
       ].join(" ")}
     >
       <div className="flex items-start gap-3">
         <div
           className={[
-            "mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center border border-white/10 bg-black",
+            "mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-black/50",
             meta.color,
           ].join(" ")}
         >
-          <Icon size={16} />
+          <Icon size={18} />
         </div>
 
         <div className="min-w-0 flex-1">
-          <div className="flex items-start justify-between gap-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 {!item.is_read ? (
                   <span
                     className={[
-                      "mt-0.5 h-2 w-2 shrink-0",
+                      "h-2.5 w-2.5 shrink-0 rounded-full",
                       PRIORITY_DOT[priority] ?? PRIORITY_DOT.medium,
                     ].join(" ")}
                   />
@@ -214,7 +215,7 @@ function NotificationCard({
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <span
                   className={[
-                    "border border-white/10 bg-black px-2 py-1 text-[10px] font-semibold uppercase tracking-wider",
+                    "rounded-full border border-white/10 bg-black/50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider",
                     meta.color,
                   ].join(" ")}
                 >
@@ -224,7 +225,7 @@ function NotificationCard({
                 {priority !== "medium" ? (
                   <span
                     className={[
-                      "border px-2 py-1 text-[10px] font-semibold uppercase tracking-wider",
+                      "rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider",
                       priority === "urgent"
                         ? "border-red-500/30 bg-red-500/10 text-red-300"
                         : priority === "high"
@@ -239,7 +240,7 @@ function NotificationCard({
                 {item.action_url ? (
                   <Link
                     to={item.action_url}
-                    className="text-xs font-medium text-orange-400 hover:text-orange-300"
+                    className="rounded-full bg-orange-500/10 px-2.5 py-1 text-xs font-semibold text-orange-300 transition hover:bg-orange-500/20"
                   >
                     View →
                   </Link>
@@ -247,7 +248,7 @@ function NotificationCard({
               </div>
             </div>
 
-            <div className="flex shrink-0 flex-col items-end gap-2">
+            <div className="flex shrink-0 items-center gap-2 sm:flex-col sm:items-end">
               <span className="text-[11px] text-white/35">
                 {timeAgo(item.created_at)}
               </span>
@@ -256,12 +257,14 @@ function NotificationCard({
                 <button
                   type="button"
                   onClick={() => onRead(item.id)}
-                  className="border border-white/10 bg-white/5 px-2 py-1 text-xs text-white/60 transition hover:bg-white/10 hover:text-white"
+                  className="rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-white/60 transition hover:bg-white/10 hover:text-white"
                 >
                   Mark read
                 </button>
               ) : (
-                <span className="text-[11px] text-white/25">Read</span>
+                <span className="rounded-full bg-white/5 px-2 py-1 text-[11px] text-white/25">
+                  Read
+                </span>
               )}
             </div>
           </div>
@@ -293,6 +296,7 @@ export default function NotificationsPage() {
   const [showUnreadOnly, setShowUnreadOnly] = useState(false);
   const [testingNotification, setTestingNotification] = useState(false);
   const [enablingPush, setEnablingPush] = useState(false);
+  const [pushEnabled, setPushEnabled] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [testMessage, setTestMessage] = useState("");
   const [testError, setTestError] = useState("");
@@ -377,12 +381,13 @@ export default function NotificationsPage() {
         organizationId,
       });
 
-      setTestMessage("Push notifications enabled for this device.");
+      setPushEnabled(true);
+      setTestMessage("Push notifications are enabled for this device.");
     } catch (err: unknown) {
       setTestError(
         err instanceof Error
           ? err.message
-          : "Failed to enable push notifications. Check browser permissions and push_subscriptions RLS.",
+          : "Failed to enable push notifications.",
       );
     } finally {
       setEnablingPush(false);
@@ -411,7 +416,7 @@ export default function NotificationsPage() {
         type: "system_alert",
         title: "System notification test",
         message:
-          "This is a live test confirming the notification system is active.",
+          "This is a live test confirming in-app, email, and push delivery are active.",
         actionUrl: "/notifications",
         priority: "high",
         sendEmail: true,
@@ -428,13 +433,54 @@ export default function NotificationsPage() {
       await reload();
 
       setTestMessage(
-        "Test notification sent. Check the list, bell, email inbox, push popup, and delivery logs.",
+        "Test notification sent. Check the list, bell, email inbox, and device push notification.",
       );
     } catch (err: unknown) {
       setTestError(
         err instanceof Error
           ? err.message
-          : "Failed to send test notification. If this mentions RLS, confirm notification insert and delivery policies are applied.",
+          : "Failed to send test notification.",
+      );
+    } finally {
+      setTestingNotification(false);
+    }
+  }
+
+  async function handleSendPushOnlyTest() {
+    if (!organizationId || !userId) {
+      setTestError("Missing user or organization details.");
+      return;
+    }
+
+    try {
+      setTestingNotification(true);
+      setTestError("");
+      setTestMessage("");
+
+      await sendNotification({
+        organizationId,
+        userId,
+        type: "system_alert",
+        title: "Push notification test",
+        message:
+          "This test only targets your browser push notification channel.",
+        actionUrl: "/notifications",
+        priority: "high",
+        sendEmail: false,
+        metadata: {
+          source: "push_only_test_button",
+          triggered_at: new Date().toISOString(),
+        },
+        category: "system",
+        dedupeKey: `push-only-test:${userId}:${Date.now()}`,
+        channels: ["push"],
+      });
+
+      await reload();
+      setTestMessage("Push-only test sent.");
+    } catch (err: unknown) {
+      setTestError(
+        err instanceof Error ? err.message : "Failed to send push-only test.",
       );
     } finally {
       setTestingNotification(false);
@@ -443,74 +489,117 @@ export default function NotificationsPage() {
 
   return (
     <div className="min-h-screen bg-black text-white">
-      <div className="flex min-h-screen">
+      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top_left,rgba(249,115,22,0.14),transparent_34%),radial-gradient(circle_at_bottom_right,rgba(255,255,255,0.05),transparent_30%)]" />
+
+      <div className="relative flex min-h-screen">
         <Sidebar role={role} />
 
-        <main className="min-w-0 flex-1 p-6 lg:p-8">
-          <div className="mb-6 flex flex-wrap items-end justify-between gap-4 border border-white/10 bg-black p-5">
-            <div>
-              <p className="text-xs uppercase tracking-[0.3em] text-orange-500">
-                Workspace
-              </p>
-              <h1 className="mt-2 text-3xl font-bold">Notifications</h1>
-              <p className="mt-2 text-sm text-white/50">
-                Activity across duty roster, leave, meetings, chat, tasks, and
-                system events — filtered to your role.
-              </p>
+        <main className="min-w-0 flex-1 p-4 sm:p-6 lg:p-8">
+          <div className="mb-6 overflow-hidden rounded-3xl border border-white/10 bg-neutral-950/85 shadow-2xl shadow-black/40 backdrop-blur">
+            <div className="border-b border-white/10 bg-white/3 p-5 sm:p-6">
+              <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
+                <div>
+                  <div className="inline-flex items-center gap-2 rounded-full border border-orange-500/20 bg-orange-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.22em] text-orange-300">
+                    <Bell size={14} />
+                    Workspace notifications
+                  </div>
+
+                  <h1 className="mt-4 text-3xl font-bold tracking-tight sm:text-4xl">
+                    Notifications
+                  </h1>
+
+                  <p className="mt-3 max-w-2xl text-sm leading-6 text-white/50">
+                    Activity across duty roster, leave, meetings, chat, tasks,
+                    approvals, and system events.
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowUnreadOnly((prev) => !prev)}
+                    className={[
+                      "rounded-2xl border px-4 py-2.5 text-sm font-semibold transition",
+                      showUnreadOnly
+                        ? "border-orange-500/30 bg-orange-500/10 text-orange-300"
+                        : "border-white/10 bg-white/5 text-white/60 hover:bg-white/10 hover:text-white",
+                    ].join(" ")}
+                  >
+                    {showUnreadOnly ? "Unread only ✓" : "Unread only"}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => void markEverythingAsRead()}
+                    disabled={unreadCount === 0}
+                    className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-semibold text-white/60 transition hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
+                  >
+                    Mark all read ({unreadCount})
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => void handleRefresh()}
+                    disabled={refreshing}
+                    className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-semibold text-white/60 transition hover:bg-white/10 hover:text-white disabled:opacity-60"
+                  >
+                    <RefreshCw
+                      size={14}
+                      className={refreshing ? "animate-spin" : ""}
+                    />
+                    {refreshing ? "Refreshing..." : "Refresh"}
+                  </button>
+                </div>
+              </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-3">
-              <button
-                type="button"
-                onClick={() => setShowUnreadOnly((prev) => !prev)}
-                className={[
-                  "border px-4 py-2.5 text-sm font-medium transition",
-                  showUnreadOnly
-                    ? "border-orange-500/30 bg-orange-500/10 text-orange-300"
-                    : "border-white/10 bg-white/5 text-white/60 hover:bg-white/10",
-                ].join(" ")}
-              >
-                {showUnreadOnly ? "Unread only ✓" : "Show unread only"}
-              </button>
+            <div className="grid gap-3 p-4 sm:grid-cols-3">
+              <div className="rounded-3xl border border-white/10 bg-black/45 p-4">
+                <p className="text-[11px] uppercase tracking-[0.2em] text-white/35">
+                  Loaded
+                </p>
+                <p className="mt-3 text-3xl font-bold">
+                  {notifications.length}
+                </p>
+              </div>
 
-              <button
-                type="button"
-                onClick={() => void markEverythingAsRead()}
-                className="border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-medium text-white/60 transition hover:bg-white/10 hover:text-white"
-              >
-                Mark all read ({unreadCount})
-              </button>
+              <div className="rounded-3xl border border-orange-500/15 bg-orange-500/5 p-4">
+                <p className="text-[11px] uppercase tracking-[0.2em] text-orange-300/70">
+                  Unread
+                </p>
+                <p className="mt-3 text-3xl font-bold text-orange-300">
+                  {unreadCount}
+                </p>
+              </div>
 
-              <button
-                type="button"
-                onClick={() => void handleRefresh()}
-                disabled={refreshing}
-                className="inline-flex items-center gap-2 border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-medium text-white/60 transition hover:bg-white/10 hover:text-white disabled:opacity-60"
-              >
-                <RefreshCw
-                  size={14}
-                  className={refreshing ? "animate-spin" : ""}
-                />
-                {refreshing ? "Refreshing..." : "Refresh"}
-              </button>
+              <div className="rounded-3xl border border-white/10 bg-black/45 p-4">
+                <p className="text-[11px] uppercase tracking-[0.2em] text-white/35">
+                  Delivery
+                </p>
+                <p className="mt-3 inline-flex items-center gap-2 text-sm font-semibold text-white/70">
+                  <Smartphone size={16} className="text-green-300" />
+                  {pushEnabled ? "Push enabled" : "Push optional"}
+                </p>
+              </div>
             </div>
           </div>
 
-          <div className="mb-6 border border-white/10 bg-black p-4 text-xs text-white/45">
-            <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-              <p>Auth user ID: {currentUser.id}</p>
-              <p>Profile ID: {currentProfile.id}</p>
-              <p>Current role: {role}</p>
-              <p>Organization ID: {organizationId || "—"}</p>
-              <p>Notifications loaded: {notifications.length}</p>
-              <p>Unread count: {unreadCount}</p>
-              <p>Loading: {loading ? "yes" : "no"}</p>
-            </div>
+          {import.meta.env.DEV ? (
+            <div className="mb-6 rounded-3xl border border-white/10 bg-black/40 p-4 text-xs text-white/45">
+              <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                <p>Auth user ID: {currentUser.id}</p>
+                <p>Profile ID: {currentProfile.id}</p>
+                <p>Current role: {role}</p>
+                <p>Organization ID: {organizationId || "—"}</p>
+                <p>Notifications loaded: {notifications.length}</p>
+                <p>Unread count: {unreadCount}</p>
+              </div>
 
-            {error ? (
-              <p className="mt-3 text-red-300">Hook error: {error}</p>
-            ) : null}
-          </div>
+              {error ? (
+                <p className="mt-3 text-red-300">Hook error: {error}</p>
+              ) : null}
+            </div>
+          ) : null}
 
           <div className="mb-6 flex flex-wrap gap-2">
             {visibleCategories.map((cat) => {
@@ -525,7 +614,7 @@ export default function NotificationsPage() {
                   type="button"
                   onClick={() => setActiveCategory(cat)}
                   className={[
-                    "inline-flex items-center gap-2 border px-3 py-2 text-sm font-medium transition",
+                    "inline-flex items-center gap-2 rounded-2xl border px-3 py-2 text-sm font-semibold transition",
                     isActive
                       ? "border-orange-500/30 bg-orange-500/10 text-white"
                       : "border-white/10 bg-white/5 text-white/55 hover:bg-white/8 hover:text-white",
@@ -534,7 +623,7 @@ export default function NotificationsPage() {
                   <Icon size={14} className={isActive ? meta.color : ""} />
                   {meta.label}
                   {count > 0 ? (
-                    <span className="bg-orange-500 px-1.5 py-0.5 text-[10px] font-bold text-black">
+                    <span className="rounded-full bg-orange-500 px-1.5 py-0.5 text-[10px] font-bold text-black">
                       {count}
                     </span>
                   ) : null}
@@ -547,7 +636,7 @@ export default function NotificationsPage() {
             <div className="mb-6 flex flex-wrap gap-3">
               <Link
                 to="/admin/roster"
-                className="inline-flex items-center gap-2 border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-200 transition hover:bg-amber-500/15"
+                className="inline-flex items-center gap-2 rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm font-semibold text-amber-200 transition hover:bg-amber-500/15"
               >
                 <CalendarClock size={15} />
                 Manage Duty Roster
@@ -555,7 +644,7 @@ export default function NotificationsPage() {
 
               <Link
                 to="/admin/leave"
-                className="inline-flex items-center gap-2 border border-sky-500/20 bg-sky-500/10 px-4 py-3 text-sm text-sky-200 transition hover:bg-sky-500/15"
+                className="inline-flex items-center gap-2 rounded-2xl border border-sky-500/20 bg-sky-500/10 px-4 py-3 text-sm font-semibold text-sky-200 transition hover:bg-sky-500/15"
               >
                 <CalendarDays size={15} />
                 Review Leave Requests
@@ -565,16 +654,16 @@ export default function NotificationsPage() {
 
           <section className="space-y-3">
             {loading ? (
-              <div className="border border-white/10 bg-white/5 p-6 text-sm text-white/50">
+              <div className="rounded-3xl border border-white/10 bg-white/5 p-8 text-center text-sm text-white/50">
                 Loading notifications...
               </div>
             ) : error ? (
-              <div className="border border-red-500/20 bg-red-500/10 p-5 text-sm text-red-300">
+              <div className="rounded-3xl border border-red-500/20 bg-red-500/10 p-5 text-sm text-red-300">
                 {error}
               </div>
             ) : filtered.length === 0 ? (
-              <div className="border border-white/10 bg-white/5 p-10 text-center">
-                <Bell size={32} className="mx-auto mb-3 text-white/20" />
+              <div className="rounded-3xl border border-white/10 bg-white/5 p-12 text-center">
+                <Bell size={36} className="mx-auto mb-4 text-white/20" />
                 <p className="font-semibold text-white">
                   {showUnreadOnly
                     ? "No unread notifications"
@@ -600,7 +689,7 @@ export default function NotificationsPage() {
           </section>
 
           {(role === "admin" || role === "manager" || role === "it") && (
-            <section className="mt-8 border border-white/10 bg-white/5 p-5">
+            <section className="mt-8 rounded-3xl border border-white/10 bg-neutral-950/80 p-5 shadow-2xl shadow-black/30 backdrop-blur">
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div className="max-w-xl">
                   <div className="flex items-center gap-2">
@@ -609,10 +698,9 @@ export default function NotificationsPage() {
                       Notification delivery test
                     </p>
                   </div>
-                  <p className="mt-2 text-sm text-white/55">
-                    Sends a live system alert to this account, tests realtime
-                    delivery, triggers the n8n email webhook, and can trigger
-                    push once the Edge Function is connected.
+                  <p className="mt-2 text-sm leading-6 text-white/55">
+                    Enable push for this device, then send a live notification
+                    to test in-app, email, and browser push delivery.
                   </p>
                 </div>
 
@@ -620,32 +708,54 @@ export default function NotificationsPage() {
                   <button
                     type="button"
                     onClick={() => void handleEnablePush()}
-                    disabled={enablingPush}
-                    className="inline-flex items-center gap-2 border border-white/10 bg-white/5 px-5 py-2.5 text-sm font-semibold text-white/70 transition hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                    disabled={enablingPush || pushEnabled}
+                    className={[
+                      "inline-flex items-center gap-2 rounded-2xl border px-5 py-2.5 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-70",
+                      pushEnabled
+                        ? "border-green-500/20 bg-green-500/10 text-green-300"
+                        : "border-white/10 bg-white/5 text-white/70 hover:bg-white/10 hover:text-white",
+                    ].join(" ")}
                   >
-                    <Smartphone size={15} />
-                    {enablingPush ? "Enabling..." : "Enable push"}
+                    {pushEnabled ? (
+                      <CheckCircle2 size={15} />
+                    ) : (
+                      <Smartphone size={15} />
+                    )}
+                    {enablingPush
+                      ? "Enabling..."
+                      : pushEnabled
+                        ? "Push enabled"
+                        : "Enable push"}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => void handleSendPushOnlyTest()}
+                    disabled={testingNotification}
+                    className="rounded-2xl border border-purple-500/20 bg-purple-500/10 px-5 py-2.5 text-sm font-semibold text-purple-200 transition hover:bg-purple-500/15 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Push-only test
                   </button>
 
                   <button
                     type="button"
                     onClick={() => void handleSendTestNotification()}
                     disabled={testingNotification}
-                    className="border border-orange-500 bg-orange-500 px-5 py-2.5 text-sm font-semibold text-black transition hover:bg-orange-400 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="rounded-2xl bg-orange-500 px-5 py-2.5 text-sm font-semibold text-black shadow-lg shadow-orange-500/10 transition hover:bg-orange-400 disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    {testingNotification ? "Sending..." : "Send test"}
+                    {testingNotification ? "Sending..." : "Send full test"}
                   </button>
                 </div>
               </div>
 
               {testMessage ? (
-                <div className="mt-4 border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
+                <div className="mt-4 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
                   {testMessage}
                 </div>
               ) : null}
 
               {testError ? (
-                <div className="mt-4 border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+                <div className="mt-4 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">
                   {testError}
                 </div>
               ) : null}
@@ -653,25 +763,19 @@ export default function NotificationsPage() {
               <div className="mt-4 grid gap-3 text-sm text-white/55 sm:grid-cols-5">
                 {(
                   [
-                    ["1. DB row", "Notification should appear in the table."],
-                    [
-                      "2. Bell",
-                      "Counter and dropdown should update instantly.",
-                    ],
-                    ["3. n8n", "Email webhook execution should appear."],
-                    ["4. Email", "Message should arrive in the inbox."],
-                    [
-                      "5. Push",
-                      "Browser push should arrive if enabled and Edge Function is connected.",
-                    ],
+                    ["1. DB row", "Notification appears in the table."],
+                    ["2. Bell", "Counter updates instantly."],
+                    ["3. Email", "Email delivery is queued/sent."],
+                    ["4. Push", "Browser notification appears."],
+                    ["5. Logs", "Delivery state is updated."],
                   ] as [string, string][]
                 ).map(([title, desc]) => (
                   <div
                     key={title}
-                    className="border border-white/10 bg-black/30 p-4"
+                    className="rounded-2xl border border-white/10 bg-black/35 p-4"
                   >
                     <p className="font-medium text-white">{title}</p>
-                    <p className="mt-2">{desc}</p>
+                    <p className="mt-2 text-xs leading-5">{desc}</p>
                   </div>
                 ))}
               </div>
