@@ -1154,10 +1154,27 @@ export default function CardDetailModal({
 
   useEffect(() => {
     if (!isOpen) return;
+    setTitle(card.title);
+    setDescription(card.description ?? "");
+    setStatus(card.status);
+    setPriority(card.priority);
+    setDueDate(card.due_date ? card.due_date.split("T")[0] : "");
+    setStartDate(card.start_date ? card.start_date.split("T")[0] : "");
+    setCardMetadata((card.metadata ?? {}) as CardMetadata);
     const nextEstimate = secondsToHoursMinutes(card.estimated_seconds);
     setEstimateHours(nextEstimate.hours);
     setEstimateMinutes(nextEstimate.minutes);
-  }, [card.estimated_seconds, isOpen]);
+  }, [
+    card.description,
+    card.due_date,
+    card.estimated_seconds,
+    card.metadata,
+    card.priority,
+    card.start_date,
+    card.status,
+    card.title,
+    isOpen,
+  ]);
 
   // ── Live ticker for active sessions ─────────────────────────────────────────
   useEffect(() => {

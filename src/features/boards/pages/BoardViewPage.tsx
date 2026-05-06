@@ -27,7 +27,9 @@ import {
   createCard,
   getBoardStats,
   getLists,
+  markStatusManuallyUpdated,
   moveCard,
+  shouldAlignImportedStatus,
   updateCard,
   deleteCard,
 } from "../services/boardService";
@@ -729,7 +731,7 @@ export default function BoardViewPage() {
 
   function getImportedStatusFromMetadata(task: Task): TaskStatus | null {
     const metadata = (task.metadata ?? {}) as Record<string, unknown>;
-    if (metadata.imported_from !== "trello_board_json") return null;
+    if (!shouldAlignImportedStatus(task)) return null;
 
     if (metadata.trello_closed === true || metadata.trello_due_complete === true) {
       return "done";
@@ -756,6 +758,8 @@ export default function BoardViewPage() {
     const changed: Array<{ taskId: string; updates: Partial<Card> }> = [];
 
     const aligned = list.map((task) => {
+      if (!shouldAlignImportedStatus(task)) return task;
+
       const sourceStatus = getImportedStatusFromMetadata(task);
       if (!sourceStatus) return task;
 
@@ -930,6 +934,15 @@ export default function BoardViewPage() {
       const persistedUpdates: Partial<TaskItem> = withWorkflowColumnForStatus({
         ...updates,
       });
+      if (updates.status !== undefined) {
+        persistedUpdates.metadata = markStatusManuallyUpdated(
+          {
+            ...((selectedTask.metadata ?? {}) as Record<string, unknown>),
+            ...((updates.metadata ?? {}) as Record<string, unknown>),
+          },
+          auth?.user?.id ?? null,
+        );
+      }
       if (updates.due_date !== undefined) {
         persistedUpdates.due_date = updates.due_date
           ? makeZimbabweLocalIso(updates.due_date.slice(0, 10), "17:00:00")
@@ -949,20 +962,24 @@ export default function BoardViewPage() {
           t.id === taskId ? ({ ...t, ...persistedUpdates } as Task) : t,
         ),
       );
-      setGroupedTasks((prev) =>
-        groupByColumn(
-          tasks.map((t) =>
-            t.id === taskId ? ({ ...t, ...persistedUpdates } as Task) : t,
-          ),
-        ),
+      const nextTasks = tasks.map((t) =>
+        t.id === taskId ? ({ ...t, ...persistedUpdates } as Task) : t,
       );
+      setGroupedTasks(groupByColumn(nextTasks));
 
-      void updateCard(taskId, persistedUpdates as Partial<Card>).catch((err) => {
+      void updateCard(
+        taskId,
+        persistedUpdates as Partial<Card>,
+        updates.status !== undefined
+          ? { markStatusAsManual: true, userId: auth?.user?.id ?? null }
+          : undefined,
+      ).catch((err) => {
         console.error("Failed to save card updates:", err);
+        alert(err?.message || "Failed to save card updates");
         void loadBoardData();
       });
     },
-    [loadBoardData, selectedTask?.id, tasks],
+    [auth?.user?.id, loadBoardData, selectedTask, tasks],
   );
 
   // ── Drag & drop ──────────────────────────────────────────────────────────────
@@ -1012,38 +1029,49 @@ export default function BoardViewPage() {
       e.preventDefault();
       const drag = dragRef.current;
       if (!drag) return;
+      const task = tasks.find((t) => t.id === drag.id);
+      if (!task) {
+        dragRef.current = null;
+        return;
+      }
+
+      const nextTask = {
+        ...task,
+        status: targetStatus,
+        column_id: targetColumnId ?? null,
+        metadata: markStatusManuallyUpdated(
+          (task.metadata ?? {}) as Record<string, unknown>,
+          auth?.user?.id ?? null,
+        ),
+      } as Task;
 
       // Optimistic update
       setTasks((prev) =>
-        prev.map((t) =>
-          t.id === drag.id
-            ? { ...t, status: targetStatus, column_id: targetColumnId ?? null }
-            : t,
-        ),
+        prev.map((t) => (t.id === drag.id ? nextTask : t)),
       );
+      setSelectedTask((current) => (current?.id === drag.id ? nextTask : current));
       setGroupedTasks((prev) => {
         const next = { ...prev };
-        const task = tasks.find((t) => t.id === drag.id);
-        if (!task) return prev;
         const sourceKey = task.column_id ?? drag.status;
         const targetKey = targetColumnId ?? targetStatus;
         next[sourceKey] = (next[sourceKey] ?? []).filter((t) => t.id !== drag.id);
-        next[targetKey] = [
-          ...(next[targetKey] ?? []),
-          { ...task, status: targetStatus, column_id: targetColumnId ?? null },
-        ];
+        next[targetKey] = [...(next[targetKey] ?? []), nextTask];
         return next;
       });
 
       try {
-        await moveCard(drag.id, targetStatus, 0, targetColumnId ?? null);
+        await moveCard(drag.id, targetStatus, 0, targetColumnId ?? null, {
+          markStatusAsManual: true,
+          userId: auth?.user?.id ?? null,
+        });
       } catch (err) {
         console.error("Move failed, reverting", err);
+        alert((err as any)?.message || "Failed to move card");
         void loadBoardData();
       }
       dragRef.current = null;
     },
-    [tasks, loadBoardData],
+    [auth?.user?.id, tasks, loadBoardData],
   );
 
   // ── Timer handlers ─────────────────────────────────────────────────────────────
@@ -1068,7 +1096,10 @@ export default function BoardViewPage() {
       await updateCard(taskId, {
         status: "in_progress",
         column_id: inProgressColumnId,
-      } as Partial<Card>);
+      } as Partial<Card>, {
+        markStatusAsManual: true,
+        userId: auth.user.id,
+      });
 
       // Reload active timer
       await loadActiveTimer();

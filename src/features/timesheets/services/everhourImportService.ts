@@ -2264,6 +2264,29 @@ export async function importTrelloBoardJson(params: {
           parseDate(getString(card, ["dateLastActivity"])) ??
           null;
         const sourceLastActivityAt = parseDate(getString(card, ["dateLastActivity"]));
+        const nextTrelloMetadata = {
+          imported_from: "trello_board_json",
+          trello_card_id: trelloCardId,
+          trello_short_link: shortLink,
+          trello_created_at: sourceCreatedAt,
+          trello_url: getString(card, ["url", "shortUrl"]),
+          trello_list_id: listId,
+          trello_list_name: listName,
+          original_trello_list_name: listName,
+          trello_closed: trelloClosed,
+          trello_due_complete: trelloDueComplete,
+          imported_column_mapping: {
+            original_list_id: listId,
+            original_list_name: listName,
+            internal_column_id: columnId,
+            internal_status: status,
+            matched_default_column: !columnId,
+          },
+          trello_position: trelloPosition,
+          labels,
+          raw_badges: card.badges ?? null,
+          date_last_activity: sourceLastActivityAt ?? getString(card, ["dateLastActivity"]),
+        };
 
         let taskId = mapped?.internal_id ?? null;
         const isExistingCard = Boolean(taskId);
@@ -2291,29 +2314,7 @@ export async function importTrelloBoardJson(params: {
               created_at: sourceCreatedAt ?? undefined,
               updated_at: sourceLastActivityAt ?? undefined,
               imported_time_status: params.importTrackedTime === false ? "not_requested" : "no_time_data_found",
-              metadata: {
-                imported_from: "trello_board_json",
-                trello_card_id: trelloCardId,
-                trello_short_link: shortLink,
-                trello_created_at: sourceCreatedAt,
-                trello_url: getString(card, ["url", "shortUrl"]),
-                trello_list_id: listId,
-                trello_list_name: listName,
-                original_trello_list_name: listName,
-                trello_closed: trelloClosed,
-                trello_due_complete: trelloDueComplete,
-                imported_column_mapping: {
-                  original_list_id: listId,
-                  original_list_name: listName,
-                  internal_column_id: columnId,
-                  internal_status: status,
-                  matched_default_column: !columnId,
-                },
-                trello_position: trelloPosition,
-                labels,
-                raw_badges: card.badges ?? null,
-                date_last_activity: sourceLastActivityAt ?? getString(card, ["dateLastActivity"]),
-              },
+              metadata: nextTrelloMetadata,
             })
             .select("id")
             .single();
@@ -2322,41 +2323,45 @@ export async function importTrelloBoardJson(params: {
           taskId = task.id as string;
           result.cardsImported += 1;
         } else {
-          await supabase
+          const { data: existingTask, error: existingTaskError } = await supabase
             .from("tasks")
-            .update({
-              column_id: columnId,
-              status,
-              due_date: dueDate,
-              position,
-              created_at: sourceCreatedAt,
-              updated_at: sourceLastActivityAt ?? undefined,
-              metadata: {
-                imported_from: "trello_board_json",
-                trello_card_id: trelloCardId,
-                trello_short_link: shortLink,
-                trello_created_at: sourceCreatedAt,
-                trello_url: getString(card, ["url", "shortUrl"]),
-                trello_list_id: listId,
-                trello_list_name: listName,
-                original_trello_list_name: listName,
-                trello_closed: trelloClosed,
-                trello_due_complete: trelloDueComplete,
-                imported_column_mapping: {
-                  original_list_id: listId,
-                  original_list_name: listName,
-                  internal_column_id: columnId,
-                  internal_status: status,
-                  matched_default_column: !columnId,
-                },
-                trello_position: trelloPosition,
-                labels,
-                raw_badges: card.badges ?? null,
-                date_last_activity: sourceLastActivityAt ?? getString(card, ["dateLastActivity"]),
-              },
-            })
+            .select("column_id, status, metadata")
+            .eq("organization_id", params.organizationId)
+            .eq("id", taskId)
+            .maybeSingle();
+
+          if (existingTaskError) throw new Error(existingTaskError.message);
+
+          const existingMetadata = ((existingTask?.metadata ?? {}) as JsonRecord) ?? {};
+          const manuallyManaged =
+            existingMetadata.status_manually_updated === true ||
+            existingMetadata.status_locked === true;
+
+          const existingStatus =
+            typeof existingTask?.status === "string" ? existingTask.status : status;
+          const existingColumnId =
+            typeof existingTask?.column_id === "string" ? existingTask.column_id : null;
+          const existingCardUpdates: JsonRecord = {
+            column_id: manuallyManaged ? existingColumnId : columnId,
+            status: manuallyManaged ? existingStatus : status,
+            due_date: dueDate,
+            created_at: sourceCreatedAt,
+            updated_at: sourceLastActivityAt ?? undefined,
+            metadata: {
+              ...existingMetadata,
+              ...nextTrelloMetadata,
+            },
+          };
+          if (!manuallyManaged) {
+            existingCardUpdates.position = position;
+          }
+
+          const { error: updateExistingError } = await supabase
+            .from("tasks")
+            .update(existingCardUpdates)
             .eq("organization_id", params.organizationId)
             .eq("id", taskId);
+          if (updateExistingError) throw new Error(updateExistingError.message);
         }
 
         if (!isExistingCard) {

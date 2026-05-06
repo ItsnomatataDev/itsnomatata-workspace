@@ -13,6 +13,40 @@ import {
 } from "../../notifications/services/notificationOrchestrationService";
 import { makeZimbabweLocalIso } from "../../../lib/utils/zimbabweCalendar";
 
+type CardMetadata = Record<string, unknown>;
+
+export function markStatusManuallyUpdated(
+  metadata: CardMetadata | null | undefined,
+  userId?: string | null,
+): CardMetadata {
+  return {
+    ...(metadata ?? {}),
+    status_manually_updated: true,
+    status_manually_updated_at: new Date().toISOString(),
+    ...(userId ? { status_manually_updated_by: userId } : {}),
+  };
+}
+
+export function shouldAlignImportedStatus(task: {
+  metadata?: CardMetadata | null;
+}): boolean {
+  const metadata = task.metadata ?? {};
+  if (metadata.status_manually_updated === true) return false;
+  if (metadata.status_locked === true) return false;
+  return metadata.imported_from === "trello_board_json";
+}
+
+async function getCardMetadata(cardId: string): Promise<CardMetadata> {
+  const { data, error } = await supabase
+    .from("tasks")
+    .select("metadata")
+    .eq("id", cardId)
+    .maybeSingle();
+
+  if (error) throw error;
+  return ((data?.metadata ?? {}) as CardMetadata) ?? {};
+}
+
 // ─────────────────────────────────────────────
 //  BOARDS  (boards = clients table)
 // ─────────────────────────────────────────────
@@ -258,10 +292,31 @@ export async function createCard(
 export async function updateCard(
   cardId: string,
   updates: Partial<Card>,
+  options?: {
+    markStatusAsManual?: boolean;
+    userId?: string | null;
+  },
 ): Promise<Card> {
+  let nextUpdates = updates;
+
+  if (options?.markStatusAsManual && updates.status !== undefined) {
+    const currentMetadata = await getCardMetadata(cardId);
+    const updateMetadata = (updates.metadata ?? {}) as CardMetadata;
+    nextUpdates = {
+      ...updates,
+      metadata: markStatusManuallyUpdated(
+        {
+          ...currentMetadata,
+          ...updateMetadata,
+        },
+        options.userId,
+      ),
+    };
+  }
+
   const { data, error } = await supabase
     .from("tasks")
-    .update(updates)
+    .update(nextUpdates)
     .eq("id", cardId)
     .select()
     .single();
@@ -274,9 +329,19 @@ export async function moveCard(
   targetStatus: TaskStatus,
   position: number,
   columnId?: string | null,
+  options?: {
+    markStatusAsManual?: boolean;
+    userId?: string | null;
+  },
 ): Promise<void> {
   const updates: Record<string, unknown> = { status: targetStatus, position };
   if (columnId !== undefined) updates.column_id = columnId;
+  if (options?.markStatusAsManual) {
+    updates.metadata = markStatusManuallyUpdated(
+      await getCardMetadata(cardId),
+      options.userId,
+    );
+  }
 
   const { error } = await supabase
     .from("tasks")
