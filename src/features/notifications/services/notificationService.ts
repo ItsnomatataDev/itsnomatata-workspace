@@ -10,10 +10,6 @@ import {
   type NotificationPriority,
   type NotificationType,
 } from "../../../lib/supabase/mutations/notifications";
-import {
-  deliverBulkNotifications,
-  deliverNotification,
-} from "./notificationDeliveryService";
 import { EmailTemplateService, type EmailContext } from "./emailTemplates";
 import { supabase } from "../../../lib/supabase/client";
 
@@ -44,35 +40,28 @@ type SendBulkNotificationParams = Omit<SendNotificationParams, "userId"> & {
   excludeActor?: boolean;
 };
 
-type BulkResultWithMaybeRows = {
-  ok?: boolean;
-  failed?: number;
-  results?: Array<{
-    userId?: string;
-    ok?: boolean;
-    notification?: unknown;
-    error?: string;
-  }>;
-};
-
 async function createNotificationViaEdge(
   params: SendNotificationParams | SendBulkNotificationParams,
   userIds: string[],
-  reason: unknown,
 ) {
-  console.warn("Notification primary pipeline failed; using edge fallback.", {
-    reason,
-    userIds,
-    type: params.type,
-    title: params.title,
-  });
+  const recipients = [...new Set(userIds.filter(Boolean))];
+
+  if (recipients.length === 0) {
+    return {
+      ok: true,
+      total: 0,
+      succeeded: 0,
+      failed: 0,
+      results: [],
+    };
+  }
 
   const { data, error } = await supabase.functions.invoke(
     "create-notification",
     {
       body: {
         organizationId: params.organizationId,
-        userIds,
+        userIds: recipients,
         type: params.type,
         title: params.title,
         message: params.message ?? null,
@@ -86,36 +75,33 @@ async function createNotificationViaEdge(
         actorUserId: params.actorUserId ?? null,
         category: params.category ?? null,
         dedupeKey: params.dedupeKey ?? null,
+        channels: params.channels ?? undefined,
+        sendEmail: params.sendEmail ?? true,
       },
     },
   );
 
-  if (error) throw error;
+  if (error) {
+    console.error("CREATE NOTIFICATION EDGE ERROR:", error);
+    throw error;
+  }
+
   return data;
 }
 
-function getBulkFallbackRecipients(
-  params: SendBulkNotificationParams,
-  result: BulkResultWithMaybeRows,
-) {
-  const failedWithoutRows = (result.results ?? [])
-    .filter((item) => item.ok === false && !item.notification)
-    .map((item) => item.userId)
-    .filter((id): id is string => Boolean(id));
+function getBulkRecipients(params: SendBulkNotificationParams) {
+  const actorUserId = params.excludeActor === false ? null : params.actorUserId;
 
-  if (failedWithoutRows.length > 0) {
-    return [...new Set(failedWithoutRows)];
-  }
-
-  if ((result.failed ?? 0) > 0 && !result.results?.length) {
-    return [
-      ...new Set(params.userIds.filter((id) => id && id !== params.actorUserId)),
-    ];
-  }
-
-  return [];
+  return [
+    ...new Set(
+      params.userIds.filter((id) => {
+        if (!id) return false;
+        if (actorUserId && id === actorUserId) return false;
+        return true;
+      }),
+    ),
+  ];
 }
-
 
 export async function fetchNotifications(userId: string, limit = 25) {
   return getUserNotifications({ userId, limit });
@@ -133,64 +119,16 @@ export async function readAllNotifications(userId: string) {
   return markAllNotificationsAsRead(userId);
 }
 
-/* ------------------------------------------------------------------
-   SEND — IN-SYSTEM + EMAIL (single user)
------------------------------------------------------------------- */
 
 export async function sendNotification(params: SendNotificationParams) {
-  try {
-    return await deliverNotification({
-      ...params,
-      // Default email to true for high/urgent — delivery service
-      // will check user preferences before actually sending
-      sendEmail: params.sendEmail ?? true,
-    });
-  } catch (error) {
-    return createNotificationViaEdge(params, [params.userId], error);
-  }
+  return createNotificationViaEdge(params, [params.userId]);
 }
 
-/* ------------------------------------------------------------------
-   SEND — IN-SYSTEM + EMAIL (multiple users)
------------------------------------------------------------------- */
 
 export async function sendBulkNotifications(params: SendBulkNotificationParams) {
-  try {
-    const result = await deliverBulkNotifications({
-      ...params,
-      sendEmail: params.sendEmail ?? true,
-    });
-
-    const fallbackRecipients = getBulkFallbackRecipients(
-      params,
-      result as BulkResultWithMaybeRows,
-    );
-
-    if (fallbackRecipients.length > 0) {
-      return createNotificationViaEdge(params, fallbackRecipients, result);
-    }
-
-    return result;
-  } catch (error) {
-    const recipientIds = [
-      ...new Set(
-        params.userIds.filter(
-          (id) =>
-            id &&
-            (params.excludeActor === false || id !== params.actorUserId),
-        ),
-      ),
-    ];
-
-    return createNotificationViaEdge(params, recipientIds, error);
-  }
+  return createNotificationViaEdge(params, getBulkRecipients(params));
 }
 
-/* ------------------------------------------------------------------
-   SEND EMAIL ONLY — no in-system notification
-   Use this for events that come from Supabase DB webhooks or
-   external triggers where the notification row already exists
------------------------------------------------------------------- */
 
 const EMAIL_WEBHOOK_URL = import.meta.env.VITE_N8N_NOTIFICATION_WEBHOOK_URL as
   | string
@@ -223,7 +161,7 @@ export async function sendEmailOnly(params: {
 
   try {
     const fullName = params.fullName ?? "Team Member";
-    const firstName = fullName.split(' ')[0];
+    const firstName = fullName.split(" ")[0];
 
     const context: EmailContext = {
       fullName,
@@ -233,10 +171,13 @@ export async function sendEmailOnly(params: {
       actionUrl: params.actionUrl ?? "/",
       metadata: params.metadata ?? {},
       appName: "Nomatata",
-      appUrl: "https://codex.itsnomatata.com"
+      appUrl: "https://codex.itsnomatata.com",
     };
 
-    const emailTemplate = EmailTemplateService.generateTemplate(params.type, context);
+    const emailTemplate = EmailTemplateService.generateTemplate(
+      params.type,
+      context,
+    );
 
     const response = await fetch(EMAIL_WEBHOOK_URL, {
       method: "POST",
@@ -257,7 +198,7 @@ export async function sendEmailOnly(params: {
         actionUrl: params.actionUrl ?? "/",
         metadata: params.metadata ?? {},
         emailHtml: emailTemplate.html,
-        subject: emailTemplate.subject
+        subject: emailTemplate.subject,
       }),
     });
 
@@ -274,12 +215,6 @@ export async function sendEmailOnly(params: {
     return { ok: false, error: message };
   }
 }
-
-/* ------------------------------------------------------------------
-   TYPED SHORTHAND HELPERS
-   Call these from leaveService, meetingService, approvalService etc.
-   instead of building the params object every time
------------------------------------------------------------------- */
 
 export async function notifyAndEmailUser(params: {
   organizationId: string;
@@ -300,9 +235,8 @@ export async function notifyAndEmailUser(params: {
   category?: string | null;
   dedupeKey?: string | null;
 }) {
-  // Fire in-system notification + email in parallel
-  const [notification] = await Promise.allSettled([
-    sendNotification({
+  try {
+    return await sendNotification({
       organizationId: params.organizationId,
       userId: params.userId,
       type: params.type,
@@ -319,14 +253,12 @@ export async function notifyAndEmailUser(params: {
       category: params.category,
       dedupeKey: params.dedupeKey,
       sendEmail: true,
-    }),
-  ]);
-
-  if (notification.status === "rejected") {
-    console.error("notifyAndEmailUser: failed", notification.reason);
+      channels: ["in_app", "email", "push"],
+    });
+  } catch (error) {
+    console.error("notifyAndEmailUser: failed", error);
+    return null;
   }
-
-  return notification.status === "fulfilled" ? notification.value : null;
 }
 
 export async function notifyAndEmailUsers(params: {
@@ -363,5 +295,6 @@ export async function notifyAndEmailUsers(params: {
     category: params.category,
     dedupeKey: params.dedupeKey,
     sendEmail: true,
+    channels: ["in_app", "email", "push"],
   });
 }
