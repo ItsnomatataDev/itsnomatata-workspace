@@ -26,12 +26,14 @@ export type ChatConversationLastMessage = {
   id: string;
   sender_id: string;
   body: string | null;
+  message_type?: ChatMessageType;
   created_at: string;
 };
 
 export type ChatConversation = {
   id: string;
   organization_id: string;
+  name?: string | null;
   title: string | null;
   type: ChatConversationType;
   created_by: string | null;

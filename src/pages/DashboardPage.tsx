@@ -9,12 +9,12 @@ import {
   Newspaper,
   Sparkles,
   ArrowRight,
-  BriefcaseBusiness,
   CheckCircle2,
   TimerReset,
   Pause,
   Play,
 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "../app/providers/AuthProvider";
 import Sidebar from "../components/dashboard/components/Sidebar";
 import TimeTrackerCard from "../components/dashboard/components/TimeTrackerCard";
@@ -31,6 +31,7 @@ function formatDuration(totalSeconds: number) {
   const pad = (value: number) => String(value).padStart(2, "0");
   return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
 }
+
 
 function StatCard({
   title,
@@ -62,6 +63,7 @@ function StatCard({
 }
 
 export default function DashboardPage() {
+  const navigate = useNavigate();
   const auth = useAuth();
   const user = auth?.user ?? null;
   const profile = auth?.profile ?? null;
@@ -140,12 +142,11 @@ export default function DashboardPage() {
     return () => window.clearInterval(interval);
   }, [activeTimer]);
 
-  // Fetch time tracked for each task
   useEffect(() => {
     if (!user?.id || !profile?.organization_id || tasks.length === 0) return;
 
     const fetchTaskTimes = async () => {
-      const taskIds = tasks.map((t) => t.id);
+      const taskIds = tasks.map((task) => task.id);
       const startOfToday = new Date(
         new Date().getFullYear(),
         new Date().getMonth(),
@@ -160,6 +161,7 @@ export default function DashboardPage() {
         .gte("started_at", startOfToday);
 
       const timeMap: Record<string, number> = {};
+
       (timeEntries || []).forEach((entry: any) => {
         const taskId = entry.task_id;
         const seconds = entry.duration_seconds || 0;
@@ -169,7 +171,7 @@ export default function DashboardPage() {
       setTaskTimeMap(timeMap);
     };
 
-    fetchTaskTimes();
+    void fetchTaskTimes();
   }, [user?.id, profile?.organization_id, tasks]);
 
   const completedTodaySeconds = useMemo(() => {
@@ -207,9 +209,10 @@ export default function DashboardPage() {
       }
     };
 
-    fetchAdminSummary();
-    const interval = setInterval(fetchAdminSummary, 60000);
-    return () => clearInterval(interval);
+    void fetchAdminSummary();
+
+    const interval = window.setInterval(fetchAdminSummary, 60000);
+    return () => window.clearInterval(interval);
   }, [organizationId, isAdminView]);
 
   if (authLoading) {
@@ -319,7 +322,7 @@ export default function DashboardPage() {
                     <div>
                       <h2 className="text-lg font-semibold">My Tasks</h2>
                       <p className="mt-1 text-sm text-white/50">
-                        Track work directly against real tasks
+                        Click a task to open its card details
                       </p>
                     </div>
 
@@ -343,17 +346,20 @@ export default function DashboardPage() {
                           : taskTime;
 
                         const getDueDateUrgency = () => {
-                          if (!task.due_date || task.status === "done")
+                          if (!task.due_date || task.status === "done") {
                             return null;
+                          }
+
                           const dueDate = new Date(task.due_date);
                           const today = new Date();
                           today.setHours(0, 0, 0, 0);
+
                           const diffDays = Math.ceil(
                             (dueDate.getTime() - today.getTime()) /
                               (1000 * 60 * 60 * 24),
                           );
 
-                          if (diffDays < 0)
+                          if (diffDays < 0) {
                             return {
                               level: "overdue",
                               text: `${Math.abs(diffDays)}d overdue`,
@@ -362,7 +368,9 @@ export default function DashboardPage() {
                               border: "border-red-500/30",
                               pulse: true,
                             };
-                          if (diffDays === 0)
+                          }
+
+                          if (diffDays === 0) {
                             return {
                               level: "today",
                               text: "Due today",
@@ -371,7 +379,9 @@ export default function DashboardPage() {
                               border: "border-red-500/30",
                               pulse: true,
                             };
-                          if (diffDays === 1)
+                          }
+
+                          if (diffDays === 1) {
                             return {
                               level: "tomorrow",
                               text: "Due tomorrow",
@@ -380,7 +390,9 @@ export default function DashboardPage() {
                               border: "border-orange-500/30",
                               pulse: false,
                             };
-                          if (diffDays <= 3)
+                          }
+
+                          if (diffDays <= 3) {
                             return {
                               level: "soon",
                               text: `Due in ${diffDays}d`,
@@ -389,6 +401,8 @@ export default function DashboardPage() {
                               border: "border-yellow-500/30",
                               pulse: false,
                             };
+                          }
+
                           return null;
                         };
 
@@ -397,13 +411,55 @@ export default function DashboardPage() {
                         return (
                           <div
                             key={task.id}
-                            className={`group flex flex-col gap-3 rounded-xl border px-4 py-4 transition-all hover:border-white/20 hover:bg-black/50 md:flex-row md:items-center md:justify-between ${
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => {
+                              const cardTask = task as typeof task & {
+                                client_id?: string | null;
+                                board_id?: string | null;
+                                project_id?: string | null;
+                              };
+
+                              const boardId =
+                                cardTask.client_id ??
+                                cardTask.board_id ??
+                                cardTask.project_id ??
+                                null;
+
+                              if (!boardId) return;
+
+                              navigate(`/boards/${boardId}?cardId=${task.id}`);
+                            }}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter" || event.key === " ") {
+                                event.preventDefault();
+
+                                const cardTask = task as typeof task & {
+                                  client_id?: string | null;
+                                  board_id?: string | null;
+                                  project_id?: string | null;
+                                };
+
+                                const boardId =
+                                  cardTask.client_id ??
+                                  cardTask.board_id ??
+                                  cardTask.project_id ??
+                                  null;
+
+                                if (!boardId) return;
+
+                                navigate(
+                                  `/boards/${boardId}?cardId=${task.id}`,
+                                );
+                              }
+                            }}
+                            className={`group flex cursor-pointer flex-col gap-3 rounded-2xl border px-4 py-4 transition-all hover:border-orange-500/30 hover:bg-black/60 hover:shadow-lg hover:shadow-orange-500/5 md:flex-row md:items-center md:justify-between ${
                               dueUrgency?.pulse
                                 ? "border-red-500/50 bg-red-500/5 animate-pulse"
                                 : "border-white/10 bg-black/40"
                             }`}
                           >
-                            <div className="flex-1 min-w-0">
+                            <div className="min-w-0 flex-1">
                               <div className="flex items-start gap-3">
                                 <div
                                   className={`mt-1 h-2 w-2 shrink-0 rounded-full ${
@@ -416,23 +472,33 @@ export default function DashboardPage() {
                                           : "bg-white/30"
                                   }`}
                                 />
+
                                 <div className="min-w-0 flex-1">
-                                  <p className="font-medium text-white truncate">
+                                  <p className="truncate font-medium text-white transition group-hover:text-orange-200">
                                     {task.title}
                                   </p>
+
                                   <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-white/45">
                                     <span className="uppercase tracking-wide">
                                       {task.status.replaceAll("_", " ")}
                                     </span>
+
                                     <span>·</span>
+
                                     <span className="capitalize">
                                       {task.priority}
                                     </span>
+
                                     {dueUrgency ? (
                                       <>
                                         <span>·</span>
+
                                         <span
-                                          className={`font-semibold ${dueUrgency.color} ${dueUrgency.pulse ? "animate-pulse" : ""}`}
+                                          className={`font-semibold ${dueUrgency.color} ${
+                                            dueUrgency.pulse
+                                              ? "animate-pulse"
+                                              : ""
+                                          }`}
                                         >
                                           {dueUrgency.text}
                                         </span>
@@ -440,6 +506,7 @@ export default function DashboardPage() {
                                     ) : task.due_date ? (
                                       <>
                                         <span>·</span>
+
                                         <span>
                                           Due:{" "}
                                           {new Date(
@@ -448,14 +515,16 @@ export default function DashboardPage() {
                                         </span>
                                       </>
                                     ) : null}
-                                    {totalTaskTime > 0 && (
+
+                                    {totalTaskTime > 0 ? (
                                       <>
                                         <span>·</span>
+
                                         <span className="text-orange-400">
                                           {formatDuration(totalTaskTime)} today
                                         </span>
                                       </>
-                                    )}
+                                    ) : null}
                                   </div>
                                 </div>
                               </div>
@@ -463,16 +532,24 @@ export default function DashboardPage() {
 
                             <div className="flex items-center gap-2">
                               {isTrackingThisTask ? (
-                                <div className="flex items-center gap-2 rounded-xl border border-orange-500/30 bg-orange-500/10 px-3 py-2">
-                                  <div className="h-2 w-2 rounded-full bg-orange-500 animate-pulse" />
-                                  <span className="text-sm font-mono font-semibold text-orange-400">
+                                <div
+                                  className="flex items-center gap-2 rounded-xl border border-orange-500/30 bg-orange-500/10 px-3 py-2"
+                                  onClick={(event) => event.stopPropagation()}
+                                >
+                                  <div className="h-2 w-2 animate-pulse rounded-full bg-orange-500" />
+
+                                  <span className="font-mono text-sm font-semibold text-orange-400">
                                     {formatDuration(liveSeconds)}
                                   </span>
+
                                   <button
                                     type="button"
                                     disabled={busy}
-                                    onClick={() => void stopTimer()}
-                                    className="ml-1 rounded-lg p-1 text-orange-400 hover:bg-orange-500/20 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      void stopTimer();
+                                    }}
+                                    className="ml-1 rounded-lg p-1 text-orange-400 transition hover:bg-orange-500/20 disabled:cursor-not-allowed disabled:opacity-50"
                                     title="Stop timer"
                                   >
                                     <Pause size={14} />
@@ -482,20 +559,22 @@ export default function DashboardPage() {
                                 <button
                                   type="button"
                                   disabled={busy || !!activeTimer}
-                                  onClick={() =>
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+
                                     void startTimer(
                                       task.id,
                                       `Working on ${task.title}`,
-                                    )
-                                  }
-                                  className="rounded-xl bg-orange-500 px-3 py-2 text-sm font-semibold text-black disabled:cursor-not-allowed disabled:opacity-60 hover:bg-orange-400 transition"
+                                    );
+                                  }}
+                                  className="rounded-xl bg-orange-500 px-3 py-2 text-sm font-semibold text-black transition hover:bg-orange-400 disabled:cursor-not-allowed disabled:opacity-60"
                                   title={
                                     !!activeTimer
                                       ? "Another timer is running"
                                       : "Start timer"
                                   }
                                 >
-                                  <Play size={14} className="inline mr-1" />
+                                  <Play size={14} className="mr-1 inline" />
                                   Track
                                 </button>
                               )}
@@ -706,12 +785,14 @@ export default function DashboardPage() {
                             : "—"}
                         </p>
                       </div>
+
                       <div className="rounded-xl border border-white/10 bg-black/30 p-4 text-center">
                         <p className="text-xs text-white/40">Active timers</p>
                         <p className="mt-2 text-xl font-bold text-green-400">
                           {adminSummary?.activeCount ?? "—"}
                         </p>
                       </div>
+
                       <div className="rounded-xl border border-white/10 bg-black/30 p-4 text-center">
                         <p className="text-xs text-white/40">Total cost</p>
                         <p className="mt-2 text-xl font-bold text-white">
@@ -741,6 +822,7 @@ export default function DashboardPage() {
                           Monitor team time records →
                         </a>
                       </div>
+
                       <div className="rounded-xl border border-white/10 bg-black/30 px-4 py-3">
                         <a
                           href="/timesheets/everhouradmin"
@@ -749,6 +831,7 @@ export default function DashboardPage() {
                           Review task-linked work logs →
                         </a>
                       </div>
+
                       <div className="rounded-xl border border-white/10 bg-black/30 px-4 py-3">
                         <a
                           href="/timesheets/reports"

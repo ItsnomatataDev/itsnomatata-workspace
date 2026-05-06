@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { ArrowLeft, MessageSquareX } from "lucide-react";
 import { useAuth } from "../../../lib/hooks/useAuth";
 import { supabase } from "../../../lib/supabase/client";
@@ -9,6 +9,7 @@ import MessageList from "../components/MessageList";
 import NewChatModal from "../components/NewChatModal";
 import {
   createGroupConversation,
+  deleteConversationForUser,
   findOrCreateDirectConversation,
   getConversations,
   getMessages,
@@ -20,8 +21,39 @@ import { subscribeToConversationMessages, subscribeToUserPresence } from "../ser
 import { createTypingChannel } from "../services/chatTyping";
 import type { ChatConversation, ChatMessage, ChatUser } from "../types/chat";
 
+function getMessagePreview(message: Pick<
+  ChatMessage,
+  "body" | "message_type" | "attachment_name" | "is_deleted"
+>) {
+  if (message.is_deleted) return "This message was deleted.";
+  if (message.message_type === "image") return "Image";
+  if (message.message_type === "audio") return "Voice note";
+  if (message.message_type === "file") {
+    return message.attachment_name
+      ? `File: ${message.attachment_name}`
+      : "File";
+  }
+  return message.body || "Sent a message";
+}
+
+function getConversationSortTime(conversation: ChatConversation) {
+  return new Date(
+    conversation.last_message?.created_at ??
+      conversation.last_message_at ??
+      conversation.updated_at ??
+      conversation.created_at,
+  ).getTime();
+}
+
+function sortConversations(conversations: ChatConversation[]) {
+  return [...conversations].sort(
+    (a, b) => getConversationSortTime(b) - getConversationSortTime(a),
+  );
+}
+
 export default function ChatPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user, profile } = useAuth();
 
   const [loadingConversations, setLoadingConversations] = useState(true);
@@ -46,6 +78,10 @@ export default function ChatPage() {
   > | null>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const deepLinkedConversationId = useMemo(
+    () => new URLSearchParams(location.search).get("conversationId"),
+    [location.search],
+  );
 
   const activeConversation = useMemo(
     () =>
@@ -129,9 +165,120 @@ export default function ChatPage() {
     return `${typingNames[0]}, ${typingNames[1]} and others are typing...`;
   }, [typingNames, activeConversation?.type]);
 
+  const mergeConversationMessage = useCallback(
+    (message: ChatMessage, options?: { forceUnreadZero?: boolean }) => {
+      let foundConversation = false;
+
+      setConversations((current) => {
+        const next = current.map((conversation) => {
+          if (conversation.id !== message.conversation_id) {
+            return conversation;
+          }
+
+          foundConversation = true;
+
+          const isOpenConversation =
+            conversation.id === activeConversationId ||
+            options?.forceUnreadZero === true;
+          const isFromCurrentUser = message.sender_id === user?.id;
+
+          return {
+            ...conversation,
+            members: conversation.members,
+            last_message_at: message.created_at,
+            updated_at: message.created_at,
+            last_message: {
+              id: message.id,
+              sender_id: message.sender_id,
+              body: getMessagePreview(message),
+              message_type: message.message_type,
+              created_at: message.created_at,
+            },
+            unread_count:
+              isOpenConversation || isFromCurrentUser
+                ? 0
+                : (conversation.unread_count ?? 0) + 1,
+          };
+        });
+
+        return sortConversations(next);
+      });
+
+      if (!foundConversation) {
+        void loadConversations();
+      }
+    },
+    [activeConversationId, user?.id],
+  );
+
   useEffect(() => {
     void loadConversations();
   }, [user?.id]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const channel = supabase
+      .channel(`chat:sidebar:${user.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "chat_messages",
+        },
+        (payload) => {
+          mergeConversationMessage(payload.new as ChatMessage);
+        },
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "chat_messages",
+        },
+        (payload) => {
+          const updatedMessage = payload.new as ChatMessage;
+          setConversations((current) =>
+            sortConversations(
+              current.map((conversation) => {
+                if (conversation.last_message?.id !== updatedMessage.id) {
+                  return conversation;
+                }
+
+                return {
+                  ...conversation,
+                  last_message: {
+                    ...conversation.last_message,
+                    body: getMessagePreview(updatedMessage),
+                    message_type: updatedMessage.message_type,
+                    created_at: updatedMessage.created_at,
+                  },
+                };
+              }),
+            ),
+          );
+        },
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [mergeConversationMessage, user?.id]);
+
+  useEffect(() => {
+    if (!deepLinkedConversationId || conversations.length === 0) return;
+
+    const exists = conversations.some(
+      (conversation) => conversation.id === deepLinkedConversationId,
+    );
+
+    if (exists) {
+      setActiveConversationId(deepLinkedConversationId);
+    }
+  }, [conversations, deepLinkedConversationId]);
 
   // Temporarily disable presence subscription to prevent overwriting profile data
   // useEffect(() => {
@@ -213,51 +360,19 @@ export default function ChatPage() {
           return [...current, incomingMessage];
         });
 
-        setConversations((current) =>
-          current
-            .map((conversation) =>
-              conversation.id === activeConversationId
-                ? {
-                    ...conversation,
-                    members: conversation.members, // Preserve members with profiles
-                    last_message_at: incomingMessage.created_at,
-                    updated_at: incomingMessage.created_at,
-                    last_message: {
-                      id: incomingMessage.id,
-                      sender_id: incomingMessage.sender_id,
-                      body:
-                        incomingMessage.message_type === "image"
-                          ? "📷 Image"
-                          : incomingMessage.message_type === "audio"
-                            ? "🎤 Voice note"
-                            : incomingMessage.message_type === "file"
-                              ? "📎 File"
-                              : incomingMessage.body || "Sent a message",
-                      created_at: incomingMessage.created_at,
-                    },
-                    unread_count: 0,
-                  }
-                : {
-                    ...conversation,
-                    members: conversation.members, // Preserve members with profiles
-                    unread_count:
-                      incomingMessage.conversation_id === conversation.id &&
-                      incomingMessage.sender_id !== user?.id
-                        ? (conversation.unread_count ?? 0) + 1
-                        : conversation.unread_count,
-                  },
-            )
-            .sort((a, b) => {
-              const aTime = a.last_message_at ?? a.created_at;
-              const bTime = b.last_message_at ?? b.created_at;
-              return new Date(bTime).getTime() - new Date(aTime).getTime();
-            }),
-        );
+        mergeConversationMessage(incomingMessage, { forceUnreadZero: true });
       },
       onUpdate: (updatedMessage) => {
         setMessages((current) =>
           current.map((message) =>
-            message.id === updatedMessage.id ? updatedMessage : message,
+            message.id === updatedMessage.id
+              ? {
+                  ...message,
+                  ...updatedMessage,
+                  sender_profile:
+                    updatedMessage.sender_profile ?? message.sender_profile,
+                }
+              : message,
           ),
         );
       },
@@ -303,7 +418,7 @@ export default function ChatPage() {
 
       setTypingUsers({});
     };
-  }, [activeConversationId, user?.id]);
+  }, [activeConversationId, mergeConversationMessage, user?.id]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -344,7 +459,6 @@ export default function ChatPage() {
       setLoadingConversations(true);
 
       const data = await getConversations(user?.id);
-      console.log("Loaded conversations with profiles:", data);
       setConversations(data);
 
       // Intentionally do not auto-open the latest conversation.
@@ -378,38 +492,7 @@ export default function ChatPage() {
   }
 
   function updateConversationAfterSend(sentMessage: ChatMessage) {
-    setConversations((current) =>
-      current
-        .map((conversation) =>
-          conversation.id === sentMessage.conversation_id
-            ? {
-                ...conversation,
-                members: conversation.members, // Preserve members with profiles
-                last_message_at: sentMessage.created_at,
-                updated_at: sentMessage.created_at,
-                last_message: {
-                  id: sentMessage.id,
-                  sender_id: sentMessage.sender_id,
-                  body:
-                    sentMessage.message_type === "image"
-                      ? "📷 Image"
-                      : sentMessage.message_type === "audio"
-                        ? "🎤 Voice note"
-                        : sentMessage.message_type === "file"
-                          ? "📎 File"
-                          : sentMessage.body || "Sent a message",
-                  created_at: sentMessage.created_at,
-                },
-                unread_count: 0,
-              }
-            : conversation,
-        )
-        .sort((a, b) => {
-          const aTime = a.last_message_at ?? a.created_at;
-          const bTime = b.last_message_at ?? b.created_at;
-          return new Date(bTime).getTime() - new Date(aTime).getTime();
-        }),
-    );
+    mergeConversationMessage(sentMessage, { forceUnreadZero: true });
   }
 
   function handleCloseChat() {
@@ -646,6 +729,41 @@ export default function ChatPage() {
     }
   }
 
+  async function handleDeleteConversation(conversation: ChatConversation) {
+    if (!user?.id) return;
+
+    const label = conversation.display_name || conversation.title || "this chat";
+    const confirmed = window.confirm(
+      `Delete "${label}" from your chat list? You will leave this conversation and it will disappear from your sidebar.`,
+    );
+
+    if (!confirmed) return;
+
+    try {
+      setError("");
+
+      await deleteConversationForUser({
+        conversationId: conversation.id,
+        userId: user.id,
+      });
+
+      setConversations((current) =>
+        current.filter((item) => item.id !== conversation.id),
+      );
+
+      if (activeConversationId === conversation.id) {
+        handleCloseChat();
+      }
+    } catch (err) {
+      console.error("DELETE CONVERSATION ERROR:", err);
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to delete the chat.",
+      );
+    }
+  }
+
   function handleTyping() {
     if (!user?.id || !typingChannelRef.current) return;
 
@@ -714,6 +832,7 @@ export default function ChatPage() {
           conversations={conversations}
           activeConversationId={activeConversationId}
           onSelectConversation={setActiveConversationId}
+          onDeleteConversation={handleDeleteConversation}
           onNewChat={() => setNewChatOpen(true)}
           loading={loadingConversations}
           currentUserId={user?.id}
@@ -821,6 +940,7 @@ export default function ChatPage() {
               loading={loadingMessages}
               hasConversation={Boolean(activeConversationId)}
               conversation={activeConversation}
+              currentUserRole={profile?.primary_role ?? null}
               onMessageDeleted={(messageId) => {
                 setMessages((current) =>
                   current.map((message) =>

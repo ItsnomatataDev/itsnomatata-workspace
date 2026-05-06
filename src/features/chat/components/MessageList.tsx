@@ -45,6 +45,7 @@ export default function MessageList({
   hasConversation,
   conversation,
   onMessageDeleted,
+  currentUserRole,
 }: {
   messages: ChatMessage[];
   currentUserId: string | undefined;
@@ -52,6 +53,7 @@ export default function MessageList({
   hasConversation: boolean;
   conversation: ChatConversation | null;
   onMessageDeleted?: (messageId: string) => void;
+  currentUserRole?: string | null;
 }) {
   if (!hasConversation) {
     return (
@@ -82,6 +84,16 @@ export default function MessageList({
           message.sender_profile?.email ||
           "Unknown user";
         const online = isRecentlyOnline(message.sender_profile?.last_seen_at);
+        const membership = conversation?.members?.find(
+          (member) => member.user_id === currentUserId,
+        );
+        const canDelete =
+          !message.is_deleted &&
+          Boolean(currentUserId) &&
+          (isMine ||
+            currentUserRole === "admin" ||
+            membership?.role === "owner" ||
+            membership?.role === "admin");
         const seenStatus = getSeenStatus({
           message,
           currentUserId,
@@ -90,12 +102,18 @@ export default function MessageList({
         });
 
         const handleDelete = async () => {
-          if (!currentUserId || !isMine) return;
+          if (!currentUserId || !canDelete) return;
+          const confirmed = window.confirm(
+            "Delete this message? It will be hidden from the conversation.",
+          );
+          if (!confirmed) return;
+
           try {
             await deleteMessage({ messageId: message.id, userId: currentUserId });
             onMessageDeleted?.(message.id);
           } catch (err) {
             console.error("Failed to delete message:", err);
+            window.alert("Unable to delete this message. Your permissions may not allow it.");
           }
         };
 
@@ -189,11 +207,16 @@ export default function MessageList({
                 </p>
 
                 <div className="flex items-center gap-2">
-                  {isMine && !message.is_deleted ? (
+                  {canDelete ? (
                     <button
                       type="button"
                       onClick={handleDelete}
-                      className="rounded p-1 text-black/50 hover:bg-black/10 hover:text-black"
+                      className={[
+                        "rounded p-1 transition",
+                        isMine
+                          ? "text-black/50 hover:bg-black/10 hover:text-black"
+                          : "text-white/40 hover:bg-white/10 hover:text-white",
+                      ].join(" ")}
                       title="Delete message"
                     >
                       <Trash2 size={12} />

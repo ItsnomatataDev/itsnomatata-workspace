@@ -8,8 +8,6 @@ export function subscribeToConversationMessages(params: {
   onUpdate?: (message: ChatMessage) => void;
   onDelete?: (messageId: string) => void;
 }) {
-  console.log(`[chat] Setting up realtime subscription for conversation ${params.conversationId}`);
-
   const channel: RealtimeChannel = supabase
     .channel(`chat:conversation:${params.conversationId}`)
     .on(
@@ -21,7 +19,6 @@ export function subscribeToConversationMessages(params: {
         filter: `conversation_id=eq.${params.conversationId}`,
       },
       (payload) => {
-        console.log(`[chat] Received INSERT event for message:`, payload.new);
         params.onMessage(payload.new as ChatMessage);
       },
     )
@@ -34,7 +31,6 @@ export function subscribeToConversationMessages(params: {
         filter: `conversation_id=eq.${params.conversationId}`,
       },
       (payload) => {
-        console.log(`[chat] Received UPDATE event for message:`, payload.new);
         params.onUpdate?.(payload.new as ChatMessage);
       },
     )
@@ -47,17 +43,11 @@ export function subscribeToConversationMessages(params: {
         filter: `conversation_id=eq.${params.conversationId}`,
       },
       (payload) => {
-        console.log(`[chat] Received DELETE event for message:`, payload.old);
         params.onDelete?.(payload.old.id as string);
       },
     )
     .subscribe((status) => {
-      console.log(`[chat] Subscription status for conversation ${params.conversationId}:`, status);
-      if (status === "SUBSCRIBED") {
-        console.log(
-          `[chat] realtime active for conversation ${params.conversationId}`,
-        );
-      } else if (status === "CHANNEL_ERROR") {
+      if (status === "CHANNEL_ERROR") {
         console.error(
           `[chat] realtime error for conversation ${params.conversationId}`,
         );
@@ -69,7 +59,6 @@ export function subscribeToConversationMessages(params: {
     });
 
   return () => {
-    console.log(`[chat] Cleaning up realtime subscription for conversation ${params.conversationId}`);
     void supabase.removeChannel(channel);
   };
 }
@@ -97,13 +86,7 @@ export function subscribeToConversationMembers(params: {
         }
       },
     )
-    .subscribe((status) => {
-      if (status === "SUBSCRIBED") {
-        console.log(
-          `[chat] member realtime active for conversation ${params.conversationId}`,
-        );
-      }
-    });
+    .subscribe();
 
   return () => {
     void supabase.removeChannel(channel);

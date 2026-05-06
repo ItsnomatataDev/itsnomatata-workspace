@@ -1,4 +1,4 @@
-import { MessageSquare, Plus } from "lucide-react";
+import { MessageSquare, Plus, Trash2, Users } from "lucide-react";
 import type { ChatConversation } from "../types/chat";
 
 function formatConversationTime(value?: string | null) {
@@ -47,6 +47,56 @@ function getMessagePreview(
   return `${prefix}${conversation.last_message.body || "Sent a message"}`;
 }
 
+function getInitials(value?: string | null) {
+  const clean = value?.trim();
+  if (!clean) return "?";
+
+  const parts = clean.split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) {
+    return `${parts[0][0] ?? ""}${parts[1][0] ?? ""}`.toUpperCase();
+  }
+
+  return clean.slice(0, 2).toUpperCase();
+}
+
+function getConversationDisplayName(
+  conversation: ChatConversation,
+  currentUserId?: string | null,
+) {
+  if (conversation.display_name?.trim()) {
+    return conversation.display_name.trim();
+  }
+
+  if (conversation.type === "direct") {
+    const otherMember = conversation.members?.find(
+      (member) => member.user_id !== currentUserId,
+    );
+
+    return (
+      otherMember?.profile?.full_name?.trim() ||
+      otherMember?.profile?.email?.trim() ||
+      "Unknown user"
+    );
+  }
+
+  const explicitName = conversation.name?.trim() || conversation.title?.trim();
+  if (explicitName && !explicitName.startsWith("direct:")) return explicitName;
+
+  const participantNames = (conversation.members ?? [])
+    .filter((member) => member.user_id !== currentUserId)
+    .map(
+      (member) =>
+        member.profile?.full_name?.trim() ||
+        member.profile?.email?.trim() ||
+        null,
+    )
+    .filter((value): value is string => Boolean(value));
+
+  return participantNames.length > 0
+    ? participantNames.join(", ")
+    : "Group conversation";
+}
+
 function isOnline(lastSeenAt?: string | null) {
   if (!lastSeenAt) return false;
   return Date.now() - new Date(lastSeenAt).getTime() <= 2 * 60 * 1000;
@@ -56,6 +106,7 @@ export default function ChatSidebar({
   conversations,
   activeConversationId,
   onSelectConversation,
+  onDeleteConversation,
   onNewChat,
   loading,
   currentUserId,
@@ -64,6 +115,7 @@ export default function ChatSidebar({
   conversations: ChatConversation[];
   activeConversationId: string | null;
   onSelectConversation: (conversationId: string) => void;
+  onDeleteConversation: (conversation: ChatConversation) => void;
   onNewChat: () => void;
   loading: boolean;
   currentUserId?: string | null;
@@ -117,22 +169,49 @@ export default function ChatSidebar({
                   : null;
 
               const online = isOnline(otherMember?.profile?.last_seen_at);
+              const displayName = getConversationDisplayName(
+                conversation,
+                currentUserId,
+              );
+              const latestTime =
+                conversation.last_message?.created_at ??
+                conversation.last_message_at ??
+                conversation.updated_at ??
+                conversation.created_at;
 
               return (
-                <button
+                <div
                   key={conversation.id}
-                  type="button"
+                  role="button"
+                  tabIndex={0}
                   onClick={() => onSelectConversation(conversation.id)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      onSelectConversation(conversation.id);
+                    }
+                  }}
                   className={[
-                    "w-full border px-4 py-3 text-left transition",
+                    "group w-full cursor-pointer rounded-2xl border px-4 py-3 text-left transition",
                     isActive
-                      ? "border-orange-500 bg-orange-500/10"
-                      : "border-white/10 bg-white/3 hover:bg-white/6",
+                      ? "border-orange-500/70 bg-orange-500/15 shadow-lg shadow-orange-500/5"
+                      : "border-white/10 bg-white/3 hover:border-white/15 hover:bg-white/6",
                   ].join(" ")}
                 >
                   <div className="flex items-start gap-3">
-                    <div className="relative mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/10">
-                      <MessageSquare size={18} className="text-orange-400" />
+                    <div
+                      className={[
+                        "relative mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border text-sm font-bold",
+                        isActive
+                          ? "border-orange-500/35 bg-orange-500/20 text-orange-200"
+                          : "border-white/10 bg-white/8 text-white/80",
+                      ].join(" ")}
+                    >
+                      {conversation.type === "direct" ? (
+                        getInitials(displayName)
+                      ) : (
+                        <Users size={18} className="text-orange-300" />
+                      )}
                       {conversation.type === "direct" ? (
                         <span
                           className={[
@@ -145,20 +224,16 @@ export default function ChatSidebar({
 
                     <div className="min-w-0 flex-1">
                       <div className="flex items-start justify-between gap-2">
-                        <p className="truncate text-sm font-medium text-white">
-                          {conversation.display_name ||
-                            otherMember?.profile?.full_name ||
-                            otherMember?.profile?.email ||
-                            (otherMember?.user_id ? 'User ' + otherMember.user_id.substring(0, 8) : null) ||
-                            "Direct conversation"}
-                        </p>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium text-white">
+                            {displayName}
+                          </p>
+                        </div>
 
                         <div className="flex shrink-0 items-center gap-2">
-                          {conversation.last_message?.created_at ? (
+                          {latestTime ? (
                             <span className="text-[11px] text-white/35">
-                              {formatConversationTime(
-                                conversation.last_message.created_at,
-                              )}
+                              {formatConversationTime(latestTime)}
                             </span>
                           ) : null}
 
@@ -167,9 +242,30 @@ export default function ChatSidebar({
                             <span className="rounded-full bg-orange-500 px-2 py-0.5 text-[11px] font-semibold text-black">
                               {conversation.unread_count > 99
                                 ? "99+"
-                                : conversation.unread_count}
+                              : conversation.unread_count}
                             </span>
                           ) : null}
+
+                          <span
+                            role="button"
+                            tabIndex={0}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              onDeleteConversation(conversation);
+                            }}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter" || event.key === " ") {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                onDeleteConversation(conversation);
+                              }
+                            }}
+                            className="rounded-lg p-1 text-white/25 opacity-100 transition hover:bg-red-500/10 hover:text-red-300 sm:opacity-0 sm:group-hover:opacity-100"
+                            title="Delete chat"
+                            aria-label={`Delete ${displayName}`}
+                          >
+                            <Trash2 size={13} />
+                          </span>
                         </div>
                       </div>
 
@@ -177,12 +273,13 @@ export default function ChatSidebar({
                         {getMessagePreview(conversation, currentUserId)}
                       </p>
 
-                      <p className="mt-1 text-[11px] uppercase tracking-wide text-white/30">
-                        {conversation.type}
-                      </p>
+                      <div className="mt-2 flex items-center gap-2 text-[11px] uppercase tracking-wide text-white/30">
+                        <MessageSquare size={11} className="text-orange-500/70" />
+                        <span>{conversation.type.replace("_", " ")}</span>
+                      </div>
                     </div>
                   </div>
-                </button>
+                </div>
               );
             })}
           </div>

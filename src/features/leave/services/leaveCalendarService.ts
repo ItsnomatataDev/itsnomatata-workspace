@@ -162,7 +162,7 @@ export async function getApprovedLeaveCalendarEvents(organizationId: string) {
     .from("leave_requests")
     .select(LEAVE_CALENDAR_EVENT_SELECT)
     .eq("organization_id", organizationId)
-    .in("status", ["pending", "approved", "rejected", "cancelled"])
+    .in("status", ["pending", "approved"])
     .order("start_date", { ascending: true }) as {
       data: Partial<LeaveCalendarEventRow>[] | null;
       error: unknown | null;
@@ -173,7 +173,7 @@ export async function getApprovedLeaveCalendarEvents(organizationId: string) {
       .from("leave_requests")
       .select(LEGACY_LEAVE_CALENDAR_EVENT_SELECT)
       .eq("organization_id", organizationId)
-      .in("status", ["pending", "approved", "rejected", "cancelled"])
+      .in("status", ["pending", "approved"])
       .order("start_date", { ascending: true }) as {
         data: Partial<LeaveCalendarEventRow>[] | null;
         error: unknown | null;
@@ -182,7 +182,9 @@ export async function getApprovedLeaveCalendarEvents(organizationId: string) {
 
   if (result.error) throw result.error;
 
-  const rows = (result.data ?? []).map(normalizeLeaveCalendarEvent);
+  const rows = (result.data ?? [])
+    .map(normalizeLeaveCalendarEvent)
+    .filter((row) => row.status === "approved" || row.status === "pending");
   const userIds = [...new Set(rows.map((item) => item.user_id))];
 
   if (userIds.length === 0) return rows;

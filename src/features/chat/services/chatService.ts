@@ -4,7 +4,10 @@ import {
 } from "../../notifications/services/notificationService";
 import type {
   ChatConversation,
+  ChatConversationMember,
+  ChatConversationMemberProfile,
   ChatMessage,
+  ChatMessageType,
   ChatUser,
   SendChatMessageInput,
 } from "../types/chat";
@@ -23,6 +26,111 @@ type BulkNotificationSummary = {
   }>;
 };
 
+type ConversationMemberRow = Omit<ChatConversationMember, "profile">;
+
+type ConversationRow = Omit<
+  ChatConversation,
+  "members" | "display_name" | "unread_count" | "last_message"
+> & {
+  members?: ConversationMemberRow[];
+};
+
+type LastMessageRow = {
+  conversation_id: string;
+  id: string;
+  sender_id: string;
+  body: string | null;
+  message_type: ChatMessageType;
+  attachment_name: string | null;
+  created_at: string;
+  is_deleted: boolean;
+};
+
+type UnreadMessageRow = {
+  conversation_id: string;
+  id: string;
+  sender_id: string;
+  created_at: string;
+};
+
+function getChatMessagePreview(params: {
+  body?: string | null;
+  messageType?: string | null;
+  attachmentName?: string | null;
+  isDeleted?: boolean;
+}) {
+  if (params.isDeleted) return "This message was deleted.";
+
+  const body = params.body?.trim() ?? "";
+  const type = params.messageType ?? "text";
+
+  if (type === "image") {
+    return params.attachmentName ? `Image: ${params.attachmentName}` : "Image";
+  }
+
+  if (type === "audio") return "Voice note";
+
+  if (type === "file") {
+    return params.attachmentName ? `File: ${params.attachmentName}` : "File";
+  }
+
+  if (type === "system") return body || "System message";
+
+  return body || "New message";
+}
+
+function getConversationSortTime(conversation: ChatConversation) {
+  return new Date(
+    conversation.last_message?.created_at ??
+      conversation.last_message_at ??
+      conversation.updated_at ??
+      conversation.created_at,
+  ).getTime();
+}
+
+function sortConversations(conversations: ChatConversation[]) {
+  return [...conversations].sort(
+    (a, b) => getConversationSortTime(b) - getConversationSortTime(a),
+  );
+}
+
+function getConversationDisplayName(params: {
+  conversation: ConversationRow;
+  members: ChatConversationMember[];
+  currentUserId?: string;
+}) {
+  if (params.conversation.type === "direct") {
+    const otherMember = params.members.find(
+      (member) => member.user_id !== params.currentUserId,
+    );
+
+    return (
+      otherMember?.profile?.full_name?.trim() ||
+      otherMember?.profile?.email?.trim() ||
+      "Unknown user"
+    );
+  }
+
+  const explicitName =
+    params.conversation.name?.trim() || params.conversation.title?.trim();
+
+  if (explicitName && !explicitName.startsWith("direct:")) return explicitName;
+
+  const participantNames = params.members
+    .filter((member) => member.user_id !== params.currentUserId)
+    .map(
+      (member) =>
+        member.profile?.full_name?.trim() ||
+        member.profile?.email?.trim() ||
+        null,
+    )
+    .filter((value): value is string => Boolean(value));
+
+  return participantNames.length > 0
+    ? participantNames.join(", ")
+    : "Group conversation";
+}
+
 async function dispatchChatNotificationsWithFallback(params: {
   organizationId: string;
   userIds: string[];
@@ -38,6 +146,8 @@ async function dispatchChatNotificationsWithFallback(params: {
   referenceType: "chat_conversation";
   actorUserId: string;
   dedupeKey: string;
+  channels?: ReadonlyArray<"in_app" | "push">;
+  sendEmail?: false;
 }) {
   async function createViaEdge() {
     const { data, error } = await supabase.functions.invoke(
@@ -62,6 +172,8 @@ async function dispatchChatNotificationsWithFallback(params: {
           actorUserId: params.actorUserId,
           category: "chat",
           dedupeKey: params.dedupeKey,
+          channels: params.channels ?? ["in_app", "push"],
+          sendEmail: params.sendEmail ?? false,
         },
       },
     );
@@ -73,7 +185,8 @@ async function dispatchChatNotificationsWithFallback(params: {
   try {
     const result = await sendBulkNotifications({
       ...params,
-      sendEmail: true,
+      channels: ["in_app", "push"],
+      sendEmail: false as const,
     }) as BulkNotificationSummary;
 
     if (result.ok === false || (result.failed ?? 0) > 0) {
@@ -103,30 +216,7 @@ function buildMessagePreview(params: {
   messageType?: string | null;
   attachmentName?: string | null;
 }) {
-  const body = params.body?.trim() ?? "";
-  const type = params.messageType ?? "text";
-
-  if (type === "image") {
-    return params.attachmentName
-      ? `📷 Image: ${params.attachmentName}`
-      : "📷 Image";
-  }
-
-  if (type === "audio") {
-    return "🎤 Voice note";
-  }
-
-  if (type === "file") {
-    return params.attachmentName
-      ? `📎 File: ${params.attachmentName}`
-      : "📎 File";
-  }
-
-  if (type === "system") {
-    return body || "System message";
-  }
-
-  return body || "New message";
+  return getChatMessagePreview(params);
 }
 
 async function getConversationMeta(conversationId: string) {
@@ -179,11 +269,7 @@ async function notifyConversationMembers(params: {
       getConversationRecipientIds(params.conversationId, params.senderId),
     ]);
 
-    console.log("CHAT conversation meta:", conversation);
-    console.log("CHAT recipient IDs:", recipientIds);
-
     if (recipientIds.length === 0) {
-      console.log("CHAT notification skipped: no recipients found");
       return;
     }
 
@@ -205,7 +291,7 @@ async function notifyConversationMembers(params: {
       message: preview,
       entityType: "chat" as const,
       entityId: conversation.id,
-      actionUrl: "/chat",
+      actionUrl: `/chat?conversationId=${conversation.id}&messageId=${params.messageId}`,
       priority: "medium" as const,
       metadata: {
         conversationId: conversation.id,
@@ -221,14 +307,11 @@ async function notifyConversationMembers(params: {
       actorUserId: params.senderId,
       category: "chat",
       dedupeKey: `chat-message:${params.messageId}`,
-      sendEmail: true,
+      channels: ["in_app", "push"] as const,
+      sendEmail: false as const,
     };
 
-    console.log("CHAT notification payload:", payload);
-
-    const result = await dispatchChatNotificationsWithFallback(payload);
-
-    console.log("CHAT notification success:", result);
+    await dispatchChatNotificationsWithFallback(payload);
   } catch (error) {
     console.error("CHAT NOTIFICATION ERROR:", error);
   }
@@ -236,6 +319,26 @@ async function notifyConversationMembers(params: {
 export async function getConversations(
   currentUserId?: string,
 ): Promise<ChatConversation[]> {
+  if (!currentUserId) return [];
+
+  const { data: currentMemberships, error: currentMembershipsError } =
+    await supabase
+      .from("chat_conversation_members")
+      .select("conversation_id")
+      .eq("user_id", currentUserId);
+
+  if (currentMembershipsError) throw currentMembershipsError;
+
+  const visibleConversationIds = [
+    ...new Set(
+      (currentMemberships ?? [])
+        .map((membership) => membership.conversation_id)
+        .filter(Boolean),
+    ),
+  ];
+
+  if (visibleConversationIds.length === 0) return [];
+
   const { data, error } = await supabase
     .from("chat_conversations")
     .select(`
@@ -250,14 +353,13 @@ export async function getConversations(
         last_read_message_id
       )
     `)
+    .in("id", visibleConversationIds)
     .order("last_message_at", { ascending: false, nullsFirst: false })
     .order("created_at", { ascending: false });
 
   if (error) throw error;
 
-  const conversations = (data ?? []) as ChatConversation[];
-
-  console.log("Raw conversations with members:", conversations.map(c => ({ id: c.id, members: c.members })));
+  const conversations = (data ?? []) as ConversationRow[];
 
   // Collect all user IDs from conversation members
   const allUserIds = new Set<string>();
@@ -267,39 +369,49 @@ export async function getConversations(
     });
   });
 
-  console.log("User IDs to fetch profiles for:", Array.from(allUserIds));
-
   // Fetch all profiles in a single query
   // Note: This relies on profiles RLS policy allowing viewing org members
-  const { data: profilesData, error: profilesError } = await supabase
-    .from("profiles")
-    .select("id, full_name, email, last_seen_at")
-    .in("id", Array.from(allUserIds));
+  const profileIds = Array.from(allUserIds);
+  const profilesResult =
+    profileIds.length > 0
+      ? await supabase
+          .from("profiles")
+          .select("id, full_name, email, last_seen_at")
+          .in("id", profileIds)
+      : { data: [], error: null };
+
+  const profilesData = profilesResult.data as ChatConversationMemberProfile[];
+  const profilesError = profilesResult.error;
 
   if (profilesError) {
     console.error("Failed to fetch profiles:", profilesError);
   }
 
-  console.log("Fetched profiles:", profilesData);
-
   // Create a map of user_id -> profile
-  const profilesMap = new Map(
-    (profilesData ?? []).map((p) => [p.id, p]),
-  );
+  const profilesMap = new Map((profilesData ?? []).map((p) => [p.id, p]));
 
   // Fetch last messages for all conversations
-  const conversationIds = conversations.map(c => c.id);
-  const { data: lastMessagesData, error: lastMessagesError } = await supabase
-    .from("chat_messages")
-    .select("conversation_id, id, sender_id, body, message_type, attachment_name, created_at, is_deleted")
-    .in("conversation_id", conversationIds);
+  const conversationIds = conversations.map((conversation) => conversation.id);
+  const lastMessagesResult =
+    conversationIds.length > 0
+      ? await supabase
+          .from("chat_messages")
+          .select(
+            "conversation_id, id, sender_id, body, message_type, attachment_name, created_at, is_deleted",
+          )
+          .in("conversation_id", conversationIds)
+          .order("created_at", { ascending: false })
+      : { data: [], error: null };
+
+  const lastMessagesData = lastMessagesResult.data as LastMessageRow[];
+  const lastMessagesError = lastMessagesResult.error;
 
   if (lastMessagesError) {
     console.error("Failed to fetch last messages:", lastMessagesError);
   }
 
   // Create a map of conversation_id -> last message
-  const lastMessagesMap = new Map<string, any>();
+  const lastMessagesMap = new Map<string, LastMessageRow>();
   (lastMessagesData ?? []).forEach((msg) => {
     const existing = lastMessagesMap.get(msg.conversation_id);
     if (!existing || new Date(msg.created_at) > new Date(existing.created_at)) {
@@ -308,18 +420,24 @@ export async function getConversations(
   });
 
   // Fetch all messages to calculate unread counts
-  const { data: allMessagesData, error: allMessagesError } = await supabase
-    .from("chat_messages")
-    .select("conversation_id, id, sender_id, created_at")
-    .in("conversation_id", conversationIds)
-    .order("created_at", { ascending: true });
+  const allMessagesResult =
+    conversationIds.length > 0
+      ? await supabase
+          .from("chat_messages")
+          .select("conversation_id, id, sender_id, created_at")
+          .in("conversation_id", conversationIds)
+          .order("created_at", { ascending: true })
+      : { data: [], error: null };
+
+  const allMessagesData = allMessagesResult.data as UnreadMessageRow[];
+  const allMessagesError = allMessagesResult.error;
 
   if (allMessagesError) {
     console.error("Failed to fetch all messages for unread count:", allMessagesError);
   }
 
   // Create a map of conversation_id -> array of messages
-  const messagesByConversation = new Map<string, any[]>();
+  const messagesByConversation = new Map<string, UnreadMessageRow[]>();
   (allMessagesData ?? []).forEach((msg) => {
     if (!messagesByConversation.has(msg.conversation_id)) {
       messagesByConversation.set(msg.conversation_id, []);
@@ -327,42 +445,35 @@ export async function getConversations(
     messagesByConversation.get(msg.conversation_id)!.push(msg);
   });
 
-  return conversations.map((conversation) => {
+  return sortConversations(conversations.map((conversation) => {
     // Attach profiles to members
     const membersWithProfiles = conversation.members?.map((member) => ({
       ...member,
       profile: profilesMap.get(member.user_id) || null,
-    }));
+    })) ?? [];
 
     const myMembership = membersWithProfiles?.find(
       (member) => member.user_id === currentUserId,
     );
 
-    const otherMember = membersWithProfiles?.find(
-      (member) => member.user_id !== currentUserId,
-    );
-
-    const displayName = conversation.type === "direct"
-      ? otherMember?.profile?.full_name ||
-        otherMember?.profile?.email ||
-        (otherMember?.user_id ? 'User ' + otherMember.user_id.substring(0, 8) : null) ||
-        "Direct conversation"
-      : conversation.title || "Untitled conversation";
+    const displayName = getConversationDisplayName({
+      conversation,
+      members: membersWithProfiles,
+      currentUserId,
+    });
 
     // Get last message for this conversation
     const lastMessage = lastMessagesMap.get(conversation.id) || null;
 
 
-    let messageBody = lastMessage?.body || null;
-    if (lastMessage?.is_deleted) {
-      messageBody = "This message was deleted.";
-    } else if (lastMessage?.message_type === "image") {
-      messageBody = "📷 Image";
-    } else if (lastMessage?.message_type === "audio") {
-      messageBody = "🎤 Voice note";
-    } else if (lastMessage?.message_type === "file") {
-      messageBody = "📎 File";
-    }
+    const messageBody = lastMessage
+      ? getChatMessagePreview({
+          body: lastMessage.body,
+          messageType: lastMessage.message_type,
+          attachmentName: lastMessage.attachment_name,
+          isDeleted: lastMessage.is_deleted,
+        })
+      : null;
 
     // Calculate unread count
     let unreadCount = 0;
@@ -371,15 +482,15 @@ export async function getConversations(
     
     if (myLastReadId) {
       // Count messages after the last read message that were sent by others
-      const lastReadIndex = conversationMessages.findIndex(m => m.id === myLastReadId);
+      const lastReadIndex = conversationMessages.findIndex((m) => m.id === myLastReadId);
       if (lastReadIndex !== -1) {
         unreadCount = conversationMessages
           .slice(lastReadIndex + 1)
-          .filter(m => m.sender_id !== currentUserId).length;
+          .filter((m) => m.sender_id !== currentUserId).length;
       }
     } else {
       // No last read message, count all messages from others
-      unreadCount = conversationMessages.filter(m => m.sender_id !== currentUserId).length;
+      unreadCount = conversationMessages.filter((m) => m.sender_id !== currentUserId).length;
     }
 
     return {
@@ -391,10 +502,11 @@ export async function getConversations(
         id: lastMessage.id,
         sender_id: lastMessage.sender_id,
         body: messageBody,
+        message_type: lastMessage.message_type,
         created_at: lastMessage.created_at,
       } : null,
     };
-  });
+  }));
 }
 
 export async function getMessages(
@@ -542,11 +654,29 @@ export async function deleteMessage(params: {
 }) {
   const { error } = await supabase
     .from("chat_messages")
-    .update({ is_deleted: true })
-    .eq("id", params.messageId)
-    .eq("sender_id", params.userId);
+    .update({
+      is_deleted: true,
+      body: null,
+      attachment_url: null,
+      attachment_name: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", params.messageId);
 
   if (error) throw error;
+}
+
+export async function deleteConversationForUser(params: {
+  conversationId: string;
+  userId: string;
+}) {
+  const { error: membershipError } = await supabase
+    .from("chat_conversation_members")
+    .delete()
+    .eq("conversation_id", params.conversationId)
+    .eq("user_id", params.userId);
+
+  if (membershipError) throw membershipError;
 }
 
 export async function getOrganizationUsers(

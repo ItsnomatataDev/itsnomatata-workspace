@@ -137,7 +137,11 @@ export default function LeaveCalendar({
   const [movingLeave, setMovingLeave] = useState(false);
 
   const events = useMemo<LeaveCalendarEvent[]>(() => {
-    const leaveEvents: LeaveCalendarEvent[] = approvedLeaves.map((item) => ({
+    const calendarLeaves = approvedLeaves.filter(
+      (item) => item.status === "approved" || item.status === "pending",
+    );
+
+    const leaveEvents: LeaveCalendarEvent[] = calendarLeaves.map((item) => ({
       id: item.id,
       title: `${item.status}: ${item.requester_name || item.requester_email || "Employee"}`,
       start: toStartDate(item.start_date),
@@ -389,9 +393,7 @@ export default function LeaveCalendar({
                 backgroundColor:
                   leave.status === "approved"
                     ? "#16a34a"
-                    : leave.status === "rejected"
-                      ? "#dc2626"
-                      : "#ea580c",
+                    : "#ea580c",
                 color: "white",
                 borderRadius: "8px",
                 border: "none",

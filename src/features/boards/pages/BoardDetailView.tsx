@@ -401,9 +401,9 @@ export default function BoardDetailView() {
   const totalTrackedHours = filteredEntries.reduce((sum, entry) => sum + (entry.duration_seconds || 0) / 3600, 0);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-black via-gray-900 to-black text-white">
+    <div className="min-h-screen bg-linear-to-br from-black via-gray-900 to-black text-white">
       {/* Header */}
-      <div className="border-b border-white/10 bg-gradient-to-r from-[#0a0a0a] to-[#111] px-6 py-6">
+      <div className="border-b border-white/10 bg-linear-to-r from-[#0a0a0a] to-[#111] px-6 py-6">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
             <button
@@ -418,7 +418,7 @@ export default function BoardDetailView() {
             <div className="h-8 w-px bg-white/10"></div>
             <div>
               <div className="flex items-center gap-3">
-                <h1 className="text-3xl font-bold text-white bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent">
+                <h1 className="text-3xl font-bold text-white bg-linear-to-r from-white to-gray-300 bg-clip-text">
                   {board.name}
                 </h1>
                 <div className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border ${
@@ -444,7 +444,7 @@ export default function BoardDetailView() {
           </div>
           <button 
             onClick={() => setIsCreateTaskModalOpen(true)}
-            className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-orange-500 to-orange-600 text-black rounded-xl hover:from-orange-400 hover:to-orange-500 transition-all shadow-lg shadow-orange-500/20 hover:shadow-orange-500/30"
+            className="flex items-center gap-2 px-5 py-2.5 bg-linear-to-r from-orange-500 to-orange-600 text-black rounded-xl hover:from-orange-400 hover:to-orange-500 transition-all shadow-lg shadow-orange-500/20 hover:shadow-orange-500/30"
           >
             <Plus className="w-4 h-4" />
             Create Task
@@ -454,16 +454,16 @@ export default function BoardDetailView() {
 
       {/* Budget Summary */}
       {boardSettings && (
-        <div className="border-b border-white/10 bg-gradient-to-b from-[#0a0a0a] to-[#0d0d0d] px-6 py-8">
+        <div className="border-b border-white/10 bg-linear-to-b from-[#0a0a0a] to-[#0d0d0d] px-6 py-8">
           <div className="flex items-center gap-3 mb-6">
-            <div className="p-2 rounded-lg bg-gradient-to-br from-green-500/20 to-emerald-500/20 border border-green-500/30">
+            <div className="p-2 rounded-lg bg-linear-to-br from-green-500/20 to-emerald-500/20 border border-green-500/30">
               <DollarSign className="w-5 h-5 text-green-400" />
             </div>
             <h2 className="text-xl font-semibold text-white">Budget Summary</h2>
           </div>
           
           <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
-            <div className="bg-gradient-to-br from-orange-500/10 to-orange-600/5 border border-orange-500/20 rounded-xl p-5 hover:border-orange-500/30 transition-all group">
+            <div className="bg-linear-to-br from-orange-500/10 to-orange-600/5 border border-orange-500/20 rounded-xl p-5 hover:border-orange-500/30 transition-all group">
               <div className="flex items-center gap-2 mb-3">
                 <div className="p-2 rounded-lg bg-orange-500/20 group-hover:bg-orange-500/30 transition">
                   <Clock className="w-4 h-4 text-orange-400" />
@@ -475,7 +475,7 @@ export default function BoardDetailView() {
               </div>
             </div>
 
-            <div className="bg-gradient-to-br from-blue-500/10 to-blue-600/5 border border-blue-500/20 rounded-xl p-5 hover:border-blue-500/30 transition-all group">
+            <div className="bg-linear-to-br from-blue-500/10 to-blue-600/5 border border-blue-500/20 rounded-xl p-5 hover:border-blue-500/30 transition-all group">
               <div className="flex items-center gap-2 mb-3">
                 <div className="p-2 rounded-lg bg-blue-500/20 group-hover:bg-blue-500/30 transition">
                   <Timer className="w-4 h-4 text-blue-400" />
@@ -487,7 +487,7 @@ export default function BoardDetailView() {
               </div>
             </div>
 
-            <div className="bg-gradient-to-br from-green-500/10 to-emerald-500/5 border border-green-500/20 rounded-xl p-5 hover:border-green-500/30 transition-all group">
+            <div className="bg-linear-to-br from-green-500/10 to-emerald-500/5 border border-green-500/20 rounded-xl p-5 hover:border-green-500/30 transition-all group">
               <div className="flex items-center gap-2 mb-3">
                 <div className="p-2 rounded-lg bg-green-500/20 group-hover:bg-green-500/30 transition">
                   <TrendingUp className="w-4 h-4 text-green-400" />
@@ -499,7 +499,7 @@ export default function BoardDetailView() {
               </div>
             </div>
 
-            <div className="bg-gradient-to-br from-purple-500/10 to-purple-600/5 border border-purple-500/20 rounded-xl p-5 hover:border-purple-500/30 transition-all group">
+            <div className="bg-linear-to-br from-purple-500/10 to-purple-600/5 border border-purple-500/20 rounded-xl p-5 hover:border-purple-500/30 transition-all group">
               <div className="flex items-center gap-2 mb-3">
                 <div className="p-2 rounded-lg bg-purple-500/20 group-hover:bg-purple-500/30 transition">
                   <DollarSign className="w-4 h-4 text-purple-400" />
@@ -529,10 +529,10 @@ export default function BoardDetailView() {
               <div
                 className={`h-4 rounded-full transition-all duration-500 ${
                   totalTrackedHours > boardSettings.estimatedHours
-                    ? "bg-gradient-to-r from-red-500 to-red-600"
+                    ? "bg-linear-to-r from-red-500 to-red-600"
                     : totalTrackedHours > boardSettings.estimatedHours * 0.8
-                    ? "bg-gradient-to-r from-orange-500 to-orange-600"
-                    : "bg-gradient-to-r from-green-500 to-emerald-500"
+                    ? "bg-linear-to-r from-orange-500 to-orange-600"
+                    : "bg-linear-to-r from-green-500 to-emerald-500"
                 }`}
                 style={{ 
                   width: `${Math.min((totalTrackedHours / boardSettings.estimatedHours) * 100, 100)}%` 
@@ -544,7 +544,7 @@ export default function BoardDetailView() {
       )}
 
       {/* Time Filter and Sort Controls */}
-      <div className="border-b border-white/10 bg-gradient-to-b from-[#0d0d0d] to-[#0a0a0a] px-6 py-5">
+      <div className="border-b border-white/10 bg-linear-to-b from-[#0d0d0d] to-[#0a0a0a] px-6 py-5">
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2">
             <div className="p-2 rounded-lg bg-blue-500/20 border border-blue-500/30">
@@ -582,9 +582,9 @@ export default function BoardDetailView() {
       <div className="flex-1 p-6">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Members Time Tracking */}
-          <div className="bg-gradient-to-br from-[#0a0a0a] to-[#0d0d0d] border border-white/10 rounded-2xl p-6 hover:border-white/20 transition-all">
+          <div className="bg-linear-to-br from-[#0a0a0a] to-[#0d0d0d] border border-white/10 rounded-2xl p-6 hover:border-white/20 transition-all">
             <div className="flex items-center gap-3 mb-6">
-              <div className="p-2.5 rounded-xl bg-gradient-to-br from-orange-500/20 to-orange-600/20 border border-orange-500/30">
+              <div className="p-2.5 rounded-xl bg-linear-to-br from-orange-500/20 to-orange-600/20 border border-orange-500/30">
                 <Users className="w-5 h-5 text-orange-400" />
               </div>
               <h2 className="text-xl font-semibold text-white">Member Time Tracking</h2>
@@ -594,10 +594,10 @@ export default function BoardDetailView() {
               {sortedMembers.map((member, index) => (
                 <div
                   key={member.user_id}
-                  className="flex items-center justify-between p-4 bg-gradient-to-r from-white/5 to-transparent border border-white/10 rounded-xl hover:from-white/10 hover:border-white/20 transition-all group"
+                  className="flex items-center justify-between p-4 bg-linear-to-r from-white/5 to-transparent border border-white/10 rounded-xl hover:from-white/10 hover:border-white/20 transition-all group"
                 >
                   <div className="flex items-center gap-4">
-                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-500/20 to-orange-600/20 border border-orange-500/30 flex items-center justify-center text-sm font-bold text-orange-400 group-hover:scale-110 transition-transform">
+                    <div className="w-10 h-10 rounded-xl bg-linear-to-br from-orange-500/20 to-orange-600/20 border border-orange-500/30 flex items-center justify-center text-sm font-bold text-orange-400 group-hover:scale-110 transition-transform">
                       {member.user_name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2)}
                     </div>
                     <div>
@@ -619,9 +619,9 @@ export default function BoardDetailView() {
           </div>
 
           {/* Assigned Team Members */}
-          <div className="bg-gradient-to-br from-[#0a0a0a] to-[#0d0d0d] border border-white/10 rounded-2xl p-6 hover:border-white/20 transition-all">
+          <div className="bg-linear-to-br from-[#0a0a0a] to-[#0d0d0d] border border-white/10 rounded-2xl p-6 hover:border-white/20 transition-all">
             <div className="flex items-center gap-3 mb-6">
-              <div className="p-2.5 rounded-xl bg-gradient-to-br from-purple-500/20 to-purple-600/20 border border-purple-500/30">
+              <div className="p-2.5 rounded-xl bg-linear-to-br from-purple-500/20 to-purple-600/20 border border-purple-500/30">
                 <Users className="w-5 h-5 text-purple-400" />
               </div>
               <h2 className="text-xl font-semibold text-white">Assigned Team Members</h2>
@@ -632,10 +632,10 @@ export default function BoardDetailView() {
                 {assignedUsers.map((user) => (
                   <div
                     key={user.id}
-                    className="flex items-center justify-between p-4 bg-gradient-to-r from-white/5 to-transparent border border-white/10 rounded-xl hover:from-white/10 hover:border-white/20 transition-all group"
+                    className="flex items-center justify-between p-4 bg-linear-to-r from-white/5 to-transparent border border-white/10 rounded-xl hover:from-white/10 hover:border-white/20 transition-all group"
                   >
                     <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-500/20 to-purple-600/20 border border-purple-500/30 flex items-center justify-center text-sm font-bold text-purple-400 group-hover:scale-110 transition-transform">
+                      <div className="w-12 h-12 rounded-xl bg-linear-to-br from-purple-500/20 to-purple-600/20 border border-purple-500/30 flex items-center justify-center text-sm font-bold text-purple-400 group-hover:scale-110 transition-transform">
                         {user.initials}
                       </div>
                       <div>
@@ -643,7 +643,7 @@ export default function BoardDetailView() {
                         <div className="text-sm text-white/50">{user.email}</div>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-green-500/20 to-emerald-500/20 border border-green-500/30 rounded-xl group-hover:from-green-500/30 transition-all">
+                    <div className="flex items-center gap-2 px-4 py-2 bg-linear-to-r from-green-500/20 to-emerald-500/20 border border-green-500/30 rounded-xl group-hover:from-green-500/30 transition-all">
                       <CheckCircle2 className="w-4 h-4 text-green-400" />
                       <span className="text-sm font-medium text-green-400">Assigned</span>
                     </div>
@@ -661,9 +661,9 @@ export default function BoardDetailView() {
           </div>
 
           {/* Tasks with Most Time */}
-          <div className="bg-gradient-to-br from-[#0a0a0a] to-[#0d0d0d] border border-white/10 rounded-2xl p-6 hover:border-white/20 transition-all lg:col-span-2">
+          <div className="bg-linear-to-br from-[#0a0a0a] to-[#0d0d0d] border border-white/10 rounded-2xl p-6 hover:border-white/20 transition-all lg:col-span-2">
             <div className="flex items-center gap-3 mb-6">
-              <div className="p-2.5 rounded-xl bg-gradient-to-br from-blue-500/20 to-blue-600/20 border border-blue-500/30">
+              <div className="p-2.5 rounded-xl bg-linear-to-br from-blue-500/20 to-blue-600/20 border border-blue-500/30">
                 <Activity className="w-5 h-5 text-blue-400" />
               </div>
               <h2 className="text-xl font-semibold text-white">Tasks with Most Time</h2>
@@ -676,7 +676,7 @@ export default function BoardDetailView() {
                 .map((task, index) => (
                   <div
                     key={task.task_id}
-                    className="flex items-center justify-between p-4 bg-gradient-to-r from-white/5 to-transparent border border-white/10 rounded-xl hover:from-white/10 hover:border-white/20 transition-all group"
+                    className="flex items-center justify-between p-4 bg-linear-to-r from-white/5 to-transparent border border-white/10 rounded-xl hover:from-white/10 hover:border-white/20 transition-all group"
                   >
                     <div className="flex-1">
                       <div className="font-semibold text-white mb-1">{task.task_name}</div>
@@ -684,7 +684,7 @@ export default function BoardDetailView() {
                         by {task.user_name} • {formatDate(task.last_activity)}
                       </div>
                     </div>
-                    <div className="ml-4 px-4 py-2 bg-gradient-to-r from-blue-500/20 to-blue-600/20 border border-blue-500/30 rounded-xl group-hover:from-blue-500/30 transition-all">
+                    <div className="ml-4 px-4 py-2 bg-linear-to-r from-blue-500/20 to-blue-600/20 border border-blue-500/30 rounded-xl group-hover:from-blue-500/30 transition-all">
                       <div className="font-bold text-white">{formatHours(task.total_hours)}</div>
                     </div>
                   </div>
@@ -694,9 +694,9 @@ export default function BoardDetailView() {
         </div>
 
         {/* Time Sheet by Project */}
-        <div className="mt-6 bg-gradient-to-br from-[#0a0a0a] to-[#0d0d0d] border border-white/10 rounded-2xl p-6 hover:border-white/20 transition-all">
+        <div className="mt-6 bg-linear-to-br from-[#0a0a0a] to-[#0d0d0d] border border-white/10 rounded-2xl p-6 hover:border-white/20 transition-all">
           <div className="flex items-center gap-3 mb-6">
-            <div className="p-2.5 rounded-xl bg-gradient-to-br from-green-500/20 to-emerald-500/20 border border-green-500/30">
+            <div className="p-2.5 rounded-xl bg-linear-to-br from-green-500/20 to-emerald-500/20 border border-green-500/30">
               <BarChart3 className="w-5 h-5 text-green-400" />
             </div>
             <h2 className="text-xl font-semibold text-white">Time Sheet by Project</h2>
@@ -736,8 +736,8 @@ export default function BoardDetailView() {
                       <td className="py-4 px-4">
                         <div className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border ${
                           entry.is_billable 
-                            ? 'bg-gradient-to-r from-green-500/20 to-emerald-500/20 text-green-400 border-green-500/30'
-                            : 'bg-gradient-to-r from-red-500/20 to-red-600/20 text-red-400 border-red-500/30'
+                            ? 'bg-linear-to-r from-green-500/20 to-emerald-500/20 text-green-400 border-green-500/30'
+                            : 'bg-linear-to-r from-red-500/20 to-red-600/20 text-red-400 border-red-500/30'
                         }`}>
                           {entry.is_billable ? (
                             <>

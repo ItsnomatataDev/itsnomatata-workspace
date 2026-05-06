@@ -135,8 +135,6 @@ export async function createNotification(params: {
   dedupeKey?: string | null;
   deliveryState?: "pending" | "processing" | "delivered" | "partial" | "failed";
 }) {
-  console.log("Creating notification:", params);
-
   const payload = {
     organization_id: params.organizationId,
     user_id: params.userId,
@@ -176,17 +174,9 @@ export async function createNotification(params: {
       if (existing) return existing as NotificationRow;
     }
 
-    console.error("NOTIFICATION INSERT ERROR:", error);
-    console.error("Error details:", {
-      code: error.code,
-      message: error.message,
-      details: error.details,
-      hint: error.hint,
-    });
     throw error;
   }
 
-  console.log("Notification created successfully:", data);
   return data as NotificationRow;
 }
 

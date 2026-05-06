@@ -40,7 +40,6 @@ function getInitials(name: string): string {
     .toUpperCase();
 }
 
-// ── New Board Modal ────────────────────────────────────────────────────────────
 
 function NewBoardModal({
   organizationId,
@@ -112,7 +111,6 @@ function NewBoardModal({
             </div>
           )}
 
-          {/* Name — required */}
           <div>
             <label className="block text-[10px] uppercase tracking-widest text-white/40 mb-1.5">
               Board Name <span className="text-orange-500">*</span>

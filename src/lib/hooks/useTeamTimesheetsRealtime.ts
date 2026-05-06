@@ -8,6 +8,7 @@ interface UseTeamTimesheetsRealtimeProps {
     organizationId: string;
     from?: string;
     to?: string;
+    limit?: number;
     refreshIntervalMs?: number;
 }
 
@@ -25,6 +26,7 @@ export function useTeamTimesheetsRealtime(
         organizationId,
         from,
         to,
+        limit = 1000,
         refreshIntervalMs = 30000,
     }: UseTeamTimesheetsRealtimeProps,
 ) {
@@ -48,7 +50,7 @@ export function useTeamTimesheetsRealtime(
                 approvalStatus: "all",
                 from,
                 to,
-                limit: 1000,
+                limit,
             });
             setEntries(rows);
             setError(null);
@@ -57,7 +59,7 @@ export function useTeamTimesheetsRealtime(
         } finally {
             setLoading(false);
         }
-    }, [organizationId, from, to]);
+    }, [organizationId, from, to, limit]);
 
     useEffect(() => {
         if (!organizationId) return;

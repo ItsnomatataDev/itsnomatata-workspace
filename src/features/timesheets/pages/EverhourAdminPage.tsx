@@ -102,51 +102,61 @@ function formatHoursShort(seconds: number): string {
   return `${h.toFixed(0)}h`;
 }
 
-function startOfDay(date: Date) {
+function dateFromZimbabweKey(dateKey: string) {
+  return new Date(makeZimbabweLocalIso(dateKey, "12:00:00"));
+}
+
+function addDays(date: Date, days: number) {
   const next = new Date(date);
-  next.setHours(0, 0, 0, 0);
+  next.setUTCDate(next.getUTCDate() + days);
   return next;
 }
 
-function endOfDay(date: Date) {
+function addMonths(date: Date, months: number) {
   const next = new Date(date);
-  next.setHours(23, 59, 59, 999);
+  next.setUTCMonth(next.getUTCMonth() + months);
   return next;
+}
+
+function addYears(date: Date, years: number) {
+  const next = new Date(date);
+  next.setUTCFullYear(next.getUTCFullYear() + years);
+  return next;
+}
+
+function makeRangeFromZimbabweKeys(startKey: string, endKey: string) {
+  return {
+    start: new Date(makeZimbabweLocalIso(startKey, "00:00:00")),
+    end: new Date(makeZimbabweLocalIso(endKey, "23:59:59")),
+  };
 }
 
 function getBoardPeriodRange(view: BoardTimeView, anchorDate: Date) {
-  const start = startOfDay(anchorDate);
-  const end = endOfDay(anchorDate);
+  const anchorKey = getZimbabweDateKey(anchorDate);
+  const anchor = dateFromZimbabweKey(anchorKey);
 
   if (view === "day") {
-    return { start, end };
+    return makeRangeFromZimbabweKeys(anchorKey, anchorKey);
   }
 
   if (view === "week") {
-    const day = start.getDay();
+    const day = anchor.getUTCDay();
     const diffToMonday = day === 0 ? -6 : 1 - day;
-
-    start.setDate(start.getDate() + diffToMonday);
-    end.setTime(start.getTime());
-    end.setDate(start.getDate() + 6);
-    end.setHours(23, 59, 59, 999);
-
-    return { start, end };
+    const startKey = getZimbabweDateKey(addDays(anchor, diffToMonday));
+    const endKey = getZimbabweDateKey(addDays(anchor, diffToMonday + 6));
+    return makeRangeFromZimbabweKeys(startKey, endKey);
   }
 
   if (view === "year") {
-    start.setMonth(0, 1);
-    end.setFullYear(start.getFullYear(), 11, 31);
-    end.setHours(23, 59, 59, 999);
-
-    return { start, end };
+    const year = Number(anchorKey.slice(0, 4));
+    return makeRangeFromZimbabweKeys(`${year}-01-01`, `${year}-12-31`);
   }
 
-  start.setDate(1);
-  end.setFullYear(start.getFullYear(), start.getMonth() + 1, 0);
-  end.setHours(23, 59, 59, 999);
-
-  return { start, end };
+  const [yearText, monthText] = anchorKey.split("-");
+  const monthStart = `${yearText}-${monthText}-01`;
+  const nextMonth = addMonths(dateFromZimbabweKey(monthStart), 1);
+  const monthEnd = getZimbabweDateKey(addDays(nextMonth, -1));
+  return makeRangeFromZimbabweKeys(monthStart, monthEnd);
 }
 
 function formatBoardPeriodLabel(view: BoardTimeView, anchorDate: Date) {
@@ -189,10 +199,10 @@ function shiftBoardPeriod(
 ) {
   const next = new Date(anchorDate);
 
-  if (view === "day") next.setDate(next.getDate() + amount);
-  if (view === "week") next.setDate(next.getDate() + amount * 7);
-  if (view === "month") next.setMonth(next.getMonth() + amount);
-  if (view === "year") next.setFullYear(next.getFullYear() + amount);
+  if (view === "day") return addDays(next, amount);
+  if (view === "week") return addDays(next, amount * 7);
+  if (view === "month") return addMonths(next, amount);
+  if (view === "year") return addYears(next, amount);
 
   return next;
 }
@@ -610,7 +620,7 @@ function GroupSection({
           {group.groupName}
         </span>
         <span className="rounded-full bg-white/8 px-2 py-0.5 text-[10px] text-white/40">
-          {group.boards.length}
+          {group.boards.length} board{group.boards.length === 1 ? "" : "s"}
         </span>
         <div className="ml-auto flex items-center gap-1.5 text-xs text-white/30">
           <Clock size={11} />
@@ -944,12 +954,20 @@ export default function EverhourAdminPage() {
   const [clientInvoices, setClientInvoices] = useState<ClientInvoiceRow[]>([]);
   const [deletingBoardId, setDeletingBoardId] = useState<string | null>(null);
 
+  const boardPeriodRange = useMemo(
+    () => getBoardPeriodRange(boardTimeView, boardAnchorDate),
+    [boardTimeView, boardAnchorDate],
+  );
+
   const {
     entries,
     loading: loadingEntries,
     refetch,
   } = useTeamTimesheetsRealtime({
     organizationId,
+    from: boardPeriodRange.start.toISOString(),
+    to: boardPeriodRange.end.toISOString(),
+    limit: 5000,
   });
 
   useEffect(() => {
@@ -1060,11 +1078,6 @@ export default function EverhourAdminPage() {
     })();
   }, [organizationId, boards]);
 
-  const boardPeriodRange = useMemo(
-    () => getBoardPeriodRange(boardTimeView, boardAnchorDate),
-    [boardTimeView, boardAnchorDate],
-  );
-
   const periodEntries = useMemo(() => {
     return entries.filter((entry) => {
       const entryDate = getEntryDate(entry);
@@ -1168,7 +1181,8 @@ export default function EverhourAdminPage() {
     const groupMap = new Map<string, BoardWithTime[]>();
 
     for (const board of filtered) {
-      const key = board.industry?.trim() || "Stand Alone";
+      const industry = board.industry?.trim();
+      const key = industry ? `Industry · ${industry}` : "Standalone Boards";
       const arr = groupMap.get(key) ?? [];
       arr.push(board);
       groupMap.set(key, arr);

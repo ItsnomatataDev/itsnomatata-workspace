@@ -1362,7 +1362,7 @@ export default function TaskDetailsModal({
                   onClick={() => void handleAddComment()}
                   className="w-full rounded-xl bg-orange-500 px-4 py-3 font-semibold text-black disabled:opacity-60"
                 >
-                  Add comment
+                  Add commen
                 </button>
               </div>
             </div>

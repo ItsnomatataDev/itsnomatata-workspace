@@ -50,7 +50,6 @@ export default function NewChatModal({
         setError("");
 
         const data = await getOrganizationUsers(organizationId, currentUserId);
-        console.log("Loaded users:", data);
         setUsers(data);
       } catch (err: any) {
         console.error("LOAD USERS ERROR:", err);

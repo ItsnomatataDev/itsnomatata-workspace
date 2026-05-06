@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   Menu,
   X,
@@ -122,8 +122,6 @@ const STATUS_BADGE_COLOR: Record<string, string> = {
   done: "bg-green-500/15 text-green-300",
 };
 
-// ── Codex inline add ──────────────────────────────────────────────────────────
-
 function InlineCardAdder({
   onAdd,
   onCancel,
@@ -190,8 +188,6 @@ function InlineCardAdder({
     </div>
   );
 }
-
-// ── Codex workflow card ───────────────────────────────────────────────────────
 
 function KanbanCard({
   task,
@@ -529,6 +525,8 @@ function KanbanColumn({
 export default function BoardViewPage() {
   const auth = useAuth();
   const { boardId } = useParams<{ boardId: string }>();
+  const location = useLocation();
+  const navigate = useNavigate();
   const profile = auth?.profile ?? null;
   const organizationId = profile?.organization_id ?? null;
 
@@ -545,6 +543,9 @@ export default function BoardViewPage() {
   const [liveSeconds, setLiveSeconds] = useState(0);
   const [timerBusy, setTimerBusy] = useState(false);
   const [searchValue, setSearchValue] = useState("");
+  const requestedCardId = useMemo(() => {
+    return new URLSearchParams(location.search).get("cardId");
+  }, [location.search]);
 
   // drag state
   const dragRef = useRef<{ id: string; status: TaskStatus } | null>(null);
@@ -650,6 +651,17 @@ export default function BoardViewPage() {
   useEffect(() => {
     void loadBoardData();
   }, [loadBoardData]);
+
+  useEffect(() => {
+    if (loading || !requestedCardId) return;
+
+    const nextSelectedTask = tasks.find((task) => task.id === requestedCardId);
+    if (!nextSelectedTask) return;
+
+    setSelectedTask((current) =>
+      current?.id === nextSelectedTask.id ? current : nextSelectedTask,
+    );
+  }, [loading, requestedCardId, tasks]);
 
   // Realtime subscription for time entries and cards
   useEffect(() => {
@@ -885,9 +897,31 @@ export default function BoardViewPage() {
   const handleOpenTask = useCallback(
     (taskId: string) => {
       setSelectedTask(tasks.find((t) => t.id === taskId) ?? null);
+      const params = new URLSearchParams(location.search);
+      params.set("cardId", taskId);
+      navigate(
+        {
+          pathname: location.pathname,
+          search: params.toString(),
+        },
+        { replace: false },
+      );
     },
-    [tasks],
+    [location.pathname, location.search, navigate, tasks],
   );
+
+  const handleCloseTaskModal = useCallback(() => {
+    setSelectedTask(null);
+    const params = new URLSearchParams(location.search);
+    params.delete("cardId");
+    navigate(
+      {
+        pathname: location.pathname,
+        search: params.toString(),
+      },
+      { replace: true },
+    );
+  }, [location.pathname, location.search, navigate]);
 
   const handleUpdateTask = useCallback(
     (updates: Partial<TaskItem>) => {
@@ -957,6 +991,9 @@ export default function BoardViewPage() {
         return next;
       });
       setSelectedTask((current) => current?.id === taskId ? null : current);
+      if (selectedTask?.id === taskId) {
+        handleCloseTaskModal();
+      }
 
       try {
         await deleteCard(taskId);
@@ -968,7 +1005,7 @@ export default function BoardViewPage() {
         void loadBoardData();
       }
     },
-    [boardId, loadBoardData, organizationId],
+    [boardId, handleCloseTaskModal, loadBoardData, organizationId, selectedTask?.id],
   );
 
   const handleDrop = useCallback(
@@ -1303,11 +1340,17 @@ export default function BoardViewPage() {
           cardId={selectedTask.id}
           card={selectedTask}
           isOpen={!!selectedTask}
-          onClose={() => setSelectedTask(null)}
+          onClose={handleCloseTaskModal}
           onUpdate={handleUpdateTask}
           onDelete={(cardId) => handleDeleteTask(cardId, selectedTask.title, false)}
-          onToggleTimer={(id, title) => console.log("timer", id, title)}
-          hasRunningTimer={false}
+          onToggleTimer={(id, title) => {
+            if (activeTimer?.task_id === id) {
+              void handlePauseTimer();
+              return;
+            }
+            void handleTrack(id, title);
+          }}
+          hasRunningTimer={!!activeTimer}
           currentUserId={auth.user.id}
           organizationId={organizationId!}
         />

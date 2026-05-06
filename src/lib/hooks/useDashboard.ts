@@ -17,7 +17,7 @@ type DashboardStats = {
   completedProjects: number;
 };
 
-type DashboardTask = {
+export type DashboardTask = {
   id: string;
   title: string;
   status: string;
@@ -25,6 +25,11 @@ type DashboardTask = {
   due_date: string | null;
   created_at: string;
   created_by: string | null;
+
+
+  client_id: string | null;
+  project_id: string | null;
+
   created_by_full_name?: string | null;
   created_by_email?: string | null;
 };
@@ -226,8 +231,9 @@ export function useDashboard(params: {
       if (taskAssignmentsError) throw taskAssignmentsError;
 
       const assignedTaskIds =
-        taskAssignments?.map((assignment: any) => assignment.task_id).filter(Boolean) ||
-        [];
+        taskAssignments
+          ?.map((assignment: any) => assignment.task_id)
+          .filter(Boolean) || [];
 
       const { data: timeEntryTasks, error: timeEntryTasksError } =
         await supabase
@@ -243,7 +249,8 @@ export function useDashboard(params: {
       if (timeEntryTasksError) throw timeEntryTasksError;
 
       const trackedTaskIds =
-        timeEntryTasks?.map((entry: any) => entry.task_id).filter(Boolean) || [];
+        timeEntryTasks?.map((entry: any) => entry.task_id).filter(Boolean) ||
+        [];
 
       const allTaskIds = Array.from(
         new Set([...assignedTaskIds, ...trackedTaskIds]),
@@ -347,6 +354,8 @@ export function useDashboard(params: {
             due_date,
             created_at,
             created_by,
+            client_id,
+            project_id,
             profiles:created_by (
               full_name,
               email
@@ -360,7 +369,15 @@ export function useDashboard(params: {
         if (taskRowsError) throw taskRowsError;
 
         dashboardTasks = ((taskRows ?? []) as any[]).map((task) => ({
-          ...task,
+          id: task.id,
+          title: task.title,
+          status: task.status,
+          priority: task.priority,
+          due_date: task.due_date,
+          created_at: task.created_at,
+          created_by: task.created_by,
+          client_id: task.client_id ?? null,
+          project_id: task.project_id ?? null,
           created_by_full_name: task.profiles?.full_name ?? null,
           created_by_email: task.profiles?.email ?? null,
         }));
@@ -415,14 +432,7 @@ export function useDashboard(params: {
     } finally {
       setLoading(false);
     }
-  }, [
-    enabled,
-    userId,
-    organizationId,
-    role,
-    loadWeather,
-    loadRoleNews,
-  ]);
+  }, [enabled, userId, organizationId, role, loadWeather, loadRoleNews]);
 
   const startTimer = useCallback(
     async (taskId?: string | null, description?: string) => {
@@ -531,7 +541,7 @@ export function useDashboard(params: {
   }, [activeTimer, load]);
 
   useEffect(() => {
-    load();
+    void load();
   }, [load]);
 
   return {

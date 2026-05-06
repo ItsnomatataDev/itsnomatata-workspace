@@ -18,6 +18,8 @@ type CreateNotificationBody = {
   actorUserId?: string | null;
   category?: string | null;
   dedupeKey?: string | null;
+  channels?: Array<"in_app" | "email" | "push">;
+  sendEmail?: boolean;
 };
 
 const corsHeaders = {
@@ -56,6 +58,73 @@ function normalizeIds(values: string[] | undefined) {
   return [
     ...new Set((values ?? []).map((value) => value.trim()).filter(Boolean)),
   ];
+}
+
+function normalizeChannels(body: CreateNotificationBody) {
+  const requested = body.channels?.length
+    ? body.channels
+    : body.sendEmail === false
+    ? ["in_app", "push"]
+    : ["in_app", "email", "push"];
+
+  return [...new Set(requested)].filter((channel) =>
+    ["in_app", "email", "push"].includes(channel)
+  ) as Array<"in_app" | "email" | "push">;
+}
+
+async function createDelivery(
+  supabase: ReturnType<typeof createClient>,
+  params: {
+    notificationId: string;
+    channel: "email" | "push";
+    status?: string;
+    provider?: string | null;
+    errorMessage?: string | null;
+  },
+) {
+  const { data, error } = await supabase
+    .from("notification_deliveries")
+    .insert({
+      notification_id: params.notificationId,
+      channel: params.channel,
+      status: params.status ?? "queued",
+      provider: params.provider ?? null,
+      error_message: params.errorMessage ?? null,
+      attempted_at: new Date().toISOString(),
+    })
+    .select("id")
+    .single();
+
+  if (error) throw error;
+  return data.id as string;
+}
+
+async function sendPush(params: {
+  supabaseUrl: string;
+  serviceRoleKey: string;
+  notificationId: string;
+  deliveryId: string;
+}) {
+  const response = await fetch(
+    `${params.supabaseUrl}/functions/v1/send-push-notification`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${params.serviceRoleKey}`,
+        apikey: params.serviceRoleKey,
+      },
+      body: JSON.stringify({
+        notificationId: params.notificationId,
+        deliveryId: params.deliveryId,
+      }),
+    },
+  );
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Push function returned ${response.status}: ${text}`);
+  }
 }
 
 Deno.serve(async (req) => {
@@ -176,6 +245,7 @@ Deno.serve(async (req) => {
     }
 
     const dedupeKey = body.dedupeKey?.trim() || null;
+    const channels = normalizeChannels(body);
 
     // If a dedupeKey is provided, skip users who already have a notification
     // with the same dedupe_key to prevent duplicates on retry.
@@ -245,10 +315,78 @@ Deno.serve(async (req) => {
       return jsonResponse({ error: error.message }, 400);
     }
 
+    const deliveryResults: Array<{
+      notificationId: string;
+      channel: string;
+      status: string;
+      error?: string;
+    }> = [];
+
+    for (const notification of data ?? []) {
+      if (channels.includes("push")) {
+        try {
+          const deliveryId = await createDelivery(supabase, {
+            notificationId: notification.id,
+            channel: "push",
+            provider: "supabase-edge:web-push",
+          });
+
+          await sendPush({
+            supabaseUrl,
+            serviceRoleKey: supabaseServiceRoleKey,
+            notificationId: notification.id,
+            deliveryId,
+          });
+
+          deliveryResults.push({
+            notificationId: notification.id,
+            channel: "push",
+            status: "queued",
+          });
+        } catch (pushError) {
+          deliveryResults.push({
+            notificationId: notification.id,
+            channel: "push",
+            status: "failed",
+            error: pushError instanceof Error
+              ? pushError.message
+              : String(pushError),
+          });
+        }
+      }
+
+      if (channels.includes("email") && body.sendEmail !== false) {
+        try {
+          await createDelivery(supabase, {
+            notificationId: notification.id,
+            channel: "email",
+            status: "queued",
+            provider: "n8n",
+          });
+
+          deliveryResults.push({
+            notificationId: notification.id,
+            channel: "email",
+            status: "queued",
+          });
+        } catch (emailError) {
+          deliveryResults.push({
+            notificationId: notification.id,
+            channel: "email",
+            status: "failed",
+            error: emailError instanceof Error
+              ? emailError.message
+              : String(emailError),
+          });
+        }
+      }
+    }
+
     return jsonResponse({
       success: true,
       createdCount: data?.length ?? 0,
       notifications: data ?? [],
+      deliveries: deliveryResults,
     });
   } catch (error) {
     return jsonResponse(
