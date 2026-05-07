@@ -7,6 +7,7 @@ import ChatSidebar from "../components/ChatSidebar";
 import MessageInput from "../components/MessageInput";
 import MessageList from "../components/MessageList";
 import NewChatModal from "../components/NewChatModal";
+import type { GifSelection } from "../components/GifPickerPanel";
 import {
   createGroupConversation,
   deleteConversationForUser,
@@ -15,6 +16,7 @@ import {
   getMessages,
   markConversationAsRead,
   sendMessage,
+  toggleMessageReaction,
   uploadChatAttachment,
 } from "../services/chatService";
 import { subscribeToConversationMessages, subscribeToUserPresence } from "../services/chatRealtime";
@@ -23,9 +25,16 @@ import type { ChatConversation, ChatMessage, ChatUser } from "../types/chat";
 
 function getMessagePreview(message: Pick<
   ChatMessage,
-  "body" | "message_type" | "attachment_name" | "is_deleted"
+  "body" | "message_type" | "attachment_name" | "is_deleted" | "metadata"
 >) {
   if (message.is_deleted) return "This message was deleted.";
+  if (
+    message.metadata?.message_type === "gif" ||
+    message.metadata?.type === "gif" ||
+    message.metadata?.gif
+  ) {
+    return "GIF";
+  }
   if (message.message_type === "image") return "Image";
   if (message.message_type === "audio") return "Voice note";
   if (message.message_type === "file") {
@@ -192,6 +201,7 @@ export default function ChatPage() {
               sender_id: message.sender_id,
               body: getMessagePreview(message),
               message_type: message.message_type,
+              metadata: message.metadata ?? null,
               created_at: message.created_at,
             },
             unread_count:
@@ -379,6 +389,51 @@ export default function ChatPage() {
       onDelete: (deletedMessageId) => {
         setMessages((current) =>
           current.filter((message) => message.id !== deletedMessageId),
+        );
+      },
+      onReactionInsert: async (reaction) => {
+        const { data: profileData } = await supabase
+          .from("profiles")
+          .select("id, full_name, email")
+          .eq("id", reaction.user_id)
+          .maybeSingle();
+
+        const hydratedReaction = {
+          ...reaction,
+          profile: profileData ?? null,
+        };
+
+        setMessages((current) =>
+          current.map((message) => {
+            if (message.id !== reaction.message_id) return message;
+            const exists = (message.reactions ?? []).some(
+              (item) =>
+                item.id === reaction.id ||
+                (
+                  item.user_id === reaction.user_id &&
+                  item.emoji === reaction.emoji
+                ),
+            );
+            if (exists) return message;
+            return {
+              ...message,
+              reactions: [...(message.reactions ?? []), hydratedReaction],
+            };
+          }),
+        );
+      },
+      onReactionDelete: (reaction) => {
+        setMessages((current) =>
+          current.map((message) =>
+            message.id === reaction.message_id
+              ? {
+                  ...message,
+                  reactions: (message.reactions ?? []).filter(
+                    (item) => item.id !== reaction.id,
+                  ),
+                }
+              : message,
+          ),
         );
       },
     });
@@ -675,6 +730,128 @@ export default function ChatPage() {
     }
   }
 
+  async function handleSendGif(selection: GifSelection) {
+    if (!user?.id || !activeConversationId || !selection.mediaUrl.trim()) return;
+
+    try {
+      setSending(true);
+      setError("");
+
+      const caption = selection.caption?.trim() || "";
+      const sentMessage = await sendMessage({
+        conversationId: activeConversationId,
+        userId: user.id,
+        body: caption || undefined,
+        messageType: "text",
+        metadata: {
+          message_type: "gif",
+          type: "gif",
+          caption: caption || null,
+          media_url: selection.mediaUrl.trim(),
+          media_provider: selection.provider,
+          gif: {
+            provider: selection.provider,
+            url: selection.mediaUrl.trim(),
+            preview_url: selection.previewUrl ?? selection.mediaUrl.trim(),
+            title: selection.title ?? null,
+          },
+        },
+      });
+
+      if (sentMessage) {
+        setMessages((current) => {
+          const exists = current.some(
+            (message) => message.id === sentMessage.id,
+          );
+          if (exists) return current;
+          return [...current, sentMessage];
+        });
+
+        updateConversationAfterSend(sentMessage);
+      }
+    } catch (err: any) {
+      console.error("SEND GIF ERROR:", err);
+      setError(err?.message || "Failed to send GIF.");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function handleToggleReaction(messageId: string, emoji: string) {
+    if (!user?.id || !emoji.trim()) return;
+
+    const optimisticReaction = {
+      id: `local:${messageId}:${user.id}:${emoji}`,
+      message_id: messageId,
+      user_id: user.id,
+      emoji,
+      created_at: new Date().toISOString(),
+      profile: {
+        id: user.id,
+        full_name: profile?.full_name ?? null,
+        email: profile?.email ?? null,
+      },
+    };
+
+    const currentMessage = messages.find((message) => message.id === messageId);
+    const existingReaction = currentMessage?.reactions?.find(
+      (reaction) => reaction.user_id === user.id && reaction.emoji === emoji,
+    );
+
+    setMessages((current) =>
+      current.map((message) => {
+        if (message.id !== messageId) return message;
+        return {
+          ...message,
+          reactions: existingReaction
+            ? (message.reactions ?? []).filter(
+                (reaction) =>
+                  !(reaction.user_id === user.id && reaction.emoji === emoji),
+              )
+            : [...(message.reactions ?? []), optimisticReaction],
+        };
+      }),
+    );
+
+    try {
+      const result = await toggleMessageReaction({
+        messageId,
+        userId: user.id,
+        emoji,
+      });
+
+      if (!result.removed && result.reaction) {
+        setMessages((current) =>
+          current.map((message) =>
+            message.id === messageId
+              ? {
+                  ...message,
+                  reactions: (message.reactions ?? []).map((reaction) =>
+                    reaction.id === optimisticReaction.id
+                      ? {
+                          ...result.reaction!,
+                          profile: optimisticReaction.profile,
+                        }
+                      : reaction,
+                  ),
+                }
+              : message,
+          ),
+        );
+      }
+    } catch (err: any) {
+      console.error("TOGGLE REACTION ERROR:", err);
+      setError(
+        err?.message?.toLowerCase?.().includes("row-level security")
+          ? "Reaction was blocked by database permissions. Check message_reactions RLS policies."
+          : err?.message || "Failed to update reaction.",
+      );
+      if (activeConversationId) {
+        await loadMessagesForConversation(activeConversationId);
+      }
+    }
+  }
+
   async function handleStartDirectChat(selectedUser: ChatUser) {
     if (!user?.id || !profile?.organization_id) return;
 
@@ -950,6 +1127,9 @@ export default function ChatPage() {
                   ),
                 );
               }}
+              onToggleReaction={(messageId, emoji) =>
+                void handleToggleReaction(messageId, emoji)
+              }
             />
 
             <div ref={bottomRef} />
@@ -963,6 +1143,7 @@ export default function ChatPage() {
             onImageSelect={(file) => void handleSendImage(file)}
             onAudioReady={(file) => void handleSendAudio(file)}
             onFileSelect={(file) => void handleSendFile(file)}
+            onGifSelect={(selection) => void handleSendGif(selection)}
             disabled={!activeConversationId || creatingChat}
             sending={sending}
           />

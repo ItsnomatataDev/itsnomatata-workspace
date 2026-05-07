@@ -51,9 +51,16 @@ export type ChatMessageType = "text" | "image" | "audio" | "file" | "system";
 
 export type ChatMessageMetadata = {
   type?: "text" | "gif" | "meme";
+  message_type?: "text" | "gif" | "meme";
   media_url?: string | null;
   media_provider?: string | null;
   caption?: string | null;
+  gif?: {
+    provider: "giphy" | "tenor" | "url";
+    url: string;
+    preview_url?: string | null;
+    title?: string | null;
+  } | null;
   [key: string]: unknown;
 };
 

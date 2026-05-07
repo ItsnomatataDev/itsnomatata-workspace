@@ -1,6 +1,7 @@
 import type { AppRole } from "../../../lib/constants/roles";
 import { supabase } from "../../../lib/supabase/client";
 import type {
+  NotificationChannel,
   NotificationPriority,
   NotificationType,
 } from "../../../lib/supabase/mutations/notifications";
@@ -33,6 +34,7 @@ type BaseNotifyParams = {
   actorUserId?: string | null;
   category?: string | null;
   dedupeKey?: string | null;
+  channels?: NotificationChannel[];
   sendEmail?: boolean;
 };
 
@@ -170,6 +172,7 @@ export async function notifyUser(
     actorUserId: params.actorUserId,
     category: params.category,
     dedupeKey: params.dedupeKey,
+    channels: params.channels,
     sendEmail: params.sendEmail,
   });
 }
@@ -198,6 +201,7 @@ export async function notifyUsers(
     actorUserId: params.actorUserId,
     category: params.category,
     dedupeKey: params.dedupeKey,
+    channels: params.channels,
     sendEmail: params.sendEmail,
   });
 }
@@ -399,6 +403,8 @@ export async function notifyTaskAssigned(params: {
   userId: string;
   taskId: string;
   taskTitle?: string | null;
+  boardId?: string | null;
+  actionUrl?: string | null;
   actorUserId?: string | null;
   actorName?: string | null;
   sendEmail?: boolean;
@@ -413,20 +419,25 @@ export async function notifyTaskAssigned(params: {
     title: "New task assigned",
     message: params.actorName
       ? `${params.actorName} assigned you to "${taskTitle}".`
-      : `You were assigned to "${taskTitle}".`,
+      : `You were assigned to: ${taskTitle}`,
     entityType: "task",
     entityId: params.taskId,
     referenceId: params.taskId,
     referenceType: "task",
-    actionUrl: `/tasks/${params.taskId}`,
+    actionUrl: params.actionUrl ??
+      (params.boardId
+        ? `/boards/${params.boardId}?cardId=${params.taskId}`
+        : `/tasks/${params.taskId}`),
     priority: "high",
     metadata: {
       taskId: params.taskId,
       taskTitle,
+      boardId: params.boardId ?? null,
       actorUserId: params.actorUserId ?? null,
       actorName: params.actorName ?? null,
     },
-    sendEmail: params.sendEmail,
+    channels: ["in_app", "push"],
+    sendEmail: params.sendEmail ?? false,
   });
 }
 

@@ -66,9 +66,12 @@ function getChatMessagePreview(params: {
 
   const body = params.body?.trim() ?? "";
   const type = params.messageType ?? "text";
-  const metadataType = typeof params.metadata?.type === "string"
-    ? params.metadata.type
-    : null;
+  const metadataType =
+    typeof params.metadata?.message_type === "string"
+      ? params.metadata.message_type
+      : typeof params.metadata?.type === "string"
+        ? params.metadata.type
+        : null;
 
   if (metadataType === "gif") {
     return params.metadata?.caption
@@ -661,8 +664,12 @@ export async function sendMessage(
 ): Promise<ChatMessage | null> {
   const body = params.body?.trim() ?? "";
   const messageType = params.messageType ?? "text";
+  const hasRichMetadata =
+    params.metadata?.message_type === "gif" ||
+    params.metadata?.type === "gif" ||
+    Boolean(params.metadata?.gif);
 
-  if (!body && !params.attachmentUrl && messageType !== "system") {
+  if (!body && !params.attachmentUrl && messageType !== "system" && !hasRichMetadata) {
     return null;
   }
 

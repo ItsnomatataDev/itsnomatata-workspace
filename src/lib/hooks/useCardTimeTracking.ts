@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "../supabase/client";
 import type { TimeEntryItem } from "../supabase/mutations/timeEntries";
+import {
+  getEntryDurationSeconds,
+  getRunningEntryElapsedSeconds,
+  getTodayCompletedSeconds,
+  getZimbabweTodayRangeIso,
+} from "../utils/timeMath";
 
 export interface CardTimeTracking {
   isTracking: boolean;
@@ -16,6 +22,7 @@ export interface UseCardTimeTrackingProps {
   userId?: string;
   taskId?: string;
   clientId?: string;
+  todayOnly?: boolean;
 }
 
 export function useCardTimeTracking({
@@ -23,6 +30,7 @@ export function useCardTimeTracking({
   userId,
   taskId,
   clientId,
+  todayOnly = false,
 }: UseCardTimeTrackingProps) {
   const [tracking, setTracking] = useState<CardTimeTracking>({
     isTracking: false,
@@ -45,7 +53,8 @@ export function useCardTimeTracking({
         .from("time_entries")
         .select("*")
         .eq("organization_id", organizationId)
-        .is("ended_at", null);
+        .is("ended_at", null)
+        .is("deleted_at", null);
 
       if (userId) activeQuery = activeQuery.eq("user_id", userId);
       if (taskId) activeQuery = activeQuery.eq("task_id", taskId);
@@ -61,21 +70,29 @@ export function useCardTimeTracking({
       // Get total tracked time for this card/task
       let totalQuery = supabase
         .from("time_entries")
-        .select("duration_seconds")
+        .select("*")
         .eq("organization_id", organizationId)
-        .not("duration_seconds", "is", null);
+        .is("deleted_at", null);
 
       if (taskId) totalQuery = totalQuery.eq("task_id", taskId);
       if (clientId) totalQuery = totalQuery.eq("client_id", clientId);
+      if (todayOnly) {
+        const todayRange = getZimbabweTodayRangeIso();
+        totalQuery = totalQuery
+          .gte("started_at", todayRange.start)
+          .lt("started_at", todayRange.end);
+      }
 
       const { data: totalData, error: totalError } = await totalQuery;
 
       if (totalError) throw totalError;
 
-      const totalSeconds = (totalData ?? []).reduce(
-        (sum, entry) => sum + Number(entry.duration_seconds || 0),
-        0,
-      );
+      const totalEntries = (totalData ?? []) as TimeEntryItem[];
+      const totalSeconds = todayOnly
+        ? getTodayCompletedSeconds(totalEntries)
+        : totalEntries
+            .filter((entry) => entry.ended_at)
+            .reduce((sum, entry) => sum + getEntryDurationSeconds(entry), 0);
 
       const activeEntries = (activeData ?? []) as TimeEntryItem[];
       const activeEntry = activeEntries[0] ?? null;
@@ -94,7 +111,7 @@ export function useCardTimeTracking({
     } finally {
       setLoading(false);
     }
-  }, [organizationId, userId, taskId, clientId]);
+  }, [organizationId, userId, taskId, clientId, todayOnly]);
 
   useEffect(() => {
     loadTrackingData();
@@ -107,9 +124,7 @@ export function useCardTimeTracking({
     const updateLiveTime = () => {
       const nowMs = Date.now();
       const diffSeconds = tracking.activeEntries.reduce((sum, entry) => {
-        const startedAtMs = new Date(entry.started_at).getTime();
-        if (Number.isNaN(startedAtMs)) return sum;
-        return sum + Math.max(0, Math.floor((nowMs - startedAtMs) / 1000));
+        return sum + getRunningEntryElapsedSeconds(entry, nowMs);
       }, 0);
       
       setTracking(prev => ({

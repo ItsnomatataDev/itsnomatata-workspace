@@ -237,12 +237,23 @@ export async function createCard(
     status?: TaskStatus;
     priority?: string;
     assignedTo?: string;
+    assigneeIds?: string[];
     dueDate?: string;
     createdBy?: string | null;
+    assignedBy?: string | null;
     estimatedSeconds?: number | null;
     columnId?: string | null;
   },
 ): Promise<Card> {
+  const assigneeIds = [
+    ...new Set(
+      [input.assignedTo, ...(input.assigneeIds ?? [])]
+        .map((id) => id?.trim())
+        .filter((id): id is string => Boolean(id)),
+    ),
+  ];
+  const primaryAssigneeId = assigneeIds[0] ?? null;
+
   const { data: card, error } = await supabase
     .from("tasks")
     .insert({
@@ -253,7 +264,8 @@ export async function createCard(
       description: input.description ?? null,
       status: input.status ?? "todo",
       priority: input.priority ?? "medium",
-      assigned_to: input.assignedTo ?? null,
+      assigned_to: primaryAssigneeId,
+      assigned_by: input.assignedBy ?? input.createdBy ?? null,
       created_by: input.createdBy ?? null,
       estimated_seconds: input.estimatedSeconds ?? 0,
       due_date: input.dueDate
@@ -266,27 +278,55 @@ export async function createCard(
 
   if (error) throw error;
 
-  // If assigned to a user, create task_assignee row and notify
-  if (input.assignedTo) {
-    try {
-      await supabase.from("task_assignees").insert({
+  if (assigneeIds.length > 0) {
+    const { error: assigneeError } = await supabase.from("task_assignees").insert(
+      assigneeIds.map((userId) => ({
         organization_id: organizationId,
         task_id: card.id,
-        user_id: input.assignedTo,
-      });
+        user_id: userId,
+      })),
+    );
 
-      await notifyTaskAssigned({
-        organizationId,
-        userId: input.assignedTo,
-        taskId: card.id,
-        taskTitle: input.title,
-      });
+    if (assigneeError) throw assigneeError;
+
+    try {
+      await Promise.all(
+        assigneeIds
+          .filter((userId) => userId !== input.createdBy)
+          .map((userId) =>
+            notifyTaskAssigned({
+              organizationId,
+              userId,
+              taskId: card.id,
+              taskTitle: input.title,
+              boardId,
+              actorUserId: input.createdBy ?? input.assignedBy ?? null,
+            }),
+          ),
+      );
     } catch (notifError) {
       console.error("CREATE CARD ASSIGNMENT NOTIFICATION ERROR:", notifError);
     }
   }
 
-  return { ...card, assignees: [], commentsCount: 0 } as Card;
+  const assignees = assigneeIds.length > 0
+    ? await supabase
+        .from("profiles")
+        .select("id, full_name, email")
+        .in("id", assigneeIds)
+    : { data: [], error: null };
+
+  if (assignees.error) throw assignees.error;
+
+  return {
+    ...card,
+    assignees: (assignees.data ?? []).map((profile) => ({
+      id: profile.id,
+      full_name: profile.full_name ?? null,
+      email: profile.email ?? null,
+    })),
+    commentsCount: 0,
+  } as Card;
 }
 
 export async function updateCard(

@@ -23,6 +23,7 @@ import BoardSidebar from "../components/BoardSidebar";
 import Sidebar from "../../../components/dashboard/components/Sidebar";
 import {
   getBoard,
+  getBoards,
   getCards,
   createCard,
   getBoardStats,
@@ -34,6 +35,7 @@ import {
   deleteCard,
 } from "../services/boardService";
 import CardDetailModal from "../components/Carddetailmodal";
+import CreateCardModal from "../components/CreateCardModal";
 import type { TaskItem, TaskStatus } from "../../../lib/supabase/queries/tasks";
 import type { Board, BoardStats, Card, List } from "../../../types/board";
 import { supabase } from "../../../lib/supabase/client";
@@ -46,9 +48,17 @@ import {
 import {
   makeZimbabweLocalIso,
 } from "../../../lib/utils/zimbabweCalendar";
+import { getRunningEntryElapsedSeconds } from "../../../lib/utils/timeMath";
 
 
 type Task = Card;
+
+type AssignableUser = {
+  id: string;
+  full_name: string | null;
+  email: string | null;
+  primary_role: string | null;
+};
 
 function cardToTask(card: any): Task {
   return {
@@ -382,6 +392,7 @@ function KanbanCard({
             taskId={task.id}
             className="text-[11px]"
             showTotalTime
+            todayOnly
           />
           {visibleAssignees.length > 0 ? (
             <div className="flex -space-x-1">
@@ -548,9 +559,24 @@ export default function BoardViewPage() {
   const [liveSeconds, setLiveSeconds] = useState(0);
   const [timerBusy, setTimerBusy] = useState(false);
   const [searchValue, setSearchValue] = useState("");
+  const [adminCreateOpen, setAdminCreateOpen] = useState(false);
+  const [availableBoards, setAvailableBoards] = useState<Board[]>([]);
+  const [assignableUsers, setAssignableUsers] = useState<AssignableUser[]>([]);
   const requestedCardId = useMemo(() => {
     return new URLSearchParams(location.search).get("cardId");
   }, [location.search]);
+  const canAssignCards =
+    profile?.primary_role === "admin" || profile?.primary_role === "manager";
+  const createModalColumns = useMemo(
+    () =>
+      columns.map((column) => ({
+        id: column.id,
+        columnId: column.columnId,
+        status: column.status,
+        label: column.label,
+      })),
+    [columns],
+  );
 
   // drag state
   const dragRef = useRef<{ id: string; status: TaskStatus } | null>(null);
@@ -596,10 +622,7 @@ export default function BoardViewPage() {
     }
 
     const tick = () => {
-      const startedAtMs = new Date(activeTimer.started_at).getTime();
-      const nowMs = Date.now();
-      const diff = Math.max(0, Math.floor((nowMs - startedAtMs) / 1000));
-      setLiveSeconds(diff);
+      setLiveSeconds(getRunningEntryElapsedSeconds(activeTimer));
     };
 
     tick();
@@ -644,6 +667,28 @@ export default function BoardViewPage() {
   useEffect(() => {
     void loadBoardData();
   }, [loadBoardData]);
+
+  useEffect(() => {
+    if (!organizationId || !canAssignCards) return;
+
+    void Promise.all([
+      getBoards(organizationId),
+      supabase
+        .from("profiles")
+        .select("id, full_name, email, primary_role")
+        .eq("organization_id", organizationId)
+        .eq("is_active", true)
+        .order("full_name", { ascending: true }),
+    ])
+      .then(([boardsData, usersResult]) => {
+        if (usersResult.error) throw usersResult.error;
+        setAvailableBoards(boardsData);
+        setAssignableUsers((usersResult.data ?? []) as AssignableUser[]);
+      })
+      .catch((err) => {
+        console.warn("Failed to load admin assignment options:", err);
+      });
+  }, [canAssignCards, organizationId]);
 
   useEffect(() => {
     if (!requestedCardId) {
@@ -893,6 +938,51 @@ export default function BoardViewPage() {
       getBoardStats(organizationId, boardId).then(setStats).catch(console.warn);
     },
     [organizationId, boardId, auth?.user?.id],
+  );
+
+  const handleAdminCreateCard = useCallback(
+    async (input: {
+      boardId: string;
+      columnId?: string | null;
+      title: string;
+      description?: string;
+      status?: TaskStatus;
+      priority?: string;
+      assigneeIds: string[];
+      dueDate?: string;
+      estimatedHours?: number | null;
+    }) => {
+      if (!organizationId || !auth?.user?.id) return;
+
+      const rawCard = await createCard(organizationId, input.boardId, {
+        title: input.title,
+        description: input.description,
+        status: input.status,
+        priority: input.priority,
+        assigneeIds: input.assigneeIds,
+        dueDate: input.dueDate,
+        estimatedSeconds:
+          input.estimatedHours !== null && input.estimatedHours !== undefined
+            ? Math.round(input.estimatedHours * 3600)
+            : null,
+        columnId: input.columnId ?? null,
+        createdBy: auth.user.id,
+        assignedBy: auth.user.id,
+      });
+
+      if (input.boardId === boardId) {
+        const newTask = cardToTask(rawCard);
+        setTasks((prev) => [...prev, newTask]);
+        setGroupedTasks((prev) => {
+          const next = { ...prev };
+          const groupKey = input.columnId ?? input.status ?? "todo";
+          next[groupKey] = [...(next[groupKey] ?? []), newTask];
+          return next;
+        });
+        getBoardStats(organizationId, input.boardId).then(setStats).catch(console.warn);
+      }
+    },
+    [auth?.user?.id, boardId, organizationId],
   );
 
   // ── Open card ────────────────────────────────────────────────────────────────
@@ -1247,6 +1337,16 @@ export default function BoardViewPage() {
                 </span>
               </div>
             )}
+            {canAssignCards ? (
+              <button
+                type="button"
+                onClick={() => setAdminCreateOpen(true)}
+                className="inline-flex items-center gap-2 rounded-xl bg-orange-500 px-4 py-2 text-sm font-semibold text-black transition hover:bg-orange-400"
+              >
+                <Plus size={16} />
+                <span className="hidden sm:inline">Create / assign</span>
+              </button>
+            ) : null}
             <button
               onClick={() => setSidebarOpen(!sidebarOpen)}
               className="hidden lg:flex rounded-xl p-2 text-white/40 hover:bg-white/10 hover:text-white transition"
@@ -1351,6 +1451,18 @@ export default function BoardViewPage() {
           organizationId={organizationId!}
         />
       )}
+
+      {canAssignCards && boardId ? (
+        <CreateCardModal
+          isOpen={adminCreateOpen}
+          onClose={() => setAdminCreateOpen(false)}
+          onCreate={handleAdminCreateCard}
+          boards={availableBoards.length > 0 ? availableBoards : board ? [board] : []}
+          users={assignableUsers}
+          currentBoardId={boardId}
+          currentColumns={createModalColumns}
+        />
+      ) : null}
     </div>
   );
 }

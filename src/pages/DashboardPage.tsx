@@ -19,7 +19,6 @@ import { useAuth } from "../app/providers/AuthProvider";
 import Sidebar from "../components/dashboard/components/Sidebar";
 import TimeTrackerCard from "../components/dashboard/components/TimeTrackerCard";
 import { useDashboard } from "../lib/hooks/useDashboard";
-import { supabase } from "../lib/supabase/client";
 import { getAdminTimeSummary } from "../lib/supabase/queries/adminTime";
 
 function formatDuration(totalSeconds: number) {
@@ -102,11 +101,13 @@ export default function DashboardPage() {
     error,
     stats,
     tasks,
+    taskTodaySeconds,
     announcements,
     weather,
     roleNews,
     roleNewsTopic,
     activeTimer,
+    activeSessionSeconds,
     startTimer,
     stopTimer,
     busy,
@@ -120,67 +121,10 @@ export default function DashboardPage() {
     enabled: !!user?.id && !!profile?.organization_id,
   });
 
-  const [liveSeconds, setLiveSeconds] = useState(0);
-  const [taskTimeMap, setTaskTimeMap] = useState<Record<string, number>>({});
-
-  useEffect(() => {
-    if (!activeTimer?.started_at) {
-      setLiveSeconds(0);
-      return;
-    }
-
-    const tick = () => {
-      const startedAtMs = new Date(activeTimer.started_at).getTime();
-      const nowMs = Date.now();
-      const diff = Math.max(0, Math.floor((nowMs - startedAtMs) / 1000));
-      setLiveSeconds(diff);
-    };
-
-    tick();
-    const interval = window.setInterval(tick, 1000);
-
-    return () => window.clearInterval(interval);
-  }, [activeTimer]);
-
-  useEffect(() => {
-    if (!user?.id || !profile?.organization_id || tasks.length === 0) return;
-
-    const fetchTaskTimes = async () => {
-      const taskIds = tasks.map((task) => task.id);
-      const startOfToday = new Date(
-        new Date().getFullYear(),
-        new Date().getMonth(),
-        new Date().getDate(),
-      ).toISOString();
-
-      const { data: timeEntries } = await supabase
-        .from("time_entries")
-        .select("task_id, duration_seconds")
-        .eq("user_id", user.id)
-        .in("task_id", taskIds)
-        .gte("started_at", startOfToday);
-
-      const timeMap: Record<string, number> = {};
-
-      (timeEntries || []).forEach((entry: any) => {
-        const taskId = entry.task_id;
-        const seconds = entry.duration_seconds || 0;
-        timeMap[taskId] = (timeMap[taskId] || 0) + seconds;
-      });
-
-      setTaskTimeMap(timeMap);
-    };
-
-    void fetchTaskTimes();
-  }, [user?.id, profile?.organization_id, tasks]);
-
-  const completedTodaySeconds = useMemo(() => {
-    return stats?.todaySeconds ?? 0;
-  }, [stats]);
-
-  const totalTodayDisplaySeconds = useMemo(() => {
-    return completedTodaySeconds + liveSeconds;
-  }, [completedTodaySeconds, liveSeconds]);
+  const runningTaskTitle = useMemo(() => {
+    if (!activeTimer?.task_id) return null;
+    return tasks.find((task) => task.id === activeTimer.task_id)?.title ?? null;
+  }, [activeTimer?.task_id, tasks]);
 
   const organizationId = profile?.organization_id ?? null;
   const isAdminView =
@@ -310,9 +254,9 @@ export default function DashboardPage() {
                 />
                 <StatCard
                   title="Tracked Today"
-                  value={formatDuration(totalTodayDisplaySeconds)}
+                  value={formatDuration(stats?.todaySeconds ?? 0)}
                   icon={Clock3}
-                  subtitle="Hours : Minutes : Seconds"
+                  subtitle="Completed, manual, and active"
                 />
               </section>
 
@@ -340,10 +284,7 @@ export default function DashboardPage() {
                       tasks.map((task) => {
                         const isTrackingThisTask =
                           activeTimer?.task_id === task.id;
-                        const taskTime = taskTimeMap[task.id] || 0;
-                        const totalTaskTime = isTrackingThisTask
-                          ? taskTime + liveSeconds
-                          : taskTime;
+                        const totalTaskTime = taskTodaySeconds[task.id] || 0;
 
                         const getDueDateUrgency = () => {
                           if (!task.due_date || task.status === "done") {
@@ -521,7 +462,7 @@ export default function DashboardPage() {
                                         <span>·</span>
 
                                         <span className="text-orange-400">
-                                          {formatDuration(totalTaskTime)} today
+                                          Task today: {formatDuration(totalTaskTime)}
                                         </span>
                                       </>
                                     ) : null}
@@ -539,7 +480,7 @@ export default function DashboardPage() {
                                   <div className="h-2 w-2 animate-pulse rounded-full bg-orange-500" />
 
                                   <span className="font-mono text-sm font-semibold text-orange-400">
-                                    {formatDuration(liveSeconds)}
+                                    {formatDuration(activeSessionSeconds)}
                                   </span>
 
                                   <button
@@ -590,6 +531,8 @@ export default function DashboardPage() {
                   <TimeTrackerCard
                     activeTimeEntry={activeTimer}
                     todaySeconds={stats?.todaySeconds ?? 0}
+                    activeSessionSeconds={activeSessionSeconds}
+                    runningTaskTitle={runningTaskTitle}
                     busy={busy}
                     onStart={() => void startTimer(null, "General work")}
                     onStop={() => void stopTimer()}
@@ -621,14 +564,14 @@ export default function DashboardPage() {
                       <div className="flex items-center justify-between text-sm">
                         <span className="text-white/50">Current session</span>
                         <span className="font-medium text-orange-400">
-                          {formatDuration(liveSeconds)}
+                          {formatDuration(activeSessionSeconds)}
                         </span>
                       </div>
 
                       <div className="flex items-center justify-between text-sm">
                         <span className="text-white/50">Today total</span>
                         <span className="font-medium text-white">
-                          {formatDuration(totalTodayDisplaySeconds)}
+                          {formatDuration(stats?.todaySeconds ?? 0)}
                         </span>
                       </div>
 

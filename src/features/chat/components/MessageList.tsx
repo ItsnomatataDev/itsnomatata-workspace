@@ -63,12 +63,17 @@ function formatDateSeparator(value: string) {
 
 function getMediaMetadata(message: ChatMessage) {
   const metadata = message.metadata ?? {};
-  const type = metadata.type;
+  const type = metadata.message_type ?? metadata.type;
   if (type !== "gif" && type !== "meme") return null;
 
+  const gifUrl = metadata.gif && typeof metadata.gif === "object"
+    ? metadata.gif.url
+    : null;
   const mediaUrl = typeof metadata.media_url === "string"
     ? metadata.media_url
-    : null;
+    : typeof gifUrl === "string"
+      ? gifUrl
+      : null;
   if (!mediaUrl) return null;
 
   return {
@@ -76,7 +81,7 @@ function getMediaMetadata(message: ChatMessage) {
     mediaUrl,
     provider: typeof metadata.media_provider === "string"
       ? metadata.media_provider
-      : null,
+      : metadata.gif?.provider ?? null,
     caption: typeof metadata.caption === "string" ? metadata.caption : null,
   };
 }

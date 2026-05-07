@@ -7,6 +7,7 @@ interface CardTimeIndicatorProps {
   clientId?: string;
   className?: string;
   showTotalTime?: boolean;
+  todayOnly?: boolean;
 }
 
 export default function CardTimeIndicator({
@@ -14,6 +15,7 @@ export default function CardTimeIndicator({
   clientId,
   className = "",
   showTotalTime = true,
+  todayOnly = false,
 }: CardTimeIndicatorProps) {
   const auth = useAuth();
   const {
@@ -26,6 +28,7 @@ export default function CardTimeIndicator({
     organizationId: auth?.profile?.organization_id ?? "",
     taskId,
     clientId,
+    todayOnly,
   });
 
   if (loading) {
@@ -56,7 +59,7 @@ export default function CardTimeIndicator({
         </span>
         {showTotalTime && (
           <span className="text-white/60">
-            {formatTime(combinedSeconds)}
+            {todayOnly ? `Task today ${formatTime(combinedSeconds)}` : formatTime(combinedSeconds)}
           </span>
         )}
       </div>
@@ -67,7 +70,7 @@ export default function CardTimeIndicator({
     return (
       <div className={`flex items-center gap-1.5 text-xs text-white/50 ${className}`}>
         <Clock3 size={10} />
-        <span>{formatTime(totalTrackedSeconds)}</span>
+        <span>{todayOnly ? `Task today ${formatTime(totalTrackedSeconds)}` : formatTime(totalTrackedSeconds)}</span>
       </div>
     );
   }

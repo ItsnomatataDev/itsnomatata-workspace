@@ -6,6 +6,12 @@ import {
   stopTimeEntry,
   type TimeEntryItem,
 } from "../supabase/mutations/timeEntries";
+import {
+  getRunningEntryElapsedSeconds,
+  getTaskTodaySeconds,
+  getTodayTotalSeconds,
+  getZimbabweTodayRangeIso,
+} from "../utils/timeMath";
 
 type DashboardStats = {
   openTasks: number;
@@ -60,24 +66,6 @@ type RoleNewsItem = {
 
 type ActiveTimer = TimeEntryItem | null;
 
-const startOfToday = () => {
-  const now = new Date();
-  return new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    now.getDate(),
-  ).toISOString();
-};
-
-const diffInSeconds = (start: string, end?: string | null) => {
-  const startMs = new Date(start).getTime();
-  const endMs = end ? new Date(end).getTime() : Date.now();
-
-  if (Number.isNaN(startMs) || Number.isNaN(endMs)) return 0;
-
-  return Math.max(0, Math.floor((endMs - startMs) / 1000));
-};
-
 export function useDashboard(params: {
   userId?: string;
   organizationId?: string | null;
@@ -97,8 +85,9 @@ export function useDashboard(params: {
     enabled = true,
   } = params;
 
-  const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [baseStats, setBaseStats] = useState<Omit<DashboardStats, "todaySeconds"> | null>(null);
   const [tasks, setTasks] = useState<DashboardTask[]>([]);
+  const [todayTimeEntries, setTodayTimeEntries] = useState<TimeEntryItem[]>([]);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [weather, setWeather] = useState<WeatherData | null>(null);
   const [roleNews, setRoleNews] = useState<RoleNewsItem[]>([]);
@@ -106,6 +95,43 @@ export function useDashboard(params: {
   const [loading, setLoading] = useState(Boolean(enabled));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  const activeSessionSeconds = useMemo(
+    () => getRunningEntryElapsedSeconds(activeTimer, now),
+    [activeTimer, now],
+  );
+
+  const todaySeconds = useMemo(
+    () => getTodayTotalSeconds(todayTimeEntries, activeTimer, now),
+    [activeTimer, now, todayTimeEntries],
+  );
+
+  const taskTodaySeconds = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const task of tasks) {
+      map[task.id] = getTaskTodaySeconds(
+        task.id,
+        todayTimeEntries,
+        activeTimer,
+        now,
+      );
+    }
+    return map;
+  }, [activeTimer, now, tasks, todayTimeEntries]);
+
+  const stats = useMemo<DashboardStats | null>(() => {
+    if (!baseStats) return null;
+    return {
+      ...baseStats,
+      todaySeconds,
+    };
+  }, [baseStats, todaySeconds]);
 
   const roleNewsTopic = useMemo(() => {
     switch (role) {
@@ -249,6 +275,8 @@ export function useDashboard(params: {
         new Set([...assignedTaskIds, ...trackedTaskIds]),
       );
 
+      const todayRange = getZimbabweTodayRangeIso();
+
       const [
         notificationsRes,
         approvalsRes,
@@ -296,11 +324,12 @@ export function useDashboard(params: {
 
         supabase
           .from("time_entries")
-          .select("id,started_at,ended_at,duration_seconds,description,task_id")
+          .select("*")
           .eq("organization_id", organizationId)
           .eq("user_id", userId)
           .is("deleted_at", null)
-          .gte("started_at", startOfToday()),
+          .gte("started_at", todayRange.start)
+          .lt("started_at", todayRange.end),
 
         getActiveTimeEntry({
           organizationId,
@@ -382,30 +411,19 @@ export function useDashboard(params: {
           .length;
       }
 
-      const todaySeconds = (timeEntriesRes.data ?? []).reduce(
-        (sum, item: any) => {
-          if (typeof item.duration_seconds === "number" && item.ended_at) {
-            return sum + Math.max(0, item.duration_seconds);
-          }
-
-          return sum + diffInSeconds(item.started_at, item.ended_at);
-        },
-        0,
-      );
-
-      setStats({
+      setBaseStats({
         openTasks,
         inProgressTasks,
         reviewTasks,
         doneTasks,
         unreadNotifications: notificationsRes.count ?? 0,
         pendingApprovals: approvalsRes.count ?? 0,
-        todaySeconds,
         myProjects: myProjectsRes.count ?? 0,
         completedProjects: completedProjectsRes.count ?? 0,
       });
 
       setTasks(dashboardTasks);
+      setTodayTimeEntries((timeEntriesRes.data ?? []) as TimeEntryItem[]);
       setAnnouncements((announcementsRes.data ?? []) as Announcement[]);
       setActiveTimer((activeTimerRes as ActiveTimer) ?? null);
 
@@ -468,17 +486,43 @@ export function useDashboard(params: {
     void load();
   }, [load]);
 
+  useEffect(() => {
+    if (!organizationId || !userId) return;
+
+    const channel = supabase
+      .channel(`dashboard-time:${organizationId}:${userId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "time_entries",
+          filter: `user_id=eq.${userId}`,
+        },
+        () => {
+          void load();
+        },
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [load, organizationId, userId]);
+
   return {
     loading,
     busy,
     error,
     stats,
     tasks,
+    taskTodaySeconds,
     announcements,
     weather,
     roleNews,
     roleNewsTopic,
     activeTimer,
+    activeSessionSeconds,
     reload: load,
     startTimer,
     stopTimer,

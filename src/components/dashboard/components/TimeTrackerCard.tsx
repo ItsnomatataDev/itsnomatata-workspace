@@ -1,4 +1,3 @@
-import { useEffect, useMemo, useState } from "react";
 import { Clock3, Play, Square } from "lucide-react";
 
 type ActiveTimeEntry = {
@@ -11,6 +10,8 @@ type ActiveTimeEntry = {
 type TimeTrackerCardProps = {
   activeTimeEntry: ActiveTimeEntry;
   todaySeconds: number;
+  activeSessionSeconds: number;
+  runningTaskTitle?: string | null;
   busy: boolean;
   onStart: () => void;
   onStop: () => void;
@@ -31,36 +32,12 @@ function formatDuration(totalSeconds: number) {
 export default function TimeTrackerCard({
   activeTimeEntry,
   todaySeconds,
+  activeSessionSeconds,
+  runningTaskTitle,
   busy,
   onStart,
   onStop,
 }: TimeTrackerCardProps) {
-  const [liveSeconds, setLiveSeconds] = useState(0);
-
-  useEffect(() => {
-    if (!activeTimeEntry?.started_at) {
-      setLiveSeconds(0);
-      return;
-    }
-
-    const updateTimer = () => {
-      const startedAt = new Date(activeTimeEntry.started_at).getTime();
-      const now = Date.now();
-      const diff = Math.floor((now - startedAt) / 1000);
-      setLiveSeconds(Math.max(0, diff));
-    };
-
-    updateTimer();
-
-    const interval = setInterval(updateTimer, 1000);
-
-    return () => clearInterval(interval);
-  }, [activeTimeEntry]);
-
-  const totalTodayDisplaySeconds = useMemo(() => {
-    return todaySeconds + liveSeconds;
-  }, [todaySeconds, liveSeconds]);
-
   return (
     <div className="rounded-5xl border border-white/10 bg-white/10 p-5">
       <div className="flex items-center gap-3">
@@ -75,20 +52,23 @@ export default function TimeTrackerCard({
       </div>
 
       <p className="mt-5 text-3xl font-bold text-white">
-        {formatDuration(totalTodayDisplaySeconds)}
+        {formatDuration(todaySeconds)}
       </p>
       <p className="mt-1 text-sm text-white/50">Tracked today</p>
 
       {activeTimeEntry ? (
-        <div className="mt-2 space-y-1">
-          <p className="text-sm text-orange-400">
-            Running now: {formatDuration(liveSeconds)}
-          </p>
-          {activeTimeEntry.description && (
+        <div className="mt-3 space-y-2 rounded-2xl border border-orange-500/20 bg-orange-500/10 px-3 py-3">
+          <div className="flex items-center justify-between gap-3 text-sm">
+            <span className="text-white/55">Active session</span>
+            <span className="font-mono font-semibold text-orange-300">
+              {formatDuration(activeSessionSeconds)}
+            </span>
+          </div>
+          {runningTaskTitle || activeTimeEntry.description ? (
             <p className="text-xs text-white/60 truncate">
-              {activeTimeEntry.description}
+              {runningTaskTitle || activeTimeEntry.description}
             </p>
-          )}
+          ) : null}
         </div>
       ) : (
         <p className="mt-2 text-sm text-white/40">No active timer</p>

@@ -143,7 +143,7 @@ export default function LeaveCalendar({
 
     const leaveEvents: LeaveCalendarEvent[] = calendarLeaves.map((item) => ({
       id: item.id,
-      title: `${item.status}: ${item.requester_name || item.requester_email || "Employee"}`,
+      title: `${item.requester_name || item.requester_email || "Employee"} · ${item.leave_type_name || "Leave"} · ${item.status}`,
       start: toStartDate(item.start_date),
       end: toEndInclusive(item.end_date),
       allDay: true,
@@ -484,7 +484,24 @@ export default function LeaveCalendar({
                 </div>
 
                 <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
-                  <p className="text-sm text-white/60">Leave Length</p>
+                  <p className="text-sm text-white/60">Leave Type</p>
+                  <p className="mt-2 font-medium text-white">
+                    {selectedLeave.leave_type_name || "Leave"}
+                  </p>
+                </div>
+
+                <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                  <p className="text-sm text-white/60">Status</p>
+                  <p className="mt-2 font-medium capitalize text-white">
+                    {selectedLeave.status}
+                  </p>
+                </div>
+
+                <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                  <p className="flex items-center gap-2 text-sm text-white/60">
+                    <ClipboardList size={14} />
+                    Leave Length
+                  </p>
                   <p className="mt-2 font-medium text-white">
                     {selectedEvent.start instanceof Date &&
                     selectedEvent.end instanceof Date
@@ -493,16 +510,6 @@ export default function LeaveCalendar({
                           selectedEvent.end,
                         )} day(s)`
                       : "N/A"}
-                  </p>
-                </div>
-
-                <div className="rounded-2xl border border-white/10 bg-black/30 p-4 md:col-span-2">
-                  <p className="flex items-center gap-2 text-sm text-white/60">
-                    <ClipboardList size={14} />
-                    Reason
-                  </p>
-                  <p className="mt-2 text-white/85">
-                    {selectedLeave.reason || "No reason provided"}
                   </p>
                 </div>
               </>

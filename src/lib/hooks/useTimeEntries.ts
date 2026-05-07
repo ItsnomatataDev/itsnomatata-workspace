@@ -14,6 +14,10 @@ import {
   updateTimeEntry,
   type UpdateTimeEntryInput,
 } from "../supabase/mutations/timeEntries";
+import {
+  getEntryDurationSeconds,
+  getRunningEntryElapsedSeconds,
+} from "../utils/timeMath";
 
 interface UseTimeEntriesParams {
   organizationId?: string | null;
@@ -306,10 +310,7 @@ export function useTimeEntries({
       const isRunning = entry.is_running || !entry.ended_at;
       if (!isRunning) return entry;
 
-      const startedMs = new Date(entry.started_at).getTime();
-      const elapsedSeconds = Number.isNaN(startedMs)
-        ? 0
-        : Math.max(0, Math.floor((now - startedMs) / 1000));
+      const elapsedSeconds = getRunningEntryElapsedSeconds(entry, now);
 
       return {
         ...entry,
@@ -330,13 +331,13 @@ export function useTimeEntries({
 
   const totals = useMemo(() => {
     const totalSeconds = liveEntries.reduce(
-      (sum, entry) => sum + (entry.duration_seconds ?? 0),
+      (sum, entry) => sum + getEntryDurationSeconds(entry),
       0,
     );
 
     const billableSeconds = liveEntries
       .filter((entry) => entry.is_billable)
-      .reduce((sum, entry) => sum + (entry.duration_seconds ?? 0), 0);
+      .reduce((sum, entry) => sum + getEntryDurationSeconds(entry), 0);
 
     const nonBillableSeconds = totalSeconds - billableSeconds;
 

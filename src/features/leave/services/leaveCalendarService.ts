@@ -20,6 +20,7 @@ export type LeaveCalendarEventRow = {
   organization_id: string;
   user_id: string;
   leave_type_id: string | null;
+  leave_type_name?: string | null;
   start_date: string;
   end_date: string;
   requested_days?: number;
@@ -186,18 +187,38 @@ export async function getApprovedLeaveCalendarEvents(organizationId: string) {
     .map(normalizeLeaveCalendarEvent)
     .filter((row) => row.status === "approved" || row.status === "pending");
   const userIds = [...new Set(rows.map((item) => item.user_id))];
+  const leaveTypeIds = [
+    ...new Set(rows.map((item) => item.leave_type_id).filter(Boolean)),
+  ] as string[];
 
-  if (userIds.length === 0) return rows;
+  if (userIds.length === 0 && leaveTypeIds.length === 0) return rows;
 
-  const { data: profiles, error: profilesError } = await supabase
-    .from("profiles")
-    .select("id, full_name, email, primary_role, department")
-    .in("id", userIds);
+  const [profilesResult, leaveTypesResult] = await Promise.all([
+    userIds.length > 0
+      ? supabase
+          .from("profiles")
+          .select("id, full_name, email, primary_role, department")
+          .in("id", userIds)
+      : Promise.resolve({ data: [], error: null }),
+    leaveTypeIds.length > 0
+      ? supabase
+          .from("leave_types")
+          .select("id, name")
+          .in("id", leaveTypeIds)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
 
-  if (profilesError) throw profilesError;
+  if (profilesResult.error) throw profilesResult.error;
+  if (leaveTypesResult.error) throw leaveTypesResult.error;
 
   const profileMap = new Map(
-    (profiles ?? []).map((profile) => [profile.id, profile]),
+    (profilesResult.data ?? []).map((profile) => [profile.id, profile]),
+  );
+  const leaveTypeMap = new Map(
+    (leaveTypesResult.data ?? []).map((leaveType) => [
+      leaveType.id,
+      leaveType.name as string | null,
+    ]),
   );
 
   return rows.map((row) => {
@@ -209,6 +230,9 @@ export async function getApprovedLeaveCalendarEvents(organizationId: string) {
       requester_email: profile?.email ?? null,
       requester_role: row.request_role ?? profile?.primary_role ?? null,
       requester_department: row.office ?? row.request_department ?? profile?.department ?? null,
+      leave_type_name: row.leave_type_id
+        ? leaveTypeMap.get(row.leave_type_id) ?? null
+        : null,
     };
   });
 }

@@ -5,6 +5,8 @@ export type GifSelection = {
   mediaUrl: string;
   provider: "giphy" | "tenor" | "url";
   caption?: string | null;
+  title?: string | null;
+  previewUrl?: string | null;
 };
 
 type GifResult = {
@@ -207,6 +209,8 @@ export default function GifPickerPanel({
                     mediaUrl: item.url,
                     provider: item.provider,
                     caption: caption.trim() || null,
+                    title: item.title,
+                    previewUrl: item.url,
                   });
                   onClose();
                   setCaption("");
