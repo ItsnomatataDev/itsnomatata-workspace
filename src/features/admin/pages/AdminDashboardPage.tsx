@@ -8,6 +8,8 @@ import {
   MessagesSquare,
   Clock3,
   Activity,
+  UserCheck,
+  UserX,
 } from "lucide-react";
 import Sidebar from "../../../components/dashboard/components/Sidebar";
 import { useAuth } from "../../../app/providers/AuthProvider";
@@ -58,6 +60,60 @@ export default function AdminDashboardPage() {
   const [leaveRequests, setLeaveRequests] = useState<any[]>([]);
   const [lowStockItems, setLowStockItems] = useState<any[]>([]);
   const [crmDeals, setCrmDeals] = useState<any[]>([]);
+  const [pendingApprovals, setPendingApprovals] = useState<any[]>([]);
+  const [processingApproval, setProcessingApproval] = useState<string | null>(null);
+
+  const handleApproveUser = async (userId: string) => {
+    if (!organizationId || !user?.id) return;
+
+    try {
+      setProcessingApproval(userId);
+
+      const { error } = await supabase
+        .from("profiles")
+        .update({
+          account_status: "active",
+          approved_by: user.id,
+          approved_at: new Date().toISOString(),
+        })
+        .eq("id", userId);
+
+      if (error) throw error;
+
+      await loadDashboard();
+    } catch (err) {
+      console.error("APPROVE USER ERROR:", err);
+      setError(err instanceof Error ? err.message : "Failed to approve user");
+    } finally {
+      setProcessingApproval(null);
+    }
+  };
+
+  const handleRejectUser = async (userId: string) => {
+    if (!organizationId || !user?.id) return;
+
+    try {
+      setProcessingApproval(userId);
+
+      const { error } = await supabase
+        .from("profiles")
+        .update({
+          account_status: "rejected",
+          rejected_by: user.id,
+          rejected_at: new Date().toISOString(),
+        })
+        .eq("id", userId);
+
+      if (error) throw error;
+
+      await loadDashboard();
+    } catch (err) {
+      console.error("REJECT USER ERROR:", err);
+      setError(err instanceof Error ? err.message : "Failed to reject user");
+    } finally {
+      setProcessingApproval(null);
+    }
+  };
 
   const loadDashboard = useCallback(async () => {
     if (!organizationId) return;
@@ -65,13 +121,18 @@ export default function AdminDashboardPage() {
     try {
       setError("");
 
-      const [statsData, peopleData, leaveData, stockData, dealsData] =
+      const [statsData, peopleData, leaveData, stockData, dealsData, approvalsData] =
         await Promise.all([
           getAdminDashboardStats(organizationId),
           getAdminPeopleStats(organizationId),
           getRecentLeaveRequests(organizationId),
           getLowStockItems(organizationId),
           getRecentCRMDeals(organizationId),
+          supabase
+            .from("profiles")
+            .select("*")
+            .eq("organization_id", organizationId)
+            .eq("account_status", "pending_approval"),
         ]);
 
       setStats(statsData);
@@ -79,6 +140,7 @@ export default function AdminDashboardPage() {
       setLeaveRequests(leaveData);
       setLowStockItems(stockData);
       setCrmDeals(dealsData);
+      setPendingApprovals(approvalsData.data ?? []);
     } catch (err: any) {
       console.error("ADMIN DASHBOARD LOAD ERROR:", err);
       setError(err?.message || "Failed to load admin dashboard.");
@@ -226,6 +288,60 @@ export default function AdminDashboardPage() {
               <section className="mt-6 grid gap-6 xl:grid-cols-3">
                 <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
                   <h2 className="text-lg font-semibold">
+                    Pending Approvals
+                  </h2>
+                  <div className="mt-4 space-y-3">
+                    {pendingApprovals.length === 0 ? (
+                      <p className="text-sm text-white/50">
+                        No pending approvals.
+                      </p>
+                    ) : (
+                      pendingApprovals.map((item) => (
+                        <div
+                          key={item.id}
+                          className="rounded-xl border border-white/10 bg-black/30 px-4 py-3"
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex-1">
+                              <p className="font-medium text-white">
+                                {item.full_name || item.email}
+                              </p>
+                              <p className="mt-1 text-sm text-white/60">
+                                {item.email}
+                              </p>
+                              <p className="mt-1 text-xs text-orange-400">
+                                {item.primary_role || 'social_media'}
+                              </p>
+                            </div>
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                onClick={() => void handleApproveUser(item.id)}
+                                disabled={processingApproval === item.id}
+                                className="rounded-lg bg-green-500/15 p-2 text-green-400 transition hover:bg-green-500/25 disabled:opacity-50"
+                                title="Approve"
+                              >
+                                <UserCheck size={16} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void handleRejectUser(item.id)}
+                                disabled={processingApproval === item.id}
+                                className="rounded-lg bg-red-500/15 p-2 text-red-400 transition hover:bg-red-500/25 disabled:opacity-50"
+                                title="Reject"
+                              >
+                                <UserX size={16} />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+                  <h2 className="text-lg font-semibold">
                     Recent Leave Requests
                   </h2>
                   <div className="mt-4 space-y-3">
@@ -273,7 +389,9 @@ export default function AdminDashboardPage() {
                     )}
                   </div>
                 </div>
+              </section>
 
+              <section className="mt-6 grid gap-6 xl:grid-cols-2">
                 <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
                   <h2 className="text-lg font-semibold">Recent CRM Deals</h2>
                   <div className="mt-4 space-y-3">

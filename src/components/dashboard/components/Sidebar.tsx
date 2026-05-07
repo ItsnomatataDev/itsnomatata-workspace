@@ -125,6 +125,17 @@ function getRoleNav(role?: string | null, counts?: SidebarCounts): NavItem[] {
             { to: "/timesheets/team", label: "Team Timesheet", icon: Clock3 },
           ],
         },
+        {
+          type: "group",
+          label: "Assets",
+          icon: Package,
+          color: "text-blue-400",
+          activePaths: ["/assets", "/scan"],
+          children: [
+            { to: "/assets", label: "Assets", icon: ShieldCheck },
+            { to: "/scan", label: "Scan Asset", icon: ScanLine },
+          ],
+        },
         { to: "/automations", label: "Automations", icon: Sparkles },
         { to: "/automation-runs", label: "Automation Runs", icon: Activity },
         {
@@ -167,6 +178,17 @@ function getRoleNav(role?: string | null, counts?: SidebarCounts): NavItem[] {
               label: "Board Management",
               icon: BriefcaseBusiness,
             },
+          ],
+        },
+        {
+          type: "group",
+          label: "Assets",
+          icon: Package,
+          color: "text-blue-400",
+          activePaths: ["/assets", "/scan"],
+          children: [
+            { to: "/assets", label: "Assets", icon: ShieldCheck },
+            { to: "/scan", label: "Scan Asset", icon: ScanLine },
           ],
         },
         {
@@ -239,7 +261,7 @@ function getRoleNav(role?: string | null, counts?: SidebarCounts): NavItem[] {
             },
           ],
         },
-        { to: "/admin/ai", label: "AI Control", icon: Sparkles },
+      
       ];
 
     default:

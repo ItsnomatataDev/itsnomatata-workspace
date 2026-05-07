@@ -50,7 +50,7 @@ export default function ForgotPasswordPage() {
         </div>
 
         <div className="flex items-center justify-center p-4 sm:p-6">
-          <div className="w-full max-w-md border border-orange-500/20 bg-white/5 p-5 shadow-2xl sm:p-8">
+          <div className="w-full max-w-md rounded-3xl border border-orange-500/20 bg-white/5 p-5 shadow-2xl sm:p-8">
             <div className="mb-8">
               <h2 className="text-3xl font-bold text-white">Forgot Password</h2>
               <p className="mt-2 text-sm text-white/60">
@@ -76,7 +76,7 @@ export default function ForgotPasswordPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="Email"
-                className="w-full border border-white/10 bg-black px-4 py-3 text-white outline-none transition focus:border-orange-500"
+                className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 text-white outline-none transition focus:border-orange-500"
                 required
                 disabled={busy}
               />
@@ -84,7 +84,7 @@ export default function ForgotPasswordPage() {
               <button
                 type="submit"
                 disabled={busy}
-                className="w-full bg-orange-500 px-4 py-3 font-semibold text-black transition hover:bg-orange-400 disabled:opacity-60"
+                className="w-full rounded-2xl bg-orange-500 px-4 py-3 font-semibold text-black transition hover:bg-orange-400 disabled:opacity-60"
               >
                 {busy ? "Sending..." : "Send Reset Link"}
               </button>

@@ -20,6 +20,7 @@ type AppRole =
 
 export type AccountStatus =
   | "pending"
+  | "pending_approval"
   | "active"
   | "suspended"
   | "rejected"
@@ -81,7 +82,7 @@ function resolveUserRole(
 }
 
 function resolveAccountStatus(user: User, profile?: AuthProfile | null) {
-  if (isCompanyEmail(user.email) && profile?.account_status === "pending") {
+  if (isCompanyEmail(user.email) && (profile?.account_status === "pending" || profile?.account_status === "pending_approval")) {
     return "active";
   }
 
@@ -89,7 +90,7 @@ function resolveAccountStatus(user: User, profile?: AuthProfile | null) {
   if (profile?.is_suspended) return "suspended";
   if (profile?.is_active) return "active";
 
-  return isCompanyEmail(user.email) ? "active" : "pending";
+  return isCompanyEmail(user.email) ? "active" : "pending_approval";
 }
 
 async function getOrganization() {
@@ -193,11 +194,14 @@ function getDisabledAccountMessage(profile: AuthProfile | null) {
   const status = profile?.account_status ??
     (profile?.is_suspended ? "suspended" : null);
 
+  if (status === "pending_approval") {
+    return "Your account is awaiting admin approval.";
+  }
   if (status === "suspended") {
-    return "Your account has been suspended by an administrator.";
+    return "Your account has been suspended. Contact support.";
   }
   if (status === "deleted") {
-    return "Your account has been removed from this workspace.";
+    return "Your account has been deactivated.";
   }
   if (status === "rejected") {
     return "Your account request was rejected by an administrator.";

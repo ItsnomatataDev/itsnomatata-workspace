@@ -16,7 +16,7 @@ type SignUpUserParams = {
   email: string;
   password: string;
   fullName: string;
-  role: PublicSignupRole;
+  role?: PublicSignupRole;
 };
 
 type SignInUserParams = {
@@ -78,7 +78,7 @@ function isSuperAdminAllowedEmail(email: string) {
 
 function resolveSignupRole(
   email: string,
-  requestedRole: PublicSignupRole,
+  requestedRole?: PublicSignupRole,
 ): AppRole {
   const normalizedEmail = normalizeEmail(email);
 
@@ -86,7 +86,7 @@ function resolveSignupRole(
     return "admin";
   }
 
-  return requestedRole;
+  return requestedRole ?? "social_media";
 }
 
 async function getOrganizationBySlug(
@@ -114,6 +114,10 @@ export async function signUpUser(params: SignUpUserParams) {
     const organization = await getOrganizationBySlug(ORGANIZATION_SLUG);
     const resolvedRole = resolveSignupRole(email, params.role);
 
+    // Determine initial account status based on email domain
+    const isCompanyEmail = email.endsWith("@itsnomatata.com");
+    const initialStatus = isCompanyEmail ? "active" : "pending_approval";
+
     const { data, error } = await supabase.auth.signUp({
       email,
       password: params.password,
@@ -123,6 +127,7 @@ export async function signUpUser(params: SignUpUserParams) {
           role: resolvedRole,
           organization_slug: ORGANIZATION_SLUG,
           organization_id: organization?.id ?? null,
+          account_status: initialStatus,
         },
       },
     });
@@ -143,6 +148,7 @@ export async function signUpUser(params: SignUpUserParams) {
         organizationFound: Boolean(organization),
         organization,
       },
+      approvalRequired: !isCompanyEmail,
     };
   } finally {
     authRequestInFlight = false;

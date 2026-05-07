@@ -1,7 +1,6 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import LoginPage from "../../features/auth/pages/LoginPage";
 import SignupPage from "../../features/auth/pages/SignupPage";
-import RequestAccessPage from "../../features/auth/pages/RequestAccessPage";
 import ForgotPasswordPage from "../../features/auth/pages/ForgotPasswordPage";
 import ResetPasswordPage from "../../features/auth/pages/ResetPasswordPage";
 import DashboardPage from "../../pages/DashboardPage";
@@ -49,8 +48,6 @@ import AIWorkspacePage from "../../features/ai-workspace/pages/AIWorkspacePage";
 import AiAssistantPage from "../../features/ai-assistant/pages/AiAssistantPage";
 import WorkIntelligenceBoardPage from "../../features/timesheets/pages/WorkIntelligenceBoardPage";
 import TeamTimesheetsPage from "../../features/timesheets/pages/TeamTimesheetsPage";
-import EverhourHome from "../../features/everhour/pages/EverhourHome";
-import EverhourBoardDetail from "../../features/everhour/pages/EverhourBoardDetail";
 import EverhourAdminPage from "../../features/timesheets/pages/EverhourAdminPage";
 import BoardTimeManagementPage from "../../features/boards/pages/BoardTimeManagementPage";
 import TimeTrackingPage from "../../features/time-tracking/pages/TimeTrackingPage";
@@ -58,18 +55,26 @@ import BoardDetailView from "../../features/boards/pages/BoardDetailView";
 import AttendancePage from "../../features/attendance/pages/AttendancePage";
 import AdminAttendancePage from "../../features/attendance/pages/AdminAttendancePage";
 import UserTimesheetPage from "../../features/timesheets/pages/UserTimesheetPage";
+
 const AppRouter = () => {
   return (
     <BrowserRouter>
       <Routes>
-        {"Auth routes"}
+        {/* Auth routes */}
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/signup" element={<SignupPage />} />
-        <Route path="/request-access" element={<RequestAccessPage />} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         <Route path="/resetpassword" element={<ResetPasswordPage />} />
-        {"/Public routes"}
+
+        {/* Public guest meeting routes */}
+        <Route path="/join/:meetingCode" element={<GuestMeetingJoinPage />} />
+        <Route
+          path="/guest/meetings/:meetingId"
+          element={<GuestMeetingJoinPage />}
+        />
+
+        {/* Protected app routes */}
         <Route
           path="/dashboard"
           element={
@@ -78,13 +83,25 @@ const AppRouter = () => {
             </ProtectedRoute>
           }
         />
-        <Route path="/meetings" element={<MeetingsPage />} />
-        <Route path="/meetings/:meetingId" element={<MeetingRoomPage />} />
-        <Route path="/join/:meetingCode" element={<GuestMeetingJoinPage />} />
+
         <Route
-          path="/guest/meetings/:meetingId"
-          element={<GuestMeetingJoinPage />}
+          path="/meetings"
+          element={
+            <ProtectedRoute>
+              <MeetingsPage />
+            </ProtectedRoute>
+          }
         />
+
+        <Route
+          path="/meetings/:meetingId"
+          element={
+            <ProtectedRoute>
+              <MeetingRoomPage />
+            </ProtectedRoute>
+          }
+        />
+
         <Route
           path="/boards"
           element={
@@ -102,6 +119,7 @@ const AppRouter = () => {
             </ProtectedRoute>
           }
         />
+
         <Route
           path="/clients"
           element={
@@ -110,6 +128,7 @@ const AppRouter = () => {
             </ProtectedRoute>
           }
         />
+
         <Route
           path="/clients/:clientId"
           element={
@@ -118,21 +137,12 @@ const AppRouter = () => {
             </ProtectedRoute>
           }
         />
+
         <Route
           path="/clients/:clientId/workspace"
           element={
             <ProtectedRoute>
               <ClientWorkspacePage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/admin/employees/:userId"
-          element={
-            <ProtectedRoute>
-              <RoleRoute roles={["admin"]}>
-                <AdminEmployeeDetailsPage />
-              </RoleRoute>
             </ProtectedRoute>
           }
         />
@@ -145,6 +155,7 @@ const AppRouter = () => {
             </ProtectedRoute>
           }
         />
+
         <Route
           path="/assets"
           element={
@@ -153,6 +164,25 @@ const AppRouter = () => {
             </ProtectedRoute>
           }
         />
+
+        <Route
+          path="/assets/:assetId"
+          element={
+            <ProtectedRoute>
+              <AssetDetailsPage />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/scan"
+          element={
+            <ProtectedRoute>
+              <ScanAssetPage />
+            </ProtectedRoute>
+          }
+        />
+
         <Route
           path="/time"
           element={
@@ -161,6 +191,7 @@ const AppRouter = () => {
             </ProtectedRoute>
           }
         />
+
         <Route
           path="/time-tracking"
           element={
@@ -169,6 +200,7 @@ const AppRouter = () => {
             </ProtectedRoute>
           }
         />
+
         <Route
           path="/leave"
           element={
@@ -177,17 +209,16 @@ const AppRouter = () => {
             </ProtectedRoute>
           }
         />
+
         <Route
-          path="/admin/leave"
+          path="/chat"
           element={
             <ProtectedRoute>
-              <RoleRoute roles={["admin", "manager"]}>
-                <AdminLeavePage />
-              </RoleRoute>
+              <ChatPage />
             </ProtectedRoute>
           }
         />
-        <Route path="/chat" element={<ChatPage />} />
+
         <Route
           path="/campaigns"
           element={
@@ -196,6 +227,7 @@ const AppRouter = () => {
             </ProtectedRoute>
           }
         />
+
         <Route
           path="/social-posts"
           element={
@@ -214,6 +246,7 @@ const AppRouter = () => {
             </ProtectedRoute>
           }
         />
+
         <Route
           path="/social-media"
           element={
@@ -226,42 +259,7 @@ const AppRouter = () => {
             </ProtectedRoute>
           }
         />
-        <Route
-          path="/automations"
-          element={
-            <ProtectedRoute>
-              <RoleRoute roles={["it"]}>
-                <AutomationFlowsPage />
-              </RoleRoute>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/assets/:assetId"
-          element={
-            <ProtectedRoute>
-              <AssetDetailsPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/scan"
-          element={
-            <ProtectedRoute>
-              <ScanAssetPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/automation-runs"
-          element={
-            <ProtectedRoute>
-              <RoleRoute roles={["it"]}>
-                <AutomationRunsPage />
-              </RoleRoute>
-            </ProtectedRoute>
-          }
-        />
+
         <Route
           path="/reports"
           element={
@@ -270,6 +268,71 @@ const AppRouter = () => {
             </ProtectedRoute>
           }
         />
+
+        <Route
+          path="/content-library"
+          element={
+            <ProtectedRoute>
+              <ContentLibraryPage />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/notifications"
+          element={
+            <ProtectedRoute>
+              <NotificationsPage />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/settings"
+          element={
+            <ProtectedRoute>
+              <SettingsPage />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/ai-workspace"
+          element={
+            <ProtectedRoute>
+              <AIWorkspacePage />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/ai-assistant"
+          element={
+            <ProtectedRoute>
+              <AiAssistantPage />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/attendance"
+          element={
+            <ProtectedRoute>
+              <AttendancePage />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/timesheet"
+          element={
+            <ProtectedRoute>
+              <UserTimesheetPage />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Admin routes */}
         <Route
           path="/admin/dashboard"
           element={
@@ -280,11 +343,58 @@ const AppRouter = () => {
             </ProtectedRoute>
           }
         />
+
         <Route
-          path="/content-library"
+          path="/admin/employees"
           element={
             <ProtectedRoute>
-              <ContentLibraryPage />
+              <RoleRoute roles={["admin"]}>
+                <AdminEmployeesPage />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/admin/employees/:userId"
+          element={
+            <ProtectedRoute>
+              <RoleRoute roles={["admin"]}>
+                <AdminEmployeeDetailsPage />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/admin/leave"
+          element={
+            <ProtectedRoute>
+              <RoleRoute roles={["admin", "manager"]}>
+                <AdminLeavePage />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/admin/roster"
+          element={
+            <ProtectedRoute>
+              <RoleRoute roles={["admin", "manager"]}>
+                <AdminRosterPage />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/admin/attendance"
+          element={
+            <ProtectedRoute>
+              <RoleRoute roles={["admin", "manager"]}>
+                <AdminAttendancePage />
+              </RoleRoute>
             </ProtectedRoute>
           }
         />
@@ -301,168 +411,6 @@ const AppRouter = () => {
         />
 
         <Route
-          path="/it/dashboard"
-          element={
-            <ProtectedRoute>
-              <RoleRoute roles={["admin", "it"]}>
-                <ITDashboardPage />
-              </RoleRoute>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/it/war-room"
-          element={
-            <ProtectedRoute>
-              <RoleRoute roles={["admin", "it"]}>
-                <ITDashboardPage />
-              </RoleRoute>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/it/projects"
-          element={
-            <ProtectedRoute>
-              <RoleRoute roles={["it"]}>
-                <ITProjectsPage />
-              </RoleRoute>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/admin/employees"
-          element={
-            <ProtectedRoute>
-              <RoleRoute roles={["admin"]}>
-                <AdminEmployeesPage />
-              </RoleRoute>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/it/projects/:projectId"
-          element={
-            <ProtectedRoute>
-              <RoleRoute roles={["it"]}>
-                <ITProjectDetailsPage />
-              </RoleRoute>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/it/collaboration"
-          element={
-            <ProtectedRoute>
-              <RoleRoute roles={["it"]}>
-                <ITCollaborationPage />
-              </RoleRoute>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/it/issues"
-          element={
-            <ProtectedRoute>
-              <RoleRoute roles={["it"]}>
-                <ITIssuesPage />
-              </RoleRoute>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/it/system-monitor"
-          element={
-            <ProtectedRoute>
-              <RoleRoute roles={["it"]}>
-                <ITSystemMonitorPage />
-              </RoleRoute>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/it/support"
-          element={
-            <ProtectedRoute>
-              <RoleRoute roles={["it"]}>
-                <ITSupportPage />
-              </RoleRoute>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/it/support/:ticketId"
-          element={
-            <ProtectedRoute>
-              <RoleRoute roles={["it"]}>
-                <ITSupportPage />
-              </RoleRoute>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/it/attendance"
-          element={
-            <ProtectedRoute>
-              <RoleRoute roles={["it", "admin"]}>
-                <AttendancePage />
-              </RoleRoute>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/admin/attendance"
-          element={
-            <ProtectedRoute>
-              <RoleRoute roles={["admin", "manager"]}>
-                <AdminAttendancePage />
-              </RoleRoute>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/attendance"
-          element={
-            <ProtectedRoute>
-              <AttendancePage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/roster"
-          element={
-            <ProtectedRoute>
-              <DutyRosterViewPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/admin/roster"
-          element={
-            <ProtectedRoute>
-              <RoleRoute roles={["admin", "manager"]}>
-                <AdminRosterPage />
-              </RoleRoute>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/notifications"
-          element={
-            <ProtectedRoute>
-              <NotificationsPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/settings"
-          element={
-            <ProtectedRoute>
-              <SettingsPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
           path="/admin/notification-deliveries"
           element={
             <ProtectedRoute>
@@ -472,22 +420,7 @@ const AppRouter = () => {
             </ProtectedRoute>
           }
         />
-        <Route
-          path="/ai-workspace"
-          element={
-            <ProtectedRoute>
-              <AIWorkspacePage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/ai-assistant"
-          element={
-            <ProtectedRoute>
-              <AiAssistantPage />
-            </ProtectedRoute>
-          }
-        />
+
         <Route
           path="/admin/work-intelligence"
           element={
@@ -498,6 +431,151 @@ const AppRouter = () => {
             </ProtectedRoute>
           }
         />
+
+        {/* IT routes */}
+        <Route
+          path="/it/dashboard"
+          element={
+            <ProtectedRoute>
+              <RoleRoute roles={["admin", "it"]}>
+                <ITDashboardPage />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/it/war-room"
+          element={
+            <ProtectedRoute>
+              <RoleRoute roles={["admin", "it"]}>
+                <ITDashboardPage />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/it/projects"
+          element={
+            <ProtectedRoute>
+              <RoleRoute roles={["it"]}>
+                <ITProjectsPage />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/it/projects/:projectId"
+          element={
+            <ProtectedRoute>
+              <RoleRoute roles={["it"]}>
+                <ITProjectDetailsPage />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/it/collaboration"
+          element={
+            <ProtectedRoute>
+              <RoleRoute roles={["it"]}>
+                <ITCollaborationPage />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/it/issues"
+          element={
+            <ProtectedRoute>
+              <RoleRoute roles={["it"]}>
+                <ITIssuesPage />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/it/system-monitor"
+          element={
+            <ProtectedRoute>
+              <RoleRoute roles={["it"]}>
+                <ITSystemMonitorPage />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/it/support"
+          element={
+            <ProtectedRoute>
+              <RoleRoute roles={["it"]}>
+                <ITSupportPage />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/it/support/:ticketId"
+          element={
+            <ProtectedRoute>
+              <RoleRoute roles={["it"]}>
+                <ITSupportPage />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/it/attendance"
+          element={
+            <ProtectedRoute>
+              <RoleRoute roles={["it", "admin"]}>
+                <AttendancePage />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/automations"
+          element={
+            <ProtectedRoute>
+              <RoleRoute roles={["it"]}>
+                <AutomationFlowsPage />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/automation-runs"
+          element={
+            <ProtectedRoute>
+              <RoleRoute roles={["it"]}>
+                <AutomationRunsPage />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Roster */}
+        <Route
+          path="/roster"
+          element={
+            <ProtectedRoute>
+              <DutyRosterViewPage />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Timesheets */}
         <Route
           path="/timesheets/team"
           element={
@@ -508,6 +586,7 @@ const AppRouter = () => {
             </ProtectedRoute>
           }
         />
+
         <Route
           path="/timesheets/reports"
           element={
@@ -518,6 +597,7 @@ const AppRouter = () => {
             </ProtectedRoute>
           }
         />
+
         <Route
           path="/timesheets/everhouradmin"
           element={
@@ -528,6 +608,8 @@ const AppRouter = () => {
             </ProtectedRoute>
           }
         />
+
+        {/* Board management / admin board detail */}
         <Route
           path="/board-management"
           element={
@@ -538,6 +620,7 @@ const AppRouter = () => {
             </ProtectedRoute>
           }
         />
+
         <Route
           path="/board-details/:boardId"
           element={
@@ -548,20 +631,7 @@ const AppRouter = () => {
             </ProtectedRoute>
           }
         />
-        <Route
-          path="/timesheet"
-          element={
-            <ProtectedRoute>
-              <UserTimesheetPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route path="/clients" element={<ClientsPage />} />
-        <Route path="/clients/:clientId" element={<ClientDetailsPage />} />
-        <Route
-          path="/clients/:clientId/workspace"
-          element={<ClientWorkspacePage />}
-        />
+
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </BrowserRouter>
