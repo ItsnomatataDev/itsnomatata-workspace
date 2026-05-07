@@ -18,6 +18,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../app/providers/AuthProvider";
 import Sidebar from "../components/dashboard/components/Sidebar";
 import TimeTrackerCard from "../components/dashboard/components/TimeTrackerCard";
+import AttendanceClockCard from "../features/attendance/components/AttendanceClockCard";
 import { useDashboard } from "../lib/hooks/useDashboard";
 import { getAdminTimeSummary } from "../lib/supabase/queries/adminTime";
 
@@ -528,6 +529,11 @@ export default function DashboardPage() {
                 </div>
 
                 <div className="space-y-6">
+                  <AttendanceClockCard
+                    organizationId={organizationId}
+                    userId={user.id}
+                  />
+
                   <TimeTrackerCard
                     activeTimeEntry={activeTimer}
                     todaySeconds={stats?.todaySeconds ?? 0}

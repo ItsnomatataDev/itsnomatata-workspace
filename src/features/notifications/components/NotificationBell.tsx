@@ -107,7 +107,7 @@ export default function NotificationBell() {
       </button>
 
       {open ? (
-        <div className="fixed left-4 right-4 top-20 z-[60] max-h-[calc(100dvh-6rem)] overflow-hidden rounded-3xl border border-white/10 bg-neutral-950 shadow-2xl shadow-black/70 sm:absolute sm:left-auto sm:right-0 sm:top-full sm:mt-3 sm:w-96 sm:max-w-md">
+        <div className="fixed left-4 right-4 top-20 z-[60] max-h-[calc(100dvh-6rem)] overflow-hidden rounded-3xl border border-white/10 bg-neutral-950 shadow-2xl shadow-black/70 md:left-auto md:right-6 md:w-96 md:max-w-md lg:right-8">
           <div className="flex items-start justify-between gap-4 border-b border-white/10 px-4 py-4">
             <div>
               <p className="text-base font-semibold text-white">

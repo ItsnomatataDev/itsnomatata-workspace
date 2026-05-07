@@ -189,6 +189,22 @@ async function ensureOrganizationMembership(
   if (error) throw error;
 }
 
+function getDisabledAccountMessage(profile: AuthProfile | null) {
+  const status = profile?.account_status ??
+    (profile?.is_suspended ? "suspended" : null);
+
+  if (status === "suspended") {
+    return "Your account has been suspended by an administrator.";
+  }
+  if (status === "deleted") {
+    return "Your account has been removed from this workspace.";
+  }
+  if (status === "rejected") {
+    return "Your account request was rejected by an administrator.";
+  }
+  return "";
+}
+
 async function touchUserPresence(user: User | null) {
   if (!user?.id) return;
 
@@ -226,6 +242,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(sessionUser);
 
       const nextProfile = await ensureProfile(sessionUser);
+      const disabledMessage = getDisabledAccountMessage(nextProfile);
+      if (disabledMessage) {
+        window.localStorage.setItem("account_disabled_message", disabledMessage);
+        setProfile(nextProfile);
+        await supabase.auth.signOut();
+        return;
+      }
+
       await ensureOrganizationMembership(sessionUser, nextProfile);
       await touchUserPresence(sessionUser);
 

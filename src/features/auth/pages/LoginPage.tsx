@@ -1,13 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Eye, EyeOff } from "lucide-react";
 import { signInUser, signInWithGoogle } from "../../../lib/supabase/auth";
-import { TimeTrackingService } from "../../time-tracking/services/timeTrackingService";
-import { useAuth } from "../../../app/providers/AuthProvider";
 
 export default function LoginPage() {
   const navigate = useNavigate();
-  const auth = useAuth();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -16,6 +13,14 @@ export default function LoginPage() {
   const [googleBusy, setGoogleBusy] = useState(false);
   const [error, setError] = useState("");
   const [warning, setWarning] = useState("");
+
+  useEffect(() => {
+    const disabledMessage = window.localStorage.getItem("account_disabled_message");
+    if (disabledMessage) {
+      setError(disabledMessage);
+      window.localStorage.removeItem("account_disabled_message");
+    }
+  }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -34,23 +39,6 @@ export default function LoginPage() {
         setWarning(
           'Login succeeded, but the organization with slug "its-nomatata" was not found. Ask an administrator to create it in Supabase.',
         );
-      }
-
-      if (auth?.user?.id && auth?.profile?.organization_id) {
-        try {
-          const activeSession = await TimeTrackingService.getActiveSession(
-            auth.user.id,
-          );
-          if (!activeSession) {
-            await TimeTrackingService.clockIn({
-              userId: auth.user.id,
-              organizationId: auth.profile.organization_id,
-              notes: "Auto clocked in on login",
-            });
-          }
-        } catch (clockInError) {
-          console.error("Auto clock in failed:", clockInError);
-        }
       }
 
       navigate("/dashboard", { replace: true });

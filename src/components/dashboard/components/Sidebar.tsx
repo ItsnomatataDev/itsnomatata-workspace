@@ -59,6 +59,7 @@ const commonLinks: LinkItem[] = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { to: "/boards", label: "Boards", icon: BriefcaseBusiness },
   { to: "/timesheet", label: "Timesheet", icon: Clock3 },
+  { to: "/attendance", label: "Attendance", icon: Timer },
   { to: "/leave", label: "Leave", icon: CalendarDays },
   { to: "/roster", label: "Duty Roster", icon: CalendarClock },
   { to: "/chat", label: "Team Chat", icon: MessageSquare },
@@ -152,6 +153,7 @@ function getRoleNav(role?: string | null, counts?: SidebarCounts): NavItem[] {
         },
         { to: "/admin/roster", label: "Manage Roster", icon: CalendarClock },
         { to: "/admin/leave", label: "Leave Request", icon: CalendarDays },
+        { to: "/admin/attendance", label: "Attendance", icon: Timer },
         {
           type: "group",
           label: "Time Management",
@@ -203,6 +205,7 @@ function getRoleNav(role?: string | null, counts?: SidebarCounts): NavItem[] {
         { to: "/admin/employees", label: "Employees", icon: Users },
         { to: "/admin/leave", label: "Leave Request", icon: CalendarDays },
         { to: "/admin/roster", label: "Duty Roster", icon: CalendarClock },
+        { to: "/admin/attendance", label: "Attendance", icon: Timer },
         { to: "/admin/crm", label: "CRM", icon: BriefcaseBusiness },
         {
           type: "group",

@@ -47,6 +47,65 @@ function getErrorMessage(error: unknown) {
     : "Unable to reach the AI service.";
 }
 
+async function logAIWorkspaceRun(params: {
+  context: AssistantContextInput;
+  prompt: string;
+  output?: AIWorkspaceOutput | null;
+  actionType?: string | null;
+  status?: string;
+  requiresApproval?: boolean;
+  metadata?: Record<string, unknown>;
+}) {
+  if (!params.context.userId || !params.context.organizationId) return;
+
+  try {
+    const { supabase } = await import("../../../lib/supabase/client");
+    const responseSummary = params.output?.content
+      ? params.output.content.slice(0, 500)
+      : null;
+    const featureArea =
+      typeof params.metadata?.featureArea === "string"
+        ? params.metadata.featureArea
+        : params.actionType ?? "assistant";
+    const dateKey = new Date().toISOString().slice(0, 10);
+    const folderPath = params.metadata?.boardId
+      ? `/boards/${params.metadata.boardId}/${featureArea}`
+      : params.metadata?.meetingId
+        ? `/meetings/${params.metadata.meetingId}/summary`
+        : `/users/${params.context.userId}/${dateKey}/${featureArea}`;
+
+    await Promise.all([
+      supabase.from("ai_workspace_logs").insert({
+        organization_id: params.context.organizationId,
+        user_id: params.context.userId,
+        prompt: params.prompt,
+        response_summary: responseSummary,
+        action_type: params.actionType,
+        action_status: params.status ?? "completed",
+        requires_approval: params.requiresApproval ?? false,
+        metadata: params.metadata ?? {},
+      }),
+      params.output
+        ? supabase.from("ai_workspace_history").insert({
+          organization_id: params.context.organizationId,
+          user_id: params.context.userId,
+          folder_path: folderPath,
+          title: params.output.title || params.actionType || "AI workspace output",
+          content: params.output.content || responseSummary || "",
+          content_type: params.output.type,
+          metadata: {
+            actionType: params.actionType,
+            requiresApproval: params.requiresApproval ?? false,
+            ...(params.metadata ?? {}),
+          },
+        })
+        : Promise.resolve(),
+    ]);
+  } catch {
+    // Audit/history persistence should never block the assistant experience.
+  }
+}
+
 function isServiceUnavailableError(error: unknown) {
   return /VITE_N8N_AI_WEBHOOK_URL|Failed to fetch|Load failed|NetworkError|AI request failed/i
     .test(
@@ -351,6 +410,18 @@ export async function runAIWorkspaceTool(params: {
       }
     }
 
+    await logAIWorkspaceRun({
+      context: params.context,
+      prompt: params.prompt ?? "",
+      output,
+      actionType: tool.id,
+      requiresApproval: response.requiresApproval ?? tool.requiresApproval,
+      metadata: {
+        toolCategory: tool.category,
+        ...(params.metadata ?? {}),
+      },
+    });
+
     return output;
   } catch (error) {
     // Persist error
@@ -380,6 +451,15 @@ export async function runAIWorkspaceTool(params: {
       error,
     });
     fallback.conversationId = conversationId;
+    await logAIWorkspaceRun({
+      context: params.context,
+      prompt: params.prompt ?? "",
+      output: fallback,
+      actionType: tool.id,
+      status: "preview",
+      requiresApproval: tool.requiresApproval,
+      metadata: params.metadata,
+    });
     return fallback;
   }
 }
@@ -456,6 +536,15 @@ export async function askAIWorkspaceAssistant(params: {
       }
     }
 
+    await logAIWorkspaceRun({
+      context: params.context,
+      prompt: params.prompt,
+      output,
+      actionType: "assistant",
+      requiresApproval: response.requiresApproval ?? false,
+      metadata: params.metadata,
+    });
+
     return output;
   } catch (error) {
     if (conversationId) {
@@ -482,6 +571,14 @@ export async function askAIWorkspaceAssistant(params: {
       error,
     });
     fallback.conversationId = conversationId;
+    await logAIWorkspaceRun({
+      context: params.context,
+      prompt: params.prompt,
+      output: fallback,
+      actionType: "assistant",
+      status: "preview",
+      metadata: params.metadata,
+    });
     return fallback;
   }
 }

@@ -8,7 +8,10 @@ import {
   ArrowRight,
   CheckSquare,
   Clock3,
+  Database,
+  Lock,
   Shield,
+  Siren,
 } from "lucide-react";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import Sidebar from "../../../components/dashboard/components/Sidebar";
@@ -46,6 +49,18 @@ import {
   getSupportTickets,
   type SupportTicket,
 } from "../services/supportTicketService";
+import {
+  createIncident,
+  getAccountAccessRequests,
+  getAuditLogs,
+  getIncidents,
+  getSystemHealth,
+  reviewAccountAccessRequest,
+  type AccountAccessRequest,
+  type AuditLogRow,
+  type IncidentRow,
+  type SystemHealthResponse,
+} from "../services/warRoomService";
 
 function formatDateTime(value: string) {
   try {
@@ -53,6 +68,30 @@ function formatDateTime(value: string) {
   } catch {
     return value;
   }
+}
+
+function EnvStatus({
+  label,
+  configured,
+}: {
+  label: string;
+  configured: boolean;
+}) {
+  return (
+    <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-black/35 px-4 py-3">
+      <span className="text-sm text-white/70">{label}</span>
+      <span
+        className={[
+          "rounded-full px-3 py-1 text-xs font-semibold",
+          configured
+            ? "bg-emerald-500/10 text-emerald-300"
+            : "bg-amber-500/10 text-amber-300",
+        ].join(" ")}
+      >
+        {configured ? "Configured" : "Setup required"}
+      </span>
+    </div>
+  );
 }
 
 export default function ITDashboardPage() {
@@ -70,6 +109,15 @@ export default function ITDashboardPage() {
   const [escalations, setEscalations] = useState<EscalationItem[]>([]);
   const [kpis, setKpis] = useState<KPITile[]>([]);
   const [supportTickets, setSupportTickets] = useState<SupportTicket[]>([]);
+  const [systemHealth, setSystemHealth] = useState<SystemHealthResponse | null>(null);
+  const [accountRequests, setAccountRequests] = useState<AccountAccessRequest[]>([]);
+  const [incidents, setIncidents] = useState<IncidentRow[]>([]);
+  const [auditLogs, setAuditLogs] = useState<AuditLogRow[]>([]);
+  const [incidentTitle, setIncidentTitle] = useState("");
+  const [incidentDescription, setIncidentDescription] = useState("");
+  const [incidentSeverity, setIncidentSeverity] =
+    useState<IncidentRow["severity"]>("medium");
+  const [warRoomBusy, setWarRoomBusy] = useState(false);
 
   const user = auth?.user ?? null;
   const profile = auth?.profile ?? null;
@@ -119,6 +167,10 @@ export default function ITDashboardPage() {
         escalationsResult,
         kpisResult,
         ticketsResult,
+        healthResult,
+        accountRequestsResult,
+        incidentsResult,
+        auditLogsResult,
       ] = await Promise.all([
         getITDashboardStats(organizationId),
         getITProjectsForDashboard(organizationId, userId),
@@ -131,6 +183,10 @@ export default function ITDashboardPage() {
           status: ["open", "in_progress", "waiting_on_user"],
           limit: 8,
         }),
+        getSystemHealth().catch(() => null),
+        getAccountAccessRequests(organizationId),
+        getIncidents(organizationId),
+        getAuditLogs(organizationId),
       ]);
 
       setStats(statsResult);
@@ -141,6 +197,10 @@ export default function ITDashboardPage() {
       setEscalations(escalationsResult);
       setKpis(kpisResult);
       setSupportTickets(ticketsResult);
+      setSystemHealth(healthResult);
+      setAccountRequests(accountRequestsResult);
+      setIncidents(incidentsResult);
+      setAuditLogs(auditLogsResult);
     } catch (err: any) {
       console.error("IT DASHBOARD LOAD ERROR:", err);
       setPageError(err?.message || "Failed to load IT dashboard.");
@@ -148,6 +208,59 @@ export default function ITDashboardPage() {
       setPageLoading(false);
     }
   }, [organizationId, userId]);
+
+  const pendingAccountRequests = accountRequests.filter(
+    (request) => request.status === "pending",
+  );
+
+  const reviewRequest = async (
+    request: AccountAccessRequest,
+    status: "approved" | "rejected",
+  ) => {
+    if (!organizationId || !userId) return;
+    const notes = window.prompt(
+      status === "approved"
+        ? "Approval notes (optional)"
+        : "Rejection reason (optional)",
+    );
+    try {
+      setWarRoomBusy(true);
+      await reviewAccountAccessRequest({
+        requestId: request.id,
+        organizationId,
+        reviewerId: userId,
+        status,
+        notes,
+      });
+      await loadDashboard();
+    } catch (err) {
+      setPageError(err instanceof Error ? err.message : "Failed to review account request.");
+    } finally {
+      setWarRoomBusy(false);
+    }
+  };
+
+  const submitIncident = async () => {
+    if (!organizationId || !userId || !incidentTitle.trim()) return;
+    try {
+      setWarRoomBusy(true);
+      await createIncident({
+        organizationId,
+        title: incidentTitle,
+        severity: incidentSeverity,
+        description: incidentDescription,
+        createdBy: userId,
+      });
+      setIncidentTitle("");
+      setIncidentDescription("");
+      setIncidentSeverity("medium");
+      await loadDashboard();
+    } catch (err) {
+      setPageError(err instanceof Error ? err.message : "Failed to create incident.");
+    } finally {
+      setWarRoomBusy(false);
+    }
+  };
   useEffect(() => {
     if (!organizationId || !userId) return;
     void loadDashboard();
@@ -240,6 +353,62 @@ export default function ITDashboardPage() {
               <section className="mb-6">
                 <div className="mb-3 flex items-center gap-2">
                   <h2 className="text-sm font-medium text-white/60">
+                    Critical Alerts
+                  </h2>
+                  <span className="text-[10px] text-white/30">
+                    War Room security and platform signals
+                  </span>
+                </div>
+                <div className="grid gap-4 lg:grid-cols-3">
+                  <div className="rounded-2xl border border-white/10 bg-neutral-950 p-5">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm text-white/60">System Health</p>
+                      <Database size={18} className="text-orange-400" />
+                    </div>
+                    <p className="mt-4 text-3xl font-bold">
+                      {systemHealth?.ok ? "OK" : "Review"}
+                    </p>
+                    <p className="mt-2 text-sm text-white/45">
+                      {systemHealth?.warnings.length
+                        ? `${systemHealth.warnings.length} warning(s)`
+                        : "No protected health warnings returned"}
+                    </p>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-neutral-950 p-5">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm text-white/60">Account Requests</p>
+                      <Lock size={18} className="text-orange-400" />
+                    </div>
+                    <p className="mt-4 text-3xl font-bold">
+                      {pendingAccountRequests.length}
+                    </p>
+                    <p className="mt-2 text-sm text-white/45">
+                      Pending owner/admin review
+                    </p>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-neutral-950 p-5">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm text-white/60">Open Incidents</p>
+                      <Siren size={18} className="text-orange-400" />
+                    </div>
+                    <p className="mt-4 text-3xl font-bold">
+                      {incidents.filter((item) => item.status !== "resolved").length}
+                    </p>
+                    <p className="mt-2 text-sm text-white/45">
+                      Active operational incidents
+                    </p>
+                  </div>
+                </div>
+                {systemHealth?.warnings.length ? (
+                  <div className="mt-4 rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4 text-sm text-amber-100">
+                    {systemHealth.warnings.slice(0, 4).join(" ")}
+                  </div>
+                ) : null}
+              </section>
+
+              <section className="mb-6">
+                <div className="mb-3 flex items-center gap-2">
+                  <h2 className="text-sm font-medium text-white/60">
                     System Health
                   </h2>
                   <span className="text-[10px] text-white/30">
@@ -306,6 +475,154 @@ export default function ITDashboardPage() {
               </section>
 
               {/* ── 5. Main Grid: Escalations + AI ─────── */}
+              <section className="mb-6 grid gap-6 xl:grid-cols-2">
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+                  <div className="mb-4 flex items-center justify-between">
+                    <div>
+                      <h2 className="text-lg font-semibold">Account Requests</h2>
+                      <p className="text-sm text-white/45">
+                        Public access requests awaiting approval.
+                      </p>
+                    </div>
+                    <span className="rounded-full bg-orange-500/15 px-3 py-1 text-xs text-orange-300">
+                      {pendingAccountRequests.length} pending
+                    </span>
+                  </div>
+                  <div className="space-y-3">
+                    {pendingAccountRequests.length === 0 ? (
+                      <p className="rounded-2xl border border-white/10 bg-black/30 p-4 text-sm text-white/50">
+                        No pending account requests.
+                      </p>
+                    ) : (
+                      pendingAccountRequests.slice(0, 5).map((request) => (
+                        <div key={request.id} className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div>
+                              <p className="font-semibold">{request.full_name}</p>
+                              <p className="text-sm text-white/50">{request.email}</p>
+                              <p className="mt-1 text-xs text-white/40">
+                                {request.company || "No company"} · {request.requested_role || "No role requested"}
+                              </p>
+                            </div>
+                            <div className="flex gap-2">
+                              <button
+                                disabled={warRoomBusy}
+                                onClick={() => void reviewRequest(request, "approved")}
+                                className="rounded-xl bg-emerald-500/15 px-3 py-2 text-xs font-semibold text-emerald-300 disabled:opacity-60"
+                              >
+                                Approve
+                              </button>
+                              <button
+                                disabled={warRoomBusy}
+                                onClick={() => void reviewRequest(request, "rejected")}
+                                className="rounded-xl bg-red-500/15 px-3 py-2 text-xs font-semibold text-red-300 disabled:opacity-60"
+                              >
+                                Reject
+                              </button>
+                            </div>
+                          </div>
+                          {request.message ? (
+                            <p className="mt-3 text-sm text-white/60">{request.message}</p>
+                          ) : null}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+                  <h2 className="text-lg font-semibold">Incident Console</h2>
+                  <p className="mt-1 text-sm text-white/45">
+                    Create and monitor operational incidents.
+                  </p>
+                  <div className="mt-4 grid gap-3">
+                    <input
+                      value={incidentTitle}
+                      onChange={(event) => setIncidentTitle(event.target.value)}
+                      placeholder="Incident title"
+                      className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm outline-none focus:border-orange-500"
+                    />
+                    <select
+                      value={incidentSeverity}
+                      onChange={(event) =>
+                        setIncidentSeverity(event.target.value as IncidentRow["severity"])
+                      }
+                      className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm outline-none focus:border-orange-500"
+                    >
+                      <option value="low">Low</option>
+                      <option value="medium">Medium</option>
+                      <option value="high">High</option>
+                      <option value="critical">Critical</option>
+                    </select>
+                    <textarea
+                      value={incidentDescription}
+                      onChange={(event) => setIncidentDescription(event.target.value)}
+                      placeholder="Description"
+                      rows={3}
+                      className="resize-none rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm outline-none focus:border-orange-500"
+                    />
+                    <button
+                      disabled={warRoomBusy || !incidentTitle.trim()}
+                      onClick={() => void submitIncident()}
+                      className="rounded-2xl bg-orange-500 px-4 py-3 text-sm font-semibold text-black disabled:opacity-60"
+                    >
+                      Create Incident
+                    </button>
+                  </div>
+                  <div className="mt-5 space-y-2">
+                    {incidents.slice(0, 4).map((incident) => (
+                      <div key={incident.id} className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                        <div className="flex justify-between gap-3">
+                          <p className="text-sm font-semibold">{incident.title}</p>
+                          <span className="text-xs text-orange-300">{incident.severity}</span>
+                        </div>
+                        <p className="mt-1 text-xs text-white/45">{incident.status}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </section>
+
+              <section className="mb-6 grid gap-6 xl:grid-cols-2">
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+                  <h2 className="text-lg font-semibold">Automations / n8n</h2>
+                  <div className="mt-4 space-y-3">
+                    <EnvStatus
+                      label="AI Workspace webhook"
+                      configured={Boolean(import.meta.env.VITE_N8N_AI_WORKSPACE_WEBHOOK_URL)}
+                    />
+                    <EnvStatus
+                      label="Notification webhook"
+                      configured={Boolean(import.meta.env.VITE_N8N_NOTIFICATION_WEBHOOK_URL)}
+                    />
+                    <EnvStatus
+                      label="System health webhook"
+                      configured={Boolean(import.meta.env.VITE_N8N_SYSTEM_HEALTH_WEBHOOK_URL)}
+                    />
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+                  <h2 className="text-lg font-semibold">Audit Logs</h2>
+                  <div className="mt-4 space-y-2">
+                    {auditLogs.slice(0, 7).map((log) => (
+                      <div key={log.id} className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                        <p className="text-sm font-semibold text-white/80">{log.action}</p>
+                        <p className="mt-1 text-xs text-white/40">
+                          {formatDateTime(log.created_at)}
+                          {log.reason ? ` · ${log.reason}` : ""}
+                        </p>
+                      </div>
+                    ))}
+                    {auditLogs.length === 0 ? (
+                      <p className="rounded-2xl border border-white/10 bg-black/30 p-4 text-sm text-white/50">
+                        No audit logs returned.
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+              </section>
+
               <section className="mb-6 grid gap-6 xl:grid-cols-3">
                 {/* Left: Escalation Feed */}
                 <div className="space-y-6 xl:col-span-2">

@@ -12,6 +12,7 @@ import {
   notifyLeaveRequestDecision,
   notifyUser,
 } from "../../notifications/services/notificationOrchestrationService";
+import { runAdminUserAction } from "../../it-workspace/services/warRoomService";
 
 type NotificationSummary = {
   ok?: boolean;
@@ -1209,41 +1210,10 @@ export async function suspendUser(params: {
   suspendedBy: string;
   reason?: string;
 }) {
-  await assertCanModifyUser({
-    organizationId: params.organizationId,
+  await runAdminUserAction({
+    action: "suspend",
     targetUserId: params.userId,
-    actorUserId: params.suspendedBy,
-  });
-
-  const { error } = await supabase
-    .from("profiles")
-    .update({
-      is_suspended: true,
-      is_active: false,
-      account_status: "suspended",
-      suspended_at: new Date().toISOString(),
-      suspended_by: params.suspendedBy,
-      suspension_reason: params.reason || null,
-    })
-    .eq("id", params.userId)
-    .eq("organization_id", params.organizationId);
-
-  if (error) throw error;
-
-  const { error: memberError } = await supabase
-    .from("organization_members")
-    .update({ status: "suspended" })
-    .eq("organization_id", params.organizationId)
-    .eq("user_id", params.userId);
-
-  if (memberError) throw memberError;
-
-  await logAdminAudit({
-    organizationId: params.organizationId,
-    actorUserId: params.suspendedBy,
-    targetUserId: params.userId,
-    action: "user_suspended",
-    reason: params.reason ?? null,
+    reason: params.reason,
   });
 
   await notifyEmployeeAccountChange({
@@ -1262,42 +1232,9 @@ export async function unsuspendUser(params: {
   userId: string;
   unsuspendedBy?: string;
 }) {
-  const { error } = await supabase
-    .from("profiles")
-    .update({
-      is_suspended: false,
-      is_active: true,
-      account_status: "active",
-      suspended_at: null,
-      suspended_by: null,
-      suspension_reason: null,
-      approved_at: new Date().toISOString(),
-      approved_by: params.unsuspendedBy ?? null,
-    })
-    .eq("id", params.userId)
-    .eq("organization_id", params.organizationId);
-
-  if (error) throw error;
-
-  const { error: memberError } = await supabase
-    .from("organization_members")
-    .upsert(
-      {
-        organization_id: params.organizationId,
-        user_id: params.userId,
-        status: "active",
-        joined_at: new Date().toISOString(),
-      },
-      { onConflict: "organization_id,user_id" },
-    );
-
-  if (memberError) throw memberError;
-
-  await logAdminAudit({
-    organizationId: params.organizationId,
-    actorUserId: params.unsuspendedBy ?? null,
+  await runAdminUserAction({
+    action: "reactivate",
     targetUserId: params.userId,
-    action: "user_unsuspended",
   });
 
   await notifyEmployeeAccountChange({
@@ -1316,47 +1253,10 @@ export async function softDeleteUser(params: {
   deletedBy?: string;
   reason?: string;
 }) {
-  await assertCanModifyUser({
-    organizationId: params.organizationId,
+  await runAdminUserAction({
+    action: "soft_delete",
     targetUserId: params.userId,
-    actorUserId: params.deletedBy,
-  });
-
-  const now = new Date().toISOString();
-
-  const { error: profileError } = await supabase
-    .from("profiles")
-    .update({
-      account_status: "deleted",
-      is_active: false,
-      is_suspended: false,
-      deleted_at: now,
-      deleted_by: params.deletedBy ?? null,
-      deletion_reason: params.reason ?? null,
-    })
-    .eq("id", params.userId)
-    .eq("organization_id", params.organizationId);
-
-  if (profileError) throw profileError;
-
-  const { error: memberError } = await supabase
-    .from("organization_members")
-    .update({
-      status: "removed",
-      removed_at: now,
-      removed_by: params.deletedBy ?? null,
-    })
-    .eq("organization_id", params.organizationId)
-    .eq("user_id", params.userId);
-
-  if (memberError) throw memberError;
-
-  await logAdminAudit({
-    organizationId: params.organizationId,
-    actorUserId: params.deletedBy ?? null,
-    targetUserId: params.userId,
-    action: "user_soft_deleted",
-    reason: params.reason ?? null,
+    reason: params.reason,
   });
 
   await notifyEmployeeAccountChange({

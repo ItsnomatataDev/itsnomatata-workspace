@@ -1,70 +1,113 @@
-export interface AttendanceSession {
+export type AttendanceSessionStatus =
+  | "active"
+  | "completed"
+  | "missed_clock_out";
+
+export type AttendanceBreakType = "break" | "lunch" | "personal";
+
+export type AttendanceSession = {
   id: string;
   organization_id: string;
   user_id: string;
-  clock_in: string;
-  clock_out: string | null;
-  break_start: string | null;
-  break_end: string | null;
-  total_minutes: number;
-  break_minutes: number;
-  status: 'present' | 'late' | 'absent';
-  source: 'web' | 'mobile' | 'api';
+  clock_in_at: string;
+  clock_out_at: string | null;
+  status: AttendanceSessionStatus;
+  work_seconds: number;
+  clock_in_method: string;
+  clock_out_method: string | null;
   notes: string | null;
+  ip_address: string | null;
+  device_info: Record<string, unknown>;
+  location: Record<string, unknown>;
   created_at: string;
   updated_at: string;
-}
+};
 
-export interface AttendanceStatus {
-  current_status: 'online' | 'on_break' | 'offline';
-  last_clock_in: string | null;
-  break_started_at: string | null;
-  active_session_id: string | null;
-}
-
-export interface DailyAttendanceSummary {
-  user_id: string;
+export type AttendanceBreak = {
+  id: string;
   organization_id: string;
-  attendance_date: string;
-  sessions_count: number;
-  total_worked_minutes: number;
-  total_break_minutes: number;
-  first_clock_in: string;
-  last_clock_out: string;
-  daily_status: 'present' | 'late' | 'absent';
-}
-
-export interface TeamAttendanceStatus {
+  attendance_session_id: string;
   user_id: string;
-  full_name: string;
-  email: string;
-  primary_role: string;
-  organization_id: string;
-  current_status: 'online' | 'on_break' | 'offline';
-  last_clock_in: string | null;
-  break_started_at: string | null;
-  active_session_id: string | null;
-}
+  started_at: string;
+  ended_at: string | null;
+  duration_seconds: number;
+  break_type: AttendanceBreakType | string;
+  notes: string | null;
+  created_at: string;
+};
 
-export interface ClockInParams {
-  userId: string;
+export type AttendanceSettings = {
+  id: string;
+  organization_id: string;
+  workday_start: string | null;
+  workday_end: string | null;
+  late_after_minutes: number;
+  auto_mark_missed_clockout: boolean;
+  require_location: boolean;
+  allowed_geofence: Record<string, unknown>;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+export type AttendanceProfile = {
+  id: string;
+  full_name: string | null;
+  email: string | null;
+  primary_role: string | null;
+  is_active?: boolean | null;
+};
+
+export type AttendanceReportRow = {
+  user_id: string;
+  full_name: string | null;
+  email: string | null;
+  clock_in_at: string | null;
+  clock_out_at: string | null;
+  work_seconds: number;
+  break_seconds: number;
+  task_tracked_seconds: number;
+  untracked_seconds: number;
+  status: AttendanceSessionStatus | "offline" | "on_leave" | "on_break";
+  is_late: boolean;
+  missed_clock_out: boolean;
+  leave_type_name?: string | null;
+};
+
+export type AttendanceToday = {
+  activeSession: AttendanceSession | null;
+  activeBreak: AttendanceBreak | null;
+  sessions: AttendanceSession[];
+  breaks: AttendanceBreak[];
+  workedSeconds: number;
+  breakSeconds: number;
+};
+
+export type ClockInInput = {
   organizationId: string;
-  notes?: string;
-  source?: 'web' | 'mobile' | 'api';
-}
+  userId: string;
+  method?: string;
+  notes?: string | null;
+  location?: Record<string, unknown>;
+  deviceInfo?: Record<string, unknown>;
+  ipAddress?: string | null;
+};
 
-export interface ClockOutParams {
+export type ClockOutInput = {
   sessionId: string;
   userId: string;
-  notes?: string;
-}
+  method?: string;
+  notes?: string | null;
+};
 
-export interface BreakStartParams {
-  sessionId: string;
+export type BreakStartInput = {
+  organizationId: string;
   userId: string;
-}
+  sessionId: string;
+  breakType?: AttendanceBreakType | string;
+  notes?: string | null;
+};
 
-export interface BreakEndParams {
-  sessionId: string;
+export type BreakEndInput = {
+  breakId: string;
   userId: string;
-}
+};

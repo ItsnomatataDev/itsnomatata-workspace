@@ -1,6 +1,7 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import LoginPage from "../../features/auth/pages/LoginPage";
 import SignupPage from "../../features/auth/pages/SignupPage";
+import RequestAccessPage from "../../features/auth/pages/RequestAccessPage";
 import ForgotPasswordPage from "../../features/auth/pages/ForgotPasswordPage";
 import ResetPasswordPage from "../../features/auth/pages/ResetPasswordPage";
 import DashboardPage from "../../pages/DashboardPage";
@@ -55,6 +56,7 @@ import BoardTimeManagementPage from "../../features/boards/pages/BoardTimeManage
 import TimeTrackingPage from "../../features/time-tracking/pages/TimeTrackingPage";
 import BoardDetailView from "../../features/boards/pages/BoardDetailView";
 import AttendancePage from "../../features/attendance/pages/AttendancePage";
+import AdminAttendancePage from "../../features/attendance/pages/AdminAttendancePage";
 import UserTimesheetPage from "../../features/timesheets/pages/UserTimesheetPage";
 const AppRouter = () => {
   return (
@@ -64,6 +66,7 @@ const AppRouter = () => {
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/signup" element={<SignupPage />} />
+        <Route path="/request-access" element={<RequestAccessPage />} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         <Route path="/resetpassword" element={<ResetPasswordPage />} />
         {"/Public routes"}
@@ -301,7 +304,17 @@ const AppRouter = () => {
           path="/it/dashboard"
           element={
             <ProtectedRoute>
-              <RoleRoute roles={["it"]}>
+              <RoleRoute roles={["admin", "it"]}>
+                <ITDashboardPage />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/it/war-room"
+          element={
+            <ProtectedRoute>
+              <RoleRoute roles={["admin", "it"]}>
                 <ITDashboardPage />
               </RoleRoute>
             </ProtectedRoute>
@@ -394,6 +407,24 @@ const AppRouter = () => {
               <RoleRoute roles={["it", "admin"]}>
                 <AttendancePage />
               </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/attendance"
+          element={
+            <ProtectedRoute>
+              <RoleRoute roles={["admin", "manager"]}>
+                <AdminAttendancePage />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/attendance"
+          element={
+            <ProtectedRoute>
+              <AttendancePage />
             </ProtectedRoute>
           }
         />

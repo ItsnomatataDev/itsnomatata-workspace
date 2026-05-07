@@ -19,6 +19,7 @@ import {
   type EmployeeOverviewRow,
   type EmployeeTimesheetSummaryRow,
 } from "../services/adminService";
+import { runAdminUserAction } from "../../it-workspace/services/warRoomService";
 
 
 function StatCard({
@@ -208,6 +209,34 @@ export default function AdminEmployeesPage() {
     }
   };
 
+  const handleHardDelete = async (employee: EmployeeOverviewRow) => {
+    if (!employee.id) return;
+    const reason = window.prompt(
+      `Danger zone: type a reason to permanently delete the Supabase Auth user for ${employee.full_name || employee.email || "this user"}. Historical profile data will remain.`,
+    );
+    if (!reason?.trim()) return;
+
+    const confirmed = window.confirm(
+      "This permanently deletes the Supabase Auth user and cannot be undone. Continue?",
+    );
+    if (!confirmed) return;
+
+    try {
+      setActionLoadingId(employee.id);
+      setError("");
+      await runAdminUserAction({
+        action: "hard_delete_auth_user",
+        targetUserId: employee.id,
+        reason,
+      });
+      await loadPage();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to hard delete Auth user.");
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
   if (authLoading) {
     return (
       <div className="min-h-screen bg-black p-6 text-white">
@@ -356,6 +385,7 @@ export default function AdminEmployeesPage() {
                   onRemove={handleRemove}
                   onSuspend={setSuspendingEmployee}
                   onDelete={handleDelete}
+                  onHardDelete={handleHardDelete}
                   actionLoadingId={actionLoadingId}
                   currentUserId={profile.id}
                 />

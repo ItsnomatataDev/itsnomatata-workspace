@@ -1,53 +1,40 @@
-import { useAuth } from '../../../app/providers/AuthProvider';
-import ClockInOutCard from '../components/ClockInOutCard';
-import TodayAttendanceCard from '../components/TodayAttendanceCard';
-import AttendanceHistoryTable from '../components/AttendanceHistoryTable';
-import TeamAttendancePanel from '../components/TeamAttendancePanel';
+import { useAuth } from "../../../app/providers/AuthProvider";
+import Sidebar from "../../../components/dashboard/components/Sidebar";
+import AttendanceClockCard from "../components/AttendanceClockCard";
 
 export default function AttendancePage() {
   const auth = useAuth();
-  const userId = auth?.user?.id;
-  const organizationId = auth?.profile?.organization_id;
-  const userRole = auth?.profile?.primary_role;
-  const isAdmin = userRole === 'admin' || userRole === 'it';
+  const userId = auth?.user?.id ?? null;
+  const profile = auth?.profile ?? null;
+  const organizationId = profile?.organization_id ?? null;
 
-  if (!userId || !organizationId) {
+  if (!userId || !profile || !organizationId) {
     return (
-      <div className="min-h-screen bg-linear-to-br from-slate-950 via-slate-900 to-slate-950 flex items-center justify-center">
-        <div className="text-center">
-          <p className="text-white/60">Please log in to access attendance tracking</p>
-        </div>
+      <div className="min-h-screen bg-black p-6 text-white">
+        Loading attendance...
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-linear-to-br from-slate-950 via-slate-900 to-slate-950">
-      <div className="container mx-auto px-4 py-8">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-4xl font-bold text-white">Attendance</h1>
-          <p className="text-white/60 mt-2">Track your work presence</p>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left Column - Clock In/Out & Today */}
-          <div className="lg:col-span-2 space-y-6">
-            <ClockInOutCard
-              userId={userId}
-              organizationId={organizationId}
-            />
-            <TodayAttendanceCard userId={userId} />
-            <AttendanceHistoryTable userId={userId} />
+    <div className="min-h-screen bg-black text-white">
+      <div className="flex min-h-screen">
+        <Sidebar role={profile.primary_role} />
+        <main className="min-w-0 flex-1 p-6 lg:p-8">
+          <div className="mb-6">
+            <p className="text-xs uppercase tracking-[0.3em] text-orange-500">
+              Presence
+            </p>
+            <h1 className="mt-2 text-3xl font-bold">Attendance</h1>
+            <p className="mt-2 text-sm text-white/50">
+              Clock in for working presence. Task timers remain separate.
+            </p>
           </div>
 
-          {/* Right Column - Team Panel (Admin/IT only) */}
-          {isAdmin && (
-            <div className="space-y-6">
-              <TeamAttendancePanel organizationId={organizationId} />
-            </div>
-          )}
-        </div>
+          <div className="max-w-2xl">
+            <AttendanceClockCard organizationId={organizationId} userId={userId} />
+          </div>
+        </main>
       </div>
     </div>
   );

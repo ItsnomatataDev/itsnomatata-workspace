@@ -17,6 +17,7 @@ type EmployeeTableProps = {
   onRemove: (employee: EmployeeOverviewRow) => Promise<void>;
   onSuspend: (employee: EmployeeOverviewRow) => void;
   onDelete: (employee: EmployeeOverviewRow) => void;
+  onHardDelete?: (employee: EmployeeOverviewRow) => void;
   actionLoadingId?: string | null;
   currentUserId?: string | null;
 };
@@ -114,6 +115,7 @@ export default function EmployeeTable({
   onRemove,
   onSuspend,
   onDelete,
+  onHardDelete,
   actionLoadingId = null,
   currentUserId = null,
 }: EmployeeTableProps) {
@@ -303,11 +305,17 @@ export default function EmployeeTable({
                           <Trash2 size={14} />
                           Delete
                         </button>
-                      ) : (
-                        <span className="text-xs text-white/40">
-                          No normal actions
-                        </span>
-                      )}
+                      ) : onHardDelete ? (
+                        <button
+                          type="button"
+                          disabled={isSelf || actionLoadingId === employee.id}
+                          onClick={() => onHardDelete(employee)}
+                          className="inline-flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs font-medium text-red-200 hover:bg-red-500/15 disabled:opacity-50"
+                        >
+                          <Trash2 size={14} />
+                          Hard delete Auth
+                        </button>
+                      ) : null}
                     </div>
                   </td>
                 </tr>
