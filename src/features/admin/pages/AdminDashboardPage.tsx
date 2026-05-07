@@ -188,7 +188,7 @@ export default function AdminDashboardPage() {
 
   if (authLoading) {
     return (
-      <div className="min-h-screen bg-black p-6 text-white">
+      <div className="min-h-screen bg-black px-4 py-6 text-white sm:px-6">
         Loading admin dashboard...
       </div>
     );
@@ -196,7 +196,7 @@ export default function AdminDashboardPage() {
 
   if (!user || !profile || !organizationId) {
     return (
-      <div className="min-h-screen bg-black p-6 text-white">
+      <div className="min-h-screen bg-black px-4 py-6 text-white sm:px-6">
         Missing admin workspace context.
       </div>
     );
@@ -204,10 +204,10 @@ export default function AdminDashboardPage() {
 
   return (
     <div className="min-h-screen bg-black text-white">
-      <div className="flex min-h-screen">
+      <div className="flex min-h-screen flex-col lg:flex-row">
         <Sidebar role={profile.primary_role} />
 
-        <main className="flex-1 p-6 lg:p-8">
+        <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8">
           <div className="mb-8">
             <p className="text-xs uppercase tracking-[0.3em] text-orange-500">
               Admin Workspace
@@ -220,7 +220,7 @@ export default function AdminDashboardPage() {
           </div>
 
           {loading ? (
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-white/60">
+            <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-6 text-white/60 sm:px-6">
               Loading admin workspace...
             </div>
           ) : error ? (

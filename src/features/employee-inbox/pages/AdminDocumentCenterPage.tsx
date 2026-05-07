@@ -1,0 +1,422 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { FileUp, RefreshCw, Send, Users } from "lucide-react";
+import Sidebar from "../../../components/dashboard/components/Sidebar";
+import { useAuth } from "../../../app/providers/AuthProvider";
+import {
+  DOCUMENT_TYPE_OPTIONS,
+  documentTypeLabel,
+  getAdminDocumentDeliveries,
+  getEmployeeOptions,
+  makeEmployeeDocumentPath,
+  sendDocumentToRecipients,
+  uploadEmployeeDocumentFile,
+  type AdminDocumentDelivery,
+  type EmployeeDocumentType,
+  type EmployeeOption,
+} from "../services/employeeDocumentService";
+
+function formatDate(value: string | null) {
+  if (!value) return "-";
+  return new Date(value).toLocaleString();
+}
+
+export default function AdminDocumentCenterPage() {
+  const auth = useAuth();
+  const profile = auth?.profile ?? null;
+  const user = auth?.user ?? null;
+  const organizationId = profile?.organization_id ?? null;
+  const [employees, setEmployees] = useState<EmployeeOption[]>([]);
+  const [deliveries, setDeliveries] = useState<AdminDocumentDelivery[]>([]);
+  const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
+  const [recipientMode, setRecipientMode] = useState<"selected" | "all">(
+    "selected",
+  );
+  const [title, setTitle] = useState("");
+  const [message, setMessage] = useState("");
+  const [documentType, setDocumentType] =
+    useState<EmployeeDocumentType>("notice");
+  const [requiresAcknowledgement, setRequiresAcknowledgement] = useState(false);
+  const [isConfidential, setIsConfidential] = useState(true);
+  const [file, setFile] = useState<File | null>(null);
+  const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
+  const loadPage = useCallback(async () => {
+    if (!organizationId) return;
+    try {
+      setLoading(true);
+      setError("");
+      const [employeeRows, deliveryRows] = await Promise.all([
+        getEmployeeOptions(organizationId),
+        getAdminDocumentDeliveries(organizationId),
+      ]);
+      setEmployees(employeeRows);
+      setDeliveries(deliveryRows);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load documents.");
+    } finally {
+      setLoading(false);
+    }
+  }, [organizationId]);
+
+  useEffect(() => {
+    void loadPage();
+  }, [loadPage]);
+
+  const filteredEmployees = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    if (!term) return employees;
+    return employees.filter((employee) =>
+      [
+        employee.full_name,
+        employee.email,
+        employee.department,
+        employee.primary_role,
+      ]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(term)),
+    );
+  }, [employees, search]);
+
+  const recipientUserIds =
+    recipientMode === "all" ? employees.map((employee) => employee.id) : selectedUserIds;
+
+  function toggleUser(userId: string) {
+    setSelectedUserIds((current) =>
+      current.includes(userId)
+        ? current.filter((id) => id !== userId)
+        : [...current, userId],
+    );
+  }
+
+  async function handleSend() {
+    if (!organizationId || !user?.id) return;
+    if (!title.trim()) {
+      setError("Document title is required.");
+      return;
+    }
+    if (recipientUserIds.length === 0) {
+      setError("Choose at least one recipient.");
+      return;
+    }
+
+    try {
+      setSending(true);
+      setError("");
+      setSuccess("");
+      const documentId = crypto.randomUUID();
+      let filePath: string | null = null;
+      if (file) {
+        filePath = makeEmployeeDocumentPath({
+          organizationId,
+          documentId,
+          fileName: file.name,
+        });
+        await uploadEmployeeDocumentFile({ path: filePath, file });
+      }
+
+      const result = await sendDocumentToRecipients({
+        documentId,
+        organizationId,
+        title: title.trim(),
+        message: message.trim() || null,
+        documentType,
+        filePath,
+        fileName: file?.name ?? null,
+        mimeType: file?.type || null,
+        sizeBytes: file?.size ?? null,
+        requiresAcknowledgement,
+        isConfidential,
+        recipientUserIds,
+      });
+
+      setSuccess(`Document delivered to ${result.delivered} recipient(s).`);
+      setTitle("");
+      setMessage("");
+      setDocumentType("notice");
+      setRequiresAcknowledgement(false);
+      setIsConfidential(true);
+      setFile(null);
+      setSelectedUserIds([]);
+      setRecipientMode("selected");
+      await loadPage();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to send document.");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  if (!auth?.user || !profile) return null;
+
+  return (
+    <div className="min-h-screen bg-black text-white">
+      <div className="flex min-h-screen flex-col lg:flex-row">
+        <Sidebar role={profile.primary_role} />
+
+        <main className="min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-8">
+          <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <p className="text-xs uppercase tracking-[0.32em] text-orange-500">
+                HR Delivery Console
+              </p>
+              <h1 className="mt-2 text-3xl font-bold">Document Center</h1>
+              <p className="mt-2 text-sm text-white/50">
+                Send private documents to employee inboxes with delivery tracking.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => void loadPage()}
+              className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-white/70 hover:bg-white/10"
+            >
+              <RefreshCw size={16} />
+              Refresh
+            </button>
+          </div>
+
+          {error ? (
+            <div className="mb-4 rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-200">
+              {error}
+            </div>
+          ) : null}
+          {success ? (
+            <div className="mb-4 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4 text-sm text-emerald-200">
+              {success}
+            </div>
+          ) : null}
+
+          <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
+            <section className="rounded-3xl border border-white/10 bg-neutral-950 p-4 sm:p-6">
+              <div className="flex items-center gap-3">
+                <div className="rounded-2xl bg-orange-500/15 p-3 text-orange-400">
+                  <FileUp size={20} />
+                </div>
+                <div>
+                  <h2 className="text-lg font-semibold">Create and Send</h2>
+                  <p className="text-sm text-white/45">
+                    Files are uploaded to the private employee-documents bucket.
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-6 grid gap-4">
+                <label className="grid gap-2">
+                  <span className="text-sm text-white/60">Title</span>
+                  <input
+                    value={title}
+                    onChange={(event) => setTitle(event.target.value)}
+                    className="rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-sm outline-none focus:border-orange-500"
+                    placeholder="April 2026 payslip, HR notice..."
+                  />
+                </label>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <label className="grid gap-2">
+                    <span className="text-sm text-white/60">Document type</span>
+                    <select
+                      value={documentType}
+                      onChange={(event) =>
+                        setDocumentType(event.target.value as EmployeeDocumentType)
+                      }
+                      className="rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-sm outline-none focus:border-orange-500"
+                    >
+                      {DOCUMENT_TYPE_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="grid gap-2">
+                    <span className="text-sm text-white/60">Attachment</span>
+                    <input
+                      type="file"
+                      onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+                      className="rounded-2xl border border-white/10 bg-black/40 px-4 py-2.5 text-sm file:mr-3 file:rounded-xl file:border-0 file:bg-orange-500 file:px-3 file:py-2 file:text-xs file:font-semibold file:text-black"
+                    />
+                  </label>
+                </div>
+
+                <label className="grid gap-2">
+                  <span className="text-sm text-white/60">Message</span>
+                  <textarea
+                    value={message}
+                    onChange={(event) => setMessage(event.target.value)}
+                    rows={5}
+                    className="resize-none rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-sm outline-none focus:border-orange-500"
+                    placeholder="Optional message employees will see before opening the file."
+                  />
+                </label>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="flex items-center gap-3 rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-sm text-white/70">
+                    <input
+                      type="checkbox"
+                      checked={requiresAcknowledgement}
+                      onChange={(event) =>
+                        setRequiresAcknowledgement(event.target.checked)
+                      }
+                      className="h-4 w-4 accent-orange-500"
+                    />
+                    Requires acknowledgement
+                  </label>
+                  <label className="flex items-center gap-3 rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-sm text-white/70">
+                    <input
+                      type="checkbox"
+                      checked={isConfidential}
+                      onChange={(event) => setIsConfidential(event.target.checked)}
+                      className="h-4 w-4 accent-orange-500"
+                    />
+                    Confidential
+                  </label>
+                </div>
+
+                <div className="rounded-2xl border border-white/10 bg-black/40 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h3 className="font-semibold">Recipients</h3>
+                      <p className="text-sm text-white/45">
+                        {recipientUserIds.length} selected
+                      </p>
+                    </div>
+                    <div className="flex rounded-2xl border border-white/10 bg-white/5 p-1">
+                      <button
+                        type="button"
+                        onClick={() => setRecipientMode("selected")}
+                        className={[
+                          "rounded-xl px-3 py-2 text-xs font-semibold",
+                          recipientMode === "selected"
+                            ? "bg-orange-500 text-black"
+                            : "text-white/60",
+                        ].join(" ")}
+                      >
+                        Selected
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setRecipientMode("all")}
+                        className={[
+                          "rounded-xl px-3 py-2 text-xs font-semibold",
+                          recipientMode === "all"
+                            ? "bg-orange-500 text-black"
+                            : "text-white/60",
+                        ].join(" ")}
+                      >
+                        All employees
+                      </button>
+                    </div>
+                  </div>
+
+                  {recipientMode === "selected" ? (
+                    <>
+                      <input
+                        value={search}
+                        onChange={(event) => setSearch(event.target.value)}
+                        placeholder="Search employees"
+                        className="mt-4 w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-sm outline-none focus:border-orange-500"
+                      />
+                      <div className="mt-3 max-h-72 space-y-2 overflow-y-auto pr-1">
+                        {filteredEmployees.map((employee) => (
+                          <label
+                            key={employee.id}
+                            className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selectedUserIds.includes(employee.id)}
+                              onChange={() => toggleUser(employee.id)}
+                              className="h-4 w-4 accent-orange-500"
+                            />
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-semibold">
+                                {employee.full_name || employee.email || "Unnamed employee"}
+                              </p>
+                              <p className="truncate text-xs text-white/40">
+                                {employee.email || "No email"} ·{" "}
+                                {employee.department || employee.primary_role || "Employee"}
+                              </p>
+                            </div>
+                          </label>
+                        ))}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="mt-4 rounded-2xl border border-orange-500/20 bg-orange-500/10 p-4 text-sm text-orange-100">
+                      This will send to every listed employee in your organization.
+                    </div>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  disabled={sending}
+                  onClick={() => void handleSend()}
+                  className="inline-flex items-center justify-center gap-2 rounded-2xl bg-orange-500 px-5 py-3 text-sm font-bold text-black disabled:opacity-60"
+                >
+                  <Send size={16} />
+                  {sending ? "Sending..." : "Send document"}
+                </button>
+              </div>
+            </section>
+
+            <aside className="space-y-4">
+              <div className="rounded-3xl border border-white/10 bg-neutral-950 p-4 sm:p-5">
+                <div className="flex items-center gap-3">
+                  <Users size={18} className="text-orange-400" />
+                  <div>
+                    <h2 className="font-semibold">Delivery Tracking</h2>
+                    <p className="text-sm text-white/45">
+                      Latest employee document deliveries.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-4 space-y-2">
+                  {loading ? (
+                    <p className="rounded-2xl border border-white/10 bg-black/40 p-4 text-sm text-white/50">
+                      Loading deliveries...
+                    </p>
+                  ) : deliveries.length === 0 ? (
+                    <p className="rounded-2xl border border-white/10 bg-black/40 p-4 text-sm text-white/50">
+                      No deliveries yet.
+                    </p>
+                  ) : (
+                    deliveries.slice(0, 18).map((delivery) => (
+                      <div
+                        key={delivery.id}
+                        className="rounded-2xl border border-white/10 bg-black/40 p-3"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-semibold">
+                              {delivery.document.title}
+                            </p>
+                            <p className="mt-0.5 truncate text-xs text-white/40">
+                              {delivery.user_name || delivery.user_email || delivery.user_id}
+                            </p>
+                          </div>
+                          <span className="rounded-full bg-white/10 px-2 py-1 text-[10px] capitalize text-white/70">
+                            {delivery.status}
+                          </span>
+                        </div>
+                        <p className="mt-2 text-[11px] text-white/35">
+                          {documentTypeLabel(delivery.document.document_type)} ·{" "}
+                          {formatDate(delivery.delivered_at)}
+                        </p>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </aside>
+          </div>
+        </main>
+      </div>
+    </div>
+  );
+}

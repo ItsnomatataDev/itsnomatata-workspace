@@ -12,7 +12,7 @@ export default function LeaveRuleList({
 }) {
   if (rules.length === 0) {
     return (
-      <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-white/60">
+      <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-6 text-white/60 sm:px-6">
         No leave calendar rules created yet.
       </div>
     );

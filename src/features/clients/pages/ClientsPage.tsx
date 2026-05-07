@@ -139,10 +139,10 @@ export default function ClientsPage() {
 
   return (
     <div className="min-h-screen bg-[#f5f1e8] text-slate-950">
-      <div className="flex min-h-screen">
+      <div className="flex min-h-screen flex-col lg:flex-row">
         <Sidebar role={profile.primary_role ?? "manager"} />
 
-        <main className="min-w-0 flex-1 bg-[radial-gradient(circle_at_top_left,rgba(251,146,60,0.18),transparent_28%),linear-gradient(180deg,#fbf7ef_0%,#f3ecdf_100%)] p-5 lg:p-8">
+        <main className="min-w-0 flex-1 bg-[radial-gradient(circle_at_top_left,rgba(251,146,60,0.18),transparent_28%),linear-gradient(180deg,#fbf7ef_0%,#f3ecdf_100%)] px-4 py-5 sm:px-6 lg:px-8">
           <section className="overflow-hidden rounded-4xl border border-[#d7cec2] bg-white/80 shadow-[0_20px_60px_rgba(15,23,42,0.08)] backdrop-blur">
             <div className="border-b border-[#e7dfd4] px-6 py-6 lg:px-8">
               <div className="flex flex-wrap items-start justify-between gap-5">

@@ -88,7 +88,7 @@ export default function LeavePage() {
 
   if (authLoading) {
     return (
-      <div className="min-h-screen bg-black p-6 text-white">
+      <div className="min-h-screen bg-black px-4 py-6 text-white sm:px-6">
         Loading leave page...
       </div>
     );
@@ -96,7 +96,7 @@ export default function LeavePage() {
 
   if (!user || !profile || !organizationId || !userId) {
     return (
-      <div className="min-h-screen bg-black p-6 text-white">
+      <div className="min-h-screen bg-black px-4 py-6 text-white sm:px-6">
         Missing leave workspace context.
       </div>
     );
@@ -104,10 +104,10 @@ export default function LeavePage() {
 
   return (
     <div className="min-h-screen bg-black text-white">
-      <div className="flex min-h-screen">
+      <div className="flex min-h-screen flex-col lg:flex-row">
         <Sidebar role={profile.primary_role} />
 
-        <main className="flex-1 p-6 lg:p-8">
+        <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8">
           <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
             <div>
               <p className="text-xs uppercase tracking-[0.3em] text-orange-500">
@@ -130,7 +130,7 @@ export default function LeavePage() {
           </div>
 
           {loading ? (
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-white/60">
+            <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-6 text-white/60 sm:px-6">
               Loading leave requests...
             </div>
           ) : error ? (

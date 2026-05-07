@@ -48,10 +48,10 @@ export default function AdminNotificationsPage() {
 
   return (
     <div className="min-h-screen bg-black text-white">
-      <div className="flex min-h-screen">
+      <div className="flex min-h-screen flex-col lg:flex-row">
         <Sidebar role={role} />
 
-        <main className="min-w-0 flex-1 p-6 lg:p-8">
+        <main className="min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-8">
           <div className="mb-6 flex flex-wrap items-end justify-between gap-4 border border-white/10 bg-black p-5">
             <div>
               <p className="text-xs uppercase tracking-[0.3em] text-orange-500">

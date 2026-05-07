@@ -10,7 +10,7 @@ export default function AttendancePage() {
 
   if (!userId || !profile || !organizationId) {
     return (
-      <div className="min-h-screen bg-black p-6 text-white">
+      <div className="min-h-screen bg-black px-4 py-6 text-white sm:px-6">
         Loading attendance...
       </div>
     );
@@ -18,9 +18,9 @@ export default function AttendancePage() {
 
   return (
     <div className="min-h-screen bg-black text-white">
-      <div className="flex min-h-screen">
+      <div className="flex min-h-screen flex-col lg:flex-row">
         <Sidebar role={profile.primary_role} />
-        <main className="min-w-0 flex-1 p-6 lg:p-8">
+        <main className="min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-8">
           <div className="mb-6">
             <p className="text-xs uppercase tracking-[0.3em] text-orange-500">
               Presence

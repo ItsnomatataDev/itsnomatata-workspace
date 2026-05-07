@@ -491,10 +491,10 @@ export default function NotificationsPage() {
     <div className="min-h-screen bg-black text-white">
       <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top_left,rgba(249,115,22,0.14),transparent_34%),radial-gradient(circle_at_bottom_right,rgba(255,255,255,0.05),transparent_30%)]" />
 
-      <div className="relative flex min-h-screen">
+      <div className="relative flex min-h-screen flex-col lg:flex-row">
         <Sidebar role={role} />
 
-        <main className="min-w-0 flex-1 p-4 sm:p-6 lg:p-8">
+        <main className="min-w-0 flex-1 p-4 sm:px-4 py-6 sm:px-6 lg:px-8">
           <div className="mb-6 overflow-hidden rounded-3xl border border-white/10 bg-neutral-950/85 shadow-2xl shadow-black/40 backdrop-blur">
             <div className="border-b border-white/10 bg-white/3 p-5 sm:p-6">
               <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">

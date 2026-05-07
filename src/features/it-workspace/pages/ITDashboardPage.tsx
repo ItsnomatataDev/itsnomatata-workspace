@@ -3,7 +3,6 @@ import {
   BriefcaseBusiness,
   Bug,
   Sparkles,
-  UserPlus,
   Activity,
   ArrowRight,
   CheckSquare,
@@ -12,13 +11,13 @@ import {
   Lock,
   Shield,
   Siren,
+  KeyRound,
+  UserX,
 } from "lucide-react";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import Sidebar from "../../../components/dashboard/components/Sidebar";
 import ITStatsCard from "../components/ITStatsCard";
-import ITProjectCard from "../components/ITProjectCard";
 import InviteMemberModal from "../components/InviteMemberModal";
-import CreateProjectModal from "../components/CreateProjectModal";
 import CrossModuleHealthGrid from "../components/CrossModuleHealthGrid";
 import TeamPulseStrip from "../components/TeamPulseStrip";
 import EscalationFeed from "../components/EscalationFeed";
@@ -29,11 +28,7 @@ import SupportTicketsFeed from "../components/SupportTicketsFeed";
 import { useDashboard } from "../../../lib/hooks/useDashboard";
 import {
   getITDashboardStats,
-  getITProjectsForDashboard,
-  getRecentITActivity,
   type ITDashboardStats,
-  type ITProjectDashboardItem,
-  type ITRecentActivityItem,
 } from "../services/itWorkspaceService";
 import {
   getCrossModuleHealth,
@@ -97,13 +92,10 @@ function EnvStatus({
 export default function ITDashboardPage() {
   const auth = useAuth();
   const [inviteOpen, setInviteOpen] = useState(false);
-  const [createProjectOpen, setCreateProjectOpen] = useState(false);
 
   const [pageLoading, setPageLoading] = useState(true);
   const [pageError, setPageError] = useState("");
   const [stats, setStats] = useState<ITDashboardStats | null>(null);
-  const [projects, setProjects] = useState<ITProjectDashboardItem[]>([]);
-  const [activity, setActivity] = useState<ITRecentActivityItem[]>([]);
   const [modules, setModules] = useState<ModuleHealthItem[]>([]);
   const [teamPulse, setTeamPulse] = useState<TeamPulseMember[]>([]);
   const [escalations, setEscalations] = useState<EscalationItem[]>([]);
@@ -160,8 +152,6 @@ export default function ITDashboardPage() {
 
       const [
         statsResult,
-        projectsResult,
-        activityResult,
         modulesResult,
         pulseResult,
         escalationsResult,
@@ -173,8 +163,6 @@ export default function ITDashboardPage() {
         auditLogsResult,
       ] = await Promise.all([
         getITDashboardStats(organizationId),
-        getITProjectsForDashboard(organizationId, userId),
-        getRecentITActivity(organizationId, 8),
         getCrossModuleHealth(organizationId),
         getTeamPulse(organizationId),
         getEscalationItems(organizationId),
@@ -190,8 +178,6 @@ export default function ITDashboardPage() {
       ]);
 
       setStats(statsResult);
-      setProjects(projectsResult);
-      setActivity(activityResult);
       setModules(modulesResult);
       setTeamPulse(pulseResult);
       setEscalations(escalationsResult);
@@ -268,7 +254,7 @@ export default function ITDashboardPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-black p-6 text-white">
+      <div className="min-h-screen bg-black px-4 py-6 text-white sm:px-6">
         Loading IT dashboard...
       </div>
     );
@@ -276,7 +262,7 @@ export default function ITDashboardPage() {
 
   if (!user || !profile) {
     return (
-      <div className="min-h-screen bg-black p-6 text-white">
+      <div className="min-h-screen bg-black px-4 py-6 text-white sm:px-6">
         Unable to load your IT workspace.
       </div>
     );
@@ -284,7 +270,7 @@ export default function ITDashboardPage() {
 
   if (!organizationId || !userId) {
     return (
-      <div className="min-h-screen bg-black p-6 text-white">
+      <div className="min-h-screen bg-black px-4 py-6 text-white sm:px-6">
         Your IT account is missing organization or user context.
       </div>
     );
@@ -292,17 +278,19 @@ export default function ITDashboardPage() {
 
   return (
     <div className="min-h-screen bg-black text-white">
-      <div className="flex min-h-screen">
+      <div className="flex min-h-screen flex-col lg:flex-row">
         <Sidebar
           role={profile.primary_role}
           counts={{
             projects: stats?.activeProjects ?? 0,
+            boards: stats?.totalBoards ?? 0,
+            openCards: stats?.openCards ?? 0,
             pendingInvites: stats?.pendingInvites ?? 0,
             openIssues: stats?.openIssues ?? 0,
           }}
         />
 
-        <main className="min-w-0 flex-1 p-6 lg:p-8">
+        <main className="min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-8">
           {/* ── Header ──────────────────────────────────── */}
           <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
             <div>
@@ -321,19 +309,19 @@ export default function ITDashboardPage() {
               </p>
             </div>
 
-            <div className="flex gap-3">
+            <div className="flex flex-wrap gap-3">
               <button
                 onClick={() => setInviteOpen(true)}
                 className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium text-white hover:bg-white/10"
               >
                 Invite Member
               </button>
-              <button
-                onClick={() => setCreateProjectOpen(true)}
+              <a
+                href="/boards"
                 className="rounded-2xl bg-orange-500 px-4 py-3 text-sm font-semibold text-black hover:bg-orange-400"
               >
-                New Project
-              </button>
+                Open Boards
+              </a>
             </div>
           </div>
 
@@ -431,10 +419,16 @@ export default function ITDashboardPage() {
               {/* ── 4. Core Stats Row ──────────────────── */}
               <section className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-7">
                 <ITStatsCard
-                  title="Active Projects"
-                  value={stats?.activeProjects ?? 0}
-                  subtitle="Real project rows"
+                  title="Boards / Clients"
+                  value={stats?.totalBoards ?? 0}
+                  subtitle="Workspace boards"
                   icon={BriefcaseBusiness}
+                />
+                <ITStatsCard
+                  title="Open Cards"
+                  value={stats?.openCards ?? 0}
+                  subtitle="Cards under boards"
+                  icon={CheckSquare}
                 />
                 <ITStatsCard
                   title="Open Issues"
@@ -449,10 +443,10 @@ export default function ITDashboardPage() {
                   icon={Sparkles}
                 />
                 <ITStatsCard
-                  title="Pending Invites"
-                  value={stats?.pendingInvites ?? 0}
-                  subtitle="Awaiting acceptance"
-                  icon={UserPlus}
+                  title="Tracking Now"
+                  value={stats?.activeTimers ?? 0}
+                  subtitle="Running task timers"
+                  icon={Clock3}
                 />
                 <ITStatsCard
                   title="System Health"
@@ -461,9 +455,9 @@ export default function ITDashboardPage() {
                   icon={Activity}
                 />
                 <ITStatsCard
-                  title="My Tasks"
+                  title="My Cards"
                   value={sharedDashboard.stats?.openTasks ?? 0}
-                  subtitle="Open tasks assigned"
+                  subtitle="Assigned cards"
                   icon={CheckSquare}
                 />
                 <ITStatsCard
@@ -665,12 +659,18 @@ export default function ITDashboardPage() {
                       Quick Actions
                     </h2>
                     <div className="mt-3 space-y-2 text-sm text-white/75">
-                      <button
-                        onClick={() => setCreateProjectOpen(true)}
+                      <a
+                        href="/boards"
                         className="block w-full rounded-xl border border-white/10 bg-black/40 px-4 py-2.5 text-left text-xs hover:border-orange-500/30"
                       >
-                        Create a new project
-                      </button>
+                        Open boards and client workspaces
+                      </a>
+                      <a
+                        href="/timesheets/team"
+                        className="block w-full rounded-xl border border-white/10 bg-black/40 px-4 py-2.5 text-left text-xs hover:border-orange-500/30"
+                      >
+                        Review team timesheet
+                      </a>
                       <button
                         onClick={() => setInviteOpen(true)}
                         className="block w-full rounded-xl border border-white/10 bg-black/40 px-4 py-2.5 text-left text-xs hover:border-orange-500/30"
@@ -683,12 +683,18 @@ export default function ITDashboardPage() {
                       >
                         Review automation runs
                       </a>
+                      <a
+                        href="/admin/employees"
+                        className="block rounded-xl border border-white/10 bg-black/40 px-4 py-2.5 text-xs hover:border-orange-500/30"
+                      >
+                        User control and password recovery
+                      </a>
                     </div>
                     <a
-                      href="/it/projects"
+                      href="/it/support"
                       className="mt-4 inline-flex items-center gap-2 text-xs font-medium text-orange-500"
                     >
-                      All IT tools <ArrowRight size={14} />
+                      Account support tools <ArrowRight size={14} />
                     </a>
                   </div>
                 </div>
@@ -710,42 +716,123 @@ export default function ITDashboardPage() {
                 <SupportTicketsFeed tickets={supportTickets} limit={5} />
               </section>
 
-              {/* ── 6. Projects + Activity ─────────────── */}
+              {/* ── 6. Operations Control ─────────────── */}
               <section className="grid gap-6 xl:grid-cols-3">
                 <div className="space-y-6 xl:col-span-2">
                   <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-                    <div className="mb-4 flex items-center justify-between">
+                    <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                       <div>
-                        <h2 className="text-lg font-semibold">My Projects</h2>
+                        <h2 className="text-lg font-semibold">
+                          Boards & Card Operations
+                        </h2>
                         <p className="text-sm text-white/50">
-                          Live health and risk scoring
+                          Clients are boards, and tasks are cards inside those boards.
                         </p>
                       </div>
+                      <a
+                        href="/boards"
+                        className="inline-flex items-center gap-2 rounded-xl bg-orange-500 px-3 py-2 text-xs font-semibold text-black"
+                      >
+                        Open boards <ArrowRight size={14} />
+                      </a>
                     </div>
-                    <div className="space-y-4">
-                      {projects.length === 0 ? (
-                        <div className="rounded-xl border border-white/10 bg-black/40 px-4 py-4 text-sm text-white/60">
-                          No projects found yet. Create your first project.
-                        </div>
-                      ) : (
-                        projects.map((project) => (
-                          <ITProjectCard key={project.id} {...project} />
-                        ))
-                      )}
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      <a
+                        href="/boards"
+                        className="rounded-2xl border border-white/10 bg-black/40 p-4 hover:border-orange-500/30"
+                      >
+                        <BriefcaseBusiness size={18} className="text-orange-400" />
+                        <p className="mt-3 text-2xl font-bold">
+                          {stats?.totalBoards ?? 0}
+                        </p>
+                        <p className="mt-1 text-xs text-white/45">
+                          total boards / clients
+                        </p>
+                      </a>
+                      <a
+                        href={modules.find((item) => item.module === "Cards")?.route ?? "/boards"}
+                        className="rounded-2xl border border-white/10 bg-black/40 p-4 hover:border-orange-500/30"
+                      >
+                        <CheckSquare size={18} className="text-orange-400" />
+                        <p className="mt-3 text-2xl font-bold">
+                          {stats?.openCards ?? 0}
+                        </p>
+                        <p className="mt-1 text-xs text-white/45">
+                          open cards under boards
+                        </p>
+                      </a>
+                      <a
+                        href="/timesheets/team"
+                        className="rounded-2xl border border-white/10 bg-black/40 p-4 hover:border-orange-500/30"
+                      >
+                        <Clock3 size={18} className="text-orange-400" />
+                        <p className="mt-3 text-2xl font-bold">
+                          {stats?.activeTimers ?? 0}
+                        </p>
+                        <p className="mt-1 text-xs text-white/45">
+                          people tracking now
+                        </p>
+                      </a>
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+                    <h2 className="text-lg font-semibold">Identity Control</h2>
+                    <p className="mt-1 text-sm text-white/45">
+                      Protected user lifecycle and account recovery actions live behind
+                      admin/IT controls and audit logs.
+                    </p>
+                    <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                      <a
+                        href="/it/support"
+                        className="rounded-2xl border border-white/10 bg-black/40 p-4 hover:border-orange-500/30"
+                      >
+                        <KeyRound size={18} className="text-orange-400" />
+                        <p className="mt-3 text-sm font-semibold">
+                          Password recovery
+                        </p>
+                        <p className="mt-1 text-xs text-white/45">
+                          reset support and account tickets
+                        </p>
+                      </a>
+                      <a
+                        href="/admin/employees"
+                        className="rounded-2xl border border-white/10 bg-black/40 p-4 hover:border-orange-500/30"
+                      >
+                        <UserX size={18} className="text-orange-400" />
+                        <p className="mt-3 text-sm font-semibold">
+                          Ban / suspend users
+                        </p>
+                        <p className="mt-1 text-xs text-white/45">
+                          service-role protected actions
+                        </p>
+                      </a>
+                      <a
+                        href="/admin/notification-deliveries"
+                        className="rounded-2xl border border-white/10 bg-black/40 p-4 hover:border-orange-500/30"
+                      >
+                        <Activity size={18} className="text-orange-400" />
+                        <p className="mt-3 text-sm font-semibold">
+                          Delivery failures
+                        </p>
+                        <p className="mt-1 text-xs text-white/45">
+                          notification, push, and email logs
+                        </p>
+                      </a>
                     </div>
                   </div>
                 </div>
 
                 <div className="space-y-6">
                   <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-                    <h2 className="text-sm font-semibold">Recent Activity</h2>
+                    <h2 className="text-sm font-semibold">Recent Audit Activity</h2>
                     <div className="mt-3 space-y-2">
-                      {activity.length === 0 ? (
+                      {auditLogs.length === 0 ? (
                         <div className="rounded-xl border border-white/10 bg-black/40 px-4 py-4 text-sm text-white/60">
-                          No project activity yet.
+                          No audit activity yet.
                         </div>
                       ) : (
-                        activity.map((item) => (
+                        auditLogs.slice(0, 8).map((item) => (
                           <div
                             key={item.id}
                             className="rounded-xl border border-white/10 bg-black/40 px-3 py-2.5 text-sm text-white/70"
@@ -754,8 +841,8 @@ export default function ITDashboardPage() {
                               {item.action}
                             </p>
                             <p className="mt-0.5 text-[10px] text-white/45">
-                              {item.full_name || item.email || "Unknown user"} •{" "}
                               {formatDateTime(item.created_at)}
+                              {item.reason ? ` • ${item.reason}` : ""}
                             </p>
                           </div>
                         ))
@@ -780,16 +867,6 @@ export default function ITDashboardPage() {
         }}
       />
 
-      <CreateProjectModal
-        open={createProjectOpen}
-        onClose={() => setCreateProjectOpen(false)}
-        organizationId={organizationId}
-        userId={userId}
-        onCreated={async () => {
-          await loadDashboard();
-          await sharedDashboard.reload();
-        }}
-      />
     </div>
   );
 }

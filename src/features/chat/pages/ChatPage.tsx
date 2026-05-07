@@ -1004,7 +1004,7 @@ export default function ChatPage() {
 
   return (
     <>
-      <div className="flex h-dvh overflow-hidden border border-white/10 bg-neutral-950 md:h-[calc(100vh-2rem)]">
+      <div className="m-2 flex h-[calc(100dvh-1rem)] overflow-hidden rounded-2xl border border-white/10 bg-neutral-950 sm:m-4 sm:h-[calc(100dvh-2rem)] sm:rounded-3xl">
         <ChatSidebar
           conversations={conversations}
           activeConversationId={activeConversationId}

@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import type { TeamPulseMember } from "../services/controlCentreService";
 
 const statusColors: Record<TeamPulseMember["status"], string> = {
@@ -79,11 +80,21 @@ export default function TeamPulseStrip({ members, loading }: Props) {
       </div>
 
       <div className="flex gap-3 overflow-x-auto pb-1">
-        {sorted.map((member) => (
-          <div
+        {sorted.map((member) => {
+          const target = member.active_board_id
+            ? `/boards/${member.active_board_id}`
+            : "/timesheets/team";
+          const activeLabel =
+            member.active_task_title ||
+            member.active_board_name ||
+            statusLabels[member.status];
+
+          return (
+          <Link
             key={member.id}
+            to={target}
             className="group relative flex shrink-0 flex-col items-center gap-1.5"
-            title={`${member.full_name ?? member.email} — ${statusLabels[member.status]}`}
+            title={`${member.full_name ?? member.email} — ${activeLabel}`}
           >
             <div className="relative">
               {member.avatar_url ? (
@@ -104,8 +115,14 @@ export default function TeamPulseStrip({ members, loading }: Props) {
             <span className="max-w-14 truncate text-[10px] text-white/50">
               {member.full_name?.split(" ")[0] ?? member.email.split("@")[0]}
             </span>
-          </div>
-        ))}
+            {member.is_tracking ? (
+              <span className="max-w-20 truncate text-[9px] text-emerald-300/80">
+                {activeLabel}
+              </span>
+            ) : null}
+          </Link>
+          );
+        })}
       </div>
     </div>
   );

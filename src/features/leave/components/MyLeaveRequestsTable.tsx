@@ -25,7 +25,7 @@ export default function MyLeaveRequestsTable({
 
   if (requests.length === 0) {
     return (
-      <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-white/60">
+      <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-6 text-white/60 sm:px-6">
         You have not submitted any leave requests yet.
       </div>
     );

@@ -614,7 +614,7 @@ export default function BoardTimeManagementPage() {
 
   return (
     <div className="min-h-screen bg-black text-white">
-      <div className="flex min-h-screen">
+      <div className="flex min-h-screen flex-col lg:flex-row">
         <Sidebar role={auth?.profile?.primary_role} />
 
       {/* Main Content */}

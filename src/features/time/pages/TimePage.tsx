@@ -75,9 +75,9 @@ export default function TimePage() {
   if (!organizationId) {
     return (
       <div className="min-h-screen bg-black text-white">
-        <div className="flex min-h-screen">
+        <div className="flex min-h-screen flex-col lg:flex-row">
           <Sidebar role={profile.primary_role ?? "manager"} />
-          <main className="min-w-0 flex-1 overflow-hidden p-6 lg:p-8">
+          <main className="min-w-0 flex-1 overflow-hidden px-4 py-6 sm:px-6 lg:px-8">
             <div className="border border-red-500/20 bg-red-500/10 p-5 text-red-300">
               Your account is not linked to an organization yet.
             </div>
@@ -235,10 +235,10 @@ export default function TimePage() {
 
   return (
     <div className="min-h-screen bg-black text-white">
-      <div className="flex min-h-screen">
+      <div className="flex min-h-screen flex-col lg:flex-row">
         <Sidebar role={profile.primary_role ?? "manager"} />
 
-        <main className="min-w-0 flex-1 p-6 lg:p-8">
+        <main className="min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-8">
           <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
             <div>
               <p className="text-xs uppercase tracking-[0.3em] text-orange-500">

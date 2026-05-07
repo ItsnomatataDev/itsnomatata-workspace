@@ -33,9 +33,9 @@ export default function TaskOverviewCard({
   return (
     <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-white">My Recent Tasks</h2>
+        <h2 className="text-lg font-semibold text-white">My Recent Cards</h2>
         <Link
-          to="/tasks"
+          to="/boards"
           className="text-sm text-orange-500 hover:text-orange-400"
         >
           View all
@@ -50,7 +50,7 @@ export default function TaskOverviewCard({
 
       <div className="mt-4 space-y-3">
         {tasks.length === 0 ? (
-          <p className="text-sm text-white/50">No assigned tasks found.</p>
+          <p className="text-sm text-white/50">No assigned cards found.</p>
         ) : (
           tasks.map((task) => {
             const creatorName =

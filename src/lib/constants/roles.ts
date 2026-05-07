@@ -1,6 +1,9 @@
 export const APP_ROLES = [
   "admin",
+  "superadmin",
+  "it-superadmin",
   "manager",
+  "hr",
   "it",
   "seo_specialist",
   "social_media",
@@ -11,7 +14,10 @@ export type AppRole = (typeof APP_ROLES)[number];
 
 export const ROLE_LABELS: Record<AppRole, string> = {
   admin: "Super Admin",
+  superadmin: "Global Super Admin",
+  "it-superadmin": "IT Super Admin",
   manager: "Administrator",
+  hr: "HR",
   it: "IT",
   seo_specialist: "SEO Specialist",
   social_media: "Social Media",
@@ -23,10 +29,11 @@ export function isAppRole(value: unknown): value is AppRole {
 }
 
 export const ADMIN_ROLE_ASSIGNMENT_OPTIONS: Array<{
-  value: Exclude<AppRole, "admin">;
+  value: Exclude<AppRole, "admin" | "superadmin" | "it-superadmin">;
   label: string;
 }> = [
   { value: "manager", label: "Administrator" },
+  { value: "hr", label: "HR" },
   { value: "it", label: "IT" },
   { value: "social_media", label: "Social Media" },
   { value: "media_team", label: "Media Team" },

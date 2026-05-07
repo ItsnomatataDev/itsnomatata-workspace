@@ -2,6 +2,15 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Eye, EyeOff } from "lucide-react";
 import { signUpUser } from "../../../lib/supabase/auth";
+import type { PublicSignupRole } from "../../../lib/supabase/auth";
+
+const ROLE_OPTIONS: { value: PublicSignupRole; label: string }[] = [
+  { value: "manager", label: "Manager" },
+  { value: "it", label: "IT" },
+  { value: "social_media", label: "Social Media" },
+  { value: "media_team", label: "Media Team" },
+  { value: "seo_specialist", label: "SEO Specialist" },
+];
 
 export default function SignupPage() {
   const navigate = useNavigate();
@@ -10,6 +19,7 @@ export default function SignupPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [role, setRole] = useState<PublicSignupRole>("social_media");
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -50,6 +60,7 @@ export default function SignupPage() {
         email: email.trim(),
         password,
         fullName: fullName.trim(),
+        role,
       });
 
       if (result?.approvalRequired) {
@@ -61,6 +72,7 @@ export default function SignupPage() {
       setEmail("");
       setPassword("");
       setConfirmPassword("");
+      setRole("social_media");
     } catch (err) {
       console.error("SIGNUP ERROR:", err);
       setError(err instanceof Error ? err.message : "Failed to create account");
@@ -138,6 +150,19 @@ export default function SignupPage() {
                   className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 text-white outline-none transition focus:border-orange-500"
                   required
                 />
+
+                <select
+                  value={role}
+                  onChange={(e) => setRole(e.target.value as PublicSignupRole)}
+                  className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 text-white outline-none transition focus:border-orange-500"
+                  required
+                >
+                  {ROLE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
 
                 <div className="relative">
                   <input

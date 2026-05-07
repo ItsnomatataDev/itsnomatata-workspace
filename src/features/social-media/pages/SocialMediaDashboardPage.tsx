@@ -19,9 +19,9 @@ export default function SocialMediaDashboardPage() {
 
   return (
     <div className="min-h-screen bg-black text-white">
-      <div className="flex min-h-screen">
+      <div className="flex min-h-screen flex-col lg:flex-row">
         <Sidebar role={auth.profile.primary_role} />
-        <main className="flex-1 p-6 lg:p-8">
+        <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8">
           <AIDashboard organizationId={auth.profile.organization_id || ""} />
         </main>
       </div>

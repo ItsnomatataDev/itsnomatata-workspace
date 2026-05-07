@@ -162,7 +162,7 @@ export default function DashboardPage() {
 
   if (authLoading) {
     return (
-      <div className="min-h-screen bg-black p-6 text-white">
+      <div className="min-h-screen bg-black px-4 py-6 text-white sm:px-6">
         Loading workspace...
       </div>
     );
@@ -170,7 +170,7 @@ export default function DashboardPage() {
 
   if (!user) {
     return (
-      <div className="min-h-screen bg-black p-6 text-white">
+      <div className="min-h-screen bg-black px-4 py-6 text-white sm:px-6">
         No authenticated user found.
       </div>
     );
@@ -178,7 +178,7 @@ export default function DashboardPage() {
 
   if (!profile) {
     return (
-      <div className="min-h-screen bg-black p-6 text-white">
+      <div className="min-h-screen bg-black px-4 py-6 text-white sm:px-6">
         Loading profile...
       </div>
     );
@@ -186,7 +186,7 @@ export default function DashboardPage() {
 
   if (!organizationId) {
     return (
-      <div className="min-h-screen bg-black p-6 text-white">
+      <div className="min-h-screen bg-black px-4 py-6 text-white sm:px-6">
         Your account is not linked to an organization yet.
       </div>
     );
@@ -194,7 +194,7 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-black text-white">
-      <div className="flex min-h-screen">
+      <div className="flex min-h-screen flex-col lg:flex-row">
         <Sidebar
           role={profile.primary_role}
           counts={
@@ -206,7 +206,7 @@ export default function DashboardPage() {
           }
         />
 
-        <main className="min-w-0 flex-1 p-6 lg:p-8">
+        <main className="min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-8">
           <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
             <div>
               <p className="text-xs uppercase tracking-[0.3em] text-orange-500">
@@ -223,7 +223,7 @@ export default function DashboardPage() {
           </div>
 
           {loading ? (
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-white/60">
+            <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-6 text-white/60 sm:px-6">
               Loading dashboard...
             </div>
           ) : error ? (

@@ -26,6 +26,8 @@ import {
   Package,
   ClipboardList,
   Settings,
+  Inbox,
+  FileText,
 } from "lucide-react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { signOutUser } from "../../../lib/supabase/auth";
@@ -51,12 +53,15 @@ type NavItem = LinkItem | GroupItem;
 
 type SidebarCounts = {
   projects?: number;
+  boards?: number;
+  openCards?: number;
   pendingInvites?: number;
   openIssues?: number;
 };
 
 const commonLinks: LinkItem[] = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { to: "/inbox", label: "Inbox", icon: Inbox },
   { to: "/boards", label: "Boards", icon: BriefcaseBusiness },
   { to: "/timesheet", label: "Timesheet", icon: Clock3 },
   { to: "/attendance", label: "Attendance", icon: Timer },
@@ -102,27 +107,23 @@ function getRoleNav(role?: string | null, counts?: SidebarCounts): NavItem[] {
 
     case "it":
       return [
-        { to: "/it/dashboard", label: "IT Dashboard", icon: LayoutDashboard },
+        { to: "/it/war-room", label: "War Room", icon: LayoutDashboard },
         {
-          to: "/it/projects",
-          label: "Projects",
+          to: "/boards",
+          label: "Boards / Clients",
           icon: BriefcaseBusiness,
-          badge: counts?.projects,
-        },
-        {
-          to: "/it/collaboration",
-          label: "Collaboration",
-          icon: Users,
-          badge: counts?.pendingInvites,
+          badge: counts?.boards ?? counts?.projects,
         },
         {
           type: "group",
           label: "Time Management",
           icon: Timer,
           color: "text-orange-400",
-          activePaths: ["/timesheets"],
+          activePaths: ["/timesheet", "/timesheets", "/admin/attendance"],
           children: [
+            { to: "/timesheet", label: "My Timesheet", icon: Clock3 },
             { to: "/timesheets/team", label: "Team Timesheet", icon: Clock3 },
+            { to: "/admin/attendance", label: "Attendance", icon: Timer },
           ],
         },
         {
@@ -139,12 +140,28 @@ function getRoleNav(role?: string | null, counts?: SidebarCounts): NavItem[] {
         { to: "/automations", label: "Automations", icon: Sparkles },
         { to: "/automation-runs", label: "Automation Runs", icon: Activity },
         {
+          to: "/admin/notification-deliveries",
+          label: "Notification Logs",
+          icon: Activity,
+        },
+        {
           to: "/it/issues",
           label: "Issues",
           icon: Bug,
           badge: counts?.openIssues,
         },
         { to: "/it/system-monitor", label: "System Monitor", icon: Activity },
+        { to: "/it/support", label: "Account Support", icon: ShieldCheck },
+      ];
+
+    case "hr":
+      return [
+        { to: "/admin/employees", label: "Employees", icon: Users },
+        { to: "/admin/documents", label: "Documents", icon: FileText },
+        { to: "/admin/payslips", label: "Payslips", icon: ClipboardList },
+        { to: "/admin/leave", label: "Leave Request", icon: CalendarDays },
+        { to: "/admin/attendance", label: "Attendance", icon: Timer },
+        { to: "/timesheets/team", label: "Team Timesheet", icon: Clock3 },
       ];
 
     case "manager":
@@ -165,6 +182,8 @@ function getRoleNav(role?: string | null, counts?: SidebarCounts): NavItem[] {
         { to: "/admin/roster", label: "Manage Roster", icon: CalendarClock },
         { to: "/admin/leave", label: "Leave Request", icon: CalendarDays },
         { to: "/admin/attendance", label: "Attendance", icon: Timer },
+        { to: "/admin/documents", label: "Documents", icon: FileText },
+        { to: "/admin/payslips", label: "Payslips", icon: ClipboardList },
         {
           type: "group",
           label: "Time Management",
@@ -224,10 +243,13 @@ function getRoleNav(role?: string | null, counts?: SidebarCounts): NavItem[] {
           label: "Admin Dashboard",
           icon: LayoutDashboard,
         },
+
         { to: "/admin/employees", label: "Employees", icon: Users },
         { to: "/admin/leave", label: "Leave Request", icon: CalendarDays },
         { to: "/admin/roster", label: "Duty Roster", icon: CalendarClock },
         { to: "/admin/attendance", label: "Attendance", icon: Timer },
+        { to: "/admin/documents", label: "Documents", icon: FileText },
+        { to: "/admin/payslips", label: "Payslips", icon: ClipboardList },
         { to: "/admin/crm", label: "CRM", icon: BriefcaseBusiness },
         {
           type: "group",

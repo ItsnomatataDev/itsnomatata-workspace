@@ -62,7 +62,7 @@ export default function StockDashboardPage({ organizationId }: StockDashboardPag
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-black text-white p-6">
+      <div className="min-h-screen bg-black px-4 py-6 text-white sm:px-6 lg:px-8">
         <div className="max-w-7xl mx-auto">
           <div className="flex items-center justify-center h-64">
             <div className="text-center">
@@ -76,10 +76,10 @@ export default function StockDashboardPage({ organizationId }: StockDashboardPag
   }
 
   return (
-    <div className="min-h-screen bg-black text-white p-6">
+    <div className="min-h-screen bg-black px-4 py-6 text-white sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-3xl font-bold text-white">Stock Dashboard</h1>
             <p className="text-white/60 mt-1">Asset management and analytics overview</p>

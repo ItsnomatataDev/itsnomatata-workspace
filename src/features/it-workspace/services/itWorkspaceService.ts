@@ -3,6 +3,11 @@ import { supabase } from "../../../lib/supabase/client";
 export type MemberRole = "owner" | "manager" | "member" | "viewer";
 
 export type ITDashboardStats = {
+  totalBoards: number;
+  openCards: number;
+  activeTimers: number;
+  pendingAccountRequests: number;
+  // Kept as compatibility aliases for older IT subpages/sidebar badges.
   activeProjects: number;
   openIssues: number;
   automationCount: number;
@@ -158,12 +163,34 @@ export async function getITDashboardStats(
 ): Promise<ITDashboardStats> {
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
-  const [projectsRes, issuesRes, automationRes, invitesRes, failedRunsRes] =
+  const [
+    boardsRes,
+    openCardsRes,
+    activeTimersRes,
+    issuesRes,
+    automationRes,
+    pendingRequestsRes,
+    failedRunsRes,
+  ] =
     await Promise.all([
       supabase
-        .from("projects")
+        .from("clients")
         .select("id", { head: true, count: "exact" })
         .eq("organization_id", organizationId),
+
+      supabase
+        .from("tasks")
+        .select("id", { head: true, count: "exact" })
+        .eq("organization_id", organizationId)
+        .not("client_id", "is", null)
+        .in("status", ["backlog", "todo", "in_progress", "review", "blocked"]),
+
+      supabase
+        .from("time_entries")
+        .select("id", { head: true, count: "exact" })
+        .eq("organization_id", organizationId)
+        .is("ended_at", null)
+        .is("deleted_at", null),
 
       supabase
         .from("issues")
@@ -178,9 +205,9 @@ export async function getITDashboardStats(
         .gte("created_at", since),
 
       supabase
-        .from("project_invitations")
+        .from("account_access_requests")
         .select("id", { head: true, count: "exact" })
-        .eq("organization_id", organizationId)
+        .or(`organization_id.eq.${organizationId},organization_id.is.null`)
         .eq("status", "pending"),
 
       supabase
@@ -192,10 +219,12 @@ export async function getITDashboardStats(
     ]);
 
   const errors = [
-    projectsRes.error,
+    boardsRes.error,
+    openCardsRes.error,
+    activeTimersRes.error,
     issuesRes.error,
     automationRes.error,
-    invitesRes.error,
+    pendingRequestsRes.error,
     failedRunsRes.error,
   ].filter(Boolean);
 
@@ -209,10 +238,14 @@ export async function getITDashboardStats(
     failedRuns === 0 ? "Healthy" : failedRuns < 3 ? "Warning" : "Critical";
 
   return {
-    activeProjects: projectsRes.count ?? 0,
+    totalBoards: boardsRes.count ?? 0,
+    openCards: openCardsRes.count ?? 0,
+    activeTimers: activeTimersRes.count ?? 0,
+    pendingAccountRequests: pendingRequestsRes.count ?? 0,
+    activeProjects: boardsRes.count ?? 0,
     openIssues: issuesRes.count ?? 0,
     automationCount: automationRes.count ?? 0,
-    pendingInvites: invitesRes.count ?? 0,
+    pendingInvites: pendingRequestsRes.count ?? 0,
     systemHealthLabel,
   };
 }

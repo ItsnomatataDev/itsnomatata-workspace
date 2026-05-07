@@ -68,6 +68,35 @@ export type Permission =
 
 export const ROLE_PERMISSIONS: Record<AppRole, Permission[]> = {
   admin: ["*"],
+  superadmin: ["*"],
+  "it-superadmin": ["*"],
+
+  hr: [
+    "admin.dashboard.view",
+    "employees.view",
+    "roster.view",
+    "leave.request",
+    "leave.approve",
+    "leave.rules.view",
+    "approvals.view",
+    "clients.view",
+    "tasks.view",
+    "time.track",
+    "timesheets.view_own",
+    "timesheets.view_team",
+    "chat.use",
+    "meetings.use",
+    "meetings.schedule",
+    "reports.view",
+    "assets.view",
+    "ai.use",
+    "notifications.use",
+    "notifications.broadcast",
+    "team.view",
+    "profile.view_own",
+    "profile.edit_own",
+    "profile.view_others",
+  ],
 
   manager: [
     "admin.dashboard.view",

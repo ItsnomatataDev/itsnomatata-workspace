@@ -91,7 +91,7 @@ export default function TaskColumn({
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
-      className={`w-85 shrink-0 rounded-3xl border border-white/10 bg-[#0b0d0f] p-3 shadow-[0_10px_30px_rgba(0,0,0,0.22)] transition ${
+      className={`w-[min(20rem,calc(100vw-2rem))] shrink-0 rounded-3xl border border-white/10 bg-[#0b0d0f] p-3 shadow-[0_10px_30px_rgba(0,0,0,0.22)] transition sm:w-85 ${
         isOver ? "border-orange-500/30 bg-orange-500/5" : accent
       }`}
     >

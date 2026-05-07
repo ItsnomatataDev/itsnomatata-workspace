@@ -55,6 +55,9 @@ import BoardDetailView from "../../features/boards/pages/BoardDetailView";
 import AttendancePage from "../../features/attendance/pages/AttendancePage";
 import AdminAttendancePage from "../../features/attendance/pages/AdminAttendancePage";
 import UserTimesheetPage from "../../features/timesheets/pages/UserTimesheetPage";
+import EmployeeInboxPage from "../../features/employee-inbox/pages/EmployeeInboxPage";
+import AdminDocumentCenterPage from "../../features/employee-inbox/pages/AdminDocumentCenterPage";
+import PayslipDeliveryPage from "../../features/employee-inbox/pages/PayslipDeliveryPage";
 
 const AppRouter = () => {
   return (
@@ -288,6 +291,15 @@ const AppRouter = () => {
         />
 
         <Route
+          path="/inbox"
+          element={
+            <ProtectedRoute>
+              <EmployeeInboxPage />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
           path="/settings"
           element={
             <ProtectedRoute>
@@ -392,8 +404,30 @@ const AppRouter = () => {
           path="/admin/attendance"
           element={
             <ProtectedRoute>
-              <RoleRoute roles={["admin", "manager"]}>
+              <RoleRoute roles={["admin", "manager", "hr"]}>
                 <AdminAttendancePage />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/admin/documents"
+          element={
+            <ProtectedRoute>
+              <RoleRoute roles={["admin", "manager", "hr"]}>
+                <AdminDocumentCenterPage />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/admin/payslips"
+          element={
+            <ProtectedRoute>
+              <RoleRoute roles={["admin", "manager", "hr"]}>
+                <PayslipDeliveryPage />
               </RoleRoute>
             </ProtectedRoute>
           }
@@ -437,7 +471,7 @@ const AppRouter = () => {
           path="/it/dashboard"
           element={
             <ProtectedRoute>
-              <RoleRoute roles={["admin", "it"]}>
+              <RoleRoute roles={["admin", "it", "superadmin", "it-superadmin"]}>
                 <ITDashboardPage />
               </RoleRoute>
             </ProtectedRoute>
@@ -448,7 +482,7 @@ const AppRouter = () => {
           path="/it/war-room"
           element={
             <ProtectedRoute>
-              <RoleRoute roles={["admin", "it"]}>
+              <RoleRoute roles={["admin", "it", "superadmin", "it-superadmin"]}>
                 <ITDashboardPage />
               </RoleRoute>
             </ProtectedRoute>
@@ -459,7 +493,7 @@ const AppRouter = () => {
           path="/it/projects"
           element={
             <ProtectedRoute>
-              <RoleRoute roles={["it"]}>
+              <RoleRoute roles={["admin", "it", "superadmin", "it-superadmin"]}>
                 <ITProjectsPage />
               </RoleRoute>
             </ProtectedRoute>
@@ -470,7 +504,7 @@ const AppRouter = () => {
           path="/it/projects/:projectId"
           element={
             <ProtectedRoute>
-              <RoleRoute roles={["it"]}>
+              <RoleRoute roles={["admin", "it", "superadmin", "it-superadmin"]}>
                 <ITProjectDetailsPage />
               </RoleRoute>
             </ProtectedRoute>
@@ -481,7 +515,7 @@ const AppRouter = () => {
           path="/it/collaboration"
           element={
             <ProtectedRoute>
-              <RoleRoute roles={["it"]}>
+              <RoleRoute roles={["admin", "it", "superadmin", "it-superadmin"]}>
                 <ITCollaborationPage />
               </RoleRoute>
             </ProtectedRoute>
@@ -492,7 +526,7 @@ const AppRouter = () => {
           path="/it/issues"
           element={
             <ProtectedRoute>
-              <RoleRoute roles={["it"]}>
+              <RoleRoute roles={["admin", "it", "superadmin", "it-superadmin"]}>
                 <ITIssuesPage />
               </RoleRoute>
             </ProtectedRoute>
@@ -503,7 +537,7 @@ const AppRouter = () => {
           path="/it/system-monitor"
           element={
             <ProtectedRoute>
-              <RoleRoute roles={["it"]}>
+              <RoleRoute roles={["admin", "it", "superadmin", "it-superadmin"]}>
                 <ITSystemMonitorPage />
               </RoleRoute>
             </ProtectedRoute>
@@ -514,7 +548,7 @@ const AppRouter = () => {
           path="/it/support"
           element={
             <ProtectedRoute>
-              <RoleRoute roles={["it"]}>
+              <RoleRoute roles={["admin", "it", "superadmin", "it-superadmin"]}>
                 <ITSupportPage />
               </RoleRoute>
             </ProtectedRoute>
@@ -525,7 +559,7 @@ const AppRouter = () => {
           path="/it/support/:ticketId"
           element={
             <ProtectedRoute>
-              <RoleRoute roles={["it"]}>
+              <RoleRoute roles={["admin", "it", "superadmin", "it-superadmin"]}>
                 <ITSupportPage />
               </RoleRoute>
             </ProtectedRoute>
@@ -536,7 +570,7 @@ const AppRouter = () => {
           path="/it/attendance"
           element={
             <ProtectedRoute>
-              <RoleRoute roles={["it", "admin"]}>
+              <RoleRoute roles={["admin", "it", "superadmin", "it-superadmin"]}>
                 <AttendancePage />
               </RoleRoute>
             </ProtectedRoute>
@@ -547,7 +581,7 @@ const AppRouter = () => {
           path="/automations"
           element={
             <ProtectedRoute>
-              <RoleRoute roles={["it"]}>
+              <RoleRoute roles={["admin", "it", "superadmin", "it-superadmin"]}>
                 <AutomationFlowsPage />
               </RoleRoute>
             </ProtectedRoute>
@@ -558,7 +592,7 @@ const AppRouter = () => {
           path="/automation-runs"
           element={
             <ProtectedRoute>
-              <RoleRoute roles={["it"]}>
+              <RoleRoute roles={["admin", "it", "superadmin", "it-superadmin"]}>
                 <AutomationRunsPage />
               </RoleRoute>
             </ProtectedRoute>

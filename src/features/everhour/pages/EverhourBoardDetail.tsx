@@ -133,12 +133,12 @@ export default function EverhourBoardDetail() {
   if (!profile || !boardId) return null;
 
   return (
-    <div className="min-h-screen bg-[#050505]">
+    <div className="flex min-h-screen flex-col bg-[#050505] lg:flex-row">
       <Sidebar role={profile.primary_role ?? "manager"} />
 
-      <main className="p-8">
+      <main className="min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-8">
         {/* Header */}
-        <div className="mb-8 flex items-center gap-4">
+        <div className="mb-8 flex flex-wrap items-center gap-4">
           <button
             onClick={() => navigate("/everhour")}
             className="p-2 rounded-xl hover:bg-white/10"

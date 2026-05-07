@@ -40,7 +40,7 @@ const typeIcons: Record<EscalationItem["type"], typeof Zap> = {
   failed_automation: Zap,
   blocked_task: Ban,
   stale_approval: Clock,
-  overdue_project: FolderClock,
+  overdue_card: FolderClock,
   critical_notification: AlertTriangle,
   low_stock: Package,
   urgent_support_ticket: KeyRound,

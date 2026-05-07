@@ -137,18 +137,18 @@ export default function AdminEmployeeDetailsPage() {
 
   if (authLoading) {
     return (
-      <div className="min-h-screen bg-black p-6 text-white">Loading...</div>
+      <div className="min-h-screen bg-black px-4 py-6 text-white sm:px-6">Loading...</div>
     );
   }
 
   return (
     <div className="min-h-screen bg-black text-white">
-      <div className="flex min-h-screen">
+      <div className="flex min-h-screen flex-col lg:flex-row">
         <Sidebar role={profile?.primary_role} />
 
-        <main className="flex-1 p-6 lg:p-8">
+        <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8">
           {loading ? (
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-white/60">
+            <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-6 text-white/60 sm:px-6">
               Loading employee details...
             </div>
           ) : error ? (
@@ -156,7 +156,7 @@ export default function AdminEmployeeDetailsPage() {
               {error}
             </div>
           ) : !employee ? (
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-white/60">
+            <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-6 text-white/60 sm:px-6">
               Employee not found.
             </div>
           ) : (

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   CalendarDays,
   Clock3,
@@ -288,8 +288,29 @@ export default function TeamTimesheetsPage() {
     end: Date;
   } | null>(null);
 
+  const calendarDays = useMemo(() => buildTwoWeekDays(), []);
+  const calendarKeys = useMemo(
+    () => calendarDays.map((d) => d.key),
+    [calendarDays],
+  );
+  const calendarKeySet = useMemo(() => new Set(calendarKeys), [calendarKeys]);
+  const twoWeekRange = useMemo(() => {
+    const first = calendarDays[0]?.date ?? new Date();
+    const last = calendarDays[calendarDays.length - 1]?.date ?? new Date();
+    const start = new Date(first);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(last);
+    end.setHours(23, 59, 59, 999);
+    return { start, end };
+  }, [calendarDays]);
+  const queryRange = activeTab === "calendar" && calendarDateRange
+    ? calendarDateRange
+    : twoWeekRange;
+
   const { entries, loading, error, refetch } = useTeamTimesheetsRealtime({
     organizationId: profile?.organization_id ?? "",
+    from: queryRange.start.toISOString(),
+    to: queryRange.end.toISOString(),
     refreshIntervalMs: 2000,
   });
 
@@ -318,18 +339,9 @@ export default function TeamTimesheetsPage() {
     return () => clearInterval(interval);
   }, [activeTab, refetch]);
 
-  const handleCalendarDateRangeChange = (startDate: Date, endDate: Date) => {
+  const handleCalendarDateRangeChange = useCallback((startDate: Date, endDate: Date) => {
     setCalendarDateRange({ start: startDate, end: endDate });
-
-  };
-
-  const calendarDays = useMemo(() => buildTwoWeekDays(), []);
-  const calendarKeys = useMemo(
-    () => calendarDays.map((d) => d.key),
-    [calendarDays],
-  );
-  const calendarKeySet = useMemo(() => new Set(calendarKeys), [calendarKeys]);
-
+  }, []);
 
   const users = useMemo(() => {
     const map = new Map<string, UserSummary>();
@@ -505,10 +517,10 @@ export default function TeamTimesheetsPage() {
 
   return (
     <div className="min-h-screen bg-black text-white">
-      <div className="flex min-h-screen">
+      <div className="flex min-h-screen flex-col lg:flex-row">
         <Sidebar role={profile.primary_role ?? "manager"} />
 
-        <main className="min-w-0 flex-1 p-6 lg:p-8">
+        <main className="min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-8">
           {/* ── Page header ── */}
           <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
             <div>

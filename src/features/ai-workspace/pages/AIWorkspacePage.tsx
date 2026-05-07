@@ -243,7 +243,7 @@ export default function AIWorkspacePage() {
 
   return (
     <div className="min-h-screen bg-black text-white">
-      <div className="space-y-6 p-4 md:p-6 lg:p-8">
+      <div className="space-y-6 p-4 md:px-4 py-6 sm:px-6 lg:px-8">
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-[#050505] px-4 py-3">
           <button
             type="button"

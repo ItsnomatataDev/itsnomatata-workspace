@@ -14,7 +14,7 @@ export const ROUTE_ACCESS: Record<string, RouteAccessRule> = {
     roles: ["admin", "manager"],
   },
   "/admin/leave": {
-    roles: ["admin", "manager"],
+    roles: ["admin", "manager", "hr"],
   },
   "/admin/roster": {
     roles: ["admin", "manager"],
@@ -27,6 +27,24 @@ export const ROUTE_ACCESS: Record<string, RouteAccessRule> = {
   },
   "/admin/notifications": {
     roles: ["admin", "manager"],
+  },
+  "/admin/documents": {
+    roles: ["admin", "manager", "hr"],
+  },
+  "/admin/payslips": {
+    roles: ["admin", "manager", "hr"],
+  },
+
+  "/inbox": {
+    roles: [
+      "admin",
+      "manager",
+      "hr",
+      "it",
+      "seo_specialist",
+      "social_media",
+      "media_team",
+    ],
   },
 
   "/ai-assistant": {

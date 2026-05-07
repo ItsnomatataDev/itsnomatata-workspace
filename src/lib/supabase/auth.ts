@@ -10,7 +10,7 @@ export type AppRole =
   | "media_team"
   | "seo_specialist";
 
-type PublicSignupRole = Exclude<AppRole, "admin">;
+export type PublicSignupRole = Exclude<AppRole, "admin">;
 
 type SignUpUserParams = {
   email: string;

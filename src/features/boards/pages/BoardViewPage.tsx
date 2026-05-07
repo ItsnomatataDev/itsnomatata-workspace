@@ -475,7 +475,7 @@ function KanbanColumn({
         setIsOver(false);
         onDrop(e, status);
       }}
-      className={`flex w-72 shrink-0 flex-col rounded-2xl border border-t-2 ${accent} ${
+      className={`flex w-[min(18rem,calc(100vw-2rem))] shrink-0 flex-col rounded-2xl border border-t-2 sm:w-72 ${accent} ${
         isOver ? "border-orange-500/40 bg-orange-500/5" : "border-white/10"
       } bg-[#0d0d0d] transition-colors`}
     >
@@ -497,7 +497,7 @@ function KanbanColumn({
       </div>
 
       {/* Cards */}
-      <div className="flex flex-col gap-2 overflow-y-auto px-3 pb-3 flex-1 min-h-20 max-h-[calc(100vh-230px)]">
+      <div className="flex min-h-20 flex-1 flex-col gap-2 overflow-y-auto px-3 pb-3 max-h-[calc(100dvh-260px)] sm:max-h-[calc(100vh-230px)]">
         {tasks.map((task) => (
           <KanbanCard
             key={task.id}
@@ -1232,7 +1232,7 @@ export default function BoardViewPage() {
 
   if (error) {
     return (
-      <div className="flex min-h-screen bg-[#050505]">
+      <div className="flex min-h-screen flex-col bg-[#050505] lg:flex-row">
         <Sidebar role={profile.primary_role ?? "manager"} />
         <div className="flex flex-1 items-center justify-center p-8">
           <div className="rounded-2xl border border-red-500/30 bg-red-500/10 px-8 py-6 text-center max-w-md w-full">
@@ -1258,12 +1258,12 @@ export default function BoardViewPage() {
   const pct = total > 0 ? Math.round((done / total) * 100) : 0;
 
   return (
-    <div className="min-h-screen bg-[#050505] flex">
+    <div className="flex min-h-screen flex-col bg-[#050505] lg:flex-row">
       <Sidebar role={profile.primary_role ?? "manager"} />
 
       <main className="flex-1 flex flex-col overflow-hidden min-w-0">
         {/* ── Header ── */}
-        <div className="border-b border-white/10 bg-[#080808] px-5 py-3 flex items-center justify-between gap-4 shrink-0">
+        <div className="flex shrink-0 flex-col gap-3 border-b border-white/10 bg-[#080808] px-4 py-3 sm:px-5 md:flex-row md:items-center md:justify-between md:gap-4">
           <div className="flex items-center gap-3 min-w-0 flex-1">
             <div className="min-w-0">
               <div className="flex items-center gap-3">
@@ -1321,9 +1321,9 @@ export default function BoardViewPage() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
             {!loading && stats && (
-              <div className="hidden md:flex items-center gap-3 rounded-xl border border-white/10 bg-white/4 px-4 py-2 text-xs text-white/50">
+              <div className="hidden items-center gap-3 rounded-xl border border-white/10 bg-white/4 px-4 py-2 text-xs text-white/50 md:flex">
                 <span>
                   <span className="font-semibold text-orange-400">
                     {stats.cardsInProgress}
@@ -1341,7 +1341,7 @@ export default function BoardViewPage() {
               <button
                 type="button"
                 onClick={() => setAdminCreateOpen(true)}
-                className="inline-flex items-center gap-2 rounded-xl bg-orange-500 px-4 py-2 text-sm font-semibold text-black transition hover:bg-orange-400"
+                className="inline-flex min-h-10 flex-1 items-center justify-center gap-2 rounded-xl bg-orange-500 px-4 py-2 text-sm font-semibold text-black transition hover:bg-orange-400 sm:flex-none"
               >
                 <Plus size={16} />
                 <span className="hidden sm:inline">Create / assign</span>
@@ -1393,7 +1393,7 @@ export default function BoardViewPage() {
                 </div>
               </div>
             ) : (
-              <div className="flex gap-4 p-6 h-full items-start">
+              <div className="flex h-full min-w-max items-start gap-3 p-4 sm:gap-4 sm:p-6">
                 {columns.map((col) => (
                   <KanbanColumn
                     key={col.id}

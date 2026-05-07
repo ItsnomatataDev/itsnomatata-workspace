@@ -13,6 +13,7 @@ export const NAV_ITEMS: NavItem[] = [
     roles: [
       "admin",
       "manager",
+      "hr",
       "it",
       "seo_specialist",
       "social_media",
@@ -22,6 +23,9 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Everhour", to: "/everhour", roles: ["admin", "manager"] },
   { label: "Admin", to: "/admin", roles: ["admin"] },
   { label: "Employees", to: "/admin/employees", roles: ["admin", "manager"] },
+  { label: "Inbox", to: "/inbox", roles: ["admin", "manager", "hr", "it", "seo_specialist", "social_media", "media_team"] },
+  { label: "Documents", to: "/admin/documents", roles: ["admin", "manager", "hr"] },
+  { label: "Payslips", to: "/admin/payslips", roles: ["admin", "manager", "hr"] },
   { label: "Approvals", to: "/approvals", roles: ["admin", "manager"] },
   { label: "IT Workspace", to: "/it", roles: ["admin", "manager", "it"] },
   {
@@ -30,6 +34,7 @@ export const NAV_ITEMS: NavItem[] = [
     roles: [
       "admin",
       "manager",
+      "hr",
       "it",
       "seo_specialist",
       "social_media",
@@ -42,6 +47,7 @@ export const NAV_ITEMS: NavItem[] = [
     roles: [
       "admin",
       "manager",
+      "hr",
       "it",
       "seo_specialist",
       "social_media",
@@ -54,6 +60,7 @@ export const NAV_ITEMS: NavItem[] = [
     roles: [
       "admin",
       "manager",
+      "hr",
       "it",
       "seo_specialist",
       "social_media",
@@ -66,6 +73,7 @@ export const NAV_ITEMS: NavItem[] = [
     roles: [
       "admin",
       "manager",
+      "hr",
       "it",
       "seo_specialist",
       "social_media",
@@ -94,6 +102,7 @@ export const NAV_ITEMS: NavItem[] = [
     roles: [
       "admin",
       "manager",
+      "hr",
       "it",
       "seo_specialist",
       "social_media",
@@ -106,6 +115,7 @@ export const NAV_ITEMS: NavItem[] = [
     roles: [
       "admin",
       "manager",
+      "hr",
       "it",
       "seo_specialist",
       "social_media",
@@ -118,6 +128,7 @@ export const NAV_ITEMS: NavItem[] = [
     roles: [
       "admin",
       "manager",
+      "hr",
       "it",
       "seo_specialist",
       "social_media",

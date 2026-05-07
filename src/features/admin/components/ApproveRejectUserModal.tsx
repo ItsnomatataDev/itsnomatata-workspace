@@ -109,7 +109,7 @@ export default function ApproveRejectUserModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/80 p-4 py-6">
       <div className="w-full max-w-lg border border-white/10 bg-zinc-950 shadow-2xl">
         <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
           <div>

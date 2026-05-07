@@ -890,9 +890,9 @@ export default function TasksWorkspacePage({
   if (!organizationId) {
     return (
       <div className="min-h-screen bg-black text-white">
-        <div className="flex min-h-screen">
+        <div className="flex min-h-screen flex-col lg:flex-row">
           <Sidebar role={currentUserRole} />
-          <main className="min-w-0 flex-1 overflow-hidden p-6 lg:p-8">
+          <main className="min-w-0 flex-1 overflow-hidden px-4 py-6 sm:px-6 lg:px-8">
             <div className="border border-red-500/20 bg-red-500/10 p-5 text-red-300">
               Your account is not linked to an organization yet.
             </div>
@@ -904,10 +904,10 @@ export default function TasksWorkspacePage({
 
   return (
     <div className="min-h-screen bg-black text-white">
-      <div className="flex min-h-screen">
+      <div className="flex min-h-screen flex-col lg:flex-row">
         <Sidebar role={currentUserRole} />
 
-        <main className="min-w-0 flex-1 overflow-hidden bg-[radial-gradient(circle_at_top_left,rgba(249,115,22,0.14),transparent_20%),linear-gradient(180deg,#090909_0%,#050505_100%)] p-5 lg:p-8">
+        <main className="min-w-0 flex-1 overflow-hidden bg-[radial-gradient(circle_at_top_left,rgba(249,115,22,0.14),transparent_20%),linear-gradient(180deg,#090909_0%,#050505_100%)] px-4 py-5 sm:px-6 lg:px-8">
           <section className="mb-8 overflow-hidden rounded-4xl border border-white/10 bg-[#0a0a0a]/95 shadow-[0_20px_60px_rgba(0,0,0,0.35)]">
             <div className="border-b border-white/10 px-6 py-6 lg:px-8">
               <div className="flex flex-wrap items-end justify-between gap-4">

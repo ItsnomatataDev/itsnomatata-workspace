@@ -18,7 +18,7 @@ export default function ClientWorkspacePage({
   }, [clientId]);
 
   return (
-    <div className="p-6 text-white">
+    <div className="px-4 py-6 text-white sm:px-6">
       <h1 className="text-xl font-bold mb-4">Your Tasks</h1>
 
       {tasks.length === 0 ? (

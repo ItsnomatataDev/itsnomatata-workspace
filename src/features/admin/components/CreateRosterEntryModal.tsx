@@ -89,7 +89,7 @@ export default function CreateRosterEntryModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/70 p-4 py-6">
       <div className="max-h-[92dvh] w-full max-w-xl overflow-y-auto rounded-3xl border border-white/10 bg-zinc-950 p-5 shadow-2xl sm:p-6">
         <div className="mb-6 flex items-center justify-between">
           <div>

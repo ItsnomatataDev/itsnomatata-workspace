@@ -87,7 +87,7 @@ export default function MessageInput({
   }
 
   return (
-    <div className="border-t border-white/10 bg-black/95 px-3 py-3 sm:px-5 sm:py-4">
+    <div className="sticky bottom-0 border-t border-white/10 bg-black/95 px-2 py-3 sm:px-5 sm:py-4">
       <input
         ref={genericFileInputRef}
         type="file"
@@ -126,7 +126,7 @@ export default function MessageInput({
             type="button"
             disabled={disabled || sending}
             onClick={() => genericFileInputRef.current?.click()}
-            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white/70 transition hover:bg-white/10 hover:text-white disabled:opacity-50"
+            className="inline-flex h-10 w-10 shrink-0 sm:h-9 sm:w-9 items-center justify-center rounded-full text-white/70 transition hover:bg-white/10 hover:text-white disabled:opacity-50"
             title="Attach file"
             aria-label="Attach file"
           >
@@ -159,7 +159,7 @@ export default function MessageInput({
               type="button"
               disabled={disabled || sending}
               onClick={() => setGifOpen((current) => !current)}
-              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white/70 transition hover:bg-white/10 hover:text-white disabled:opacity-50"
+              className="inline-flex h-10 w-10 shrink-0 sm:h-9 sm:w-9 items-center justify-center rounded-full text-white/70 transition hover:bg-white/10 hover:text-white disabled:opacity-50"
               title="Send GIF or meme"
               aria-label="Send GIF or meme"
               aria-haspopup="dialog"
@@ -179,7 +179,7 @@ export default function MessageInput({
             type="button"
             disabled={disabled || sending}
             onClick={() => fileInputRef.current?.click()}
-            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white/70 transition hover:bg-white/10 hover:text-white disabled:opacity-50"
+            className="inline-flex h-10 w-10 shrink-0 sm:h-9 sm:w-9 items-center justify-center rounded-full text-white/70 transition hover:bg-white/10 hover:text-white disabled:opacity-50"
             title="Send image"
             aria-label="Send image"
           >
@@ -197,7 +197,7 @@ export default function MessageInput({
               }
             }}
             className={[
-              "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition disabled:opacity-50",
+              "inline-flex h-10 w-10 shrink-0 sm:h-9 sm:w-9 items-center justify-center rounded-full transition disabled:opacity-50",
               recording
                 ? "bg-red-500 text-white"
                 : "text-white/70 hover:bg-white/10 hover:text-white",

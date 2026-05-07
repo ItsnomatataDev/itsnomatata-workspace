@@ -177,9 +177,9 @@ export default function SocialPostsPage() {
   if (!social.hasOrganization) {
     return (
       <div className="min-h-screen bg-black text-white">
-        <div className="flex min-h-screen">
+        <div className="flex min-h-screen flex-col lg:flex-row">
           <Sidebar role={profile.primary_role} />
-          <main className="flex-1 p-6 lg:p-8">
+          <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8">
             <div className="rounded-3xl border border-red-500/20 bg-red-500/10 p-6 text-red-200">
               Your account is not linked to an organization yet, so the social
               dashboard cannot load real client and campaign data.
@@ -192,11 +192,11 @@ export default function SocialPostsPage() {
 
   return (
     <div className="min-h-screen bg-black text-white">
-      <div className="flex min-h-screen">
+      <div className="flex min-h-screen flex-col lg:flex-row">
         <Sidebar role={profile.primary_role} />
 
-        <main className="min-w-0 flex-1 p-6 lg:p-8">
-          <section className="rounded-4xl border border-white/10 bg-linear-to-br from-white/8 via-white/5 to-orange-500/10 p-6 lg:p-8">
+        <main className="min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-8">
+          <section className="rounded-4xl border border-white/10 bg-linear-to-br from-white/8 via-white/5 to-orange-500/10 px-4 py-6 sm:px-6 lg:px-8">
             <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
               <div className="max-w-4xl">
                 <p className="text-xs uppercase tracking-[0.32em] text-orange-300">

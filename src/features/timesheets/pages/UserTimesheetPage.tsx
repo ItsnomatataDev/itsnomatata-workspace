@@ -732,11 +732,11 @@ const handleBoardChange = async (boardId: string) => {
 
   return (
     <div className="min-h-screen bg-black text-white">
-      <div className="flex min-h-screen">
+      <div className="flex min-h-screen flex-col lg:flex-row">
         <Sidebar role={profile?.primary_role || "user"} />
 
-        <main className="flex-1 overflow-y-auto p-6 lg:p-8">
-          <div className="mb-8 rounded-3xl border border-white/10 bg-linear-to-br from-white/8 to-white/2 p-6 lg:p-8">
+        <main className="flex-1 overflow-y-auto px-4 py-6 sm:px-6 lg:px-8">
+          <div className="mb-8 rounded-3xl border border-white/10 bg-linear-to-br from-white/8 to-white/2 px-4 py-6 sm:px-6 lg:px-8">
             <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
               <div>
                 <p className="text-sm uppercase tracking-[0.3em] text-orange-300/80">

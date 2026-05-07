@@ -37,7 +37,7 @@ export default function MyTimeEntriesTable({
 }) {
   if (entries.length === 0) {
     return (
-      <div className="border border-white/10 bg-[#050505] p-6 text-white/60">
+      <div className="border border-white/10 bg-[#050505] px-4 py-6 text-white/60 sm:px-6">
         No time entries recorded yet.
       </div>
     );

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Calendar,
   dateFnsLocalizer,
@@ -89,6 +89,24 @@ export default function EverhourCalendar({
 }: EverhourCalendarProps) {
   const [currentView, setCurrentView] = useState<View>(Views.MONTH as View);
   const [currentDate, setCurrentDate] = useState(new Date());
+
+  useEffect(() => {
+    const startOfMonth = new Date(
+      currentDate.getFullYear(),
+      currentDate.getMonth(),
+      1,
+    );
+    const endOfMonth = new Date(
+      currentDate.getFullYear(),
+      currentDate.getMonth() + 1,
+      0,
+      23,
+      59,
+      59,
+      999,
+    );
+    onDateRangeChange?.(startOfMonth, endOfMonth);
+  }, [currentDate, onDateRangeChange]);
 
   const events = useMemo(() => {
     const grouped = new Map<string, EverhourCalendarEvent>();
@@ -229,11 +247,6 @@ export default function EverhourCalendar({
       newDate = new Date();
     }
     setCurrentDate(newDate);
-    
-    // Calculate date range for the month
-    const startOfMonth = new Date(newDate.getFullYear(), newDate.getMonth(), 1);
-    const endOfMonth = new Date(newDate.getFullYear(), newDate.getMonth() + 1, 0);
-    onDateRangeChange?.(startOfMonth, endOfMonth);
   };
 
   const handleViewChange = (view: View) => {

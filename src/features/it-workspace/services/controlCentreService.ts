@@ -19,6 +19,10 @@ export type TeamPulseMember = {
     avatar_url: string | null;
     primary_role: string | null;
     is_tracking: boolean;
+    active_task_title: string | null;
+    active_board_id: string | null;
+    active_board_name: string | null;
+    active_timer_started_at: string | null;
     last_seen_at: string | null;
     status: "online" | "tracking" | "idle" | "offline";
 };
@@ -29,7 +33,7 @@ export type EscalationItem = {
         | "failed_automation"
         | "blocked_task"
         | "stale_approval"
-        | "overdue_project"
+        | "overdue_card"
         | "critical_notification"
         | "low_stock"
         | "urgent_support_ticket";
@@ -65,12 +69,14 @@ export async function getCrossModuleHealth(
     ).toISOString();
 
     const [
-        tasksRes,
+        cardsRes,
         blockedRes,
         overdueRes,
+        firstOpenCardRes,
         failedRunsRes,
         totalRunsRes,
-        timeRes,
+        activeTimersRes,
+        todayTrackersRes,
         membersRes,
         pendingApprovalsRes,
         staleApprovalsRes,
@@ -78,11 +84,12 @@ export async function getCrossModuleHealth(
         stockRes,
         clientsRes,
     ] = await Promise.all([
-        // Tasks: total open
+        // Cards: total open cards under boards/clients
         supabase
             .from("tasks")
             .select("id", { head: true, count: "exact" })
             .eq("organization_id", organizationId)
+            .not("client_id", "is", null)
             .in("status", ["todo", "backlog", "in_progress", "review"]),
 
         // Tasks: blocked
@@ -90,6 +97,7 @@ export async function getCrossModuleHealth(
             .from("tasks")
             .select("id", { head: true, count: "exact" })
             .eq("organization_id", organizationId)
+            .not("client_id", "is", null)
             .eq("status", "blocked"),
 
         // Tasks: overdue
@@ -97,6 +105,7 @@ export async function getCrossModuleHealth(
             .from("tasks")
             .select("id", { head: true, count: "exact" })
             .eq("organization_id", organizationId)
+            .not("client_id", "is", null)
             .in("status", [
                 "todo",
                 "backlog",
@@ -105,6 +114,24 @@ export async function getCrossModuleHealth(
                 "blocked",
             ])
             .lt("due_date", now.toISOString()),
+
+        // First actionable board/card target for drill-downs
+        supabase
+            .from("tasks")
+            .select("id, client_id, priority, due_date, updated_at")
+            .eq("organization_id", organizationId)
+            .not("client_id", "is", null)
+            .in("status", [
+                "todo",
+                "backlog",
+                "in_progress",
+                "review",
+                "blocked",
+            ])
+            .order("priority", { ascending: false })
+            .order("due_date", { ascending: true, nullsFirst: false })
+            .order("updated_at", { ascending: false })
+            .limit(1),
 
         // Automations: failed in 24h
         supabase
@@ -121,11 +148,20 @@ export async function getCrossModuleHealth(
             .eq("organization_id", organizationId)
             .gte("created_at", since24h),
 
-        // Time: entries today
+        // Time: active timers right now
         supabase
             .from("time_entries")
             .select("id, user_id", { count: "exact" })
             .eq("organization_id", organizationId)
+            .is("ended_at", null)
+            .is("deleted_at", null),
+
+        // Time: users who have tracked anything today
+        supabase
+            .from("time_entries")
+            .select("id, user_id", { count: "exact" })
+            .eq("organization_id", organizationId)
+            .is("deleted_at", null)
             .gte("started_at", todayStart),
 
         // Members: total active
@@ -163,33 +199,37 @@ export async function getCrossModuleHealth(
             .select("id, quantity, min_quantity")
             .eq("organization_id", organizationId),
 
-        // Clients: paused
+        // Boards/clients: total
         supabase
             .from("clients")
             .select("id", { head: true, count: "exact" })
-            .eq("organization_id", organizationId)
-            .eq("status", "paused"),
+            .eq("organization_id", organizationId),
     ]);
 
     const modules: ModuleHealthItem[] = [];
 
-    // Tasks
-    const openTasks = tasksRes.count ?? 0;
+    const firstOpenCard = firstOpenCardRes.data?.[0] ?? null;
+    const boardRoute = firstOpenCard?.client_id
+        ? `/boards/${firstOpenCard.client_id}?cardId=${firstOpenCard.id}`
+        : "/boards";
+
+    // Cards
+    const openCards = cardsRes.count ?? 0;
     const blocked = blockedRes.count ?? 0;
     const overdue = overdueRes.count ?? 0;
-    const taskSignal: ModuleSignal = blocked > 0 || overdue > 3
+    const cardSignal: ModuleSignal = blocked > 0 || overdue > 3
         ? "red"
         : overdue > 0
         ? "amber"
         : "green";
     modules.push({
-        module: "Tasks",
-        signal: taskSignal,
-        label: taskSignal === "green"
+        module: "Cards",
+        signal: cardSignal,
+        label: cardSignal === "green"
             ? "On track"
             : `${overdue} overdue, ${blocked} blocked`,
-        detail: `${openTasks} open tasks`,
-        route: "/tasks",
+        detail: `${openCards} open cards`,
+        route: boardRoute,
     });
 
     // Automations
@@ -209,22 +249,25 @@ export async function getCrossModuleHealth(
     });
 
     // Time Tracking
-    const trackingUsers = new Set(
-        (timeRes.data ?? []).map((r) => r.user_id),
+    const activeTrackingUsers = new Set(
+        (activeTimersRes.data ?? []).map((r) => r.user_id),
+    ).size;
+    const todayTrackingUsers = new Set(
+        (todayTrackersRes.data ?? []).map((r) => r.user_id),
     ).size;
     const totalMembers = membersRes.count ?? 1;
-    const trackingPct = Math.round((trackingUsers / totalMembers) * 100);
+    const trackingPct = Math.round((todayTrackingUsers / totalMembers) * 100);
     const timeSignal: ModuleSignal = trackingPct >= 80
         ? "green"
         : trackingPct >= 50
         ? "amber"
         : "red";
     modules.push({
-        module: "Time",
+        module: "Timesheet",
         signal: timeSignal,
-        label: `${trackingPct}% team tracked today`,
-        detail: `${trackingUsers}/${totalMembers} members`,
-        route: "/time",
+        label: `${activeTrackingUsers} tracking now`,
+        detail: `${todayTrackingUsers}/${totalMembers} tracked today`,
+        route: "/timesheets/team",
     });
 
     // Approvals
@@ -244,7 +287,7 @@ export async function getCrossModuleHealth(
             ? `${pendingApprovals} pending`
             : "All clear",
         detail: `${pendingApprovals} total pending`,
-        route: "/time-approval",
+        route: "/timesheets/team",
     });
 
     // Leave
@@ -279,14 +322,14 @@ export async function getCrossModuleHealth(
     });
 
     // Clients
-    const pausedClients = clientsRes.count ?? 0;
-    const clientSignal: ModuleSignal = pausedClients >= 3 ? "amber" : "green";
+    const boardCount = clientsRes.count ?? 0;
+    const clientSignal: ModuleSignal = boardCount === 0 ? "amber" : "green";
     modules.push({
-        module: "Clients",
+        module: "Boards",
         signal: clientSignal,
-        label: pausedClients === 0 ? "All active" : `${pausedClients} paused`,
-        detail: "",
-        route: "/clients",
+        label: `${boardCount} total`,
+        detail: "Clients and boards",
+        route: "/boards",
     });
 
     return modules;
@@ -311,20 +354,45 @@ export async function getTeamPulse(
 
         supabase
             .from("time_entries")
-            .select("user_id")
+            .select("id, user_id, task_id, client_id, started_at")
             .eq("organization_id", organizationId)
-            .eq("is_running", true),
+            .is("ended_at", null)
+            .is("deleted_at", null)
+            .order("started_at", { ascending: false }),
     ]);
 
     if (profilesRes.error) throw profilesRes.error;
     if (activeTimersRes.error) throw activeTimersRes.error;
 
-    const trackingUserIds = new Set(
-        (activeTimersRes.data ?? []).map((r) => r.user_id),
+    const activeTimers = activeTimersRes.data ?? [];
+    const taskIds = [
+        ...new Set(activeTimers.map((timer) => timer.task_id).filter(Boolean)),
+    ] as string[];
+    const boardIds = [
+        ...new Set(activeTimers.map((timer) => timer.client_id).filter(Boolean)),
+    ] as string[];
+
+    const [tasksRes, boardsRes] = await Promise.all([
+        taskIds.length
+            ? supabase.from("tasks").select("id, title").in("id", taskIds)
+            : Promise.resolve({ data: [], error: null }),
+        boardIds.length
+            ? supabase.from("clients").select("id, name").in("id", boardIds)
+            : Promise.resolve({ data: [], error: null }),
+    ]);
+
+    if (tasksRes.error) throw tasksRes.error;
+    if (boardsRes.error) throw boardsRes.error;
+
+    const taskMap = new Map((tasksRes.data ?? []).map((task) => [task.id, task]));
+    const boardMap = new Map((boardsRes.data ?? []).map((board) => [board.id, board]));
+    const activeTimerByUser = new Map(
+        activeTimers.map((timer) => [timer.user_id, timer]),
     );
 
     return (profilesRes.data ?? []).map((p) => {
-        const isTracking = trackingUserIds.has(p.id);
+        const activeTimer = activeTimerByUser.get(p.id) ?? null;
+        const isTracking = Boolean(activeTimer);
         const isOnline = p.last_seen_at && p.last_seen_at >= fiveMinAgo;
 
         let status: TeamPulseMember["status"] = "offline";
@@ -345,6 +413,14 @@ export async function getTeamPulse(
             avatar_url: p.avatar_url ?? null,
             primary_role: p.primary_role,
             is_tracking: isTracking,
+            active_task_title: activeTimer?.task_id
+                ? taskMap.get(activeTimer.task_id)?.title ?? null
+                : null,
+            active_board_id: activeTimer?.client_id ?? null,
+            active_board_name: activeTimer?.client_id
+                ? boardMap.get(activeTimer.client_id)?.name ?? null
+                : null,
+            active_timer_started_at: activeTimer?.started_at ?? null,
             last_seen_at: p.last_seen_at,
             status,
         };
@@ -366,7 +442,7 @@ export async function getEscalationItems(
         failedRunsRes,
         blockedTasksRes,
         staleApprovalsRes,
-        overdueProjectsRes,
+        overdueCardsRes,
         lowStockRes,
         urgentTicketsRes,
     ] = await Promise.all([
@@ -400,13 +476,14 @@ export async function getEscalationItems(
             .order("created_at", { ascending: true })
             .limit(10),
 
-        // Overdue projects
+        // Overdue cards under boards
         supabase
-            .from("projects")
-            .select("id, name, due_date")
+            .from("tasks")
+            .select("id, title, due_date, client_id")
             .eq("organization_id", organizationId)
+            .not("client_id", "is", null)
             .lt("due_date", now.toISOString())
-            .in("status", ["active", "in_progress"])
+            .in("status", ["todo", "backlog", "in_progress", "review", "blocked"])
             .order("due_date", { ascending: true })
             .limit(10),
 
@@ -445,7 +522,7 @@ export async function getEscalationItems(
         });
     }
 
-    // Blocked tasks → warning
+    // Blocked cards → warning
     for (const task of blockedTasksRes.data ?? []) {
         items.push({
             id: `esc_task_${task.id}`,
@@ -454,7 +531,7 @@ export async function getEscalationItems(
             title: `Blocked: ${task.title}`,
             detail: "Blocked for more than 24 hours",
             entity_id: task.id,
-            route: "/tasks",
+            route: "/boards",
             created_at: task.updated_at,
         });
     }
@@ -468,22 +545,24 @@ export async function getEscalationItems(
             title: `Stale approval: ${approval.type ?? "Request"}`,
             detail: approval.description ?? "Pending for over 48 hours",
             entity_id: approval.id,
-            route: "/time-approval",
+            route: "/timesheets/team",
             created_at: approval.created_at,
         });
     }
 
-    // Overdue projects → warning
-    for (const project of overdueProjectsRes.data ?? []) {
+    // Overdue cards → warning
+    for (const card of overdueCardsRes.data ?? []) {
         items.push({
-            id: `esc_proj_${project.id}`,
-            type: "overdue_project",
+            id: `esc_card_${card.id}`,
+            type: "overdue_card",
             severity: "warning",
-            title: `Overdue: ${project.name}`,
-            detail: `Due ${new Date(project.due_date!).toLocaleDateString()}`,
-            entity_id: project.id,
-            route: `/it/projects/${project.id}`,
-            created_at: project.due_date!,
+            title: `Overdue card: ${card.title}`,
+            detail: `Due ${new Date(card.due_date!).toLocaleDateString()}`,
+            entity_id: card.id,
+            route: card.client_id
+                ? `/boards/${card.client_id}?cardId=${card.id}`
+                : "/boards",
+            created_at: card.due_date!,
         });
     }
 
@@ -550,7 +629,7 @@ export async function getKPITiles(
     const since24h = new Date(now.getTime() - 24 * 60 * 60 * 1000)
         .toISOString();
 
-    const [timeRes, billableRes, projectsRes, automationRes, failedRes] =
+    const [timeRes, billableRes, cardsRes, boardsRes, automationRes, failedRes] =
         await Promise.all([
             // Total time today in seconds
             supabase
@@ -567,12 +646,19 @@ export async function getKPITiles(
                 .eq("is_billable", true)
                 .gte("started_at", todayStart),
 
-            // Projects with health
+            // Open cards with board/client linkage
             supabase
-                .from("projects")
-                .select("id, status, due_date")
+                .from("tasks")
+                .select("id, status, due_date, client_id")
                 .eq("organization_id", organizationId)
-                .in("status", ["active", "in_progress"]),
+                .not("client_id", "is", null)
+                .in("status", ["todo", "backlog", "in_progress", "review", "blocked"]),
+
+            // Total boards/clients
+            supabase
+                .from("clients")
+                .select("id", { head: true, count: "exact" })
+                .eq("organization_id", organizationId),
 
             // All automation runs 24h
             supabase
@@ -613,14 +699,14 @@ export async function getKPITiles(
         ? Math.round((billableSeconds / totalSeconds) * 100)
         : 0;
 
-    // Project health avg
-    const activeProjects = projectsRes.data ?? [];
-    const overdueCount = activeProjects.filter(
-        (p) => p.due_date && new Date(p.due_date) < now,
+    // Board/card health
+    const activeCards = cardsRes.data ?? [];
+    const overdueCount = activeCards.filter(
+        (card) => card.due_date && new Date(card.due_date) < now,
     ).length;
-    const healthPct = activeProjects.length > 0
+    const healthPct = activeCards.length > 0
         ? Math.round(
-            ((activeProjects.length - overdueCount) / activeProjects.length) *
+            ((activeCards.length - overdueCount) / activeCards.length) *
                 100,
         )
         : 100;
@@ -646,10 +732,16 @@ export async function getKPITiles(
             detail: `${Math.round(billableSeconds / 3600)}h billable`,
         },
         {
-            label: "Project Health",
+            label: "Board Health",
             value: `${healthPct}%`,
             trend: healthPct >= 80 ? "up" : healthPct >= 60 ? "flat" : "down",
-            detail: `${overdueCount} overdue of ${activeProjects.length}`,
+            detail: `${overdueCount} overdue of ${activeCards.length} open cards`,
+        },
+        {
+            label: "Boards",
+            value: `${boardsRes.count ?? 0}`,
+            trend: (boardsRes.count ?? 0) > 0 ? "up" : "flat",
+            detail: "Total clients/boards",
         },
         {
             label: "Automation",

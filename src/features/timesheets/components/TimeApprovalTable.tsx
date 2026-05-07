@@ -48,7 +48,7 @@ export default function TimeApprovalTable({
 }) {
   if (entries.length === 0) {
     return (
-      <div className="rounded-[24px] border border-dashed border-white/10 bg-white/5 p-6 text-white/50">
+      <div className="rounded-[24px] border border-dashed border-white/10 bg-white/5 px-4 py-6 text-white/50 sm:px-6">
         No time entries found for this filter.
       </div>
     );

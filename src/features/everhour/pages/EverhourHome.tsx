@@ -142,12 +142,12 @@ export default function EverhourHome() {
   if (!profile) return null;
 
   return (
-    <div className="min-h-screen bg-[#050505]">
+    <div className="flex min-h-screen flex-col bg-[#050505] lg:flex-row">
       <Sidebar role={profile.primary_role ?? "manager"} />
 
-      <main className="p-8">
+      <main className="min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-8">
         {/* Header */}
-        <div className="mb-8 flex items-center justify-between">
+        <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-3xl font-bold text-white">Everhour</h1>
             <p className="text-white/60 mt-2">Time tracking across boards</p>
