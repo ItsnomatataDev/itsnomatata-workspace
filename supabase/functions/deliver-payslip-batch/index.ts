@@ -2,6 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 type RequestBody = {
   batchId?: string;
+  itemIds?: string[];
 };
 
 const corsHeaders = {
@@ -87,13 +88,23 @@ Deno.serve(async (req) => {
       .update({ status: "processing" })
       .eq("id", batch.id);
 
-    const { data: items, error: itemsError } = await adminClient
+    let itemsQuery = adminClient
       .from("payslip_batch_items")
       .select("*")
       .eq("batch_id", batch.id)
       .eq("match_status", "matched");
 
+    const selectedItemIds = [...new Set(body.itemIds ?? [])];
+    if (selectedItemIds.length > 0) {
+      itemsQuery = itemsQuery.in("id", selectedItemIds);
+    }
+
+    const { data: items, error: itemsError } = await itemsQuery;
+
     if (itemsError) throw itemsError;
+    if (!items || items.length === 0) {
+      return jsonResponse({ error: "No selected matched payslips were found for delivery." }, 400);
+    }
 
     let delivered = 0;
     let failed = 0;

@@ -198,9 +198,14 @@ export async function getMyDocuments(params?: {
   status?: EmployeeDocumentStatus | "all";
   documentType?: EmployeeDocumentType | "all";
 }) {
+  const { data: userData, error: userError } = await supabase.auth.getUser();
+  if (userError) throw userError;
+  if (!userData.user) throw new Error("You must be signed in to view inbox documents.");
+
   let query = supabase
     .from("employee_document_recipients")
     .select(MY_DOCUMENT_SELECT)
+    .eq("user_id", userData.user.id)
     .order("delivered_at", { ascending: false });
 
   if (params?.status && params.status !== "all") {
@@ -216,10 +221,15 @@ export async function getMyDocuments(params?: {
 }
 
 export async function getDocumentById(recipientId: string) {
+  const { data: userData, error: userError } = await supabase.auth.getUser();
+  if (userError) throw userError;
+  if (!userData.user) throw new Error("You must be signed in to view inbox documents.");
+
   const { data, error } = await supabase
     .from("employee_document_recipients")
     .select(MY_DOCUMENT_SELECT)
     .eq("id", recipientId)
+    .eq("user_id", userData.user.id)
     .maybeSingle();
 
   if (error) throw error;
@@ -492,10 +502,10 @@ export async function getPayslipBatchItems(batchId: string) {
   return (data ?? []) as PayslipBatchItem[];
 }
 
-export async function deliverPayslipBatch(batchId: string) {
+export async function deliverPayslipBatch(batchId: string, itemIds?: string[]) {
   const { data, error } = await supabase.functions.invoke(
     "deliver-payslip-batch",
-    { body: { batchId } },
+    { body: { batchId, itemIds: itemIds ?? [] } },
   );
 
   if (error) throw error;

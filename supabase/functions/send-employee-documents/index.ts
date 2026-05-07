@@ -48,7 +48,7 @@ function getBearerToken(req: Request) {
 }
 
 function canSendDocuments(role: string | null | undefined) {
-  return ["admin", "manager", "hr", "it", "superadmin", "it-superadmin"].includes(role ?? "");
+  return ["admin", "manager", "hr", "superadmin", "it-superadmin"].includes(role ?? "");
 }
 
 function notificationCopy(documentType: string, title: string, requiresAck: boolean) {
@@ -122,7 +122,7 @@ Deno.serve(async (req) => {
 
     if (actorError) throw actorError;
     if (!actor || !canSendDocuments(actor.primary_role)) {
-      return jsonResponse({ error: "Only admin, manager, HR, or IT users can send documents." }, 403);
+      return jsonResponse({ error: "Only admin, manager, or HR users can send documents." }, 403);
     }
     if (actor.organization_id !== organizationId && !["superadmin", "it-superadmin"].includes(actor.primary_role ?? "")) {
       return jsonResponse({ error: "You can only send documents in your organization." }, 403);

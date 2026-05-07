@@ -41,6 +41,7 @@ export default function PayslipDeliveryPage() {
   const [batch, setBatch] = useState<PayslipBatch | null>(null);
   const [items, setItems] = useState<PayslipBatchItem[]>([]);
   const [files, setFiles] = useState<File[]>([]);
+  const [selectedBatchItemIds, setSelectedBatchItemIds] = useState<string[]>([]);
   const [payrollMonth, setPayrollMonth] = useState(currentDate.getMonth() + 1);
   const [payrollYear, setPayrollYear] = useState(currentDate.getFullYear());
   const [loading, setLoading] = useState(true);
@@ -67,6 +68,7 @@ export default function PayslipDeliveryPage() {
   const unmatchedCount = matches.length - matchedCount;
   const deliveredCount = items.filter((item) => item.match_status === "delivered").length;
   const failedCount = items.filter((item) => item.match_status === "failed").length;
+  const matchedItems = items.filter((item) => item.match_status === "matched");
 
   async function handleCreateAndUpload() {
     if (!organizationId || !user?.id || files.length === 0) return;
@@ -111,6 +113,11 @@ export default function PayslipDeliveryPage() {
       }
 
       setItems(createdItems);
+      setSelectedBatchItemIds(
+        createdItems
+          .filter((item) => item.match_status === "matched")
+          .map((item) => item.id),
+      );
       setSuccess("Payslip batch created. Review matches, then deliver matched payslips.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create payslip batch.");
@@ -121,20 +128,45 @@ export default function PayslipDeliveryPage() {
 
   async function handleDeliver() {
     if (!batch) return;
+    if (selectedBatchItemIds.length === 0) {
+      setError("Check at least one matched payslip before delivery.");
+      return;
+    }
     try {
       setProcessing(true);
       setError("");
       setSuccess("");
-      const result = await deliverPayslipBatch(batch.id);
+      const result = await deliverPayslipBatch(batch.id, selectedBatchItemIds);
       setSuccess(
         `Delivered ${result.delivered} payslip(s). ${result.failed} failed.`,
       );
-      setItems(await getPayslipBatchItems(batch.id));
+      const refreshedItems = await getPayslipBatchItems(batch.id);
+      setItems(refreshedItems);
+      setSelectedBatchItemIds(
+        refreshedItems
+          .filter((item) => item.match_status === "matched")
+          .map((item) => item.id),
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to deliver payslips.");
     } finally {
       setProcessing(false);
     }
+  }
+
+  function toggleBatchItem(itemId: string) {
+    setSelectedBatchItemIds((current) =>
+      current.includes(itemId)
+        ? current.filter((id) => id !== itemId)
+        : [...current, itemId],
+    );
+  }
+
+  function toggleAllMatchedItems() {
+    const matchedIds = matchedItems.map((item) => item.id);
+    setSelectedBatchItemIds((current) =>
+      current.length === matchedIds.length ? [] : matchedIds,
+    );
   }
 
   if (!auth?.user || !profile) return null;
@@ -251,12 +283,12 @@ export default function PayslipDeliveryPage() {
 
                 <button
                   type="button"
-                  disabled={processing || !batch || matchedCount === 0}
+                  disabled={processing || !batch || selectedBatchItemIds.length === 0}
                   onClick={() => void handleDeliver()}
                   className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-sm font-bold text-white disabled:opacity-60"
                 >
                   <Send size={16} />
-                  Deliver matched payslips
+                  Deliver checked payslips ({selectedBatchItemIds.length})
                 </button>
               </div>
             </section>
@@ -325,7 +357,25 @@ export default function PayslipDeliveryPage() {
 
               {items.length > 0 ? (
                 <div className="mt-6 rounded-2xl border border-white/10 bg-black/30 p-4">
-                  <h3 className="font-semibold">Delivery status</h3>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h3 className="font-semibold">Delivery status</h3>
+                      <p className="mt-1 text-xs text-white/40">
+                        Check only the payslips that should be delivered.
+                      </p>
+                    </div>
+                    {matchedItems.length > 0 ? (
+                      <button
+                        type="button"
+                        onClick={toggleAllMatchedItems}
+                        className="rounded-xl border border-white/10 px-3 py-2 text-xs font-semibold text-white/70 hover:bg-white/5"
+                      >
+                        {selectedBatchItemIds.length === matchedItems.length
+                          ? "Uncheck all"
+                          : "Check all matched"}
+                      </button>
+                    ) : null}
+                  </div>
                   <div className="mt-3 grid gap-2 sm:grid-cols-3">
                     <div className="rounded-xl bg-white/5 p-3">
                       <p className="text-2xl font-bold">{items.length}</p>
@@ -343,6 +393,50 @@ export default function PayslipDeliveryPage() {
                       </p>
                       <p className="text-xs text-red-200/70">Failed</p>
                     </div>
+                  </div>
+                  <div className="mt-4 space-y-2">
+                    {items.map((item) => {
+                      const selectable = item.match_status === "matched";
+                      const checked = selectedBatchItemIds.includes(item.id);
+
+                      return (
+                        <label
+                          key={item.id}
+                          className={[
+                            "flex items-start gap-3 rounded-2xl border p-3",
+                            selectable
+                              ? "border-white/10 bg-white/5"
+                              : item.match_status === "delivered"
+                                ? "border-emerald-500/20 bg-emerald-500/10"
+                                : "border-red-500/20 bg-red-500/10",
+                          ].join(" ")}
+                        >
+                          <input
+                            type="checkbox"
+                            disabled={!selectable || processing}
+                            checked={checked}
+                            onChange={() => toggleBatchItem(item.id)}
+                            className="mt-1 h-4 w-4 accent-orange-500 disabled:opacity-40"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-semibold">
+                              {item.employee_name || item.employee_email || "Unmatched employee"}
+                            </p>
+                            <p className="mt-0.5 truncate text-xs text-white/45">
+                              {item.file_name}
+                            </p>
+                            {item.error_message ? (
+                              <p className="mt-1 text-xs text-red-200/80">
+                                {item.error_message}
+                              </p>
+                            ) : null}
+                          </div>
+                          <span className="rounded-full bg-black/40 px-2.5 py-1 text-[10px] capitalize text-white/70">
+                            {item.match_status}
+                          </span>
+                        </label>
+                      );
+                    })}
                   </div>
                 </div>
               ) : null}
