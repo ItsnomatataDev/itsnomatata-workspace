@@ -77,8 +77,15 @@ export default function DashboardPage() {
     latitude: null,
     longitude: null,
   });
+  const [approvalMessage, setApprovalMessage] = useState("");
 
   useEffect(() => {
+    const message = window.localStorage.getItem("account_approved_message");
+    if (message) {
+      setApprovalMessage(message);
+      window.localStorage.removeItem("account_approved_message");
+    }
+
     navigator.geolocation?.getCurrentPosition(
       (position) => {
         setCoords({
@@ -224,6 +231,12 @@ export default function DashboardPage() {
               </p>
             </div>
           </div>
+
+          {approvalMessage ? (
+            <div className="mb-6 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4 text-sm text-emerald-200">
+              {approvalMessage}
+            </div>
+          ) : null}
 
           {loading ? (
             <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-6 text-white/60 sm:px-6">

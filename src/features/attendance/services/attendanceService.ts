@@ -57,6 +57,16 @@ function completedBreakSeconds(breaks: AttendanceBreak[]) {
   }, 0);
 }
 
+async function upsertDailyStatusForClockIn(params: {
+  sessionId: string;
+}) {
+  const { error } = await supabase.rpc("record_attendance_clock_in_status", {
+    target_session_id: params.sessionId,
+  });
+
+  if (error) throw error;
+}
+
 export function getAttendanceSessionElapsedSeconds(
   session?: AttendanceSession | null,
 ) {
@@ -132,6 +142,9 @@ export async function clockIn(input: ClockInInput): Promise<AttendanceSession> {
       .single();
 
     if (error) throw error;
+    await upsertDailyStatusForClockIn({
+      sessionId: data.id,
+    });
     return data as AttendanceSession;
   } catch (error) {
     throw new Error(getAttendanceErrorMessage(error, "Failed to clock in."));
@@ -328,13 +341,16 @@ export async function getAttendanceReport(params: {
   from: string;
   to: string;
   userId?: string;
+  officeId?: string | null;
 }): Promise<AttendanceReportRow[]> {
   let profilesQuery = supabase
     .from("profiles")
-    .select("id, full_name, email, primary_role, is_active")
-    .eq("organization_id", params.organizationId);
+    .select("id, full_name, email, primary_role, office_id, is_active")
+    .eq("organization_id", params.organizationId)
+    .eq("account_status", "active");
 
   if (params.userId) profilesQuery = profilesQuery.eq("id", params.userId);
+  if (params.officeId) profilesQuery = profilesQuery.eq("office_id", params.officeId);
 
   let sessionsQuery = supabase
     .from("attendance_sessions")
@@ -345,10 +361,20 @@ export async function getAttendanceReport(params: {
 
   if (params.userId) sessionsQuery = sessionsQuery.eq("user_id", params.userId);
 
-  const [profilesResult, sessionsResult, taskTrackedMap, settings, leaves] =
+  let dailyStatusQuery = supabase
+    .from("attendance_daily_status")
+    .select("*")
+    .eq("organization_id", params.organizationId)
+    .eq("attendance_date", getZimbabweDateKey(params.from));
+
+  if (params.userId) dailyStatusQuery = dailyStatusQuery.eq("user_id", params.userId);
+  if (params.officeId) dailyStatusQuery = dailyStatusQuery.eq("office_id", params.officeId);
+
+  const [profilesResult, sessionsResult, dailyStatusResult, taskTrackedMap, settings, leaves] =
     await Promise.all([
       profilesQuery,
       sessionsQuery.order("clock_in_at", { ascending: true }),
+      dailyStatusQuery,
       getTaskTrackedSecondsByUser({
         organizationId: params.organizationId,
         from: params.from,
@@ -360,6 +386,7 @@ export async function getAttendanceReport(params: {
 
   if (profilesResult.error) throw profilesResult.error;
   if (sessionsResult.error) throw sessionsResult.error;
+  if (dailyStatusResult.error) throw dailyStatusResult.error;
 
   const sessions = (sessionsResult.data ?? []) as AttendanceSession[];
   const sessionsByUser = new Map<string, AttendanceSession[]>();
@@ -370,6 +397,9 @@ export async function getAttendanceReport(params: {
   }
 
   const todayKey = getZimbabweDateKey(params.from);
+  const dailyStatusByUser = new Map(
+    (dailyStatusResult.data ?? []).map((row) => [row.user_id as string, row]),
+  );
   const leaveUserIds = new Set(
     leaves
       .filter((leave) => leave.start_date <= todayKey && leave.end_date >= todayKey)
@@ -386,6 +416,7 @@ export async function getAttendanceReport(params: {
     );
     const taskTrackedSeconds = taskTrackedMap.get(profile.id) ?? 0;
     const onLeave = leaveUserIds.has(profile.id);
+    const dailyStatus = dailyStatusByUser.get(profile.id);
     const active = userSessions.some(
       (session) => session.status === "active" && !session.clock_out_at,
     );
@@ -398,6 +429,8 @@ export async function getAttendanceReport(params: {
       user_id: profile.id,
       full_name: profile.full_name,
       email: profile.email,
+      office_id: profile.office_id ?? null,
+      daily_status: (dailyStatus?.status as AttendanceReportRow["daily_status"]) ?? null,
       clock_in_at: firstSession?.clock_in_at ?? null,
       clock_out_at: lastSession?.clock_out_at ?? null,
       work_seconds: workSeconds,
@@ -409,7 +442,7 @@ export async function getAttendanceReport(params: {
         : active
           ? "active"
           : lastSession?.status ?? "offline",
-      is_late: !onLeave && isLate(firstSession, settings),
+      is_late: !onLeave && ((dailyStatus?.status === "late") || isLate(firstSession, settings)),
       missed_clock_out: missed,
       clock_out_method: hasAutoClockOut ? "auto" : lastSession?.clock_out_method ?? null,
     };

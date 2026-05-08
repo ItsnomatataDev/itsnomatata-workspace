@@ -383,6 +383,7 @@ export type EmployeeOverviewRow = {
 
 export type AccountStatus =
   | "pending"
+  | "pending_approval"
   | "active"
   | "suspended"
   | "rejected"
@@ -925,7 +926,7 @@ export async function getEmployeeOverview(
 }
 
 export async function getPendingUsers(organizationId: string) {
-  return getEmployeeOverview(organizationId, "pending");
+  return getEmployeeOverview(organizationId, "pending_approval");
 }
 
 export async function approveUser(params: {
@@ -1071,6 +1072,7 @@ export async function updateEmployeeRole(params: {
   userId: string;
   role: string;
   updatedBy?: string;
+  reason?: string;
 }) {
   const normalizedRole = params.role.trim().toLowerCase();
 
@@ -1078,69 +1080,12 @@ export async function updateEmployeeRole(params: {
     throw new Error("Invalid role selected.");
   }
 
-  await assertCanModifyUser({
-    organizationId: params.organizationId,
+  await runAdminUserAction({
+    action: "change_role",
     targetUserId: params.userId,
-    actorUserId: params.updatedBy,
-    nextRole: normalizedRole,
+    newRole: normalizedRole,
+    reason: params.reason ?? null,
   });
-
-  const { data: targetUser, error: targetUserError } = await supabase
-    .from("profiles")
-    .select("id, email, organization_id")
-    .eq("id", params.userId)
-    .eq("organization_id", params.organizationId)
-    .single();
-
-  if (targetUserError) throw targetUserError;
-
-  if (
-    normalizedRole === "admin" && !isSuperAdminAllowedEmail(targetUser.email)
-  ) {
-    throw new Error(
-      "This email is not allowed to receive the Super Admin role.",
-    );
-  }
-
-  const { error: profileError } = await supabase
-    .from("profiles")
-    .update({
-      primary_role: normalizedRole,
-    })
-    .eq("id", params.userId)
-    .eq("organization_id", params.organizationId);
-
-  if (profileError) throw profileError;
-
-  const { error: memberDeleteError } = await supabase
-    .from("organization_members")
-    .delete()
-    .eq("organization_id", params.organizationId)
-    .eq("user_id", params.userId);
-
-  if (memberDeleteError) throw memberDeleteError;
-
-  const { error: memberInsertError } = await supabase
-    .from("organization_members")
-    .insert({
-      organization_id: params.organizationId,
-      user_id: params.userId,
-      role: normalizedRole,
-      status: "active",
-    });
-
-  if (memberInsertError) throw memberInsertError;
-
-  await logAdminAudit({
-    organizationId: params.organizationId,
-    actorUserId: params.updatedBy ?? null,
-    targetUserId: params.userId,
-    action: "role_changed",
-    metadata: {
-      role: normalizedRole,
-    },
-  });
-
   return true;
 }
 

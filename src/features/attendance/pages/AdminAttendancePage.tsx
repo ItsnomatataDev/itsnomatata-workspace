@@ -10,6 +10,8 @@ import {
   makeZimbabweLocalIso,
 } from "../../../lib/utils/zimbabweCalendar";
 import { formatDurationHms } from "../../../lib/utils/timeMath";
+import { canManageAllOffices, getOfficeName, type CompanyOffice } from "../../../lib/offices";
+import { getCompanyOffices } from "../../../lib/supabase/queries/offices";
 
 function formatMaybeDate(value?: string | null) {
   if (!value) return "-";
@@ -52,8 +54,11 @@ export default function AdminAttendancePage() {
   const [date, setDate] = useState(getZimbabweDateKey(new Date()));
   const [mode, setMode] = useState<"daily" | "weekly" | "monthly">("daily");
   const [rows, setRows] = useState<AttendanceReportRow[]>([]);
+  const [offices, setOffices] = useState<CompanyOffice[]>([]);
+  const [officeFilter, setOfficeFilter] = useState("mine");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const canViewAllOffices = canManageAllOffices(profile);
 
   const range = useMemo(() => {
     if (mode === "monthly") return getZimbabweMonthRangeIso(makeZimbabweLocalIso(date, "12:00:00"));
@@ -73,11 +78,22 @@ export default function AdminAttendancePage() {
     try {
       setLoading(true);
       setError("");
+      const officeRows = await getCompanyOffices(organizationId);
+      setOffices(officeRows);
+      const ownOfficeId = (profile?.office_id as string | null | undefined) ?? null;
+      const selectedOfficeId = canViewAllOffices
+        ? officeFilter === "all"
+          ? null
+          : officeFilter === "mine"
+            ? ownOfficeId
+            : officeFilter
+        : ownOfficeId;
       setRows(
         await getAttendanceReport({
           organizationId,
           from: range.start,
           to: range.end,
+          officeId: selectedOfficeId,
         }),
       );
     } catch (err) {
@@ -85,7 +101,7 @@ export default function AdminAttendancePage() {
     } finally {
       setLoading(false);
     }
-  }, [organizationId, range.end, range.start]);
+  }, [canViewAllOffices, officeFilter, organizationId, profile?.office_id, range.end, range.start]);
 
   useEffect(() => {
     void load();
@@ -119,6 +135,21 @@ export default function AdminAttendancePage() {
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
+              {canViewAllOffices ? (
+                <select
+                  value={officeFilter}
+                  onChange={(event) => setOfficeFilter(event.target.value)}
+                  className="rounded-2xl border border-white/10 bg-neutral-950 px-3 py-2 text-sm"
+                >
+                  <option value="all">All offices</option>
+                  <option value="mine">My office</option>
+                  {offices.map((office) => (
+                    <option key={office.id} value={office.id}>
+                      {office.name}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
               <select
                 value={mode}
                 onChange={(event) => setMode(event.target.value as typeof mode)}
@@ -196,6 +227,9 @@ export default function AdminAttendancePage() {
                         <td className="px-4 py-3">
                           <p className="font-medium">{row.full_name || "Unnamed"}</p>
                           <p className="text-xs text-white/40">{row.email}</p>
+                          <p className="mt-1 text-[11px] text-orange-300/80">
+                            {getOfficeName(row.office_id, offices)}
+                          </p>
                         </td>
                         <td className="px-4 py-3"><StatusPill row={row} /></td>
                         <td className="px-4 py-3">{formatMaybeDate(row.clock_in_at)}</td>

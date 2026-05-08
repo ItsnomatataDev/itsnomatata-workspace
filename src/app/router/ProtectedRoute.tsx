@@ -5,10 +5,12 @@ function AccountGateMessage({
   title,
   message,
   tone = "amber",
+  onCheck,
 }: {
   title: string;
   message: string;
   tone?: "amber" | "red" | "zinc";
+  onCheck?: () => void;
 }) {
   const toneClasses = {
     amber: "border-amber-500/20 bg-amber-500/10 text-amber-200",
@@ -24,6 +26,15 @@ function AccountGateMessage({
         </p>
         <h1 className="mt-3 text-2xl font-bold text-white">{title}</h1>
         <p className="mt-3 text-sm leading-6">{message}</p>
+        {onCheck ? (
+          <button
+            type="button"
+            onClick={onCheck}
+            className="mt-6 rounded-2xl bg-orange-500 px-4 py-3 text-sm font-semibold text-black transition hover:bg-orange-400"
+          >
+            Check approval status
+          </button>
+        ) : null}
       </div>
     </div>
   );
@@ -40,7 +51,7 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
     );
   }
 
-  const { user, profile, loading } = auth;
+  const { user, profile, loading, refreshProfile } = auth;
 
   if (loading) {
     return (
@@ -62,11 +73,12 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
         ? "pending"
         : "active");
 
-  if (accountStatus === "pending") {
+  if (accountStatus === "pending" || accountStatus === "pending_approval") {
     return (
       <AccountGateMessage
         title="Waiting for admin approval"
         message="Your account has been created, but an administrator needs to approve it before you can access the workspace."
+        onCheck={() => void refreshProfile()}
       />
     );
   }

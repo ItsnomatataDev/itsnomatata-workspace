@@ -14,7 +14,10 @@ import { resolveCompanyOfficeId } from "../../lib/supabase/queries/offices";
 
 type AppRole =
   | "admin"
+  | "superadmin"
+  | "it-superadmin"
   | "manager"
+  | "hr"
   | "it"
   | "social_media"
   | "media_team"
@@ -65,7 +68,10 @@ const ORGANIZATION_SLUG = "its-nomatata";
 function isValidRole(value: unknown): value is AppRole {
   return [
     "admin",
+    "superadmin",
+    "it-superadmin",
     "manager",
+    "hr",
     "it",
     "social_media",
     "media_team",
@@ -81,11 +87,14 @@ function resolveUserRole(
   user: User | null,
   profile?: AuthProfile | null,
 ): AppRole {
-  const metadataRole = user?.user_metadata?.role;
   const profileRole = profile?.primary_role;
+  const appMetadataRole =
+    user?.app_metadata?.primary_role ?? user?.app_metadata?.role;
+  const userMetadataRole = user?.user_metadata?.role;
 
-  if (isValidRole(metadataRole)) return metadataRole;
   if (isValidRole(profileRole)) return profileRole;
+  if (isValidRole(appMetadataRole)) return appMetadataRole;
+  if (isValidRole(userMetadataRole)) return userMetadataRole;
 
   return "social_media";
 }
@@ -225,9 +234,6 @@ function getDisabledAccountMessage(profile: AuthProfile | null) {
   const status = profile?.account_status ??
     (profile?.is_suspended ? "suspended" : null);
 
-  if (status === "pending_approval") {
-    return "Your account is awaiting admin approval.";
-  }
   if (status === "suspended") {
     return "Your account has been suspended. Contact support.";
   }
@@ -259,6 +265,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<AuthProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const previousStatusRef = useRef<AccountStatus | null>(null);
 
   const loadingProfileRef = useRef(false);
 
@@ -287,6 +294,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       await ensureOrganizationMembership(sessionUser, nextProfile);
       await touchUserPresence(sessionUser);
+
+      const nextStatus = nextProfile?.account_status ?? null;
+      const previousStatus = previousStatusRef.current;
+      previousStatusRef.current = nextStatus;
+      if (
+        previousStatus === "pending_approval" &&
+        nextStatus === "active" &&
+        window.location.pathname !== "/dashboard"
+      ) {
+        window.localStorage.setItem("account_approved_message", "Welcome. Your account has been approved.");
+        window.location.assign("/dashboard");
+        return;
+      }
 
       setProfile(nextProfile);
     } catch (err) {
@@ -389,6 +409,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       subscription.unsubscribe();
     };
   }, []);
+
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const channel = supabase
+      .channel(`profile-live:${user.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "profiles",
+          filter: `id=eq.${user.id}`,
+        },
+        () => {
+          void refreshProfile();
+        },
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (profile?.account_status !== "pending_approval") return;
+
+    const interval = window.setInterval(() => {
+      void refreshProfile();
+    }, 45000);
+
+    return () => window.clearInterval(interval);
+  }, [profile?.account_status]);
 
   const value = useMemo<AuthContextType>(
     () => ({

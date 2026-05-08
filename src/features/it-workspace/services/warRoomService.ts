@@ -4,7 +4,8 @@ export type AdminUserAction =
   | "suspend"
   | "reactivate"
   | "soft_delete"
-  | "hard_delete_auth_user";
+  | "hard_delete_auth_user"
+  | "change_role";
 
 export type AccountAccessRequest = {
   id: string;
@@ -59,12 +60,14 @@ export type SystemHealthResponse = {
 export async function runAdminUserAction(params: {
   action: AdminUserAction;
   targetUserId: string;
+  newRole?: string;
   reason?: string | null;
 }) {
   const { data, error } = await supabase.functions.invoke("admin-user-actions", {
     body: {
       action: params.action,
       targetUserId: params.targetUserId,
+      newRole: params.newRole,
       reason: params.reason ?? undefined,
     },
   });

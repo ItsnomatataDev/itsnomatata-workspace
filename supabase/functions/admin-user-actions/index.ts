@@ -4,11 +4,13 @@ type AdminUserAction =
   | "suspend"
   | "reactivate"
   | "soft_delete"
-  | "hard_delete_auth_user";
+  | "hard_delete_auth_user"
+  | "change_role";
 
 type RequestBody = {
   action?: AdminUserAction;
   targetUserId?: string;
+  newRole?: string;
   reason?: string;
 };
 
@@ -33,6 +35,68 @@ function getBearerToken(req: Request) {
 
 function isPrivilegedRole(role: string | null | undefined) {
   return ["admin", "it", "superadmin", "it-superadmin"].includes(role ?? "");
+}
+
+function isSuperAdminRole(role: string | null | undefined) {
+  return ["superadmin", "it-superadmin"].includes(role ?? "");
+}
+
+function normalizeRole(role: string | undefined) {
+  return role?.trim().toLowerCase().replaceAll("-", "_") ?? "";
+}
+
+function isAllowedRole(role: string) {
+  return [
+    "admin",
+    "superadmin",
+    "it-superadmin",
+    "it_superadmin",
+    "manager",
+    "hr",
+    "it",
+    "seo_specialist",
+    "social_media",
+    "media_team",
+  ].includes(role);
+}
+
+async function notifyUser(params: {
+  supabaseUrl: string;
+  serviceRoleKey: string;
+  organizationId: string;
+  userId: string;
+  actorUserId: string;
+  type: string;
+  title: string;
+  message: string;
+  actionUrl: string;
+  metadata?: Record<string, unknown>;
+}) {
+  await fetch(`${params.supabaseUrl}/functions/v1/create-notification`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${params.serviceRoleKey}`,
+      apikey: params.serviceRoleKey,
+    },
+    body: JSON.stringify({
+      organizationId: params.organizationId,
+      userIds: [params.userId],
+      type: params.type,
+      title: params.title,
+      message: params.message,
+      actionUrl: params.actionUrl,
+      priority: "medium",
+      actorUserId: params.actorUserId,
+      category: "admin",
+      metadata: params.metadata ?? {},
+      channels: ["in_app", "push"],
+      sendEmail: false,
+      dedupeKey: `${params.type}:${params.userId}:${Date.now()}`,
+    }),
+  }).catch((error) => {
+    console.warn("Failed to create admin action notification:", error);
+  });
 }
 
 Deno.serve(async (req) => {
@@ -69,7 +133,7 @@ Deno.serve(async (req) => {
     const targetUserId = body.targetUserId?.trim();
     const reason = body.reason?.trim() || null;
 
-    if (!action || !["suspend", "reactivate", "soft_delete", "hard_delete_auth_user"].includes(action)) {
+    if (!action || !["suspend", "reactivate", "soft_delete", "hard_delete_auth_user", "change_role"].includes(action)) {
       return jsonResponse({ error: "Invalid action." }, 400);
     }
     if (!targetUserId) return jsonResponse({ error: "targetUserId is required." }, 400);
@@ -98,7 +162,7 @@ Deno.serve(async (req) => {
 
     const { data: target, error: targetError } = await adminClient
       .from("profiles")
-      .select("id, email, organization_id, primary_role, account_status")
+      .select("id, email, organization_id, primary_role, account_status, is_active")
       .eq("id", targetUserId)
       .maybeSingle();
 
@@ -106,12 +170,28 @@ Deno.serve(async (req) => {
     if (!target) return jsonResponse({ error: "Target user was not found." }, 404);
 
     const sameOrg = actor.organization_id && actor.organization_id === target.organization_id;
-    const globalSuperadmin = ["superadmin", "it-superadmin"].includes(actor.primary_role ?? "");
+    const globalSuperadmin = isSuperAdminRole(actor.primary_role);
     if (!sameOrg && !globalSuperadmin) {
       return jsonResponse({ error: "You can only manage users in your organization." }, 403);
     }
 
-    if (target.primary_role === "admin" && action !== "reactivate") {
+    const requestedRole = normalizeRole(body.newRole);
+    const nextRole = requestedRole === "it_superadmin" ? "it-superadmin" : requestedRole;
+    if (action === "change_role") {
+      if (!isAllowedRole(nextRole)) {
+        return jsonResponse({ error: "Invalid role." }, 400);
+      }
+      if (isSuperAdminRole(nextRole) && !globalSuperadmin) {
+        return jsonResponse({ error: "Only a super admin can assign super admin roles." }, 403);
+      }
+      if (nextRole === "admin" && !["admin", "superadmin", "it-superadmin"].includes(actor.primary_role ?? "")) {
+        return jsonResponse({ error: "Only admins can assign the admin role." }, 403);
+      }
+    }
+
+    const wouldRemoveAdmin = target.primary_role === "admin" &&
+      (action !== "reactivate" && (action !== "change_role" || nextRole !== "admin"));
+    if (wouldRemoveAdmin) {
       const { count, error: adminCountError } = await adminClient
         .from("profiles")
         .select("id", { count: "exact", head: true })
@@ -127,7 +207,11 @@ Deno.serve(async (req) => {
     }
 
     const now = new Date().toISOString();
-    const update: Record<string, unknown> =
+    const update: Record<string, unknown> = action === "change_role"
+      ? {
+        primary_role: nextRole,
+      }
+      :
       action === "reactivate"
         ? {
           account_status: "active",
@@ -167,7 +251,7 @@ Deno.serve(async (req) => {
 
     if (updateError) throw updateError;
 
-    if (target.organization_id) {
+    if (target.organization_id && action !== "change_role") {
       const memberStatus = action === "reactivate"
         ? "active"
         : action === "suspend"
@@ -185,6 +269,47 @@ Deno.serve(async (req) => {
         .eq("user_id", targetUserId);
     }
 
+    if (target.organization_id && action === "change_role") {
+      await adminClient.auth.admin.updateUserById(targetUserId, {
+        app_metadata: {
+          role: nextRole,
+          primary_role: nextRole,
+          organization_id: target.organization_id,
+        },
+      }).catch((metadataError) => {
+        console.warn("Failed to update auth app_metadata role:", metadataError);
+      });
+
+      await adminClient
+        .from("organization_members")
+        .upsert({
+          organization_id: target.organization_id,
+          user_id: targetUserId,
+          role: nextRole,
+          status: target.account_status === "active" ? "active" : "pending",
+          joined_at: now,
+        }, {
+          onConflict: "organization_id,user_id",
+        });
+
+      await notifyUser({
+        supabaseUrl,
+        serviceRoleKey,
+        organizationId: target.organization_id,
+        userId: targetUserId,
+        actorUserId,
+        type: "workspace_admin_notice",
+        title: "Your role was updated",
+        message: `An administrator changed your role to ${nextRole.replaceAll("_", " ")}.`,
+        actionUrl: "/dashboard",
+        metadata: {
+          old_role: target.primary_role,
+          new_role: nextRole,
+          reason,
+        },
+      });
+    }
+
     let hardDeleted = false;
     if (action === "hard_delete_auth_user") {
       const { error: deleteError } = await adminClient.auth.admin.deleteUser(targetUserId);
@@ -200,6 +325,8 @@ Deno.serve(async (req) => {
       reason,
       metadata: {
         actor_role: actor.primary_role,
+        old_role: target.primary_role,
+        new_role: action === "change_role" ? nextRole : null,
         target_email: target.email,
         hard_deleted: hardDeleted,
       },

@@ -8,6 +8,7 @@ export type AttendanceBreakType = "break" | "lunch" | "personal";
 export type AttendanceSession = {
   id: string;
   organization_id: string;
+  office_id?: string | null;
   user_id: string;
   clock_in_at: string;
   clock_out_at: string | null;
@@ -54,6 +55,7 @@ export type AttendanceProfile = {
   full_name: string | null;
   email: string | null;
   primary_role: string | null;
+  office_id?: string | null;
   is_active?: boolean | null;
 };
 
@@ -61,6 +63,8 @@ export type AttendanceReportRow = {
   user_id: string;
   full_name: string | null;
   email: string | null;
+  office_id?: string | null;
+  daily_status?: "present" | "late" | "absent" | "on_leave" | "pending" | null;
   clock_in_at: string | null;
   clock_out_at: string | null;
   work_seconds: number;

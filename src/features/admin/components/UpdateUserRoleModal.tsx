@@ -29,6 +29,7 @@ export default function UpdateUserRoleModal({
 }: UpdateUserRoleModalProps) {
   const defaultRole = "social_media";
   const [role, setRole] = useState(defaultRole);
+  const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
@@ -44,6 +45,7 @@ export default function UpdateUserRoleModal({
 
     setError("");
     setSuccessMessage("");
+    setReason("");
   }, [employee]);
 
   const currentRoleLabel = useMemo(() => {
@@ -80,6 +82,7 @@ export default function UpdateUserRoleModal({
         userId: employee.id,
         role,
         updatedBy: currentUserId,
+        reason: reason.trim() || undefined,
       });
 
       setSuccessMessage("User role updated successfully.");
@@ -175,6 +178,20 @@ export default function UpdateUserRoleModal({
                 Super Admin is hidden from this list and can only be assigned to
                 allowlisted email addresses.
               </p>
+            </div>
+
+            <div>
+              <label className="mb-2 block text-sm text-white/70">
+                Reason
+              </label>
+              <textarea
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                disabled={busy}
+                rows={3}
+                placeholder="Optional note for the audit log..."
+                className="w-full resize-none border border-white/10 bg-black px-4 py-3 text-white outline-none transition placeholder:text-white/30 focus:border-orange-500 disabled:opacity-60"
+              />
             </div>
 
             <button

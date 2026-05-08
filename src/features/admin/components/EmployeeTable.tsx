@@ -90,6 +90,10 @@ function getAccountStatusBadge(employee: EmployeeOverviewRow) {
       label: "Pending approval",
       classes: "border-amber-500/20 bg-amber-500/10 text-amber-300",
     },
+    pending_approval: {
+      label: "Pending approval",
+      classes: "border-amber-500/20 bg-amber-500/10 text-amber-300",
+    },
     suspended: {
       label: "Suspended",
       classes: "border-red-500/20 bg-red-500/10 text-red-300",
@@ -226,7 +230,7 @@ export default function EmployeeTable({
 
                   <td className="px-4 py-3">
                     <div className="flex flex-wrap gap-2">
-                      {accountStatus === "pending" ? (
+                      {accountStatus === "pending" || accountStatus === "pending_approval" ? (
                         <>
                           <button
                             type="button"

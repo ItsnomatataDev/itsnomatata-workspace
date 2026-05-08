@@ -107,6 +107,12 @@ export default function AdminEmployeesPage() {
           employee.account_status === "rejected"
         );
       }
+      if (statusFilter === "pending_approval") {
+        return (
+          employee.account_status === "pending_approval" ||
+          employee.account_status === "pending"
+        );
+      }
       return employee.account_status === statusFilter;
     });
 
@@ -130,6 +136,7 @@ export default function AdminEmployeesPage() {
       },
       {
         pending: 0,
+        pending_approval: 0,
         active: 0,
         suspended: 0,
         rejected: 0,
@@ -340,7 +347,7 @@ export default function AdminEmployeesPage() {
                 <div className="mb-4 flex flex-wrap gap-2">
                   {[
                     ["active", "Active", statusCounts.active],
-                    ["pending", "Pending", statusCounts.pending],
+                    ["pending_approval", "Pending", statusCounts.pending_approval + statusCounts.pending],
                     ["suspended", "Suspended", statusCounts.suspended],
                     [
                       "deleted",

@@ -31,7 +31,7 @@ as $$
     where
       p.id = t.created_by
       or p.id = t.assigned_to
-      or coalesce(p.primary_role, '') in ('admin', 'manager', 'it', 'super_admin')
+      or coalesce(p.primary_role::text, '') in ('admin', 'manager', 'it', 'super_admin')
       or exists (
         select 1
         from public.task_assignees ta

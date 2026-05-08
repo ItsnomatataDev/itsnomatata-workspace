@@ -111,7 +111,7 @@ begin
       p.full_name
     from public.profiles p
     where p.organization_id is not null
-      and coalesce(p.primary_role, '') not in ('admin', 'it')
+      and coalesce(p.primary_role::text, '') not in ('admin', 'it')
       and not exists (
         select 1
         from public.attendance_sessions attendance_sessions
