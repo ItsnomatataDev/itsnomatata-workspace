@@ -70,7 +70,7 @@ const AppRouter = () => {
         <Route path="/signup" element={<SignupPage />} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         <Route path="/resetpassword" element={<ResetPasswordPage />} />
-
+     
         {/* Public guest meeting routes */}
         <Route path="/join/:meetingCode" element={<GuestMeetingJoinPage />} />
         <Route

@@ -178,75 +178,13 @@ function getRoleNav(role?: string | null, counts?: SidebarCounts): NavItem[] {
 
     case "manager":
       return [
-        { to: "/approvals", label: "Approvals", icon: ShieldCheck },
-        { to: "/campaigns", label: "Campaigns", icon: BriefcaseBusiness },
-        {
-          type: "group",
-          label: "Assets",
-          icon: Package,
-          color: "text-blue-400",
-          activePaths: ["/assets", "/scan"],
-          children: [
-            { to: "/assets", label: "Assets", icon: ShieldCheck },
-            { to: "/scan", label: "Scan Asset", icon: ScanLine },
-          ],
-        },
-        { to: "/admin/roster", label: "Manage Roster", icon: CalendarClock },
-        { to: "/admin/leave", label: "Leave Request", icon: CalendarDays },
-        { to: "/admin/attendance", label: "Attendance", icon: Timer },
-        { to: "/admin/documents", label: "Documents", icon: FileText },
-        { to: "/admin/payslips", label: "Payslips", icon: ClipboardList },
-        {
-          type: "group",
-          label: "Time Management",
-          icon: Timer,
-          color: "text-orange-400",
-          activePaths: ["/timesheets", "/board-management"],
-          children: [
-            { to: "/timesheets/team", label: "Team Timesheet", icon: Clock3 },
-            {
-              to: "/board-management",
-              label: "Board Management",
-              icon: BriefcaseBusiness,
-            },
-          ],
-        },
-        {
-          type: "group",
-          label: "Assets",
-          icon: Package,
-          color: "text-blue-400",
-          activePaths: ["/assets", "/scan"],
-          children: [
-            { to: "/assets", label: "Assets", icon: ShieldCheck },
-            { to: "/scan", label: "Scan Asset", icon: ScanLine },
-          ],
-        },
-        {
-          type: "group",
-          label: "Social Media",
-          icon: Megaphone,
-          color: "text-pink-400",
-          activePaths: [
-            "/social-media",
-            "/social-media-manager",
-            "/social-posts",
-          ],
-          children: [
-            {
-              to: "/social-media",
-              label: "Social Media Dashboard",
-              icon: BarChart3,
-            },
-            {
-              to: "/social-media-manager",
-              label: "AI Content Manager",
-              icon: Sparkles,
-            },
-            { to: "/social-posts", label: "Social Posts", icon: Megaphone },
-          ],
-        },
-      ];
+
+{ type: "group", label: "Assets", icon: Package, color: "text-blue-400", activePaths: ["/assets", "/scan"],children: [
+{ to: "/assets", label: "Assets", icon: ShieldCheck },
+{ to: "/scan", label: "Scan Asset", icon: ScanLine },
+],
+},
+];
 
     case "admin":
       return [
