@@ -36,6 +36,7 @@ export type DashboardTask = {
 
 
   client_id: string | null;
+  office_id?: string | null;
   project_id: string | null;
 
   created_by_full_name?: string | null;
@@ -69,6 +70,8 @@ type ActiveTimer = TimeEntryItem | null;
 export function useDashboard(params: {
   userId?: string;
   organizationId?: string | null;
+  officeId?: string | null;
+  includeAllOffices?: boolean;
   role?: string | null;
   cityLabel?: string;
   latitude?: number | null;
@@ -78,6 +81,8 @@ export function useDashboard(params: {
   const {
     userId,
     organizationId,
+    officeId,
+    includeAllOffices = false,
     role,
     cityLabel,
     latitude,
@@ -254,8 +259,7 @@ export function useDashboard(params: {
           ?.map((assignment: any) => assignment.task_id)
           .filter(Boolean) || [];
 
-      const { data: timeEntryTasks, error: timeEntryTasksError } =
-        await supabase
+      let timeEntryTasksQuery = supabase
           .from("time_entries")
           .select("task_id")
           .eq("organization_id", organizationId)
@@ -264,6 +268,13 @@ export function useDashboard(params: {
           .is("deleted_at", null)
           .order("started_at", { ascending: false })
           .limit(20);
+
+      if (!includeAllOffices && officeId) {
+        timeEntryTasksQuery = timeEntryTasksQuery.eq("office_id", officeId);
+      }
+
+      const { data: timeEntryTasks, error: timeEntryTasksError } =
+        await timeEntryTasksQuery;
 
       if (timeEntryTasksError) throw timeEntryTasksError;
 
@@ -322,14 +333,18 @@ export function useDashboard(params: {
           .order("created_at", { ascending: false })
           .limit(5),
 
-        supabase
+        (() => {
+          let query = supabase
           .from("time_entries")
           .select("*")
           .eq("organization_id", organizationId)
           .eq("user_id", userId)
           .is("deleted_at", null)
           .gte("started_at", todayRange.start)
-          .lt("started_at", todayRange.end),
+          .lt("started_at", todayRange.end);
+          if (!includeAllOffices && officeId) query = query.eq("office_id", officeId);
+          return query;
+        })(),
 
         getActiveTimeEntry({
           organizationId,
@@ -357,10 +372,11 @@ export function useDashboard(params: {
       let doneTasks = 0;
 
       if (allTaskIds.length > 0) {
-        const { data: taskRows, error: taskRowsError } = await supabase
+        let taskRowsQuery = supabase
           .from("tasks")
           .select(`
             id,
+            office_id,
             title,
             status,
             priority,
@@ -379,6 +395,12 @@ export function useDashboard(params: {
           .order("updated_at", { ascending: false })
           .limit(10);
 
+        if (!includeAllOffices && officeId) {
+          taskRowsQuery = taskRowsQuery.eq("office_id", officeId);
+        }
+
+        const { data: taskRows, error: taskRowsError } = await taskRowsQuery;
+
         if (taskRowsError) throw taskRowsError;
 
         dashboardTasks = ((taskRows ?? []) as any[]).map((task) => ({
@@ -390,6 +412,7 @@ export function useDashboard(params: {
           created_at: task.created_at,
           created_by: task.created_by,
           client_id: task.client_id ?? null,
+          office_id: task.office_id ?? null,
           project_id: task.project_id ?? null,
           created_by_full_name: task.profiles?.full_name ?? null,
           created_by_email: task.profiles?.email ?? null,
@@ -434,7 +457,7 @@ export function useDashboard(params: {
     } finally {
       setLoading(false);
     }
-  }, [enabled, userId, organizationId, role, loadWeather, loadRoleNews]);
+  }, [enabled, userId, organizationId, officeId, includeAllOffices, role, loadWeather, loadRoleNews]);
 
   const startTimer = useCallback(
     async (taskId?: string | null, description?: string) => {

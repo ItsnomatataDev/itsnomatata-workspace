@@ -1,7 +1,7 @@
-import { Clock, Coffee, LogOut } from 'lucide-react';
+import { Clock, LogOut } from 'lucide-react';
 
 interface AttendanceStatusBadgeProps {
-  status: 'online' | 'on_break' | 'offline';
+  status: 'online' | 'offline';
   size?: 'sm' | 'md' | 'lg';
 }
 
@@ -19,13 +19,6 @@ export default function AttendanceStatusBadge({ status, size = 'md' }: Attendanc
       bgColor: 'bg-emerald-500/10',
       borderColor: 'border-emerald-500/30',
       textColor: 'text-emerald-300',
-    },
-    on_break: {
-      icon: Coffee,
-      label: 'On Break',
-      bgColor: 'bg-amber-500/10',
-      borderColor: 'border-amber-500/30',
-      textColor: 'text-amber-300',
     },
     offline: {
       icon: LogOut,

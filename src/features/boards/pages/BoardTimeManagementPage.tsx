@@ -31,6 +31,8 @@ import { supabase } from "../../../lib/supabase/client";
 import { getBoardTimeSettings, updateBoardTimeSettings, assignUsersToBoard, getBoardAssignments } from "../services/boardTimeService";
 import type { Board } from "../../../types/board";
 import { getZimbabweMonthRangeIso } from "../../../lib/utils/zimbabweCalendar";
+import { canManageAllOffices, getOfficeName, type CompanyOffice } from "../../../lib/offices";
+import { getCompanyOffices } from "../../../lib/supabase/queries/offices";
 
 interface BoardTimeData extends Board {
   boardType?: "client" | "internal";
@@ -61,6 +63,7 @@ interface BoardAssignee {
 }
 
 interface CreateBoardForm {
+  officeId: string;
   name: string;
   description: string;
   boardType: "client" | "internal";
@@ -75,9 +78,12 @@ export default function BoardTimeManagementPage() {
   const auth = useAuth();
   const navigate = useNavigate();
   const organizationId = auth?.profile?.organization_id;
+  const canViewAllOffices = canManageAllOffices(auth?.profile);
   const [boards, setBoards] = useState<BoardTimeData[]>([]);
   const [filteredBoards, setFilteredBoards] = useState<BoardTimeData[]>([]);
   const [users, setUsers] = useState<any[]>([]);
+  const [offices, setOffices] = useState<CompanyOffice[]>([]);
+  const [officeFilter, setOfficeFilter] = useState("mine");
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
@@ -88,6 +94,7 @@ export default function BoardTimeManagementPage() {
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
   const [editingBoard, setEditingBoard] = useState<BoardTimeData | null>(null);
   const [editForm, setEditForm] = useState<CreateBoardForm>({
+    officeId: "",
     name: "",
     description: "",
     boardType: "client",
@@ -99,6 +106,7 @@ export default function BoardTimeManagementPage() {
   });
   const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
   const [createForm, setCreateForm] = useState<CreateBoardForm>({
+    officeId: "",
     name: "",
     description: "",
     boardType: "client",
@@ -145,13 +153,33 @@ export default function BoardTimeManagementPage() {
     try {
       setLoading(true);
       const period = getZimbabweMonthRangeIso();
+      const loadedOffices = await getCompanyOffices(organizationId);
+      setOffices(loadedOffices);
+      const ownOfficeId = (auth?.profile?.office_id as string | null | undefined) ?? null;
+      const effectiveOfficeId = canViewAllOffices
+        ? officeFilter === "all"
+          ? null
+          : officeFilter === "mine"
+            ? ownOfficeId
+            : officeFilter
+        : ownOfficeId;
+      if (!createForm.officeId) {
+        setCreateForm((current) => ({
+          ...current,
+          officeId: effectiveOfficeId ?? loadedOffices[0]?.id ?? "",
+        }));
+      }
 
       // Get all boards (clients)
-      const boardsData = await getBoards(organizationId);
+      const boardsData = await getBoards(organizationId, {
+        officeId: effectiveOfficeId,
+        includeAllOffices: canViewAllOffices && officeFilter === "all",
+      });
 
       // Get time entries for all boards
       const timeEntries = await getAdminTimeEntries({
         organizationId,
+        officeId: effectiveOfficeId,
         approvalStatus: "all",
         from: period.start,
         to: period.end,
@@ -159,10 +187,12 @@ export default function BoardTimeManagementPage() {
       });
 
       // Get organization members
-      const { data: profiles } = await supabase
+      let profilesQuery = supabase
         .from("profiles")
         .select("id, full_name, email")
         .eq("organization_id", organizationId);
+      if (effectiveOfficeId) profilesQuery = profilesQuery.eq("office_id", effectiveOfficeId);
+      const { data: profiles } = await profilesQuery;
 
       const profileMap = new Map(
         (profiles ?? []).map((p) => [p.id, p]),
@@ -254,7 +284,7 @@ export default function BoardTimeManagementPage() {
     } finally {
       setLoading(false);
     }
-  }, [organizationId]);
+  }, [auth?.profile?.office_id, canViewAllOffices, createForm.officeId, officeFilter, organizationId]);
 
   // Load users for assignment
   const loadUsers = useCallback(async () => {
@@ -265,13 +295,14 @@ export default function BoardTimeManagementPage() {
         .from("profiles")
         .select("id, full_name, email")
         .eq("organization_id", organizationId)
+        .eq("office_id", createForm.officeId || ((auth?.profile?.office_id as string | null | undefined) ?? ""))
         .order("full_name");
 
       setUsers(profiles || []);
     } catch (error) {
       console.error("Failed to load users:", error);
     }
-  }, [organizationId]);
+  }, [auth?.profile?.office_id, createForm.officeId, organizationId]);
 
   useEffect(() => {
     loadBoardsWithTimeData();
@@ -379,6 +410,7 @@ export default function BoardTimeManagementPage() {
       // Create board (client) using the same service as user board creation
       const newBoard = await createClient({
         organizationId,
+        officeId: createForm.officeId || ((auth?.profile?.office_id as string | null | undefined) ?? null),
         name: createForm.name.trim(),
         notes: createForm.description?.trim() || null,
         boardType: createForm.boardType,
@@ -417,6 +449,7 @@ export default function BoardTimeManagementPage() {
 
       // Reset form and reload
       setCreateForm({
+        officeId: createForm.officeId,
         name: "",
         description: "",
         boardType: "client",
@@ -665,6 +698,22 @@ export default function BoardTimeManagementPage() {
               <option value="non-billable">Non-Billable</option>
             </select>
 
+            {canViewAllOffices ? (
+              <select
+                value={officeFilter}
+                onChange={(e) => setOfficeFilter(e.target.value)}
+                className="px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white focus:outline-none focus:border-orange-400"
+              >
+                <option value="mine">My office</option>
+                <option value="all">All offices</option>
+                {offices.map((office) => (
+                  <option key={office.id} value={office.id}>
+                    {office.name}
+                  </option>
+                ))}
+              </select>
+            ) : null}
+
             <select
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value)}
@@ -726,6 +775,9 @@ export default function BoardTimeManagementPage() {
                           <div className="mt-1 text-[11px] text-white/30">
                             {board.periodLabel || "Current month"}
                           </div>
+                          <span className="mt-2 inline-flex rounded-full border border-orange-500/20 bg-orange-500/10 px-2 py-0.5 text-[10px] font-semibold text-orange-300">
+                            {getOfficeName(board.office_id, offices)}
+                          </span>
                         </div>
                       </td>
 
@@ -921,6 +973,29 @@ export default function BoardTimeManagementPage() {
             </div>
 
             <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-white mb-2">
+                  Office
+                </label>
+                {canViewAllOffices ? (
+                  <select
+                    value={createForm.officeId}
+                    onChange={(e) => setCreateForm({ ...createForm, officeId: e.target.value })}
+                    className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white focus:outline-none focus:border-orange-400"
+                  >
+                    {offices.map((office) => (
+                      <option key={office.id} value={office.id}>
+                        {office.name}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <div className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white/70">
+                    {getOfficeName(createForm.officeId || (auth?.profile?.office_id as string | null | undefined), offices)}
+                  </div>
+                )}
+              </div>
+
               <div>
                 <label className="block text-sm font-medium text-white mb-2">
                   Board Name

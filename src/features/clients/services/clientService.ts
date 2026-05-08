@@ -3,6 +3,7 @@ import { slugify } from "../../../lib/utils/slugify";
 export interface ClientItem {
   id: string;
   organization_id: string;
+  office_id?: string | null;
   name: string;
   slug: string;
   email?: string | null;
@@ -58,6 +59,7 @@ export interface ClientVisibleTaskSummary {
 
 export interface CreateClientInput {
   organizationId: string;
+  officeId?: string | null;
   name: string;
   slug?: string | null;
   email?: string | null;
@@ -89,6 +91,7 @@ function normalizeOptional(value?: string | null): string | null {
 async function generateUniqueSlug(
   organizationId: string,
   base: string,
+  officeId?: string | null,
 ): Promise<string> {
   const baseSlug = slugify(base);
   let count = 0;
@@ -117,19 +120,36 @@ export async function createClient(
   if (!organizationId) throw new Error("organizationId is required");
   if (!name?.trim()) throw new Error("name is required");
 
+  let officeId = input.officeId ?? null;
+  if (!officeId) {
+    const { data: authData } = await supabase.auth.getUser();
+    const userId = authData.user?.id;
+    if (userId) {
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles")
+        .select("office_id")
+        .eq("id", userId)
+        .maybeSingle();
+      if (profileError) throw profileError;
+      officeId = profile?.office_id ?? null;
+    }
+  }
+
   let finalSlug: string;
 
   if (input.slug && input.slug.trim()) {
   finalSlug = await generateUniqueSlug(
     organizationId,
-    input.slug.trim()
+    input.slug.trim(),
+    officeId,
   );
 } else {
-  finalSlug = await generateUniqueSlug(organizationId, name);
+  finalSlug = await generateUniqueSlug(organizationId, name, officeId);
 }
 
   const payload = {
     organization_id: organizationId,
+    office_id: officeId,
     name: name.trim(),
     slug: finalSlug,
     email: normalizeOptional(input.email),
@@ -209,14 +229,21 @@ export async function updateClient(
 
 export async function getClients(
   organizationId: string,
+  options?: { officeId?: string | null; includeAllOffices?: boolean },
 ): Promise<ClientItem[]> {
   if (!organizationId) throw new Error("organizationId is required");
 
-  const { data, error } = await supabase
+  let query = supabase
     .from("clients")
     .select("*")
     .eq("organization_id", organizationId)
     .order("created_at", { ascending: false });
+
+  if (!options?.includeAllOffices && options?.officeId) {
+    query = query.eq("office_id", options.officeId);
+  }
+
+  const { data, error } = await query;
 
   if (error) throw new Error(error.message);
   return (data ?? []) as ClientItem[];
@@ -225,16 +252,22 @@ export async function getClients(
 export async function getClientById(
   organizationId: string,
   clientId: string,
+  options?: { officeId?: string | null; includeAllOffices?: boolean },
 ): Promise<ClientItem | null> {
   if (!organizationId) throw new Error("organizationId is required");
   if (!clientId) throw new Error("clientId is required");
 
-  const { data, error } = await supabase
+  let query = supabase
     .from("clients")
     .select("*")
     .eq("organization_id", organizationId)
-    .eq("id", clientId)
-    .maybeSingle();
+    .eq("id", clientId);
+
+  if (!options?.includeAllOffices && options?.officeId) {
+    query = query.eq("office_id", options.officeId);
+  }
+
+  const { data, error } = await query.maybeSingle();
 
   if (error) throw new Error(error.message);
   return (data as ClientItem | null) ?? null;

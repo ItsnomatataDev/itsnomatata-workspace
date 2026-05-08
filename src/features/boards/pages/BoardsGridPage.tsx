@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   Plus,
   Search,
@@ -18,6 +18,8 @@ import { getBoards, getBoardStats } from "../services/boardService";
 import { supabase } from "../../../lib/supabase/client";
 import type { Board, BoardStats } from "../../../types/board";
 import type { Client } from "../../../lib/supabase/queries/clients";
+import { canManageAllOffices, getOfficeName, type CompanyOffice } from "../../../lib/offices";
+import { getCompanyOffices } from "../../../lib/supabase/queries/offices";
 
 interface BoardTile extends Board {
   stats: BoardStats | null;
@@ -43,10 +45,16 @@ function getInitials(name: string): string {
 
 function NewBoardModal({
   organizationId,
+  offices,
+  selectedOfficeId,
+  canChooseOffice,
   onClose,
   onCreated,
 }: {
   organizationId: string;
+  offices: CompanyOffice[];
+  selectedOfficeId: string | null;
+  canChooseOffice: boolean;
   onClose: () => void;
   onCreated: (board: Board) => void;
 }) {
@@ -55,8 +63,10 @@ function NewBoardModal({
   const [email, setEmail] = useState("");
   const [website, setWebsite] = useState("");
   const [notes, setNotes] = useState("");
+  const [officeId, setOfficeId] = useState(selectedOfficeId ?? offices[0]?.id ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
 
   const handleCreate = async () => {
     if (!name.trim()) {
@@ -68,6 +78,7 @@ function NewBoardModal({
     try {
       const boardData = await createClient({
         organizationId,
+        officeId,
         name: name.trim(),
         industry: industry.trim() || null,
         email: email.trim() || null,
@@ -110,6 +121,29 @@ function NewBoardModal({
               {error}
             </div>
           )}
+
+          <div>
+            <label className="block text-[10px] uppercase tracking-widest text-white/40 mb-1.5">
+              Office
+            </label>
+            {canChooseOffice ? (
+              <select
+                value={officeId}
+                onChange={(e) => setOfficeId(e.target.value)}
+                className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none focus:border-orange-500/50 transition"
+              >
+                {offices.map((office) => (
+                  <option key={office.id} value={office.id}>
+                    {office.name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white/70">
+                {getOfficeName(officeId, offices)}
+              </div>
+            )}
+          </div>
 
           <div>
             <label className="block text-[10px] uppercase tracking-widest text-white/40 mb-1.5">
@@ -212,13 +246,18 @@ function NewBoardModal({
 export default function BoardsGridPage() {
   const auth = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const profile = auth?.profile ?? null;
   const organizationId = profile?.organization_id ?? null;
+  const canViewAllOffices = canManageAllOffices(profile);
 
   const [boards, setBoards] = useState<BoardTile[]>([]);
+  const [offices, setOffices] = useState<CompanyOffice[]>([]);
+  const [officeFilter, setOfficeFilter] = useState<string>("mine");
   const [loading, setLoading] = useState(true);
   const [searchValue, setSearchValue] = useState("");
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [showNewBoard, setShowNewBoard] = useState(false);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [boardToDelete, setBoardToDelete] = useState<Client | null>(null);
@@ -228,7 +267,19 @@ export default function BoardsGridPage() {
     try {
       setLoading(true);
       setError("");
-      const clients = await getBoards(organizationId);
+      const loadedOffices = await getCompanyOffices(organizationId);
+      setOffices(loadedOffices);
+      const effectiveOfficeId = canViewAllOffices
+        ? officeFilter === "all"
+          ? null
+          : officeFilter === "mine"
+            ? (profile?.office_id as string | null | undefined) ?? null
+            : officeFilter
+        : (profile?.office_id as string | null | undefined) ?? null;
+      const clients = await getBoards(organizationId, {
+        officeId: effectiveOfficeId,
+        includeAllOffices: canViewAllOffices && officeFilter === "all",
+      });
 
       // Fetch real stats for every board in parallel, silently ignore failures
       const tiles = await Promise.all(
@@ -246,7 +297,12 @@ export default function BoardsGridPage() {
     } finally {
       setLoading(false);
     }
-  }, [organizationId]);
+  }, [canViewAllOffices, officeFilter, organizationId, profile?.office_id]);
+
+  useEffect(() => {
+    const state = location.state as { error?: string } | null;
+    if (state?.error) setNotice(state.error);
+  }, [location.state]);
 
   useEffect(() => {
     void loadBoards();
@@ -382,6 +438,7 @@ export default function BoardsGridPage() {
         <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
           {/* Search */}
           <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex w-full flex-col gap-3 sm:flex-row">
             <div className="relative w-full max-w-sm sm:flex-1">
               <Search
                 size={16}
@@ -394,6 +451,22 @@ export default function BoardsGridPage() {
                 className="w-full rounded-xl border border-white/10 bg-white/5 py-2.5 pl-9 pr-4 text-sm text-white placeholder:text-white/25 outline-none focus:border-orange-500/50 transition"
               />
             </div>
+            {canViewAllOffices ? (
+              <select
+                value={officeFilter}
+                onChange={(e) => setOfficeFilter(e.target.value)}
+                className="rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none focus:border-orange-500/50"
+              >
+                <option value="mine">My office</option>
+                <option value="all">All offices</option>
+                {offices.map((office) => (
+                  <option key={office.id} value={office.id}>
+                    {office.name}
+                  </option>
+                ))}
+              </select>
+            ) : null}
+            </div>
             {!loading && (
               <p className="text-sm text-white/30">
                 {filteredBoards.length} board
@@ -405,6 +478,11 @@ export default function BoardsGridPage() {
           {error && (
             <div className="mb-6 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
               {error}
+            </div>
+          )}
+          {notice && (
+            <div className="mb-6 rounded-xl border border-orange-500/30 bg-orange-500/10 px-4 py-3 text-sm text-orange-200">
+              {notice}
             </div>
           )}
 
@@ -481,6 +559,9 @@ export default function BoardsGridPage() {
                                 {board.industry}
                               </p>
                             )}
+                            <span className="mt-2 inline-flex rounded-full border border-orange-500/20 bg-orange-500/10 px-2 py-0.5 text-[10px] font-semibold text-orange-300">
+                              {getOfficeName(board.office_id, offices)}
+                            </span>
                           </div>
                         </div>
                       </div>
@@ -574,6 +655,13 @@ export default function BoardsGridPage() {
       {showNewBoard && organizationId && (
         <NewBoardModal
           organizationId={organizationId}
+          offices={offices}
+          selectedOfficeId={
+            canViewAllOffices && officeFilter !== "mine" && officeFilter !== "all"
+              ? officeFilter
+              : (profile.office_id as string | null | undefined) ?? null
+          }
+          canChooseOffice={canViewAllOffices}
           onClose={() => setShowNewBoard(false)}
           onCreated={handleBoardCreated}
         />

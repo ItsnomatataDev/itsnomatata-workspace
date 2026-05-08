@@ -40,6 +40,7 @@ export interface TaskBoard {
 export interface TaskItem {
   id: string;
   organization_id: string;
+  office_id?: string | null;
   project_id: string | null;
   column_id: string | null;
   client_id: string | null;
@@ -134,6 +135,7 @@ export interface TaskAssigneeItem {
   created_at: string;
   full_name?: string | null;
   email?: string | null;
+  avatar_url?: string | null;
   primary_role?: string | null;
   department?: string | null;
 }

@@ -6,6 +6,7 @@ export type TimeApprovalStatus = "pending" | "approved" | "rejected";
 export type AdminTimeEntryRow = {
   id: string;
   organization_id: string;
+  office_id?: string | null;
   user_id: string;
   task_id: string | null;
   project_id: string | null;
@@ -54,6 +55,7 @@ export type AdminTimeEntryRow = {
 const ADMIN_TIME_ENTRY_SELECT = `
   id,
   organization_id,
+  office_id,
   user_id,
   task_id,
   project_id,
@@ -126,6 +128,7 @@ function buildAdminTimeEntriesQuery(params: {
   userId?: string;
   projectId?: string;
   clientId?: string;
+  officeId?: string | null;
   isBillable: boolean | "all";
   from?: string;
   to?: string;
@@ -147,6 +150,7 @@ function buildAdminTimeEntriesQuery(params: {
   if (params.userId) query = query.eq("user_id", params.userId);
   if (params.projectId) query = query.eq("project_id", params.projectId);
   if (params.clientId) query = query.eq("client_id", params.clientId);
+  if (params.officeId) query = query.eq("office_id", params.officeId);
   if (params.isBillable !== "all") query = query.eq("is_billable", params.isBillable);
   if (params.from) query = query.gte("started_at", params.from);
   if (params.to) query = query.lte("started_at", params.to);
@@ -160,6 +164,7 @@ export async function getAdminTimeEntries(params: {
   userId?: string;
   projectId?: string;
   clientId?: string;
+  officeId?: string | null;
   isBillable?: boolean | "all";
   from?: string;
   to?: string;
@@ -171,6 +176,7 @@ export async function getAdminTimeEntries(params: {
     userId,
     projectId,
     clientId,
+    officeId,
     isBillable = "all",
     from,
     to,
@@ -185,6 +191,7 @@ export async function getAdminTimeEntries(params: {
     userId,
     projectId,
     clientId,
+    officeId,
     isBillable,
     from,
     to,

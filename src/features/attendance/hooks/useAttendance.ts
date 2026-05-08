@@ -4,10 +4,8 @@ import { getRunningEntryElapsedSeconds } from "../../../lib/utils/timeMath";
 import {
   clockIn,
   clockOut,
-  endBreak,
   getAttendanceErrorMessage,
   getMyAttendanceToday,
-  startBreak,
 } from "../services/attendanceService";
 import type { AttendanceToday } from "../types/attendance";
 
@@ -96,22 +94,8 @@ export function useAttendance(params: {
       },
       now,
     );
-    return Math.max(0, gross - state.breakSeconds);
-  }, [now, state.activeSession, state.breakSeconds]);
-
-  const activeBreakSeconds = useMemo(
-    () =>
-      state.activeBreak
-        ? getRunningEntryElapsedSeconds(
-            {
-              started_at: state.activeBreak.started_at,
-              ended_at: state.activeBreak.ended_at,
-            },
-            now,
-          )
-        : 0,
-    [now, state.activeBreak],
-  );
+    return Math.max(0, gross);
+  }, [now, state.activeSession]);
 
   const workedTodaySeconds = useMemo(() => {
     if (!state.activeSession) return state.workedSeconds;
@@ -171,61 +155,15 @@ export function useAttendance(params: {
     [refresh, state.activeSession, userId],
   );
 
-  const startBreakNow = useCallback(
-    async () => {
-      if (!organizationId || !userId || !state.activeSession) return;
-      setMutating(true);
-      setError("");
-      try {
-        await startBreak({
-          organizationId,
-          userId,
-          sessionId: state.activeSession.id,
-          breakType: "break",
-      });
-      await refresh();
-    } catch (err) {
-        const message = getAttendanceErrorMessage(err, "Failed to start break.");
-        setError(message);
-        throw err;
-      } finally {
-        setMutating(false);
-      }
-    },
-    [organizationId, refresh, state.activeSession, userId],
-  );
-
-  const endBreakNow = useCallback(async () => {
-    if (!state.activeBreak || !userId) return;
-    setMutating(true);
-    setError("");
-    try {
-      await endBreak({
-        breakId: state.activeBreak.id,
-        userId,
-      });
-      await refresh();
-    } catch (err) {
-      const message = getAttendanceErrorMessage(err, "Failed to end break.");
-      setError(message);
-      throw err;
-    } finally {
-      setMutating(false);
-    }
-  }, [refresh, state.activeBreak, userId]);
-
   return {
     ...state,
     loading,
     mutating,
     error,
     activeSessionSeconds,
-    activeBreakSeconds,
     workedTodaySeconds,
     refresh,
     clockInNow,
     clockOutNow,
-    startBreakNow,
-    endBreakNow,
   };
 }

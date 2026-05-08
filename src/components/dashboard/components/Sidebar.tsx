@@ -32,6 +32,8 @@ import {
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { signOutUser } from "../../../lib/supabase/auth";
 import NotificationBell from "../../../features/notifications/components/NotificationBell";
+import { useAuth } from "../../../app/providers/AuthProvider";
+import { OFFICE_SLUGS } from "../../../lib/offices";
 
 type LinkItem = {
   to: string;
@@ -370,9 +372,17 @@ export default function Sidebar({
   counts?: SidebarCounts;
 }) {
   const navigate = useNavigate();
+  const auth = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  const allNav: NavItem[] = [...commonLinks, ...getRoleNav(role, counts)];
+  const isThreeLittleBirds =
+    auth?.profile?.office && "slug" in auth.profile.office
+      ? auth.profile.office.slug === OFFICE_SLUGS.threeLittleBirds
+      : false;
+  const visibleCommonLinks = isThreeLittleBirds
+    ? commonLinks.filter((link) => !["/ai-workspace", "/meetings"].includes(link.to))
+    : commonLinks;
+  const allNav: NavItem[] = [...visibleCommonLinks, ...getRoleNav(role, counts)];
 
   const handleLogout = async () => {
     try {

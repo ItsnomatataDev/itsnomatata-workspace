@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { Eye, EyeOff } from "lucide-react";
 import { signUpUser } from "../../../lib/supabase/auth";
 import type { PublicSignupRole } from "../../../lib/supabase/auth";
+import { OFFICE_OPTIONS, OFFICE_SLUGS, type OfficeSlug } from "../../../lib/offices";
 
 const ROLE_OPTIONS: { value: PublicSignupRole; label: string }[] = [
   { value: "manager", label: "Manager" },
@@ -20,6 +21,7 @@ export default function SignupPage() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [role, setRole] = useState<PublicSignupRole>("social_media");
+  const [officeSlug, setOfficeSlug] = useState<OfficeSlug>(OFFICE_SLUGS.itsNoMatata);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -61,6 +63,7 @@ export default function SignupPage() {
         password,
         fullName: fullName.trim(),
         role,
+        officeSlug,
       });
 
       if (result?.approvalRequired) {
@@ -73,6 +76,7 @@ export default function SignupPage() {
       setPassword("");
       setConfirmPassword("");
       setRole("social_media");
+      setOfficeSlug(OFFICE_SLUGS.itsNoMatata);
     } catch (err) {
       console.error("SIGNUP ERROR:", err);
       setError(err instanceof Error ? err.message : "Failed to create account");
@@ -150,6 +154,19 @@ export default function SignupPage() {
                   className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 text-white outline-none transition focus:border-orange-500"
                   required
                 />
+
+                <select
+                  value={officeSlug}
+                  onChange={(e) => setOfficeSlug(e.target.value as OfficeSlug)}
+                  className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 text-white outline-none transition focus:border-orange-500"
+                  required
+                >
+                  {OFFICE_OPTIONS.map((option) => (
+                    <option key={option.slug} value={option.slug}>
+                      {option.name}
+                    </option>
+                  ))}
+                </select>
 
                 <select
                   value={role}

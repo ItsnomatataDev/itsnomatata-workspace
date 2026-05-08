@@ -21,6 +21,7 @@ import TimeTrackerCard from "../components/dashboard/components/TimeTrackerCard"
 import AttendanceClockCard from "../features/attendance/components/AttendanceClockCard";
 import { useDashboard } from "../lib/hooks/useDashboard";
 import { getAdminTimeSummary } from "../lib/supabase/queries/adminTime";
+import { canManageAllOffices } from "../lib/offices";
 
 function formatDuration(totalSeconds: number) {
   const safe = Math.max(0, totalSeconds || 0);
@@ -115,6 +116,8 @@ export default function DashboardPage() {
   } = useDashboard({
     userId: user?.id ?? undefined,
     organizationId: profile?.organization_id ?? null,
+    officeId: (profile?.office_id as string | null | undefined) ?? null,
+    includeAllOffices: canManageAllOffices(profile),
     role: profile?.primary_role ?? null,
     cityLabel,
     latitude: coords?.latitude ?? null,

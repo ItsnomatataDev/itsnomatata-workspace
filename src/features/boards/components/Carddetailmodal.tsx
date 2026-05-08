@@ -37,6 +37,7 @@ import type {
 } from "../../../lib/supabase/queries/tasks";
 import {
   getCardComments,
+  getCardAssignees,
   addCardComment,
   updateCard,
   deleteCard,
@@ -96,6 +97,7 @@ interface CardDetailModalProps {
   hasRunningTimer?: boolean;
   currentUserId: string;
   organizationId: string;
+  boardOfficeId?: string | null;
 }
 
 // ─── Local types ──────────────────────────────────────────────────────────────
@@ -909,6 +911,7 @@ export default function CardDetailModal({
   hasRunningTimer = false,
   currentUserId,
   organizationId,
+  boardOfficeId,
 }: CardDetailModalProps) {
   // Tabs
   const [activeTab, setActiveTab] = useState<
@@ -955,6 +958,7 @@ export default function CardDetailModal({
   const [invitableUsers, setInvitableUsers] = useState<InvitableUser[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [addingUser, setAddingUser] = useState<string | null>(null);
+  const [assigneesError, setAssigneesError] = useState("");
 
   // Checklist
   const [checklists, setChecklists] = useState<TaskChecklistWithItems[]>([]);
@@ -1176,6 +1180,25 @@ export default function CardDetailModal({
     isOpen,
   ]);
 
+  const refreshAssignees = useCallback(async () => {
+    if (!cardId) return;
+    try {
+      setAssigneesError("");
+      setAssignees(await getCardAssignees(cardId));
+    } catch (error) {
+      const message = error instanceof Error
+        ? error.message
+        : "Failed to load collaborators.";
+      setAssigneesError(message);
+    }
+  }, [cardId]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setAssignees(card.assignees ?? []);
+    void refreshAssignees();
+  }, [card.assignees, isOpen, refreshAssignees]);
+
   // ── Live ticker for active sessions ─────────────────────────────────────────
   useEffect(() => {
     if (taskActiveEntries.length === 0) {
@@ -1209,12 +1232,24 @@ export default function CardDetailModal({
           void refreshTaskTimeAndCache();
         },
       )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "task_assignees",
+          filter: `task_id=eq.${cardId}`,
+        },
+        () => {
+          void refreshAssignees();
+        },
+      )
       .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [isOpen, organizationId, cardId, refreshTaskTimeAndCache]);
+  }, [isOpen, organizationId, cardId, refreshAssignees, refreshTaskTimeAndCache]);
 
   // ── Toggle timer ─────────────────────────────────────────────────────────────
   const handleToggleTimer = async () => {
@@ -1490,12 +1525,13 @@ export default function CardDetailModal({
       .eq("organization_id", organizationId)
       .order("full_name", { ascending: true })
       .limit(10);
+    if (boardOfficeId) q = q.eq("office_id", boardOfficeId);
     if (search) q = q.or(`full_name.ilike.%${search}%,email.ilike.%${search}%`);
     Promise.resolve(q)
       .then(({ data }) => setInvitableUsers((data ?? []) as InvitableUser[]))
       .catch(console.error)
       .finally(() => setLoadingUsers(false));
-  }, [showInvite, inviteSearch, organizationId]);
+  }, [showInvite, inviteSearch, organizationId, boardOfficeId]);
 
   if (!isOpen) return null;
 
@@ -1690,23 +1726,19 @@ export default function CardDetailModal({
     if (assignees.find((a) => a.user_id === user.id)) return;
     setAddingUser(user.id);
     try {
-      await supabase.from("task_assignees").insert({
-        task_id: cardId,
-        user_id: user.id,
-        organization_id: organizationId,
-      });
-      setAssignees((prev) => [
-        ...prev,
+      const { error } = await supabase.from("task_assignees").upsert(
         {
-          id: user.id,
           task_id: cardId,
           user_id: user.id,
-          created_at: new Date().toISOString(),
-          full_name: user.full_name,
-          email: user.email,
-          primary_role: user.primary_role,
+          organization_id: organizationId,
         },
-      ]);
+        {
+          onConflict: "organization_id,task_id,user_id",
+          ignoreDuplicates: true,
+        },
+      );
+      if (error) throw error;
+      await refreshAssignees();
 
       // Notify the newly added assignee
       void notifyTaskAssigned({
@@ -2292,6 +2324,11 @@ export default function CardDetailModal({
                   </button>
                 </div>
                 <div className="flex flex-wrap gap-2 mb-2">
+                  {assigneesError ? (
+                    <p className="basis-full rounded-lg border border-red-500/20 bg-red-500/10 px-2 py-1 text-xs text-red-200">
+                      {assigneesError}
+                    </p>
+                  ) : null}
                   {assignees.length === 0 && !showInvite && (
                     <p className="text-xs text-white/30 italic">
                       No collaborators yet

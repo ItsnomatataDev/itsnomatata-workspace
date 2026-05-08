@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Coffee, LogIn, LogOut, TimerReset } from "lucide-react";
+import { LogIn, LogOut, TimerReset } from "lucide-react";
 import { formatZimbabweDateTime } from "../../../lib/utils/zimbabweCalendar";
 import { formatDurationHms } from "../../../lib/utils/timeMath";
 import { useAttendance } from "../hooks/useAttendance";
@@ -23,11 +23,7 @@ export default function AttendanceClockCard({
     return () => window.clearInterval(interval);
   }, []);
 
-  const status = attendance.activeBreak
-    ? "On break"
-    : attendance.activeSession
-      ? "Clocked in"
-      : "Clocked out";
+  const status = attendance.activeSession ? "Clocked in" : "Clocked out";
 
   return (
     <div className="rounded-3xl border border-white/10 bg-white/5 p-5 text-white">
@@ -50,9 +46,7 @@ export default function AttendanceClockCard({
           <span
             className={[
               "rounded-full px-3 py-1 text-xs font-semibold",
-              attendance.activeBreak
-                ? "bg-amber-500/15 text-amber-300"
-                : attendance.activeSession
+              attendance.activeSession
                   ? "bg-green-500/15 text-green-300"
                   : "bg-white/10 text-white/60",
             ].join(" ")}
@@ -72,18 +66,6 @@ export default function AttendanceClockCard({
             <p className="text-xs text-white/40">Worked today</p>
             <p className="mt-1 font-mono text-lg font-semibold">
               {formatDurationHms(attendance.workedTodaySeconds)}
-            </p>
-          </div>
-          <div>
-            <p className="text-xs text-white/40">Break time today</p>
-            <p className="mt-1 font-mono text-sm font-semibold text-white/75">
-              {formatDurationHms(attendance.breakSeconds)}
-            </p>
-          </div>
-          <div>
-            <p className="text-xs text-white/40">Current break</p>
-            <p className="mt-1 font-mono text-sm font-semibold text-amber-300">
-              {formatDurationHms(attendance.activeBreakSeconds)}
             </p>
           </div>
         </div>
@@ -119,46 +101,19 @@ export default function AttendanceClockCard({
             Clock In
           </button>
         ) : (
-          <>
-            {attendance.activeBreak ? (
-              <button
-                type="button"
-                disabled={attendance.mutating}
-                onClick={() => {
-                  void attendance.endBreakNow().catch(() => undefined);
-                }}
-                className="inline-flex items-center justify-center gap-2 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm font-semibold text-amber-200 transition hover:bg-amber-500/15 disabled:opacity-60"
-              >
-                <Coffee size={16} />
-                End Break
-              </button>
-            ) : (
-              <button
-                type="button"
-                disabled={attendance.mutating}
-                onClick={() => {
-                  void attendance.startBreakNow().catch(() => undefined);
-                }}
-                className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-white/75 transition hover:bg-white/10 hover:text-white disabled:opacity-60"
-              >
-                <Coffee size={16} />
-                Start Break
-              </button>
-            )}
-            <button
-              type="button"
-              disabled={attendance.mutating}
-              onClick={() => {
-                void attendance.clockOutNow(note || null)
-                  .then(() => setNote(""))
-                  .catch(() => undefined);
-              }}
-              className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-black transition hover:bg-white/85 disabled:opacity-60"
-            >
-              <LogOut size={16} />
-              Clock Out
-            </button>
-          </>
+          <button
+            type="button"
+            disabled={attendance.mutating}
+            onClick={() => {
+              void attendance.clockOutNow(note || null)
+                .then(() => setNote(""))
+                .catch(() => undefined);
+            }}
+            className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-black transition hover:bg-white/85 disabled:opacity-60 sm:col-span-2"
+          >
+            <LogOut size={16} />
+            Clock Out
+          </button>
         )}
       </div>
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Activity, CalendarDays, Clock3, Coffee, UserCheck } from "lucide-react";
+import { Activity, CalendarDays, Clock3, ShieldCheck, UserCheck } from "lucide-react";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import Sidebar from "../../../components/dashboard/components/Sidebar";
 import { getAttendanceReport } from "../services/attendanceService";
@@ -22,8 +22,6 @@ function formatMaybeDate(value?: string | null) {
 function StatusPill({ row }: { row: AttendanceReportRow }) {
   const label = row.status === "on_leave"
     ? "On Leave"
-    : row.status === "on_break"
-      ? "On break"
     : row.status === "active"
       ? "Clocked in"
       : row.status === "completed"
@@ -34,8 +32,6 @@ function StatusPill({ row }: { row: AttendanceReportRow }) {
 
   const color = row.status === "on_leave"
     ? "bg-sky-500/15 text-sky-300"
-    : row.status === "on_break"
-      ? "bg-amber-500/15 text-amber-300"
     : row.status === "active"
       ? "bg-green-500/15 text-green-300"
       : row.status === "missed_clock_out"
@@ -102,10 +98,10 @@ export default function AdminAttendancePage() {
   }
 
   const clockedIn = rows.filter((row) => row.status === "active").length;
-  const onBreak = rows.filter((row) => row.status === "on_break").length;
   const onLeave = rows.filter((row) => row.status === "on_leave").length;
   const late = rows.filter((row) => row.is_late).length;
   const missed = rows.filter((row) => row.missed_clock_out).length;
+  const autoClockedOut = rows.filter((row) => row.clock_out_method === "auto").length;
 
   return (
     <div className="min-h-screen bg-black text-white">
@@ -144,8 +140,8 @@ export default function AdminAttendancePage() {
           <section className="mb-6 grid gap-4 md:grid-cols-5">
             {[
               { label: "Clocked in", value: clockedIn, Icon: UserCheck },
-              { label: "On break", value: onBreak, Icon: Coffee },
               { label: "On leave", value: onLeave, Icon: CalendarDays },
+              { label: "Auto out", value: autoClockedOut, Icon: ShieldCheck },
               { label: "Late", value: late, Icon: Clock3 },
               { label: "Missed", value: missed, Icon: Activity },
             ].map(({ label, value, Icon }) => (
@@ -174,8 +170,8 @@ export default function AdminAttendancePage() {
                     <th className="px-4 py-3">Status</th>
                     <th className="px-4 py-3">Clock in</th>
                     <th className="px-4 py-3">Clock out</th>
+                    <th className="px-4 py-3">Method</th>
                     <th className="px-4 py-3">Work time</th>
-                    <th className="px-4 py-3">Break</th>
                     <th className="px-4 py-3">Task tracked</th>
                     <th className="px-4 py-3">Untracked</th>
                     <th className="px-4 py-3">Flags</th>
@@ -204,8 +200,16 @@ export default function AdminAttendancePage() {
                         <td className="px-4 py-3"><StatusPill row={row} /></td>
                         <td className="px-4 py-3">{formatMaybeDate(row.clock_in_at)}</td>
                         <td className="px-4 py-3">{formatMaybeDate(row.clock_out_at)}</td>
+                        <td className="px-4 py-3">
+                          {row.clock_out_method === "auto" ? (
+                            <span className="rounded-full bg-orange-500/15 px-2 py-1 text-xs font-semibold text-orange-300">
+                              auto
+                            </span>
+                          ) : (
+                            <span className="text-white/45">{row.clock_out_method ?? "-"}</span>
+                          )}
+                        </td>
                         <td className="px-4 py-3 font-mono">{formatDurationHms(row.work_seconds)}</td>
-                        <td className="px-4 py-3 font-mono">{formatDurationHms(row.break_seconds)}</td>
                         <td className="px-4 py-3 font-mono">{formatDurationHms(row.task_tracked_seconds)}</td>
                         <td className="px-4 py-3 font-mono text-orange-300">{formatDurationHms(row.untracked_seconds)}</td>
                         <td className="px-4 py-3">
@@ -220,9 +224,9 @@ export default function AdminAttendancePage() {
                                 Missed
                               </span>
                             ) : null}
-                            {row.break_seconds > 0 ? (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2 py-1 text-xs text-white/50">
-                                <Coffee size={11} /> Break
+                            {row.clock_out_method === "auto" ? (
+                              <span className="rounded-full bg-orange-500/15 px-2 py-1 text-xs text-orange-300">
+                                Auto clock-out
                               </span>
                             ) : null}
                           </div>

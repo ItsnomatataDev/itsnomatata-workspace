@@ -139,6 +139,7 @@ export async function clockIn(input: ClockInInput): Promise<AttendanceSession> {
 }
 
 export async function startBreak(input: BreakStartInput): Promise<AttendanceBreak> {
+  // Deprecated: attendance no longer creates new break records from the UI.
   const activeBreak = await getActiveBreak(input.userId, input.organizationId);
   if (activeBreak) {
     throw new Error("You already have an active break. End it before starting another one.");
@@ -161,6 +162,7 @@ export async function startBreak(input: BreakStartInput): Promise<AttendanceBrea
 }
 
 export async function endBreak(input: BreakEndInput): Promise<AttendanceBreak> {
+  // Deprecated: retained for historical compatibility with older callers.
   const { data: existing, error: existingError } = await supabase
     .from("attendance_breaks")
     .select(BREAK_SELECT)
@@ -199,22 +201,8 @@ export async function clockOut(input: ClockOutInput): Promise<AttendanceSession>
   if (sessionError) throw sessionError;
   if (!session) throw new Error("Active attendance session not found.");
 
-  const activeBreak = await getActiveBreak(input.userId, session.organization_id);
-  if (activeBreak) {
-    await endBreak({ breakId: activeBreak.id, userId: input.userId });
-  }
-
-  const { data: breaks, error: breaksError } = await supabase
-    .from("attendance_breaks")
-    .select(BREAK_SELECT)
-    .eq("attendance_session_id", input.sessionId);
-
-  if (breaksError) throw breaksError;
-
   const clockOutAt = new Date().toISOString();
-  const grossSeconds = secondsBetween(session.clock_in_at, clockOutAt);
-  const breakSeconds = completedBreakSeconds((breaks ?? []) as AttendanceBreak[]);
-  const workSeconds = Math.max(0, grossSeconds - breakSeconds);
+  const workSeconds = secondsBetween(session.clock_in_at, clockOutAt);
 
   const { data, error } = await supabase
     .from("attendance_sessions")
@@ -240,7 +228,7 @@ export async function getMyAttendanceToday(
   organizationId: string,
 ): Promise<AttendanceToday> {
   const today = getZimbabweTodayRangeIso();
-  const [sessionsResult, breaksResult, activeSession, activeBreak] =
+  const [sessionsResult, activeSession] =
     await Promise.all([
       supabase
         .from("attendance_sessions")
@@ -250,42 +238,24 @@ export async function getMyAttendanceToday(
         .gte("clock_in_at", today.start)
         .lt("clock_in_at", today.end)
         .order("clock_in_at", { ascending: false }),
-      supabase
-        .from("attendance_breaks")
-        .select(BREAK_SELECT)
-        .eq("organization_id", organizationId)
-        .eq("user_id", userId)
-        .gte("started_at", today.start)
-        .lt("started_at", today.end)
-        .order("started_at", { ascending: false }),
       getActiveAttendanceSession(userId, organizationId),
-      getActiveBreak(userId, organizationId),
     ]);
 
   if (sessionsResult.error) throw sessionsResult.error;
-  if (breaksResult.error) throw breaksResult.error;
 
   const sessions = (sessionsResult.data ?? []) as AttendanceSession[];
-  const breaks = (breaksResult.data ?? []) as AttendanceBreak[];
   const workedSeconds = sessions.reduce(
     (sum, session) => sum + getAttendanceSessionElapsedSeconds(session),
     0,
   );
-  const breakSeconds = breaks.reduce((sum, item) => {
-    if (item.ended_at) return sum + Math.max(0, Number(item.duration_seconds ?? 0));
-    return sum + getRunningEntryElapsedSeconds({
-      started_at: item.started_at,
-      ended_at: item.ended_at,
-    });
-  }, 0);
 
   return {
     activeSession,
-    activeBreak,
+    activeBreak: null,
     sessions,
-    breaks,
+    breaks: [],
     workedSeconds,
-    breakSeconds,
+    breakSeconds: 0,
   };
 }
 
@@ -375,16 +345,10 @@ export async function getAttendanceReport(params: {
 
   if (params.userId) sessionsQuery = sessionsQuery.eq("user_id", params.userId);
 
-  const [profilesResult, sessionsResult, breaksResult, taskTrackedMap, settings, leaves] =
+  const [profilesResult, sessionsResult, taskTrackedMap, settings, leaves] =
     await Promise.all([
       profilesQuery,
       sessionsQuery.order("clock_in_at", { ascending: true }),
-      supabase
-        .from("attendance_breaks")
-        .select(BREAK_SELECT)
-        .eq("organization_id", params.organizationId)
-        .gte("started_at", params.from)
-        .lt("started_at", params.to),
       getTaskTrackedSecondsByUser({
         organizationId: params.organizationId,
         from: params.from,
@@ -396,24 +360,13 @@ export async function getAttendanceReport(params: {
 
   if (profilesResult.error) throw profilesResult.error;
   if (sessionsResult.error) throw sessionsResult.error;
-  if (breaksResult.error) throw breaksResult.error;
 
   const sessions = (sessionsResult.data ?? []) as AttendanceSession[];
-  const breaks = (breaksResult.data ?? []) as AttendanceBreak[];
   const sessionsByUser = new Map<string, AttendanceSession[]>();
   for (const session of sessions) {
     const list = sessionsByUser.get(session.user_id) ?? [];
     list.push(session);
     sessionsByUser.set(session.user_id, list);
-  }
-
-  const breaksBySession = new Map<string, AttendanceBreak[]>();
-  const activeBreakUserIds = new Set<string>();
-  for (const item of breaks) {
-    const list = breaksBySession.get(item.attendance_session_id) ?? [];
-    list.push(item);
-    breaksBySession.set(item.attendance_session_id, list);
-    if (!item.ended_at) activeBreakUserIds.add(item.user_id);
   }
 
   const todayKey = getZimbabweDateKey(params.from);
@@ -431,17 +384,15 @@ export async function getAttendanceReport(params: {
       (sum, session) => sum + getAttendanceSessionElapsedSeconds(session),
       0,
     );
-    const breakSeconds = userSessions.reduce(
-      (sum, session) =>
-        sum + completedBreakSeconds(breaksBySession.get(session.id) ?? []),
-      0,
-    );
     const taskTrackedSeconds = taskTrackedMap.get(profile.id) ?? 0;
     const onLeave = leaveUserIds.has(profile.id);
     const active = userSessions.some(
       (session) => session.status === "active" && !session.clock_out_at,
     );
     const missed = userSessions.some((session) => session.status === "missed_clock_out");
+    const hasAutoClockOut = userSessions.some(
+      (session) => session.clock_out_method === "auto",
+    );
 
     return {
       user_id: profile.id,
@@ -450,18 +401,17 @@ export async function getAttendanceReport(params: {
       clock_in_at: firstSession?.clock_in_at ?? null,
       clock_out_at: lastSession?.clock_out_at ?? null,
       work_seconds: workSeconds,
-      break_seconds: breakSeconds,
+      break_seconds: 0,
       task_tracked_seconds: taskTrackedSeconds,
       untracked_seconds: Math.max(0, workSeconds - taskTrackedSeconds),
       status: onLeave
         ? "on_leave"
-        : activeBreakUserIds.has(profile.id)
-          ? "on_break"
         : active
           ? "active"
           : lastSession?.status ?? "offline",
       is_late: !onLeave && isLate(firstSession, settings),
       missed_clock_out: missed,
+      clock_out_method: hasAutoClockOut ? "auto" : lastSession?.clock_out_method ?? null,
     };
   });
 }

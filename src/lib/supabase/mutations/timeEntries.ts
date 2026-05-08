@@ -11,6 +11,7 @@ export type TimeEntryApprovalStatus = "pending" | "approved" | "rejected";
 export interface TimeEntryItem {
   id: string;
   organization_id: string;
+  office_id?: string | null;
   user_id: string | null;
   task_id: string | null;
   project_id: string | null;
@@ -110,6 +111,7 @@ interface TaskContextRow {
   organization_id: string;
   project_id: string | null;
   client_id: string | null;
+  office_id: string | null;
   campaign_id: string | null;
   title: string;
 }
@@ -143,6 +145,7 @@ export interface GetProjectsParams {
 const TIME_ENTRY_SELECT = `
   id,
   organization_id,
+  office_id,
   user_id,
   task_id,
   project_id,
@@ -201,7 +204,7 @@ async function writeTimeEntryAuditLog(params: {
 async function getTaskContext(taskId: string): Promise<TaskContextRow> {
   const { data, error } = await supabase
     .from("tasks")
-    .select("id, organization_id, project_id, client_id, campaign_id, title")
+    .select("id, organization_id, office_id, project_id, client_id, campaign_id, title")
     .eq("id", taskId)
     .single();
 
@@ -468,6 +471,7 @@ export const startTimeEntry = async (
   let projectId = payload.projectId ?? null;
   let clientId = payload.clientId ?? null;
   let campaignId = payload.campaignId ?? null;
+  let officeId: string | null = null;
 
   if (payload.taskId) {
     const task = await getTaskContext(payload.taskId);
@@ -479,12 +483,35 @@ export const startTimeEntry = async (
     projectId = projectId ?? task.project_id;
     clientId = clientId ?? task.client_id;
     campaignId = campaignId ?? task.campaign_id;
+    officeId = task.office_id;
+  }
+
+  if (!officeId && clientId) {
+    const { data: client, error: clientError } = await supabase
+      .from("clients")
+      .select("office_id")
+      .eq("organization_id", payload.organizationId)
+      .eq("id", clientId)
+      .maybeSingle();
+    if (clientError) throw new Error(clientError.message);
+    officeId = client?.office_id ?? null;
+  }
+
+  if (!officeId) {
+    const { data: profile, error: profileError } = await supabase
+      .from("profiles")
+      .select("office_id")
+      .eq("id", payload.userId)
+      .maybeSingle();
+    if (profileError) throw new Error(profileError.message);
+    officeId = profile?.office_id ?? null;
   }
 
   const { data, error } = await supabase
     .from("time_entries")
     .insert({
       organization_id: payload.organizationId,
+      office_id: officeId,
       user_id: payload.userId,
       task_id: payload.taskId ?? null,
       project_id: projectId,
@@ -636,6 +663,7 @@ export const resumeTimeEntry = async ({
     .from("time_entries")
     .insert({
       organization_id: entry.organization_id,
+      office_id: entry.office_id ?? null,
       user_id: entry.user_id,
       task_id: entry.task_id,
       project_id: entry.project_id,
@@ -679,6 +707,7 @@ export const createManualTimeEntry = async (
   let projectId = payload.projectId ?? null;
   let clientId = payload.clientId ?? null;
   let campaignId = payload.campaignId ?? null;
+  let officeId: string | null = null;
 
   if (payload.taskId) {
     const task = await getTaskContext(payload.taskId);
@@ -690,12 +719,35 @@ export const createManualTimeEntry = async (
     projectId = projectId ?? task.project_id;
     clientId = clientId ?? task.client_id;
     campaignId = campaignId ?? task.campaign_id;
+    officeId = task.office_id;
+  }
+
+  if (!officeId && clientId) {
+    const { data: client, error: clientError } = await supabase
+      .from("clients")
+      .select("office_id")
+      .eq("organization_id", payload.organizationId)
+      .eq("id", clientId)
+      .maybeSingle();
+    if (clientError) throw new Error(clientError.message);
+    officeId = client?.office_id ?? null;
+  }
+
+  if (!officeId) {
+    const { data: profile, error: profileError } = await supabase
+      .from("profiles")
+      .select("office_id")
+      .eq("id", payload.userId)
+      .maybeSingle();
+    if (profileError) throw new Error(profileError.message);
+    officeId = profile?.office_id ?? null;
   }
 
   const { data, error } = await supabase
     .from("time_entries")
     .insert({
       organization_id: payload.organizationId,
+      office_id: officeId,
       user_id: payload.userId,
       task_id: payload.taskId ?? null,
       project_id: projectId,

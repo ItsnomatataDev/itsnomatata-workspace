@@ -9,6 +9,8 @@ import {
 import type { ReactNode } from "react";
 import type { User } from "@supabase/supabase-js";
 import { supabase } from "../../lib/supabase/client";
+import { OFFICE_SLUGS } from "../../lib/offices";
+import { resolveCompanyOfficeId } from "../../lib/supabase/queries/offices";
 
 type AppRole =
   | "admin"
@@ -31,12 +33,19 @@ type AuthProfile = {
   email?: string | null;
   full_name?: string | null;
   organization_id?: string | null;
+  office_id?: string | null;
   primary_role?: AppRole | null;
   account_status?: AccountStatus | null;
   is_active?: boolean | null;
   is_suspended?: boolean | null;
   last_seen_at?: string | null;
   organization?: Record<string, unknown> | null;
+  office?: {
+    id: string;
+    name: string;
+    slug: string;
+    is_primary: boolean;
+  } | null;
   [key: string]: unknown;
 };
 
@@ -111,6 +120,20 @@ async function getOrganization() {
   return data;
 }
 
+async function getOfficeId(params: {
+  organizationId: string;
+  requestedSlug?: string | null;
+  fallbackOfficeId?: string | null;
+}) {
+  if (params.fallbackOfficeId) return params.fallbackOfficeId;
+
+  const slug = params.requestedSlug || OFFICE_SLUGS.itsNoMatata;
+  return resolveCompanyOfficeId({
+    organizationId: params.organizationId,
+    slug,
+  });
+}
+
 async function ensureProfile(user: User): Promise<AuthProfile | null> {
   const organization = await getOrganization();
 
@@ -125,15 +148,22 @@ async function ensureProfile(user: User): Promise<AuthProfile | null> {
   const existingProfile = (existing as AuthProfile | null) ?? null;
   const resolvedRole = resolveUserRole(user, existingProfile);
   const resolvedStatus = resolveAccountStatus(user, existingProfile);
+  const organizationId =
+    existing?.organization_id ??
+    user.user_metadata?.organization_id ??
+    organization.id;
+  const officeId = await getOfficeId({
+    organizationId,
+    requestedSlug: String(user.user_metadata?.office_slug ?? ""),
+    fallbackOfficeId: existingProfile?.office_id ?? null,
+  });
 
   const payload = {
     id: user.id,
     email: user.email ?? existing?.email ?? null,
     full_name: user.user_metadata?.full_name ?? existing?.full_name ?? null,
-    organization_id:
-      existing?.organization_id ??
-      user.user_metadata?.organization_id ??
-      organization.id,
+    organization_id: organizationId,
+    office_id: officeId,
     primary_role: resolvedRole,
     account_status: resolvedStatus,
     is_active: resolvedStatus === "active",
@@ -154,7 +184,8 @@ async function ensureProfile(user: User): Promise<AuthProfile | null> {
     .select(
       `
       *,
-      organization:organizations(*)
+      organization:organizations(*),
+      office:company_offices(id, name, slug, is_primary)
     `,
     )
     .eq("id", user.id)

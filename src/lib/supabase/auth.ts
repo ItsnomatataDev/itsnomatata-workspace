@@ -1,4 +1,5 @@
 import { supabase } from "./client";
+import { OFFICE_SLUGS, type OfficeSlug } from "../offices";
 
 const ORGANIZATION_SLUG = "its-nomatata";
 
@@ -17,6 +18,7 @@ type SignUpUserParams = {
   password: string;
   fullName: string;
   role?: PublicSignupRole;
+  officeSlug?: OfficeSlug;
 };
 
 type SignInUserParams = {
@@ -113,6 +115,7 @@ export async function signUpUser(params: SignUpUserParams) {
     const email = normalizeEmail(params.email);
     const organization = await getOrganizationBySlug(ORGANIZATION_SLUG);
     const resolvedRole = resolveSignupRole(email, params.role);
+    const officeSlug = params.officeSlug ?? OFFICE_SLUGS.itsNoMatata;
 
     // Determine initial account status based on email domain
     const isCompanyEmail = email.endsWith("@itsnomatata.com");
@@ -127,6 +130,7 @@ export async function signUpUser(params: SignUpUserParams) {
           role: resolvedRole,
           organization_slug: ORGANIZATION_SLUG,
           organization_id: organization?.id ?? null,
+          office_slug: officeSlug,
           account_status: initialStatus,
         },
       },

@@ -406,6 +406,31 @@ export async function createTask(payload: CreateTaskPayload): Promise<TaskRow> {
   if (!organizationId) throw new Error("organizationId is required");
   if (!insertPayload.title) throw new Error("Task title is required");
 
+  if (insertPayload.client_id && !insertPayload.office_id) {
+    const { data: client, error: clientError } = await supabase
+      .from("clients")
+      .select("office_id")
+      .eq("organization_id", organizationId)
+      .eq("id", String(insertPayload.client_id))
+      .maybeSingle();
+    if (clientError) throw clientError;
+    insertPayload.office_id = client?.office_id ?? null;
+  }
+
+  if (!insertPayload.office_id) {
+    const { data: authData } = await supabase.auth.getUser();
+    const userId = authData.user?.id;
+    if (userId) {
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles")
+        .select("office_id")
+        .eq("id", userId)
+        .maybeSingle();
+      if (profileError) throw profileError;
+      insertPayload.office_id = profile?.office_id ?? null;
+    }
+  }
+
   const { data, error } = await supabase
     .from("tasks")
     .insert(insertPayload)
@@ -415,13 +440,15 @@ export async function createTask(payload: CreateTaskPayload): Promise<TaskRow> {
   if (error) throw error;
 
   if (assigneeIds.length > 0) {
-    await supabase.from("task_assignees").insert(
+    const { error: assigneesError } = await supabase.from("task_assignees").upsert(
       assigneeIds.map((userId) => ({
         organization_id: organizationId,
         task_id: data.id,
         user_id: userId,
       })),
+      { onConflict: "organization_id,task_id,user_id", ignoreDuplicates: true },
     );
+    if (assigneesError) throw assigneesError;
 
     try {
       await Promise.all(
@@ -511,13 +538,15 @@ export async function updateTask(
       .eq("organization_id", assigneeOrganizationId);
 
     if (fields.assigneeIds.length > 0) {
-      await supabase.from("task_assignees").insert(
+      const { error: assigneesError } = await supabase.from("task_assignees").upsert(
         fields.assigneeIds.map((userId) => ({
           organization_id: assigneeOrganizationId,
           task_id: taskId,
           user_id: userId,
         })),
+        { onConflict: "organization_id,task_id,user_id", ignoreDuplicates: true },
       );
+      if (assigneesError) throw assigneesError;
 
       // Notify all (re)assigned users
       try {

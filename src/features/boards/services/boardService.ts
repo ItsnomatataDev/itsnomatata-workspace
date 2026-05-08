@@ -14,6 +14,25 @@ import {
 import { makeZimbabweLocalIso } from "../../../lib/utils/zimbabweCalendar";
 
 type CardMetadata = Record<string, unknown>;
+type CardAssignee = {
+  id: string;
+  task_id: string;
+  user_id: string;
+  created_at: string;
+  full_name: string | null;
+  email: string | null;
+  primary_role?: string | null;
+};
+
+const POSTGREST_IN_FILTER_CHUNK_SIZE = 75;
+
+function chunkArray<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+  return chunks;
+}
 
 export function markStatusManuallyUpdated(
   metadata: CardMetadata | null | undefined,
@@ -51,12 +70,21 @@ async function getCardMetadata(cardId: string): Promise<CardMetadata> {
 //  BOARDS  (boards = clients table)
 // ─────────────────────────────────────────────
 
-export async function getBoards(organizationId: string): Promise<Board[]> {
-  const { data, error } = await supabase
+export async function getBoards(
+  organizationId: string,
+  options?: { officeId?: string | null; includeAllOffices?: boolean },
+): Promise<Board[]> {
+  let query = supabase
     .from("clients")
     .select("*")
     .eq("organization_id", organizationId)
     .order("updated_at", { ascending: false });
+
+  if (!options?.includeAllOffices && options?.officeId) {
+    query = query.eq("office_id", options.officeId);
+  }
+
+  const { data, error } = await query;
   if (error) throw error;
   return (data ?? []) as Board[];
 }
@@ -92,17 +120,13 @@ export async function getCards(
 
   const taskIds = tasks.map((t) => t.id as string);
 
-  // Assignee rows
-  const { data: assigneeRows } = await supabase
-    .from("task_assignees")
-    .select("id, task_id, user_id")
-    .in("task_id", taskIds);
+  const assignees = await getCardAssignees(taskIds);
 
   // Profiles for assignees
   const userIds = [
     ...new Set(
       [
-        ...(assigneeRows ?? []).map((a) => a.user_id as string),
+        ...assignees.map((a) => a.user_id),
         ...tasks.map((task) => task.created_by as string | null).filter(Boolean),
       ].filter(Boolean) as string[],
     ),
@@ -141,16 +165,11 @@ export async function getCards(
   // Group assignees by task
   const assigneesByTask = new Map<
     string,
-    Array<{ id: string; full_name: string | null; email: string | null }>
+    CardAssignee[]
   >();
-  for (const a of assigneeRows ?? []) {
-    const profile = profileMap.get(a.user_id);
+  for (const a of assignees) {
     const list = assigneesByTask.get(a.task_id) ?? [];
-    list.push({
-      id: a.user_id,
-      full_name: profile?.full_name ?? null,
-      email: profile?.email ?? null,
-    });
+    list.push(a);
     assigneesByTask.set(a.task_id, list);
   }
 
@@ -166,6 +185,73 @@ export async function getCards(
       created_by_email: creator?.email ?? null,
     };
   }) as Card[];
+}
+
+export async function getCardAssignees(
+  taskIdsOrTaskId: string[] | string,
+): Promise<CardAssignee[]> {
+  const taskIds = Array.isArray(taskIdsOrTaskId)
+    ? taskIdsOrTaskId.filter(Boolean)
+    : [taskIdsOrTaskId].filter(Boolean);
+
+  if (taskIds.length === 0) return [];
+
+  const assigneeRows = [];
+
+  for (const taskIdChunk of chunkArray(taskIds, POSTGREST_IN_FILTER_CHUNK_SIZE)) {
+    const { data, error } = await supabase
+      .from("task_assignees")
+      .select("id, task_id, user_id, created_at")
+      .in("task_id", taskIdChunk)
+      .order("created_at", { ascending: true });
+
+    if (error) throw error;
+    assigneeRows.push(...(data ?? []));
+  }
+
+  const assignees = assigneeRows;
+  const userIds = [...new Set(assignees.map((a) => a.user_id as string))];
+
+  const profileMap = new Map<
+    string,
+    {
+      id: string;
+      full_name: string | null;
+      email: string | null;
+      primary_role?: string | null;
+    }
+  >();
+
+  if (userIds.length > 0) {
+    const { data: profiles, error: profilesError } = await supabase
+      .from("profiles")
+      .select("id, full_name, email, primary_role")
+      .in("id", userIds);
+
+    if (profilesError) throw profilesError;
+
+    for (const profile of profiles ?? []) {
+      profileMap.set(profile.id, {
+        id: profile.id,
+        full_name: profile.full_name ?? null,
+        email: profile.email ?? null,
+        primary_role: profile.primary_role ?? null,
+      });
+    }
+  }
+
+  return assignees.map((assignee) => {
+    const profile = profileMap.get(assignee.user_id as string);
+    return {
+      id: assignee.id as string,
+      task_id: assignee.task_id as string,
+      user_id: assignee.user_id as string,
+      created_at: assignee.created_at as string,
+      full_name: profile?.full_name ?? null,
+      email: profile?.email ?? null,
+      primary_role: profile?.primary_role ?? null,
+    };
+  });
 }
 
 // ─────────────────────────────────────────────
@@ -206,12 +292,29 @@ export async function createBoard(
   input: {
     name: string;
     description?: string;
+    officeId?: string | null;
   },
 ): Promise<Board> {
+  let officeId = input.officeId ?? null;
+  if (!officeId) {
+    const { data: authData } = await supabase.auth.getUser();
+    const userId = authData.user?.id;
+    if (userId) {
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles")
+        .select("office_id")
+        .eq("id", userId)
+        .maybeSingle();
+      if (profileError) throw profileError;
+      officeId = profile?.office_id ?? null;
+    }
+  }
+
   const { data, error } = await supabase
     .from("clients")
     .insert({
       organization_id: organizationId,
+      office_id: officeId,
       name: input.name,
       description: input.description,
       created_at: new Date().toISOString(),
@@ -253,11 +356,20 @@ export async function createCard(
     ),
   ];
   const primaryAssigneeId = assigneeIds[0] ?? null;
+  const { data: board, error: boardError } = await supabase
+    .from("clients")
+    .select("id, office_id")
+    .eq("id", boardId)
+    .eq("organization_id", organizationId)
+    .maybeSingle();
+
+  if (boardError) throw boardError;
 
   const { data: card, error } = await supabase
     .from("tasks")
     .insert({
       organization_id: organizationId,
+      office_id: board?.office_id ?? null,
       client_id: boardId,
       column_id: input.columnId ?? null,
       title: input.title,
@@ -279,12 +391,13 @@ export async function createCard(
   if (error) throw error;
 
   if (assigneeIds.length > 0) {
-    const { error: assigneeError } = await supabase.from("task_assignees").insert(
+    const { error: assigneeError } = await supabase.from("task_assignees").upsert(
       assigneeIds.map((userId) => ({
         organization_id: organizationId,
         task_id: card.id,
         user_id: userId,
       })),
+      { onConflict: "organization_id,task_id,user_id", ignoreDuplicates: true },
     );
 
     if (assigneeError) throw assigneeError;
@@ -309,22 +422,9 @@ export async function createCard(
     }
   }
 
-  const assignees = assigneeIds.length > 0
-    ? await supabase
-        .from("profiles")
-        .select("id, full_name, email")
-        .in("id", assigneeIds)
-    : { data: [], error: null };
-
-  if (assignees.error) throw assignees.error;
-
   return {
     ...card,
-    assignees: (assignees.data ?? []).map((profile) => ({
-      id: profile.id,
-      full_name: profile.full_name ?? null,
-      email: profile.email ?? null,
-    })),
+    assignees: await getCardAssignees(card.id),
     commentsCount: 0,
   } as Card;
 }

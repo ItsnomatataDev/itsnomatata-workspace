@@ -49,6 +49,7 @@ import {
   makeZimbabweLocalIso,
 } from "../../../lib/utils/zimbabweCalendar";
 import { getRunningEntryElapsedSeconds } from "../../../lib/utils/timeMath";
+import { canManageAllOffices } from "../../../lib/offices";
 
 
 type Task = Card;
@@ -545,6 +546,7 @@ export default function BoardViewPage() {
   const navigate = useNavigate();
   const profile = auth?.profile ?? null;
   const organizationId = profile?.organization_id ?? null;
+  const canViewAllOffices = canManageAllOffices(profile);
 
   const [board, setBoard] = useState<Board | null>(null);
   const [columns, setColumns] = useState<BoardColumnView[]>([]);
@@ -638,13 +640,27 @@ export default function BoardViewPage() {
       setLoading(true);
       setError("");
 
-      const [boardData, listsData, cardsData] = await Promise.all([
-        getBoard(boardId),
+      const boardData = await getBoard(boardId);
+      if (!boardData) throw new Error(`Board not found (id: ${boardId})`);
+      const profileOfficeId = (profile?.office_id as string | null | undefined) ?? null;
+      if (
+        !canViewAllOffices &&
+        boardData.office_id &&
+        profileOfficeId &&
+        boardData.office_id !== profileOfficeId
+      ) {
+        navigate("/boards", {
+          replace: true,
+          state: { error: "You do not have access to that office board." },
+        });
+        return;
+      }
+
+      const [listsData, cardsData] = await Promise.all([
         getLists(boardId),
         getCards(organizationId, boardId),
       ]);
 
-      if (!boardData) throw new Error(`Board not found (id: ${boardId})`);
       setBoard(boardData);
 
       const nextColumns = makeColumnViews(listsData);
@@ -662,7 +678,7 @@ export default function BoardViewPage() {
     } finally {
       setLoading(false);
     }
-  }, [boardId, organizationId, makeColumnViews]);
+  }, [boardId, canViewAllOffices, navigate, organizationId, profile?.office_id, makeColumnViews]);
 
   useEffect(() => {
     void loadBoardData();
@@ -671,14 +687,24 @@ export default function BoardViewPage() {
   useEffect(() => {
     if (!organizationId || !canAssignCards) return;
 
+    const boardOfficeId = board?.office_id ?? (profile?.office_id as string | null | undefined) ?? null;
+    let usersQuery = supabase
+      .from("profiles")
+      .select("id, full_name, email, primary_role")
+      .eq("organization_id", organizationId)
+      .eq("is_active", true)
+      .order("full_name", { ascending: true });
+
+    if (boardOfficeId) {
+      usersQuery = usersQuery.eq("office_id", boardOfficeId);
+    }
+
     void Promise.all([
-      getBoards(organizationId),
-      supabase
-        .from("profiles")
-        .select("id, full_name, email, primary_role")
-        .eq("organization_id", organizationId)
-        .eq("is_active", true)
-        .order("full_name", { ascending: true }),
+      getBoards(organizationId, {
+        officeId: canViewAllOffices ? null : boardOfficeId,
+        includeAllOffices: canViewAllOffices,
+      }),
+      usersQuery,
     ])
       .then(([boardsData, usersResult]) => {
         if (usersResult.error) throw usersResult.error;
@@ -688,7 +714,7 @@ export default function BoardViewPage() {
       .catch((err) => {
         console.warn("Failed to load admin assignment options:", err);
       });
-  }, [canAssignCards, organizationId]);
+  }, [board?.office_id, canAssignCards, canViewAllOffices, organizationId, profile?.office_id]);
 
   useEffect(() => {
     if (!requestedCardId) {
@@ -705,7 +731,9 @@ export default function BoardViewPage() {
     }
 
     setSelectedTask((current) =>
-      current?.id === nextSelectedTask.id ? current : nextSelectedTask,
+      current?.id === nextSelectedTask.id
+        ? { ...current, ...nextSelectedTask }
+        : nextSelectedTask,
     );
   }, [loading, requestedCardId, tasks]);
 
@@ -739,6 +767,18 @@ export default function BoardViewPage() {
         },
         () => {
           // Reload board data when cards change
+          loadBoardData();
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'task_assignees',
+          filter: `organization_id=eq.${organizationId}`,
+        },
+        () => {
           loadBoardData();
         }
       )
@@ -1449,6 +1489,7 @@ export default function BoardViewPage() {
           hasRunningTimer={!!activeTimer}
           currentUserId={auth.user.id}
           organizationId={organizationId!}
+          boardOfficeId={selectedTask.office_id ?? board?.office_id ?? null}
         />
       )}
 
