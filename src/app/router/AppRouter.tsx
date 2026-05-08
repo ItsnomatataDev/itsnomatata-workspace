@@ -41,6 +41,7 @@ import MeetingRoomPage from "../../features/meetings/pages/MeetingRoomPage";
 import GuestMeetingJoinPage from "../../features/meetings/pages/GuestMeetingJoinPage";
 import SocialPostsPage from "../../features/social-posts/pages/SocialPostsPage";
 import SocialMediaDashboardPage from "../../features/social-media/pages/SocialMediaDashboardPage";
+import MediaDashboardPage from "../../features/media-dashboard/pages/MediaDashboardPage";
 import AssetsPage from "../../features/stock/pages/AssetsPage";
 import AssetDetailsPage from "../../features/stock/pages/AssetDetailsPage";
 import ScanAssetPage from "../../features/stock/pages/ScanAssetPage";
@@ -227,6 +228,25 @@ const AppRouter = () => {
           element={
             <ProtectedRoute>
               <CampaignsPage />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/media-dashboard"
+          element={
+            <ProtectedRoute>
+              <RoleRoute
+                roles={[
+                  "admin",
+                  "manager",
+                  "seo_specialist",
+                  "social_media",
+                  "media_team",
+                ]}
+              >
+                <MediaDashboardPage />
+              </RoleRoute>
             </ProtectedRoute>
           }
         />

@@ -28,6 +28,7 @@ import {
   Settings,
   Inbox,
   FileText,
+  Camera,
 } from "lucide-react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { signOutUser } from "../../../lib/supabase/auth";
@@ -60,6 +61,15 @@ type SidebarCounts = {
   pendingInvites?: number;
   openIssues?: number;
 };
+
+const mediaDashboardRoles = new Set([
+  "admin",
+  "manager",
+  "media_team",
+  "social_media",
+  "seo_specialist",
+  "marketing",
+]);
 
 const commonLinks: LinkItem[] = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -382,7 +392,11 @@ export default function Sidebar({
   const visibleCommonLinks = isThreeLittleBirds
     ? commonLinks.filter((link) => !["/ai-workspace", "/meetings"].includes(link.to))
     : commonLinks;
-  const allNav: NavItem[] = [...visibleCommonLinks, ...getRoleNav(role, counts)];
+  const roleAwareCommonLinks = visibleCommonLinks.filter((link) => {
+    if (link.to !== "/media-dashboard") return true;
+    return mediaDashboardRoles.has(String(role ?? ""));
+  });
+  const allNav: NavItem[] = [...roleAwareCommonLinks, ...getRoleNav(role, counts)];
 
   const handleLogout = async () => {
     try {
