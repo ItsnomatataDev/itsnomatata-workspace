@@ -68,8 +68,6 @@ const ORGANIZATION_SLUG = "its-nomatata";
 function isValidRole(value: unknown): value is AppRole {
   return [
     "admin",
-    "superadmin",
-    "it-superadmin",
     "manager",
     "hr",
     "it",
@@ -82,6 +80,7 @@ function isValidRole(value: unknown): value is AppRole {
 function isCompanyEmail(email?: string | null) {
   return Boolean(email?.trim().toLowerCase().endsWith("@itsnomatata.com"));
 }
+
 
 function resolveUserRole(
   user: User | null,

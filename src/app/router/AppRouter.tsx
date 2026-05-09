@@ -45,8 +45,10 @@ import MediaDashboardPage from "../../features/media-dashboard/pages/MediaDashbo
 import AssetsPage from "../../features/stock/pages/AssetsPage";
 import AssetDetailsPage from "../../features/stock/pages/AssetDetailsPage";
 import ScanAssetPage from "../../features/stock/pages/ScanAssetPage";
+import FleetDashboardPage from "../../features/fleet/pages/FleetDashboardPage";
 import AIWorkspacePage from "../../features/ai-workspace/pages/AIWorkspacePage";
 import AiAssistantPage from "../../features/ai-assistant/pages/AiAssistantPage";
+import AIAutomationReviewPage from "../../features/ai-automation-review/pages/AIAutomationReviewPage";
 import WorkIntelligenceBoardPage from "../../features/timesheets/pages/WorkIntelligenceBoardPage";
 import TeamTimesheetsPage from "../../features/timesheets/pages/TeamTimesheetsPage";
 import EverhourAdminPage from "../../features/timesheets/pages/EverhourAdminPage";
@@ -183,6 +185,39 @@ const AppRouter = () => {
           element={
             <ProtectedRoute>
               <ScanAssetPage />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/fleet"
+          element={
+            <ProtectedRoute>
+              <RoleRoute roles={["admin", "manager", "it"]}>
+                <FleetDashboardPage />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/fleet/imports"
+          element={
+            <ProtectedRoute>
+              <RoleRoute roles={["admin", "manager", "it"]}>
+                <FleetDashboardPage />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/fleet/fuel-purchases"
+          element={
+            <ProtectedRoute>
+              <RoleRoute roles={["admin", "manager", "it"]}>
+                <FleetDashboardPage />
+              </RoleRoute>
             </ProtectedRoute>
           }
         />
@@ -342,6 +377,17 @@ const AppRouter = () => {
           element={
             <ProtectedRoute>
               <AiAssistantPage />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/ai-automation-review"
+          element={
+            <ProtectedRoute>
+              <RoleRoute roles={["admin", "manager", "it", "superadmin", "it-superadmin"]}>
+                <AIAutomationReviewPage />
+              </RoleRoute>
             </ProtectedRoute>
           }
         />

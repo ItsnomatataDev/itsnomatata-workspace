@@ -1,0 +1,385 @@
+{
+  "name": "EziTrack / EziMap Daily Fleet Report Import",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "output": "fields",
+        "filters": {
+          "foldersToInclude": [
+            "Inbox"
+          ],
+          "readStatus": "unread"
+        },
+        "options": {
+          "downloadAttachments": true
+        }
+      },
+      "id": "outlook-trigger",
+      "name": "Microsoft Outlook Trigger - codex inbox",
+      "type": "n8n-nodes-base.microsoftOutlookTrigger",
+      "typeVersion": 1,
+      "position": [
+        -980,
+        80
+      ],
+      "credentials": {
+        "microsoftOutlookOAuth2Api": {
+          "id": "REPLACE_WITH_CODEX_OUTLOOK_CREDENTIAL_ID",
+          "name": "codex@itsnomatata.com"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "subject-ezitrack",
+              "leftValue": "={{$json.subject || ''}}",
+              "rightValue": "EziTrack",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            },
+            {
+              "id": "subject-ezimap",
+              "leftValue": "={{$json.subject || ''}}",
+              "rightValue": "EziMap",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            },
+            {
+              "id": "subject-daily",
+              "leftValue": "={{$json.subject || ''}}",
+              "rightValue": "Daily",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            },
+            {
+              "id": "subject-report",
+              "leftValue": "={{$json.subject || ''}}",
+              "rightValue": "Report",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            },
+            {
+              "id": "body-general-info",
+              "leftValue": "={{$json.bodyText || $json.bodyPreview || $json.body?.content || ''}}",
+              "rightValue": "General information",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            },
+            {
+              "id": "attachment-ezitrack-xls",
+              "leftValue": "={{($json.attachmentFileNames || []).join(' ')}}",
+              "rightValue": ".xls",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "id": "is-ezitrack-email",
+      "name": "IF - EziTrack or EziMap report",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -760,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "function htmlToText(value) {\n  return String(value || '')\n    .replace(/<\\/?h[1-6][^>]*>/gi, '\\n')\n    .replace(/<br\\s*\\/?>/gi, '\\n')\n    .replace(/<\\/p>/gi, '\\n')\n    .replace(/<\\/div>/gi, '\\n')\n    .replace(/<\\/tr>/gi, '\\n')\n    .replace(/<\\/td>/gi, ' ')\n    .replace(/<\\/th>/gi, ' ')\n    .replace(/<hr\\s*\\/?>/gi, '\\n')\n    .replace(/<[^>]+>/g, ' ')\n    .replace(/&nbsp;/g, ' ')\n    .replace(/&amp;/g, '&')\n    .replace(/&lt;/g, '<')\n    .replace(/&gt;/g, '>')\n    .replace(/&#39;/g, \"'\")\n    .replace(/&quot;/g, '\"')\n    .replace(/\\r/g, '')\n    .replace(/[ \\t]+/g, ' ')\n    .replace(/\\n\\s+/g, '\\n')\n    .replace(/\\n{3,}/g, '\\n\\n')\n    .trim();\n}\n\nasync function readAttachmentText(item, itemIndex) {\n  const parts = [];\n  const binaryEntries = Object.entries(item.binary || {});\n\n  for (const [propertyName, binary] of binaryEntries) {\n    const fileName = String(binary.fileName || propertyName).toLowerCase();\n    const mimeType = String(binary.mimeType || '').toLowerCase();\n    const looksTextReport = fileName.endsWith('.xls') || fileName.endsWith('.html') || fileName.endsWith('.htm') || fileName.endsWith('.csv') || fileName.endsWith('.txt') || mimeType.includes('html') || mimeType.includes('text');\n\n    if (!looksTextReport) continue;\n\n    const buffer = await this.helpers.getBinaryDataBuffer(itemIndex, propertyName);\n    parts.push(buffer.toString('utf8'));\n  }\n\n  return parts.map(htmlToText).filter(Boolean).join('\\n\\n');\n}\n\nconst output = [];\n\nfor (let index = 0; index < items.length; index += 1) {\n  const item = items[index];\n  const json = item.json || {};\n  const emailBodyText = htmlToText(json.body?.content || json.bodyPreview || json.text || json.body || '');\n  const attachmentText = await readAttachmentText.call(this, item, index);\n  const bodyText = [emailBodyText, attachmentText].filter(Boolean).join('\\n\\n');\n  const from = json.from?.emailAddress?.address || json.sender?.emailAddress?.address || json.from || null;\n  const fileNames = Object.values(item.binary || {}).map((binary) => binary.fileName).filter(Boolean);\n\n  output.push({\n    json: {\n      messageId: json.id || json.messageId || null,\n      subject: json.subject || '',\n      from,\n      receivedAt: json.receivedDateTime || json.receivedAt || new Date().toISOString(),\n      bodyText,\n      fileName: fileNames[0] || null,\n      attachmentFileNames: fileNames\n    },\n    binary: item.binary\n  });\n}\n\nreturn output;"
+      },
+      "id": "normalize-email",
+      "name": "Code - Normalize email body",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -520,
+        -20
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "function toSeconds(value) {\n  if (!value || /n\\/a/i.test(String(value))) return 0;\n  const text = String(value);\n  const h = Number((text.match(/(\\d+)\\s*h/i) || [])[1] || 0);\n  const m = Number((text.match(/(\\d+)\\s*min/i) || [])[1] || 0);\n  const s = Number((text.match(/(\\d+)\\s*s/i) || [])[1] || 0);\n  if (h || m || s) return h * 3600 + m * 60 + s;\n  const hhmmss = text.match(/^(\\d{1,2}):(\\d{2})(?::(\\d{2}))?$/);\n  if (hhmmss) return Number(hhmmss[1]) * 3600 + Number(hhmmss[2]) * 60 + Number(hhmmss[3] || 0);\n  return 0;\n}\n\nfunction num(value) {\n  if (value === null || value === undefined || value === '' || /n\\/a/i.test(String(value))) return null;\n  const match = String(value).replace(/,/g, '').match(/-?\\d+(\\.\\d+)?/);\n  return match ? Number(match[0]) : null;\n}\n\nfunction readLine(block, label) {\n  const escaped = label.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');\n  const re = new RegExp(`^\\\\s*${escaped}\\\\s*:\\\\s*(.+)$`, 'im');\n  return (block.match(re) || [])[1]?.trim() || null;\n}\n\nfunction parseBlock(block) {\n  const period = readLine(block, 'Period');\n  const [periodStart, periodEnd] = period ? period.split(/\\s+-\\s+/) : [null, null];\n  const fuelCostLine = readLine(block, 'Fuel cost') || '';\n\n  return {\n    object: readLine(block, 'Object'),\n    periodStart,\n    periodEnd,\n    routeStart: readLine(block, 'Route start'),\n    routeEnd: readLine(block, 'Route end'),\n    routeLengthKm: num(readLine(block, 'Route length')),\n    moveDurationSeconds: toSeconds(readLine(block, 'Move duration')),\n    stopDurationSeconds: toSeconds(readLine(block, 'Stop duration')),\n    stopCount: num(readLine(block, 'Stop count')) ?? 0,\n    topSpeedKmh: num(readLine(block, 'Top speed')),\n    averageSpeedKmh: num(readLine(block, 'Average speed')),\n    overspeedCount: num(readLine(block, 'Overspeed count')) ?? 0,\n    fuelConsumptionLitres: num(readLine(block, 'Fuel consumption')),\n    averageFuelConsumptionPer100Km: num(readLine(block, 'Avg. fuel cons. (100 km)')),\n    fuelCost: num(fuelCostLine),\n    currency: fuelCostLine.match(/[A-Z]{3}/)?.[0] || 'USD',\n    engineWorkSeconds: toSeconds(readLine(block, 'Engine work')),\n    engineIdleSeconds: toSeconds(readLine(block, 'Engine idle')),\n    odometerKm: num(readLine(block, 'Odometer')),\n    engineHoursSeconds: toSeconds(readLine(block, 'Engine hours')),\n    driverName: readLine(block, 'Driver') || null,\n    rawData: { block }\n  };\n}\n\nfunction parseSpreadsheetLikeRows(json) {\n  const rows = Array.isArray(json.rows) ? json.rows : Array.isArray(json.records) ? json.records : [];\n  return rows.map((row) => ({\n    object: row.object || row.Object || row.vehicle || row.Vehicle || row['Object'],\n    periodStart: row.periodStart || row['Period start'],\n    periodEnd: row.periodEnd || row['Period end'],\n    routeStart: row.routeStart || row['Route start'],\n    routeEnd: row.routeEnd || row['Route end'],\n    routeLengthKm: num(row.routeLengthKm || row['Route length'] || row['Route length km']),\n    moveDurationSeconds: row.moveDurationSeconds ?? toSeconds(row['Move duration']),\n    stopDurationSeconds: row.stopDurationSeconds ?? toSeconds(row['Stop duration']),\n    stopCount: num(row.stopCount || row['Stop count']) ?? 0,\n    topSpeedKmh: num(row.topSpeedKmh || row['Top speed']),\n    averageSpeedKmh: num(row.averageSpeedKmh || row['Average speed']),\n    overspeedCount: num(row.overspeedCount || row['Overspeed count']) ?? 0,\n    fuelConsumptionLitres: num(row.fuelConsumptionLitres || row['Fuel consumption']),\n    averageFuelConsumptionPer100Km: num(row.averageFuelConsumptionPer100Km || row['Avg. fuel cons. (100 km)']),\n    fuelCost: num(row.fuelCost || row['Fuel cost']),\n    currency: row.currency || row.Currency || 'USD',\n    odometerKm: num(row.odometerKm || row.Odometer || row['Odometer']),\n    rawData: row\n  })).filter((record) => record.object);\n}\n\nreturn items.map((item) => {\n  const json = item.json || {};\n  let records = parseSpreadsheetLikeRows(json);\n\n  if (records.length === 0) {\n    const text = String(json.bodyText || '');\n    const blocks = text.split(/General information/i).map((block) => block.trim()).filter(Boolean);\n    records = blocks.map(parseBlock).filter((record) => record.object);\n  }\n\n  if (records.length === 0) {\n    throw new Error('No EziTrack/EziMap records were parsed from the email body or rows.');\n  }\n\n  return {\n    json: {\n      ...json,\n      records\n    }\n  };\n});"
+      },
+      "id": "parse-report",
+      "name": "Code - Parse EziTrack report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -280,
+        -20
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const DEFAULT_ORGANIZATION_ID = 'ae975c01-c044-4c5d-b5b5-4b6a06b55957';\n\nreturn items.map((item) => {\n  const json = item.json || {};\n  return {\n    json: {\n      organizationId: DEFAULT_ORGANIZATION_ID,\n      source: 'ezitrack_email',\n      fileName: json.fileName || json.attachmentFileNames?.[0] || 'ezitrack-daily-report-email',\n      emailSubject: json.subject || null,\n      emailFrom: json.from || null,\n      receivedAt: json.receivedAt || new Date().toISOString(),\n      records: json.records || [],\n      messageId: json.messageId || null\n    }\n  };\n});"
+      },
+      "id": "build-payload",
+      "name": "Code - Build Supabase payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -40,
+        -20
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://zirftywinscopzuuwdlg.supabase.co/functions/v1/import-ezitrack-daily-report",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer sb_publishable_HDzw0gcnAxaEwHBNrP9yjw_2aI3QFd9"
+            },
+            {
+              "name": "apikey",
+              "value": "sb_publishable_HDzw0gcnAxaEwHBNrP9yjw_2aI3QFd9"
+            },
+            {
+              "name": "x-import-secret",
+              "value": "ezitrack_import_2026_7f4c9b2e8a6d41f0b3c5a9e2d8f6c1b4"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { organizationId: $json.organizationId, source: $json.source, fileName: $json.fileName, emailSubject: $json.emailSubject, emailFrom: $json.emailFrom, receivedAt: $json.receivedAt, records: $json.records } }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": false
+            }
+          }
+        }
+      },
+      "id": "import-supabase",
+      "name": "HTTP - Import to Supabase",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        220,
+        -20
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "move",
+        "messageId": "={{$node['Code - Build Supabase payload'].json.messageId}}",
+        "folderId": "EziTrack/Processed"
+      },
+      "id": "move-processed",
+      "name": "Outlook - Move to Processed",
+      "type": "n8n-nodes-base.microsoftOutlook",
+      "typeVersion": 2,
+      "position": [
+        480,
+        -120
+      ],
+      "credentials": {
+        "microsoftOutlookOAuth2Api": {
+          "id": "REPLACE_WITH_CODEX_OUTLOOK_CREDENTIAL_ID",
+          "name": "codex@itsnomatata.com"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "toRecipients": "thando@itsnomatata.com",
+        "subject": "EziTrack import failed",
+        "bodyContent": "=The EziTrack/EziMap import workflow failed. Subject: {{$json.subject || $node['Code - Normalize email body'].json.subject || 'unknown'}}"
+      },
+      "id": "notify-failure",
+      "name": "Outlook - Notify admin on failure",
+      "type": "n8n-nodes-base.microsoftOutlook",
+      "typeVersion": 2,
+      "position": [
+        220,
+        280
+      ],
+      "credentials": {
+        "microsoftOutlookOAuth2Api": {
+          "id": "REPLACE_WITH_CODEX_OUTLOOK_CREDENTIAL_ID",
+          "name": "codex@itsnomatata.com"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "operation": "move",
+        "messageId": "={{$node['Code - Normalize email body'].json.messageId}}",
+        "folderId": "EziTrack/Failed"
+      },
+      "id": "move-failed",
+      "name": "Outlook - Move to Failed",
+      "type": "n8n-nodes-base.microsoftOutlook",
+      "typeVersion": 2,
+      "position": [
+        480,
+        280
+      ],
+      "credentials": {
+        "microsoftOutlookOAuth2Api": {
+          "id": "REPLACE_WITH_CODEX_OUTLOOK_CREDENTIAL_ID",
+          "name": "codex@itsnomatata.com"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "content": "This copy/paste workflow has the Supabase import URL, organization id, and x-import-secret already filled in.\\n\\nRequired Supabase secrets still needed on the Edge Function side:\\n- SUPABASE_URL\\n- SUPABASE_SERVICE_ROLE_KEY\\n- EZITRACK_IMPORT_SECRET\\n\\nCreate Outlook folders before activating:\\n- EziTrack/Processed\\n- EziTrack/Failed\\n\\nIf using XLSX/CSV attachments, insert a Spreadsheet File node before the parser and output rows as `records` or `rows`.",
+        "height": 260,
+        "width": 420
+      },
+      "id": "workflow-notes",
+      "name": "Setup Notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -980,
+        -300
+      ]
+    }
+  ],
+  "connections": {
+    "Microsoft Outlook Trigger - codex inbox": {
+      "main": [
+        [
+          {
+            "node": "Code - Normalize email body",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Normalize email body": {
+      "main": [
+        [
+          {
+            "node": "IF - EziTrack or EziMap report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - EziTrack or EziMap report": {
+      "main": [
+        [
+          {
+            "node": "Code - Parse EziTrack report",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Code - Parse EziTrack report": {
+      "main": [
+        [
+          {
+            "node": "Code - Build Supabase payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Build Supabase payload": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Import to Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Import to Supabase": {
+      "main": [
+        [
+          {
+            "node": "Outlook - Move to Processed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Outlook - Notify admin on failure": {
+      "main": [
+        [
+          {
+            "node": "Outlook - Move to Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all"
+  },
+  "pinData": {},
+  "staticData": null,
+  "tags": [
+    {
+      "name": "fleet"
+    },
+    {
+      "name": "ezitrack"
+    },
+    {
+      "name": "supabase"
+    }
+  ],
+  "active": false,
+  "versionId": "1"
+}

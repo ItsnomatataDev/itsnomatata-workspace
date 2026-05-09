@@ -9,6 +9,7 @@ import {
   Search,
   ShieldCheck,
   Sparkles,
+  Bot,
   LogOut,
   Bug,
   Activity,
@@ -29,6 +30,7 @@ import {
   Inbox,
   FileText,
   Camera,
+  Truck,
 } from "lucide-react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { signOutUser } from "../../../lib/supabase/auth";
@@ -143,13 +145,17 @@ function getRoleNav(role?: string | null, counts?: SidebarCounts): NavItem[] {
           label: "Assets",
           icon: Package,
           color: "text-blue-400",
-          activePaths: ["/assets", "/scan"],
+          activePaths: ["/assets", "/scan", "/fleet"],
           children: [
             { to: "/assets", label: "Assets", icon: ShieldCheck },
             { to: "/scan", label: "Scan Asset", icon: ScanLine },
+            { to: "/fleet", label: "Fleet", icon: Truck },
+            { to: "/fleet/imports", label: "Fleet Imports", icon: ClipboardList },
+            { to: "/fleet/fuel-purchases", label: "Fuel Purchases", icon: Timer },
           ],
         },
         { to: "/automations", label: "Automations", icon: Sparkles },
+        { to: "/ai-automation-review", label: "AI Automation Review", icon: Bot },
         { to: "/automation-runs", label: "Automation Runs", icon: Activity },
         {
           to: "/admin/notification-deliveries",
@@ -166,24 +172,19 @@ function getRoleNav(role?: string | null, counts?: SidebarCounts): NavItem[] {
         { to: "/it/support", label: "Account Support", icon: ShieldCheck },
       ];
 
-    case "hr":
-      return [
-        { to: "/admin/employees", label: "Employees", icon: Users },
-        { to: "/admin/documents", label: "Documents", icon: FileText },
-        { to: "/admin/payslips", label: "Payslips", icon: ClipboardList },
-        { to: "/admin/leave", label: "Leave Request", icon: CalendarDays },
-        { to: "/admin/attendance", label: "Attendance", icon: Timer },
-        { to: "/timesheets/team", label: "Team Timesheet", icon: Clock3 },
-      ];
+
 
     case "manager":
-      return [
-
-{ type: "group", label: "Assets", icon: Package, color: "text-blue-400", activePaths: ["/assets", "/scan"],children: [
+return [
+{ type: "group", label: "Assets", icon: Package, color: "text-blue-400", activePaths: ["/assets", "/scan", "/fleet"],children: [
 { to: "/assets", label: "Assets", icon: ShieldCheck },
 { to: "/scan", label: "Scan Asset", icon: ScanLine },
+{ to: "/fleet", label: "Fleet", icon: Truck },
+{ to: "/fleet/imports", label: "Fleet Imports", icon: ClipboardList },
+{ to: "/fleet/fuel-purchases", label: "Fuel Purchases", icon: Timer },
 ],
 },
+{ to: "/ai-automation-review", label: "AI Automation Review", icon: Bot },
 ];
 
     case "admin":
@@ -206,10 +207,13 @@ function getRoleNav(role?: string | null, counts?: SidebarCounts): NavItem[] {
           label: "Assets",
           icon: Package,
           color: "text-blue-400",
-          activePaths: ["/assets", "/scan"],
+          activePaths: ["/assets", "/scan", "/fleet"],
           children: [
             { to: "/assets", label: "All Assets", icon: ShieldCheck },
             { to: "/scan", label: "Scan Asset", icon: ScanLine },
+            { to: "/fleet", label: "Fleet", icon: Truck },
+            { to: "/fleet/imports", label: "Fleet Imports", icon: ClipboardList },
+            { to: "/fleet/fuel-purchases", label: "Fuel Purchases", icon: Timer },
           ],
         },
         {
@@ -233,6 +237,7 @@ function getRoleNav(role?: string | null, counts?: SidebarCounts): NavItem[] {
             },
           ],
         },
+        { to: "/ai-automation-review", label: "AI Automation Review", icon: Bot },
       
       ];
 

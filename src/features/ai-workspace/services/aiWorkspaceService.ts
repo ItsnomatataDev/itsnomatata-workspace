@@ -1,4 +1,5 @@
 import { askAssistant, runAIAction } from "../../../lib/api/ai";
+import { requestManualTaskAutomation } from "../../../lib/api/aiAutomation";
 import type {
   AssistantActionInput,
   AssistantAttachmentInput,
@@ -348,17 +349,35 @@ export async function runAIWorkspaceTool(params: {
   };
 
   try {
-    const response = await runAIAction({
-      context: params.context,
-      action,
-      conversationId: conversationId ?? null,
-      attachments: params.attachments ?? [],
-      metadata: {
-        toolId: tool.id,
-        toolCategory: tool.category,
-        ...(params.metadata ?? {}),
-      },
-    });
+    const shouldUseAutomationGateway =
+      tool.id === "create_task_draft" ||
+      tool.id === "system_automate_task_creation";
+
+    const response = shouldUseAutomationGateway
+      ? await requestManualTaskAutomation({
+        context: params.context,
+        instruction: params.prompt ??
+          "Create a task suggestion from this manual AI workspace request.",
+        source: "manual",
+        allowedActions: ["suggest_task", "create_task", "notify"],
+        extraContext: {
+          toolId: tool.id,
+          toolCategory: tool.category,
+          requiresApproval: tool.requiresApproval,
+          ...(params.metadata ?? {}),
+        },
+      })
+      : await runAIAction({
+        context: params.context,
+        action,
+        conversationId: conversationId ?? null,
+        attachments: params.attachments ?? [],
+        metadata: {
+          toolId: tool.id,
+          toolCategory: tool.category,
+          ...(params.metadata ?? {}),
+        },
+      });
 
     const output = toWorkspaceOutput(response, tool.id);
     output.conversationId = conversationId;
