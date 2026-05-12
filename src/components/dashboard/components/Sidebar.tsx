@@ -235,6 +235,11 @@ return [
               label: "Board Management",
               icon: BriefcaseBusiness,
             },
+            {
+              to: "/board-management",
+              label: "Stop All Timers",
+              icon: Timer,
+            },
           ],
         },
         { to: "/ai-automation-review", label: "AI Automation Review", icon: Bot },

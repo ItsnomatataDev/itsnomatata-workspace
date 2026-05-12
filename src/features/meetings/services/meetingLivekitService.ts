@@ -32,7 +32,9 @@ function isMeetingLivekitTokenResponse(
 export async function getMeetingLivekitToken(
   meetingId: string,
 ): Promise<MeetingLivekitTokenResponse> {
-  if (!meetingId.trim()) {
+  const cleanMeetingId = meetingId.trim();
+
+  if (!cleanMeetingId) {
     throw new Error("Meeting ID is required.");
   }
 
@@ -50,18 +52,27 @@ export async function getMeetingLivekitToken(
   }
 
   const { data, error } = await supabase.functions.invoke("livekit-token", {
-    body: { meetingId },
+    body: { meetingId: cleanMeetingId },
     headers: {
       Authorization: `Bearer ${session.access_token}`,
     },
   });
 
-  if (error) {
-    throw new Error(error.message || "Failed to get LiveKit token.");
-  }
+if (error) {
+  console.error("LIVEKIT EDGE FUNCTION ERROR:", error);
+
+  throw new Error(
+    error.message ||
+      "LiveKit token function failed. Check Supabase Edge Function logs.",
+  );
+}
 
   if (!isMeetingLivekitTokenResponse(data)) {
     throw new Error("LiveKit token response was incomplete.");
+  }
+
+  if (!data.url.startsWith("wss://") && !data.url.startsWith("ws://")) {
+    throw new Error(`Invalid LiveKit URL returned: ${data.url}`);
   }
 
   return data;

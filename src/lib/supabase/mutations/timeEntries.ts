@@ -383,6 +383,59 @@ export async function pauseRunningTimersAt6pmForOrganization(
   return paused;
 }
 
+export async function stopAllRunningTimersForOrganization(
+  organizationId: string,
+) {
+  if (!organizationId) return 0;
+
+  const { data, error } = await supabase
+    .from("time_entries")
+    .select("id, started_at, task_id, organization_id, user_id")
+    .eq("organization_id", organizationId)
+    .is("ended_at", null)
+    .is("deleted_at", null);
+
+  if (error) throw new Error(error.message);
+
+  let stopped = 0;
+  const now = new Date().toISOString();
+  
+  for (const row of data ?? []) {
+    // Stop the timer by setting ended_at to now
+    const { error: stopError } = await supabase
+      .from("time_entries")
+      .update({
+        ended_at: now,
+        is_running: false,
+        duration_seconds: calculateDurationSeconds(row.started_at, now),
+        updated_at: now,
+      })
+      .eq("id", row.id)
+      .eq("organization_id", organizationId);
+
+    if (stopError) {
+      console.error(`Failed to stop timer ${row.id}:`, stopError.message);
+      continue;
+    }
+
+    // Update task cache if there's a task_id
+    if (row.task_id) {
+      try {
+        await syncTaskTrackedSecondsCache({
+          organizationId: row.organization_id,
+          taskId: row.task_id,
+        });
+      } catch (cacheError) {
+        console.error(`Failed to sync task cache for ${row.task_id}:`, cacheError);
+      }
+    }
+
+    stopped += 1;
+  }
+
+  return stopped;
+}
+
 export async function syncTaskTrackedSecondsCache(params: {
   organizationId: string;
   taskId: string;

@@ -27,6 +27,7 @@ import Sidebar from "../../../components/dashboard/components/Sidebar";
 import { getBoards, createCard, updateCard, createBoard } from "../services/boardService";
 import { createClient } from "../../clients/services/clientService";
 import { getAdminTimeEntries } from "../../../lib/supabase/queries/adminTime";
+import { stopAllRunningTimersForOrganization } from "../../../lib/supabase/mutations/timeEntries";
 import { supabase } from "../../../lib/supabase/client";
 import { getBoardTimeSettings, updateBoardTimeSettings, assignUsersToBoard, getBoardAssignments } from "../services/boardTimeService";
 import type { Board } from "../../../types/board";
@@ -119,6 +120,8 @@ export default function BoardTimeManagementPage() {
   const [editFormErrors, setEditFormErrors] = useState<Record<string, string>>({});
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [isStoppingTimers, setIsStoppingTimers] = useState(false);
+  const [stopTimersSuccess, setStopTimersSuccess] = useState(false);
 
   // Realtime subscription for time entries
   useEffect(() => {
@@ -637,6 +640,40 @@ export default function BoardTimeManagementPage() {
     }
   };
 
+  const handleStopAllRunningTimers = async () => {
+    if (!organizationId) return;
+
+    setIsStoppingTimers(true);
+    setStopTimersSuccess(false);
+    
+    try {
+      const stoppedCount = await stopAllRunningTimersForOrganization(organizationId);
+      
+      if (stoppedCount > 0) {
+        setStopTimersSuccess(true);
+        // Show success message
+        setTimeout(() => setStopTimersSuccess(false), 3000);
+        
+        // Refresh data to show updated timer states
+        await loadBoardsWithTimeData();
+      } else {
+        // No timers were running
+        alert("No running timers found to stop.");
+      }
+    } catch (error) {
+      console.error("Failed to stop all running timers:", error);
+      let errorMessage = "Failed to stop running timers. Please try again.";
+      
+      if (error instanceof Error) {
+        errorMessage = error.message;
+      }
+      
+      alert(errorMessage);
+    } finally {
+      setIsStoppingTimers(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-black text-white flex items-center justify-center">
@@ -661,15 +698,49 @@ export default function BoardTimeManagementPage() {
                 Manage time estimates, billing, and team assignments for your boards
               </p>
             </div>
-            <button
-              onClick={() => setIsCreateModalOpen(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-orange-500 text-black rounded-lg hover:bg-orange-400 transition"
-            >
-              <Plus className="w-4 h-4" />
-              New Board
-            </button>
+            <div className="flex items-center gap-3">
+              {/* Stop All Running Timers Button */}
+              <button
+                onClick={handleStopAllRunningTimers}
+                disabled={isStoppingTimers}
+                className="flex items-center gap-2 px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-400 disabled:opacity-50 disabled:cursor-not-allowed transition"
+              >
+                {isStoppingTimers ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    Stopping...
+                  </>
+                ) : (
+                  <>
+                    <Clock className="w-4 h-4" />
+                    Stop All Running Timers
+                  </>
+                )}
+              </button>
+              
+              <button
+                onClick={() => setIsCreateModalOpen(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-orange-500 text-black rounded-lg hover:bg-orange-400 transition"
+              >
+                <Plus className="w-4 h-4" />
+                New Board
+              </button>
+            </div>
           </div>
         </div>
+
+        {/* Success Notification */}
+        {stopTimersSuccess && (
+          <div className="mx-6 mt-4 p-4 bg-green-500/10 border border-green-500/20 rounded-lg">
+            <div className="flex items-center gap-3">
+              <CheckCircle2 className="w-5 h-5 text-green-400" />
+              <div>
+                <p className="text-green-400 font-medium">All running timers stopped successfully</p>
+                <p className="text-green-300/70 text-sm mt-1">Time entries have been updated and task caches synchronized.</p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Search and Filters */}
         <div className="p-6 border-b border-white/10">

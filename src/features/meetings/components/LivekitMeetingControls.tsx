@@ -1,233 +1,194 @@
-import type { ReactNode } from "react";
+import { useState } from "react";
 import {
-  Loader2,
+  Crown,
   Mic,
   MicOff,
-  MonitorUp,
+  Monitor,
+  MonitorOff,
   PhoneOff,
-  Settings2,
   Video,
   VideoOff,
 } from "lucide-react";
-import { useState } from "react";
 import {
   useLocalParticipant,
-  useRoomContext,
+  useMaybeRoomContext,
 } from "@livekit/components-react";
+import { Track } from "livekit-client";
 import { updateMeetingMediaState } from "../services/meetingService";
-import MeetingDeviceSettings from "./MeetingDeviceSettings";
 
-type BusyState = "" | "mic" | "camera" | "screen" | "leave" | "end";
-
-function ControlIcon({
-  busy,
-  busyKey,
-  children,
-}: {
-  busy: BusyState;
-  busyKey: BusyState;
-  children: ReactNode;
-}) {
-  if (busy === busyKey) {
-    return <Loader2 size={17} className="animate-spin" />;
-  }
-
-  return children;
-}
+type Props = {
+  meetingId: string;
+  userId: string;
+  isHost: boolean;
+  onLeave: () => void | Promise<void>;
+  onEndMeeting: () => void | Promise<void>;
+};
 
 export default function LivekitMeetingControls({
   meetingId,
   userId,
+  isHost,
   onLeave,
   onEndMeeting,
-  isHost,
-}: {
-  meetingId: string;
-  userId: string;
-  onLeave: () => Promise<void> | void;
-  onEndMeeting?: () => Promise<void> | void;
-  isHost: boolean;
-}) {
-  const room = useRoomContext();
+}: Props) {
   const { localParticipant } = useLocalParticipant();
-  const [busy, setBusy] = useState<BusyState>("");
-  const [deviceSettingsOpen, setDeviceSettingsOpen] = useState(false);
+  const room = useMaybeRoomContext();
+  const [isScreenSharing, setIsScreenSharing] = useState(false);
+  const [leaving, setLeaving] = useState(false);
 
-  const isMuted = !localParticipant.isMicrophoneEnabled;
-  const isCameraOn = localParticipant.isCameraEnabled;
-  const isScreenSharing = localParticipant.isScreenShareEnabled;
+  const isMuted = localParticipant?.isMicrophoneEnabled === false;
+  const isCameraOff = localParticipant?.isCameraEnabled === false;
 
-  async function toggleMic() {
+  async function syncMediaState(input: {
+    isMuted?: boolean;
+    isCameraOn?: boolean;
+  }) {
     try {
-      setBusy("mic");
-
-      const nextMicEnabled = !localParticipant.isMicrophoneEnabled;
-      await localParticipant.setMicrophoneEnabled(nextMicEnabled);
-
       await updateMeetingMediaState({
         meetingId,
         userId,
-        isMuted: !nextMicEnabled,
+        ...input,
       });
     } catch (error) {
-      console.error("TOGGLE MIC ERROR:", error);
-    } finally {
-      setBusy("");
+      console.error("MEDIA STATE SYNC ERROR:", error);
     }
   }
 
-  async function toggleCamera() {
-    try {
-      setBusy("camera");
+  async function handleToggleMic() {
+    if (!localParticipant) return;
 
-      const nextCameraEnabled = !localParticipant.isCameraEnabled;
-      await localParticipant.setCameraEnabled(nextCameraEnabled);
-
-      await updateMeetingMediaState({
-        meetingId,
-        userId,
-        isCameraOn: nextCameraEnabled,
-      });
-    } catch (error) {
-      console.error("TOGGLE CAMERA ERROR:", error);
-    } finally {
-      setBusy("");
-    }
+    const next = !localParticipant.isMicrophoneEnabled;
+    await localParticipant.setMicrophoneEnabled(next);
+    void syncMediaState({ isMuted: !next });
   }
 
-  async function toggleScreenShare() {
-    try {
-      setBusy("screen");
+  async function handleToggleCamera() {
+    if (!localParticipant) return;
 
-      await localParticipant.setScreenShareEnabled(
-        !localParticipant.isScreenShareEnabled,
+    const next = !localParticipant.isCameraEnabled;
+    await localParticipant.setCameraEnabled(next);
+    void syncMediaState({ isCameraOn: next });
+  }
+
+  async function handleToggleScreenShare() {
+    if (!localParticipant || !room) return;
+
+    try {
+      if (isScreenSharing) {
+        await localParticipant.setScreenShareEnabled(false);
+        setIsScreenSharing(false);
+        return;
+      }
+
+      await localParticipant.setScreenShareEnabled(true, {
+        resolution: {
+          width: 1280,
+          height: 720,
+          frameRate: 24,
+        },
+        contentHint: "detail",
+      });
+
+      setIsScreenSharing(true);
+
+      const publication = localParticipant.getTrackPublication(
+        Track.Source.ScreenShare,
       );
+
+      const mediaTrack = publication?.track?.mediaStreamTrack;
+
+      if (mediaTrack) {
+        mediaTrack.addEventListener(
+          "ended",
+          () => {
+            setIsScreenSharing(false);
+          },
+          { once: true },
+        );
+      }
     } catch (error) {
-      console.error("TOGGLE SCREEN SHARE ERROR:", error);
-    } finally {
-      setBusy("");
+      if (error instanceof Error && error.name === "NotAllowedError") return;
+      console.error("SCREEN SHARE ERROR:", error);
     }
   }
 
   async function handleLeave() {
+    if (leaving) return;
+
     try {
-      setBusy("leave");
-      await room.disconnect();
+      setLeaving(true);
       await onLeave();
     } finally {
-      setBusy("");
-    }
-  }
-
-  async function handleEndMeeting() {
-    try {
-      setBusy("end");
-      await room.disconnect();
-      await onEndMeeting?.();
-    } finally {
-      setBusy("");
+      setLeaving(false);
     }
   }
 
   return (
-    <div className="sticky bottom-4 z-30 mx-auto w-full max-w-4xl rounded-3xl border border-white/10 bg-black/80 p-3 shadow-2xl shadow-black/50 backdrop-blur-xl sm:p-4">
-      <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-3">
+    <div className="flex items-center justify-center gap-3 py-4">
+      <button
+        type="button"
+        onClick={() => void handleToggleMic()}
+        title={isMuted ? "Unmute" : "Mute"}
+        className={[
+          "flex h-12 w-12 items-center justify-center rounded-full border transition",
+          isMuted
+            ? "border-red-500/30 bg-red-500/15 text-red-300 hover:bg-red-500/25"
+            : "border-white/10 bg-white/5 text-white/70 hover:border-white/20 hover:text-white",
+        ].join(" ")}
+      >
+        {isMuted ? <MicOff size={18} /> : <Mic size={18} />}
+      </button>
+
+      <button
+        type="button"
+        onClick={() => void handleToggleCamera()}
+        title={isCameraOff ? "Turn camera on" : "Turn camera off"}
+        className={[
+          "flex h-12 w-12 items-center justify-center rounded-full border transition",
+          isCameraOff
+            ? "border-red-500/30 bg-red-500/15 text-red-300 hover:bg-red-500/25"
+            : "border-white/10 bg-white/5 text-white/70 hover:border-white/20 hover:text-white",
+        ].join(" ")}
+      >
+        {isCameraOff ? <VideoOff size={18} /> : <Video size={18} />}
+      </button>
+
+      <button
+        type="button"
+        onClick={() => void handleToggleScreenShare()}
+        title={isScreenSharing ? "Stop sharing" : "Share screen"}
+        className={[
+          "flex h-12 w-12 items-center justify-center rounded-full border transition",
+          isScreenSharing
+            ? "border-orange-500/40 bg-orange-500/20 text-orange-300 hover:bg-orange-500/30"
+            : "border-white/10 bg-white/5 text-white/70 hover:border-white/20 hover:text-white",
+        ].join(" ")}
+      >
+        {isScreenSharing ? <MonitorOff size={18} /> : <Monitor size={18} />}
+      </button>
+
+      {isHost ? (
         <button
           type="button"
-          onClick={() => void toggleMic()}
-          disabled={Boolean(busy)}
-          className={[
-            "inline-flex min-w-28 items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60",
-            isMuted
-              ? "bg-red-500 text-white hover:bg-red-400"
-              : "border border-white/10 bg-neutral-950 text-white hover:border-orange-500/30 hover:bg-orange-500/10",
-          ].join(" ")}
+          onClick={() => void onEndMeeting()}
+          title="End meeting for everyone"
+          className="flex h-12 items-center gap-2 rounded-full border border-red-500/30 bg-red-500/15 px-4 text-sm font-semibold text-red-300 transition hover:bg-red-500/25"
         >
-          <ControlIcon busy={busy} busyKey="mic">
-            {isMuted ? <MicOff size={17} /> : <Mic size={17} />}
-          </ControlIcon>
-          {isMuted ? "Unmute" : "Mute"}
+          <Crown size={16} />
+          End
         </button>
+      ) : null}
 
-        <button
-          type="button"
-          onClick={() => void toggleCamera()}
-          disabled={Boolean(busy)}
-          className={[
-            "inline-flex min-w-32 items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60",
-            !isCameraOn
-              ? "bg-red-500 text-white hover:bg-red-400"
-              : "border border-white/10 bg-neutral-950 text-white hover:border-orange-500/30 hover:bg-orange-500/10",
-          ].join(" ")}
-        >
-          <ControlIcon busy={busy} busyKey="camera">
-            {isCameraOn ? <Video size={17} /> : <VideoOff size={17} />}
-          </ControlIcon>
-          {isCameraOn ? "Camera" : "Start cam"}
-        </button>
-
-        <button
-          type="button"
-          onClick={() => void toggleScreenShare()}
-          disabled={Boolean(busy)}
-          className={[
-            "inline-flex min-w-36 items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60",
-            isScreenSharing
-              ? "bg-orange-500 text-black hover:bg-orange-400"
-              : "border border-white/10 bg-neutral-950 text-white hover:border-orange-500/30 hover:bg-orange-500/10",
-          ].join(" ")}
-        >
-          <ControlIcon busy={busy} busyKey="screen">
-            <MonitorUp size={17} />
-          </ControlIcon>
-          {isScreenSharing ? "Stop share" : "Share"}
-        </button>
-
-        <div className="relative">
-          <button
-            type="button"
-            onClick={() => setDeviceSettingsOpen((current) => !current)}
-            disabled={Boolean(busy)}
-            aria-haspopup="dialog"
-            aria-expanded={deviceSettingsOpen}
-            className="inline-flex min-w-28 items-center justify-center gap-2 rounded-2xl border border-white/10 bg-neutral-950 px-4 py-3 text-sm font-semibold text-white transition hover:border-orange-500/30 hover:bg-orange-500/10 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            <Settings2 size={17} />
-            Devices
-          </button>
-
-          <MeetingDeviceSettings
-            open={deviceSettingsOpen}
-            onClose={() => setDeviceSettingsOpen(false)}
-          />
-        </div>
-
-        {isHost ? (
-          <button
-            type="button"
-            onClick={() => void handleEndMeeting()}
-            disabled={Boolean(busy)}
-            className="inline-flex min-w-32 items-center justify-center gap-2 rounded-2xl bg-red-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            <ControlIcon busy={busy} busyKey="end">
-              <PhoneOff size={17} />
-            </ControlIcon>
-            End
-          </button>
-        ) : null}
-
-        <button
-          type="button"
-          onClick={() => void handleLeave()}
-          disabled={Boolean(busy)}
-          className="inline-flex min-w-28 items-center justify-center gap-2 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm font-semibold text-red-300 transition hover:bg-red-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          <ControlIcon busy={busy} busyKey="leave">
-            <PhoneOff size={17} />
-          </ControlIcon>
-          Leave
-        </button>
-      </div>
+      <button
+        type="button"
+        onClick={() => void handleLeave()}
+        disabled={leaving}
+        title="Leave meeting"
+        className="flex h-12 items-center gap-2 rounded-full bg-red-500 px-5 text-sm font-semibold text-white transition hover:bg-red-400 disabled:opacity-50"
+      >
+        <PhoneOff size={16} />
+        Leave
+      </button>
     </div>
   );
 }

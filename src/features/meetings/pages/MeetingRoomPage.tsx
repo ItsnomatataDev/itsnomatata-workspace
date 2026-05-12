@@ -13,6 +13,8 @@ import {
   RoomAudioRenderer,
   StartAudio,
 } from "@livekit/components-react";
+
+import { VideoPresets, type RoomOptions } from "livekit-client";
 import { useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../../../lib/hooks/useAuth";
 import {
@@ -59,6 +61,34 @@ function getInitials(label: string) {
     .join("");
 }
 
+const LIVEKIT_ROOM_OPTIONS: RoomOptions = {
+  adaptiveStream: true,
+  dynacast: true,
+
+  publishDefaults: {
+    simulcast: true,
+    videoCodec: "vp8",
+    videoEncoding: {
+      maxBitrate: 900_000,
+      maxFramerate: 24,
+    },
+    screenShareEncoding: {
+      maxBitrate: 1_800_000,
+      maxFramerate: 24,
+    },
+  },
+
+  videoCaptureDefaults: {
+    resolution: VideoPresets.h540.resolution,
+  },
+
+  audioCaptureDefaults: {
+    autoGainControl: true,
+    echoCancellation: true,
+    noiseSuppression: true,
+  },
+};
+
 export default function MeetingRoomPage() {
   const { meetingId } = useParams();
   const navigate = useNavigate();
@@ -70,9 +100,7 @@ export default function MeetingRoomPage() {
   const [chatInput, setChatInput] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
-  const [livekitSession, setLivekitSession] = useState<LivekitSession | null>(
-    null,
-  );
+  const [livekitSession, setLivekitSession] = useState<LivekitSession | null>(null);
   const [chatOpen, setChatOpen] = useState(true);
   const [participantsOpen, setParticipantsOpen] = useState(false);
   const [unreadMessages, setUnreadMessages] = useState(0);
@@ -89,13 +117,11 @@ export default function MeetingRoomPage() {
 
   const activeParticipants = useMemo(() => {
     const seen = new Set<string>();
-
     return participants.filter((participant) => {
       if (!participant.user_id) return false;
       if (!participant.joined_at) return false;
       if (participant.left_at) return false;
       if (seen.has(participant.user_id)) return false;
-
       seen.add(participant.user_id);
       return true;
     });
@@ -126,13 +152,9 @@ export default function MeetingRoomPage() {
 
   useEffect(() => {
     const previousCount = previousMessageCountRef.current;
-
     if (!chatOpen && messages.length > previousCount) {
-      setUnreadMessages(
-        (current) => current + (messages.length - previousCount),
-      );
+      setUnreadMessages((current) => current + (messages.length - previousCount));
     }
-
     previousMessageCountRef.current = messages.length;
   }, [messages.length, chatOpen]);
 
@@ -147,10 +169,7 @@ export default function MeetingRoomPage() {
         setError("");
         joinedRef.current = true;
 
-        await joinMeeting({
-          meetingId,
-          userId: user.id,
-        });
+        await joinMeeting({ meetingId, userId: user.id });
 
         const [meetingData, messageData] = await Promise.all([
           getMeetingById(meetingId),
@@ -158,15 +177,8 @@ export default function MeetingRoomPage() {
         ]);
 
         if (cancelled) return;
-
-        if (!meetingData) {
-          throw new Error("Meeting room not found.");
-        }
-
-        if (
-          meetingData.status === "ended" ||
-          meetingData.status === "cancelled"
-        ) {
+        if (!meetingData) throw new Error("Meeting room not found.");
+        if (meetingData.status === "ended" || meetingData.status === "cancelled") {
           throw new Error("This meeting has already ended.");
         }
 
@@ -174,28 +186,21 @@ export default function MeetingRoomPage() {
         setMessages(messageData);
       } catch (err: unknown) {
         console.error(err);
-        const message =
-          err instanceof Error ? err.message : "Failed to load meeting room.";
-        setError(message);
+        setError(err instanceof Error ? err.message : "Failed to load meeting room.");
       } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
+        if (!cancelled) setLoading(false);
       }
     })();
 
     return () => {
       cancelled = true;
-
       if (meetingId && user?.id) {
         void leaveMeeting({ meetingId, userId: user.id });
       }
-
       if (realtimeCleanupRef.current) {
         realtimeCleanupRef.current();
         realtimeCleanupRef.current = null;
       }
-
       joinedRef.current = false;
       setLivekitSession(null);
     };
@@ -209,26 +214,16 @@ export default function MeetingRoomPage() {
     void (async () => {
       try {
         const sessionResult = await getMeetingLivekitToken(meetingId);
-
         if (cancelled) return;
-
         setLivekitSession(sessionResult);
-      } catch (err) {
+      } catch (err: unknown) {
         console.error("LIVEKIT SESSION FETCH FAILED:", err);
-
         if (cancelled) return;
-
-        setError(
-          err instanceof Error
-            ? err.message
-            : "Failed to connect to meeting media.",
-        );
+        setError(err instanceof Error ? err.message : "Failed to connect to meeting media.");
       }
     })();
 
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [meetingId, meeting?.id, user?.id, livekitSession]);
 
   useEffect(() => {
@@ -243,25 +238,17 @@ export default function MeetingRoomPage() {
       meetingId,
       onMeetingChange: (nextMeeting) => {
         setMeeting(nextMeeting);
-
-        if (
-          nextMeeting &&
-          (nextMeeting.status === "ended" || nextMeeting.status === "cancelled")
-        ) {
+        if (nextMeeting && (nextMeeting.status === "ended" || nextMeeting.status === "cancelled")) {
           setError("This meeting has ended.");
           navigate("/meetings");
         }
       },
-      onMessagesChange: (nextMessages) => {
-        setMessages(nextMessages);
-      },
+      onMessagesChange: setMessages,
       onMeetingEnded: () => {
         setError("This meeting has ended.");
         navigate("/meetings");
       },
-      onError: (message) => {
-        setError(message);
-      },
+      onError: setError,
     });
 
     return () => {
@@ -274,29 +261,23 @@ export default function MeetingRoomPage() {
 
   async function handleSendMessage() {
     if (!meetingId || !user?.id || !chatInput.trim()) return;
-
     try {
       setSending(true);
-
       const created = await sendMeetingMessage({
         meetingId,
         senderId: user.id,
         body: chatInput,
       });
-
       if (created) {
         setMessages((current) => {
           const exists = current.some((item) => item.id === created.id);
           return exists ? current : [...current, created];
         });
       }
-
       setChatInput("");
     } catch (err: unknown) {
       console.error(err);
-      const message =
-        err instanceof Error ? err.message : "Failed to send meeting message.";
-      setError(message);
+      setError(err instanceof Error ? err.message : "Failed to send meeting message.");
     } finally {
       setSending(false);
     }
@@ -304,54 +285,40 @@ export default function MeetingRoomPage() {
 
   async function handleLeaveMeeting() {
     if (!meetingId || !user?.id) return;
-
     try {
-      await leaveMeeting({
-        meetingId,
-        userId: user.id,
-      });
-
+      await leaveMeeting({ meetingId, userId: user.id });
       if (realtimeCleanupRef.current) {
         realtimeCleanupRef.current();
         realtimeCleanupRef.current = null;
       }
-
       joinedRef.current = false;
       setLivekitSession(null);
       navigate("/meetings");
     } catch (err: unknown) {
       console.error(err);
-      const message =
-        err instanceof Error ? err.message : "Failed to leave meeting.";
-      setError(message);
+      setError(err instanceof Error ? err.message : "Failed to leave meeting.");
     }
   }
 
   async function handleEndMeeting() {
     if (!meetingId || !user?.id || meeting?.host_id !== user.id) return;
-
     try {
       await endMeeting(meetingId);
-
       if (realtimeCleanupRef.current) {
         realtimeCleanupRef.current();
         realtimeCleanupRef.current = null;
       }
-
       joinedRef.current = false;
       setLivekitSession(null);
       navigate("/meetings");
     } catch (err: unknown) {
       console.error(err);
-      const message =
-        err instanceof Error ? err.message : "Failed to end meeting.";
-      setError(message);
+      setError(err instanceof Error ? err.message : "Failed to end meeting.");
     }
   }
 
   async function handleCopyJoinLink() {
     if (!joinLink) return;
-
     try {
       await navigator.clipboard.writeText(joinLink);
     } catch (err) {
@@ -361,7 +328,6 @@ export default function MeetingRoomPage() {
 
   async function handleCopyGuestLink() {
     if (!guestJoinLink) return;
-
     try {
       await navigator.clipboard.writeText(guestJoinLink);
     } catch (err) {
@@ -371,29 +337,19 @@ export default function MeetingRoomPage() {
 
   async function handleToggleGuestAccess() {
     if (!meetingId || !canManageGuests) return;
-
     try {
       const next = await updateMeetingGuestAccess({
         meetingId,
         allowGuestAccess: !meeting?.allow_guest_access,
       });
-
       setMeeting((current) =>
         current
-          ? {
-              ...current,
-              allow_guest_access: next.allow_guest_access,
-              guest_code: next.guest_code,
-            }
+          ? { ...current, allow_guest_access: next.allow_guest_access, guest_code: next.guest_code }
           : current,
       );
-    } catch (err) {
+    } catch (err: unknown) {
       console.error("GUEST ACCESS UPDATE ERROR:", err);
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Failed to update guest access.",
-      );
+      setError(err instanceof Error ? err.message : "Failed to update guest access.");
     }
   }
 
@@ -428,47 +384,33 @@ export default function MeetingRoomPage() {
                 <div className="max-w-3xl">
                   <div className="inline-flex items-center gap-2 rounded-full border border-orange-500/20 bg-orange-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.22em] text-orange-300">
                     <Radio size={14} />
-                    {meeting.meeting_type === "video"
-                      ? "Live video room"
-                      : "Live audio room"}
+                    {meeting.meeting_type === "video" ? "Live video room" : "Live audio room"}
                   </div>
-
                   <h1 className="mt-4 text-2xl font-bold tracking-tight sm:text-4xl">
                     {meeting.title || "Meeting room"}
                   </h1>
-
                   <p className="mt-2 max-w-2xl text-sm leading-6 text-white/45">
                     {meeting.description || "Live team collaboration room"}
                   </p>
-
                   <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-white/45">
                     <span className="rounded-full border border-white/10 bg-black/40 px-3 py-1">
-                      {activeParticipants.length} active participant
-                      {activeParticipants.length === 1 ? "" : "s"}
+                      {activeParticipants.length} active participant{activeParticipants.length === 1 ? "" : "s"}
                     </span>
-
                     {isHost ? (
                       <span className="rounded-full border border-orange-500/20 bg-orange-500/10 px-3 py-1 text-orange-300">
                         You are host
                       </span>
                     ) : null}
-
                     <button
                       type="button"
                       onClick={() => setParticipantsOpen((current) => !current)}
                       className="rounded-full border border-white/10 bg-black/40 px-3 py-1 text-white/55 transition hover:border-orange-500/30 hover:text-orange-300"
                     >
-                      {participantsOpen
-                        ? "Hide participants"
-                        : "Show participants"}
+                      {participantsOpen ? "Hide participants" : "Show participants"}
                     </button>
-
                     <button
                       type="button"
-                      onClick={() => {
-                        setChatOpen((current) => !current);
-                        setUnreadMessages(0);
-                      }}
+                      onClick={() => { setChatOpen((current) => !current); setUnreadMessages(0); }}
                       className="relative rounded-full border border-white/10 bg-black/40 px-3 py-1 text-white/55 transition hover:border-orange-500/30 hover:text-orange-300 xl:hidden"
                     >
                       {chatOpen ? "Hide chat" : "Show chat"}
@@ -484,17 +426,10 @@ export default function MeetingRoomPage() {
                 <div className="space-y-3 xl:w-90">
                   <div className="rounded-2xl border border-white/10 bg-black/50 px-4 py-3 text-sm text-white/55">
                     Room code:{" "}
-                    <span className="font-semibold text-white">
-                      {meeting.room_code}
-                    </span>
+                    <span className="font-semibold text-white">{meeting.room_code}</span>
                   </div>
-
                   <div className="flex min-w-0 items-center gap-2 rounded-2xl border border-white/10 bg-black/50 px-3 py-3">
-                    <input
-                      value={joinLink}
-                      readOnly
-                      className="min-w-0 flex-1 bg-transparent text-xs text-white/60 outline-none"
-                    />
+                    <input value={joinLink} readOnly className="min-w-0 flex-1 bg-transparent text-xs text-white/60 outline-none" />
                     <button
                       type="button"
                       onClick={() => void handleCopyJoinLink()}
@@ -510,21 +445,16 @@ export default function MeetingRoomPage() {
                       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
                         <div className="flex items-center gap-2">
                           <Globe2 size={16} className="text-orange-400" />
-                          <span className="text-sm font-semibold text-white">
-                            Guest access
-                          </span>
-                          <span
-                            className={[
-                              "rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em]",
-                              meeting.allow_guest_access
-                                ? "border-green-500/20 bg-green-500/10 text-green-300"
-                                : "border-white/10 bg-white/5 text-white/40",
-                            ].join(" ")}
-                          >
+                          <span className="text-sm font-semibold text-white">Guest access</span>
+                          <span className={[
+                            "rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em]",
+                            meeting.allow_guest_access
+                              ? "border-green-500/20 bg-green-500/10 text-green-300"
+                              : "border-white/10 bg-white/5 text-white/40",
+                          ].join(" ")}>
                             {meeting.allow_guest_access ? "Enabled" : "Off"}
                           </span>
                         </div>
-
                         <button
                           type="button"
                           onClick={() => void handleToggleGuestAccess()}
@@ -533,14 +463,9 @@ export default function MeetingRoomPage() {
                           {meeting.allow_guest_access ? "Disable" : "Enable"}
                         </button>
                       </div>
-
                       {meeting.allow_guest_access && guestJoinLink ? (
                         <div className="flex min-w-0 items-center gap-2">
-                          <input
-                            value={guestJoinLink}
-                            readOnly
-                            className="min-w-0 flex-1 bg-transparent text-xs text-white/60 outline-none"
-                          />
+                          <input value={guestJoinLink} readOnly className="min-w-0 flex-1 bg-transparent text-xs text-white/60 outline-none" />
                           <button
                             type="button"
                             onClick={() => void handleCopyGuestLink()}
@@ -552,8 +477,7 @@ export default function MeetingRoomPage() {
                         </div>
                       ) : (
                         <p className="text-xs leading-5 text-white/35">
-                          Enable this only for meetings where external clients
-                          should join without an account.
+                          Enable this only for meetings where external clients should join without an account.
                         </p>
                       )}
                     </div>
@@ -574,11 +498,7 @@ export default function MeetingRoomPage() {
                   Connecting to meeting media...
                 </div>
               ) : (
-                <div
-                  data-lk-theme="default"
-                  data-meeting-media-root="true"
-                  className="min-h-80 sm:min-h-130"
-                >
+                <div data-lk-theme="default" data-meeting-media-root="true" className="min-h-80 sm:min-h-130">
                   <LiveKitRoom
                     key={livekitSession.roomName}
                     token={livekitSession.token}
@@ -586,12 +506,14 @@ export default function MeetingRoomPage() {
                     connect={true}
                     audio={true}
                     video={meeting.meeting_type === "video"}
+                    // ↓ This is the core fix for lag with multiple cameras.
+                    // adaptiveStream + dynacast + simulcast drastically reduce bandwidth
+                    // and CPU usage. Defined outside the component to keep ref stable.
+                    options={LIVEKIT_ROOM_OPTIONS}
                     className="space-y-4"
                     onError={(err) => {
                       console.error("LIVEKIT ROOM ERROR:", err);
-                      setError(
-                        err.message || "Failed to connect to LiveKit room.",
-                      );
+                      setError(err.message || "Failed to connect to LiveKit room.");
                     }}
                   >
                     <RoomAudioRenderer />
@@ -614,11 +536,8 @@ export default function MeetingRoomPage() {
             <div className="rounded-3xl border border-white/10 bg-neutral-950/80 p-5 shadow-2xl shadow-black/30 backdrop-blur">
               <div className="mb-4 flex items-center gap-2">
                 <Users size={18} className="text-orange-400" />
-                <h2 className="text-lg font-semibold">
-                  Participants ({activeParticipants.length})
-                </h2>
+                <h2 className="text-lg font-semibold">Participants ({activeParticipants.length})</h2>
               </div>
-
               {activeParticipants.length === 0 ? (
                 <div className="rounded-2xl border border-white/10 bg-black/40 px-4 py-4 text-sm text-white/45">
                   No participants have joined yet.
@@ -628,44 +547,26 @@ export default function MeetingRoomPage() {
                   {activeParticipants.map((participant) => {
                     const isYou = participant.user_id === user.id;
                     const label = getParticipantLabel(participant);
-
                     return (
-                      <div
-                        key={participant.id}
-                        className="rounded-2xl border border-white/10 bg-black/40 px-4 py-4"
-                      >
+                      <div key={participant.id} className="rounded-2xl border border-white/10 bg-black/40 px-4 py-4">
                         <div className="flex items-start gap-3">
                           <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-orange-500/10 text-sm font-bold text-orange-300">
                             {getInitials(label)}
                           </div>
-
                           <div className="min-w-0 flex-1">
                             <p className="truncate font-medium">
                               {label}
-                              {isYou ? (
-                                <span className="ml-2 text-xs text-orange-400">
-                                  (You)
-                                </span>
-                              ) : null}
+                              {isYou ? <span className="ml-2 text-xs text-orange-400">(You)</span> : null}
                             </p>
-
-                            <p className="mt-1 text-xs uppercase tracking-[0.15em] text-white/35">
-                              {participant.role}
-                            </p>
-
+                            <p className="mt-1 text-xs uppercase tracking-[0.15em] text-white/35">{participant.role}</p>
                             <p className="mt-2 text-[11px] text-white/30">
                               Joined:{" "}
                               {participant.joined_at
-                                ? new Date(
-                                    participant.joined_at,
-                                  ).toLocaleTimeString()
+                                ? new Date(participant.joined_at).toLocaleTimeString()
                                 : "Unknown"}
                             </p>
                           </div>
-
-                          <span className="rounded-full bg-green-500/15 px-2 py-1 text-[11px] font-medium text-green-300">
-                            Live
-                          </span>
+                          <span className="rounded-full bg-green-500/15 px-2 py-1 text-[11px] font-medium text-green-300">Live</span>
                         </div>
                       </div>
                     );
@@ -684,7 +585,6 @@ export default function MeetingRoomPage() {
                   <MessageSquare size={18} className="text-orange-400" />
                   <h2 className="text-lg font-semibold">Meeting chat</h2>
                 </div>
-
                 <button
                   type="button"
                   onClick={() => setChatOpen(false)}
@@ -693,10 +593,7 @@ export default function MeetingRoomPage() {
                   <X size={15} />
                 </button>
               </div>
-
-              <p className="mt-1 text-sm text-white/45">
-                Share quick updates during the session
-              </p>
+              <p className="mt-1 text-sm text-white/45">Share quick updates during the session</p>
             </div>
 
             <div className="mt-4 flex-1 space-y-3 overflow-y-auto pr-1">
@@ -707,38 +604,19 @@ export default function MeetingRoomPage() {
               ) : (
                 messages.map((message) => {
                   const isMe = message.sender_id === user.id;
-
                   return (
                     <div
                       key={message.id}
                       className={[
                         "max-w-[88%] rounded-2xl px-4 py-3 shadow-lg",
-                        isMe
-                          ? "ml-auto bg-orange-500 text-black"
-                          : "border border-white/10 bg-black/50 text-white",
+                        isMe ? "ml-auto bg-orange-500 text-black" : "border border-white/10 bg-black/50 text-white",
                       ].join(" ")}
                     >
-                      <p
-                        className={[
-                          "text-xs font-semibold",
-                          isMe ? "text-black/70" : "text-orange-400",
-                        ].join(" ")}
-                      >
-                        {isMe
-                          ? "You"
-                          : message.sender?.full_name ||
-                            message.sender?.email ||
-                            "User"}
+                      <p className={["text-xs font-semibold", isMe ? "text-black/70" : "text-orange-400"].join(" ")}>
+                        {isMe ? "You" : message.sender?.full_name || message.sender?.email || "User"}
                       </p>
-
                       <p className="mt-1 text-sm leading-5">{message.body}</p>
-
-                      <p
-                        className={[
-                          "mt-2 text-[11px]",
-                          isMe ? "text-black/60" : "text-white/30",
-                        ].join(" ")}
-                      >
+                      <p className={["mt-2 text-[11px]", isMe ? "text-black/60" : "text-white/30"].join(" ")}>
                         {new Date(message.created_at).toLocaleString()}
                       </p>
                     </div>
@@ -762,7 +640,6 @@ export default function MeetingRoomPage() {
                   placeholder="Type a message..."
                   className="min-w-0 flex-1 rounded-2xl border border-white/10 bg-black/50 px-4 py-3 text-sm text-white outline-none placeholder:text-white/25 focus:border-orange-500"
                 />
-
                 <button
                   type="button"
                   onClick={() => void handleSendMessage()}
