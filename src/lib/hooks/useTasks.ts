@@ -534,8 +534,17 @@ export function useTasks(params: UseTasksParams) {
     [organizationId, refetch],
   );
 
+  const taskOptions = useMemo(() => {
+    return tasks.map((task) => ({
+      value: task.id,
+      label: task.title || `Task ${task.id.slice(0, 8)}`,
+      task,
+    }));
+  }, [tasks]);
+
   return {
     tasks,
+    taskOptions,
     boardColumns,
     groupedTasks,
     taskRuntimeMap,

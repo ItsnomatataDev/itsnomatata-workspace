@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
-import { X } from "lucide-react";
+import { X, ChevronDown } from "lucide-react";
 import type { TimeEntryItem } from "../../../lib/supabase/mutations/timeEntries";
+import { useTasks } from "../../../lib/hooks/useTasks";
+import { useProjects } from "../../../lib/hooks/useProjects";
+import { useClients } from "../../../lib/hooks/useClients";
+import { useAuth } from "../../../app/providers/AuthProvider";
 
 type EntryDraft = {
   description: string;
@@ -40,6 +44,20 @@ export default function TimeEntryFormModal({
   onSaveManualEntry: (values: EntryDraft) => Promise<void>;
   onUpdateEntry: (entryId: string, values: EntryDraft) => Promise<void>;
 }) {
+  const auth = useAuth();
+  const organizationId = auth?.profile?.organization_id ?? "";
+  
+  const { taskOptions, loading: tasksLoading } = useTasks({
+    organizationId: organizationId || null,
+  });
+  
+  const { projectOptions, loading: projectsLoading } = useProjects({
+    organizationId: organizationId || null,
+  });
+  
+  const { clientOptions, loading: clientsLoading } = useClients({
+    organizationId: organizationId || null,
+  });
   const [draft, setDraft] = useState<EntryDraft>({
     description: "",
     startedAt: "",
@@ -177,38 +195,77 @@ export default function TimeEntryFormModal({
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <div>
               <label className="mb-2 block text-sm text-white/70">
-                Task ID
+                Task
               </label>
-              <input
-                value={draft.taskId}
-                onChange={(e) => updateField("taskId", e.target.value)}
-                className="w-full border border-white/10 bg-black px-4 py-3 text-white outline-none"
-                placeholder="Optional"
-              />
+              <div className="relative">
+                <select
+                  value={draft.taskId}
+                  onChange={(e) => updateField("taskId", e.target.value)}
+                  className="w-full border border-white/10 bg-black px-4 py-3 text-white outline-none appearance-none pr-10"
+                >
+                  <option value="">Select a task (optional)</option>
+                  {tasksLoading ? (
+                    <option value="">Loading tasks...</option>
+                  ) : (
+                    taskOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))
+                  )}
+                </select>
+                <ChevronDown className="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-white/50 pointer-events-none" />
+              </div>
             </div>
 
             <div>
               <label className="mb-2 block text-sm text-white/70">
-                Project ID
+                Project
               </label>
-              <input
-                value={draft.projectId}
-                onChange={(e) => updateField("projectId", e.target.value)}
-                className="w-full border border-white/10 bg-black px-4 py-3 text-white outline-none"
-                placeholder="Optional"
-              />
+              <div className="relative">
+                <select
+                  value={draft.projectId}
+                  onChange={(e) => updateField("projectId", e.target.value)}
+                  className="w-full border border-white/10 bg-black px-4 py-3 text-white outline-none appearance-none pr-10"
+                >
+                  <option value="">Select a project (optional)</option>
+                  {projectsLoading ? (
+                    <option value="">Loading projects...</option>
+                  ) : (
+                    projectOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))
+                  )}
+                </select>
+                <ChevronDown className="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-white/50 pointer-events-none" />
+              </div>
             </div>
 
             <div>
               <label className="mb-2 block text-sm text-white/70">
-                Client ID
+                Client
               </label>
-              <input
-                value={draft.clientId}
-                onChange={(e) => updateField("clientId", e.target.value)}
-                className="w-full border border-white/10 bg-black px-4 py-3 text-white outline-none"
-                placeholder="Optional"
-              />
+              <div className="relative">
+                <select
+                  value={draft.clientId}
+                  onChange={(e) => updateField("clientId", e.target.value)}
+                  className="w-full border border-white/10 bg-black px-4 py-3 text-white outline-none appearance-none pr-10"
+                >
+                  <option value="">Select a client (optional)</option>
+                  {clientsLoading ? (
+                    <option value="">Loading clients...</option>
+                  ) : (
+                    clientOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))
+                  )}
+                </select>
+                <ChevronDown className="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-white/50 pointer-events-none" />
+              </div>
             </div>
 
             <div>

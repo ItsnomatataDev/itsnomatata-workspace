@@ -27,7 +27,7 @@ serve(async (req) => {
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
     const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-    const livekitUrl = Deno.env.get("LIVEKIT_URL");
+    const livekitUrl = normalizeLivekitUrl(Deno.env.get("LIVEKIT_URL"));
     const livekitApiKey = Deno.env.get("LIVEKIT_API_KEY");
     const livekitApiSecret = Deno.env.get("LIVEKIT_API_SECRET");
 
@@ -35,7 +35,6 @@ serve(async (req) => {
       !supabaseUrl ||
       !supabaseAnonKey ||
       !supabaseServiceRoleKey ||
-      !livekitUrl ||
       !livekitApiKey ||
       !livekitApiSecret
     ) {
@@ -145,4 +144,34 @@ function json(status: number, payload: unknown) {
       "Content-Type": "application/json",
     },
   });
+}
+
+function normalizeLivekitUrl(value: string | undefined) {
+  if (!value?.trim()) return null;
+
+  try {
+    const url = new URL(value.trim());
+
+    if (url.protocol === "https:") {
+      url.protocol = "wss:";
+    } else if (url.protocol === "http:") {
+      url.protocol = "ws:";
+    }
+
+    if (!["ws:", "wss:"].includes(url.protocol)) {
+      throw new Error("LIVEKIT_URL must use wss://, ws://, https://, or http://.");
+    }
+
+    url.pathname = "";
+    url.search = "";
+    url.hash = "";
+
+    return url.toString().replace(/\/$/, "");
+  } catch (error) {
+    throw new Error(
+      error instanceof Error
+        ? `Invalid LIVEKIT_URL: ${error.message}`
+        : "Invalid LIVEKIT_URL.",
+    );
+  }
 }

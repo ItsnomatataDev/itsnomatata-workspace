@@ -86,13 +86,19 @@ function toIso(value: string | null | undefined): string | null {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
+function localDatePart(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const match = String(value).match(/\d{4}-\d{2}-\d{2}/);
+  return match?.[0] ?? null;
+}
+
 function summaryDateFor(record: EziTrackRecord, receivedAt?: string | null) {
-  const source =
-    toIso(record.periodStart) ??
-    toIso(record.routeStart) ??
-    toIso(receivedAt) ??
-    new Date().toISOString();
-  return source.slice(0, 10);
+  return (
+    localDatePart(record.periodStart) ??
+    localDatePart(record.routeStart) ??
+    localDatePart(receivedAt) ??
+    new Date().toISOString().slice(0, 10)
+  );
 }
 
 function getVehicleName(record: EziTrackRecord) {

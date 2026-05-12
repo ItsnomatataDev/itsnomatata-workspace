@@ -64,7 +64,19 @@ async function upsertDailyStatusForClockIn(params: {
     target_session_id: params.sessionId,
   });
 
-  if (error) throw error;
+  if (!error) return;
+
+  if (
+    typeof error === "object" &&
+    error &&
+    "code" in error &&
+    (error as { code?: unknown }).code === "PGRST202"
+  ) {
+    console.warn("Attendance daily status RPC is missing from the Supabase schema cache.", error);
+    return;
+  }
+
+  throw error;
 }
 
 export function getAttendanceSessionElapsedSeconds(

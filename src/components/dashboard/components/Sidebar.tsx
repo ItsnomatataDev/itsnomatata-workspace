@@ -332,9 +332,20 @@ export default function Sidebar({
     auth?.profile?.office && "slug" in auth.profile.office
       ? auth.profile.office.slug === OFFICE_SLUGS.threeLittleBirds
       : false;
-  const visibleCommonLinks = isThreeLittleBirds
+  const baseCommonLinks = isThreeLittleBirds
     ? commonLinks.filter((link) => !["/ai-workspace", "/meetings"].includes(link.to))
     : commonLinks;
+  const visibleCommonLinks = baseCommonLinks.map((link) => {
+    if (role === "media_team" && link.to === "/dashboard") {
+      return {
+        ...link,
+        to: "/media-dashboard",
+        label: "Media Team Dashboard",
+      };
+    }
+
+    return link;
+  });
   const roleAwareCommonLinks = visibleCommonLinks.filter((link) => {
     if (link.to !== "/media-dashboard") return true;
     return mediaDashboardRoles.has(String(role ?? ""));

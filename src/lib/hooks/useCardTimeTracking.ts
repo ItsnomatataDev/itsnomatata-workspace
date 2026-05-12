@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "../supabase/client";
 import type { TimeEntryItem } from "../supabase/mutations/timeEntries";
 import {
@@ -7,6 +7,10 @@ import {
   getTodayCompletedSeconds,
   getZimbabweTodayRangeIso,
 } from "../utils/timeMath";
+
+// Cache for storing recent requests to prevent duplicates
+const requestCache = new Map<string, Promise<any>>();
+const REQUEST_DEBOUNCE_MS = 500; // 500ms debounce
 
 export interface CardTimeTracking {
   isTracking: boolean;
@@ -42,11 +46,35 @@ export function useCardTimeTracking({
   });
   const [loading, setLoading] = useState(true);
 
-  const loadTrackingData = useCallback(async () => {
+  // Debounced request function with caching
+  const makeRequest = useCallback(async (queryKey: string, queryFn: () => Promise<any>) => {
+    // Check cache first
+    if (requestCache.has(queryKey)) {
+      return requestCache.get(queryKey);
+    }
+
+    // Create new request and cache it
+    const request = queryFn();
+    requestCache.set(queryKey, request);
+
+    // Clear cache after request completes (success or fail)
+    Promise.resolve(request).finally(() => {
+      setTimeout(() => {
+        requestCache.delete(queryKey);
+      }, REQUEST_DEBOUNCE_MS);
+    });
+
+    return request;
+  }, []);
+
+  const loadTrackingData: () => Promise<void> = useCallback(async () => {
     if (!organizationId) return;
 
     try {
       setLoading(true);
+
+      // Create unique cache key for this request
+      const cacheKey = `tracking-${organizationId}-${userId || 'all'}-${taskId || 'all'}-${clientId || 'all'}-${todayOnly ? 'today' : 'all'}`;
 
       // Get active time entry for this card/task
       let activeQuery = supabase
@@ -60,8 +88,10 @@ export function useCardTimeTracking({
       if (taskId) activeQuery = activeQuery.eq("task_id", taskId);
       if (clientId) activeQuery = activeQuery.eq("client_id", clientId);
 
-      const { data: activeData, error: activeError } = await activeQuery
-        .order("started_at", { ascending: false });
+      const { data: activeData, error: activeError } = await makeRequest(
+        `${cacheKey}-active`,
+        () => Promise.resolve(activeQuery.order("started_at", { ascending: false }))
+      );
 
       if (activeError) {
         throw activeError;
@@ -83,7 +113,10 @@ export function useCardTimeTracking({
           .lt("started_at", todayRange.end);
       }
 
-      const { data: totalData, error: totalError } = await totalQuery;
+      const { data: totalData, error: totalError } = await makeRequest(
+        `${cacheKey}-total`,
+        () => Promise.resolve(totalQuery)
+      );
 
       if (totalError) throw totalError;
 
@@ -106,8 +139,17 @@ export function useCardTimeTracking({
         totalTrackedSeconds: totalSeconds,
         liveSeconds: 0,
       });
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Failed to load time tracking data:", error);
+      
+      // Retry logic with exponential backoff
+      if (error instanceof Error && (error.message?.includes('fetch') || error.message?.includes('network'))) {
+        const retryDelay = Math.min(1000 * Math.pow(2, 2), 5000); // Max 5 second delay
+        setTimeout(() => {
+          console.log("Retrying time tracking request...");
+          loadTrackingData();
+        }, retryDelay);
+      }
     } finally {
       setLoading(false);
     }
@@ -115,7 +157,7 @@ export function useCardTimeTracking({
 
   useEffect(() => {
     loadTrackingData();
-  }, [loadTrackingData]);
+  }, [organizationId, userId, taskId, clientId, todayOnly]);
 
   // Live timer update
   useEffect(() => {

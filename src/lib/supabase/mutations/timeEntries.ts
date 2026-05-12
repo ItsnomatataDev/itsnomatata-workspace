@@ -2,8 +2,11 @@ import { supabase } from "../client";
 import { logTaskTimeTracked } from "./taskUpdates";
 import {
   clampToZimbabweCutoff,
+  clampToZimbabwePause,
   getZimbabweCutoffIso,
+  getZimbabwePauseIso,
   isAtOrAfterZimbabweCutoff,
+  isAtOrAfterZimbabwePause,
 } from "../../utils/zimbabweCalendar";
 
 export type TimeEntryApprovalStatus = "pending" | "approved" | "rejected";
@@ -242,6 +245,10 @@ function hasZimbabweCutoffPassedForStart(startedAt: string, now = new Date()) {
   return now.getTime() >= new Date(getZimbabweCutoffIso(startedAt)).getTime();
 }
 
+function hasZimbabwePausePassedForStart(startedAt: string, now = new Date()) {
+  return now.getTime() >= new Date(getZimbabwePauseIso(startedAt)).getTime();
+}
+
 async function closeRunningEntryAtCutoff(row: {
   id: string;
   started_at: string;
@@ -261,6 +268,45 @@ async function closeRunningEntryAtCutoff(row: {
         auto_stopped: true,
         auto_stop_reason: "harare_7pm_cutoff",
         auto_stopped_at: new Date().toISOString(),
+      },
+    })
+    .eq("id", row.id)
+    .select(TIME_ENTRY_SELECT)
+    .single();
+
+  if (error) throw new Error(error.message);
+
+  if (row.task_id) {
+    await syncTaskTrackedSecondsCache({
+      organizationId: row.organization_id,
+      taskId: row.task_id,
+    }).catch((cacheErr) => {
+      console.warn("Failed to sync task tracked time cache:", cacheErr);
+    });
+  }
+
+  return data as TimeEntryItem;
+}
+
+async function pauseRunningEntryAt6pm(row: {
+  id: string;
+  started_at: string;
+  task_id: string | null;
+  organization_id: string;
+}) {
+  const endedAt = clampToZimbabwePause(row.started_at);
+  const durationSeconds = calculateDurationSeconds(row.started_at, endedAt);
+
+  const { data, error } = await supabase
+    .from("time_entries")
+    .update({
+      ended_at: endedAt,
+      is_running: false,
+      duration_seconds: durationSeconds,
+      metadata: {
+        auto_paused: true,
+        auto_pause_reason: "harare_6pm_daily_pause",
+        auto_paused_at: new Date().toISOString(),
       },
     })
     .eq("id", row.id)
@@ -307,6 +353,34 @@ export async function stopExpiredRunningTimersForOrganization(
   }
 
   return stopped;
+}
+
+export async function pauseRunningTimersAt6pmForOrganization(
+  organizationId: string,
+) {
+  if (!organizationId) return 0;
+
+  const { data, error } = await supabase
+    .from("time_entries")
+    .select("id, started_at, task_id, organization_id")
+    .eq("organization_id", organizationId)
+    .is("ended_at", null);
+
+  if (error) throw new Error(error.message);
+
+  let paused = 0;
+  for (const row of data ?? []) {
+    if (!hasZimbabwePausePassedForStart(row.started_at)) continue;
+    await pauseRunningEntryAt6pm(row as {
+      id: string;
+      started_at: string;
+      task_id: string | null;
+      organization_id: string;
+    });
+    paused += 1;
+  }
+
+  return paused;
 }
 
 export async function syncTaskTrackedSecondsCache(params: {
@@ -399,14 +473,28 @@ export const getActiveTimeEntry = async ({
   }
 
   const active = (data as TimeEntryItem | null) ?? null;
-  if (active && hasZimbabweCutoffPassedForStart(active.started_at)) {
-    await closeRunningEntryAtCutoff({
-      id: active.id,
-      started_at: active.started_at,
-      task_id: active.task_id,
-      organization_id: active.organization_id,
-    });
-    return null;
+  if (active) {
+    // Check for 7 PM cutoff (hard stop)
+    if (hasZimbabweCutoffPassedForStart(active.started_at)) {
+      await closeRunningEntryAtCutoff({
+        id: active.id,
+        started_at: active.started_at,
+        task_id: active.task_id,
+        organization_id: active.organization_id,
+      });
+      return null;
+    }
+    
+    // Check for 6 PM pause (soft pause)
+    if (hasZimbabwePausePassedForStart(active.started_at)) {
+      await pauseRunningEntryAt6pm({
+        id: active.id,
+        started_at: active.started_at,
+        task_id: active.task_id,
+        organization_id: active.organization_id,
+      });
+      return null;
+    }
   }
 
   return active;

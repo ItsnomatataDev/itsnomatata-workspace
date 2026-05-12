@@ -6,6 +6,7 @@ import {
   getActiveTimeEntry,
   getTimeEntriesForUser,
   type ManualTimeEntryInput,
+  pauseRunningTimersAt6pmForOrganization,
   resumeTimeEntry,
   startTimeEntry,
   type StartTimeEntryInput,
@@ -305,6 +306,32 @@ export function useTimeEntries({
     [activeEntry],
   );
 
+  const handlePauseAllAt6pm = useCallback(async () => {
+    if (!organizationId) {
+      throw new Error("organizationId is required.");
+    }
+
+    setMutating(true);
+    setError(null);
+
+    try {
+      const pausedCount = await pauseRunningTimersAt6pmForOrganization(organizationId);
+      
+      // Refresh entries to get updated state
+      await loadEntries();
+      
+      return pausedCount;
+    } catch (err) {
+      const message = err instanceof Error
+        ? err.message
+        : "Failed to pause timers at 6 PM.";
+      setError(message);
+      throw err;
+    } finally {
+      setMutating(false);
+    }
+  }, [organizationId, loadEntries]);
+
   const liveEntries = useMemo(() => {
     return entries.map((entry) => {
       const isRunning = entry.is_running || !entry.ended_at;
@@ -363,6 +390,7 @@ export function useTimeEntries({
     createManualEntry: handleCreateManual,
     updateEntry: handleUpdate,
     deleteEntry: handleDelete,
+    pauseAllAt6pm: handlePauseAllAt6pm,
     hasRunningTimer: Boolean(liveActiveEntry),
   };
 }

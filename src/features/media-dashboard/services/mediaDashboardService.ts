@@ -205,17 +205,23 @@ function initials(name: string | null, email: string | null) {
 export { initials as getMediaInitials };
 
 async function optionalQuery<T>(label: string, query: PromiseLike<{ data: unknown; error: unknown }>, errors: string[]): Promise<T[]> {
-  const result = await query;
-  if (result.error) {
-    const message = result.error instanceof Error
-      ? result.error.message
-      : typeof result.error === "object" && result.error && "message" in result.error
-        ? String((result.error as { message?: unknown }).message)
-        : `${label} could not be loaded.`;
-    errors.push(message);
+  try {
+    const result = await query;
+    if (result.error) {
+      const message = result.error instanceof Error
+        ? result.error.message
+        : typeof result.error === "object" && result.error && "message" in result.error
+          ? String((result.error as { message?: unknown }).message)
+          : `${label} could not be loaded.`;
+      errors.push(`${label}: ${message}`);
+      return [];
+    }
+    return (result.data ?? []) as T[];
+  } catch (err) {
+    const message = err instanceof Error ? err.message : `${label} could not be loaded.`;
+    errors.push(`${label}: ${message}`);
     return [];
   }
-  return (result.data ?? []) as T[];
 }
 
 export async function getMediaDashboardData(profile: ProfileContext): Promise<MediaDashboardData> {

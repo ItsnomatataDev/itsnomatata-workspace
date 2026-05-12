@@ -95,3 +95,30 @@ export function getZimbabweMonthRangeIso(value: Date | string | number = new Dat
     }),
   };
 }
+
+// 6 PM pause functions for automatic timer pausing
+export function getZimbabwePauseIso(
+  value: Date | string | number,
+  time = "18:00:00",
+) {
+  return makeZimbabweLocalIso(getZimbabweDateKey(value), time);
+}
+
+export function isAtOrAfterZimbabwePause(
+  value: Date | string | number = new Date(),
+  time = "18:00:00",
+) {
+  const pause = getZimbabwePauseIso(value, time);
+  return new Date(value).getTime() >= new Date(pause).getTime();
+}
+
+export function clampToZimbabwePause(
+  startedAt: Date | string | number,
+  endedAt: Date | string | number = new Date(),
+  time = "18:00:00",
+) {
+  const pause = getZimbabwePauseIso(startedAt, time);
+  return new Date(endedAt).getTime() > new Date(pause).getTime()
+    ? pause
+    : new Date(endedAt).toISOString();
+}

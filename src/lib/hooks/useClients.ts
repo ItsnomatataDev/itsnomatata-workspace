@@ -87,8 +87,17 @@ export const useClients = ({
     };
   }, [clients, myClients]);
 
+  const clientOptions = useMemo(() => {
+    return clients.map((client) => ({
+      value: client.id,
+      label: client.name || `Client ${client.id.slice(0, 8)}`,
+      client,
+    }));
+  }, [clients]);
+
   return {
     clients,
+    clientOptions,
     myClients,
     stats,
     loading,

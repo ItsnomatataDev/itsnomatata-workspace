@@ -141,7 +141,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const DEFAULT_ORGANIZATION_ID = 'ae975c01-c044-4c5d-b5b5-4b6a06b55957';\n\nreturn items.map((item) => {\n  const json = item.json || {};\n  return {\n    json: {\n      organizationId: DEFAULT_ORGANIZATION_ID,\n      source: 'ezitrack_email',\n      fileName: json.fileName || json.attachmentFileNames?.[0] || 'ezitrack-daily-report-email',\n      emailSubject: json.subject || null,\n      emailFrom: json.from || null,\n      receivedAt: json.receivedAt || new Date().toISOString(),\n      records: json.records || [],\n      messageId: json.messageId || null\n    }\n  };\n});"
+        "jsCode": "// Keep secrets out of Code nodes. Organization id is not a secret.\nconst DEFAULT_ORGANIZATION_ID = 'ae975c01-c044-4c5d-b5b5-4b6a06b55957';\n\nreturn items.map((item) => {\n  const json = item.json || {};\n  return {\n    json: {\n      organizationId: json.organizationId || DEFAULT_ORGANIZATION_ID,\n      source: 'ezitrack_email',\n      fileName: json.fileName || json.attachmentFileNames?.[0] || 'ezitrack-daily-report-email',\n      emailSubject: json.subject || null,\n      emailFrom: json.from || null,\n      receivedAt: json.receivedAt || new Date().toISOString(),\n      records: json.records || [],\n      messageId: json.messageId || null\n    }\n  };\n});"
       },
       "id": "build-payload",
       "name": "Code - Build Supabase payload",
@@ -164,10 +164,6 @@
               "value": "application/json"
             },
             {
-              "name": "Authorization",
-              "value": "Bearer sb_publishable_HDzw0gcnAxaEwHBNrP9yjw_2aI3QFd9"
-            },
-            {
               "name": "apikey",
               "value": "sb_publishable_HDzw0gcnAxaEwHBNrP9yjw_2aI3QFd9"
             },
@@ -179,12 +175,12 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ { organizationId: $json.organizationId, source: $json.source, fileName: $json.fileName, emailSubject: $json.emailSubject, emailFrom: $json.emailFrom, receivedAt: $json.receivedAt, records: $json.records } }}",
+        "jsonBody": "={{ { organizationId: $json.organizationId, source: $json.source, fileName: $json.fileName, emailSubject: $json.emailSubject, emailFrom: $json.emailFrom, receivedAt: $json.receivedAt, messageId: $json.messageId, records: $json.records } }}",
         "options": {
           "response": {
             "response": {
               "fullResponse": true,
-              "neverError": false
+              "neverError": true
             }
           }
         }
@@ -200,6 +196,47 @@
     },
     {
       "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "http-status-success",
+              "leftValue": "={{$json.statusCode}}",
+              "rightValue": 200,
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            },
+            {
+              "id": "http-status-below-300",
+              "leftValue": "={{$json.statusCode}}",
+              "rightValue": 300,
+              "operator": {
+                "type": "number",
+                "operation": "lt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "import-succeeded",
+      "name": "IF - Supabase import succeeded",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        480,
+        -20
+      ]
+    },
+    {
+      "parameters": {
         "operation": "move",
         "messageId": "={{$node['Code - Build Supabase payload'].json.messageId}}",
         "folderId": "EziTrack/Processed"
@@ -209,7 +246,7 @@
       "type": "n8n-nodes-base.microsoftOutlook",
       "typeVersion": 2,
       "position": [
-        480,
+        740,
         -120
       ],
       "credentials": {
@@ -225,14 +262,14 @@
         "operation": "send",
         "toRecipients": "thando@itsnomatata.com",
         "subject": "EziTrack import failed",
-        "bodyContent": "=The EziTrack/EziMap import workflow failed. Subject: {{$json.subject || $node['Code - Normalize email body'].json.subject || 'unknown'}}"
+        "bodyContent": "=The EziTrack/EziMap import workflow failed.\n\nSubject: {{$node['Code - Build Supabase payload'].json.emailSubject || $node['Code - Normalize email body'].json.subject || 'unknown'}}\nFile: {{$node['Code - Build Supabase payload'].json.fileName || 'unknown'}}\nHTTP Status: {{$json.statusCode || 'no status'}}\nResponse: {{JSON.stringify($json.body || $json)}}"
       },
       "id": "notify-failure",
       "name": "Outlook - Notify admin on failure",
       "type": "n8n-nodes-base.microsoftOutlook",
       "typeVersion": 2,
       "position": [
-        220,
+        740,
         280
       ],
       "credentials": {
@@ -254,7 +291,7 @@
       "type": "n8n-nodes-base.microsoftOutlook",
       "typeVersion": 2,
       "position": [
-        480,
+        1000,
         280
       ],
       "credentials": {
@@ -267,7 +304,7 @@
     },
     {
       "parameters": {
-        "content": "This copy/paste workflow has the Supabase import URL, organization id, and x-import-secret already filled in.\\n\\nRequired Supabase secrets still needed on the Edge Function side:\\n- SUPABASE_URL\\n- SUPABASE_SERVICE_ROLE_KEY\\n- EZITRACK_IMPORT_SECRET\\n\\nCreate Outlook folders before activating:\\n- EziTrack/Processed\\n- EziTrack/Failed\\n\\nIf using XLSX/CSV attachments, insert a Spreadsheet File node before the parser and output rows as `records` or `rows`.",
+        "content": "This copy/paste workflow has the Supabase import URL, organization id, anon key, and x-import-secret filled in because this n8n instance denies env var access in expressions.\\n\\nRequired Supabase secrets still needed on the Edge Function side:\\n- SUPABASE_URL\\n- SUPABASE_SERVICE_ROLE_KEY\\n- EZITRACK_IMPORT_SECRET\\n\\nImportant:\\n- Do not add an Authorization header with the publishable/anon key.\\n- import-ezitrack-daily-report must have verify_jwt=false and rely on x-import-secret.\\n\\nCreate Outlook folders before activating:\\n- EziTrack/Processed\\n- EziTrack/Failed\\n\\nIf using XLSX/CSV attachments, insert a Spreadsheet File node before the parser and output rows as `records` or `rows`.",
         "height": 260,
         "width": 420
       },
@@ -342,7 +379,25 @@
       "main": [
         [
           {
+            "node": "IF - Supabase import succeeded",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Supabase import succeeded": {
+      "main": [
+        [
+          {
             "node": "Outlook - Move to Processed",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Outlook - Notify admin on failure",
             "type": "main",
             "index": 0
           }

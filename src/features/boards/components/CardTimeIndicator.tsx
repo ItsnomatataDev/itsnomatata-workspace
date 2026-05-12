@@ -18,6 +18,17 @@ export default function CardTimeIndicator({
   todayOnly = false,
 }: CardTimeIndicatorProps) {
   const auth = useAuth();
+  
+  // Add defensive check to prevent initialization errors
+  if (!auth?.profile?.organization_id) {
+    return (
+      <div className={`text-xs text-zinc-500 ${className}`}>
+        <Clock3 className="w-3 h-3" />
+        Loading...
+      </div>
+    );
+  }
+
   const {
     isTracking,
     liveSeconds,
@@ -25,7 +36,7 @@ export default function CardTimeIndicator({
     activeEntryCount,
     loading,
   } = useCardTimeTracking({
-    organizationId: auth?.profile?.organization_id ?? "",
+    organizationId: auth.profile.organization_id,
     taskId,
     clientId,
     todayOnly,
