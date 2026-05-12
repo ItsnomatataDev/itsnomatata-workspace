@@ -1208,7 +1208,6 @@ export async function getTimeEntryAuditLogs(params: {
   return (data ?? []) as TimeEntryAuditLogItem[];
 }
 
-export const recalculateCardTotalTime = syncTaskTrackedSecondsCache;
 
 export async function getProjects(
   params: GetProjectsParams,

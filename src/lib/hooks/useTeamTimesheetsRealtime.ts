@@ -65,7 +65,7 @@ export function useTeamTimesheetsRealtime(
         if (!organizationId) return;
         void stopExpiredRunningTimersForOrganization(organizationId).catch(() => 0);
         loadEntries();
-    }, [loadEntries]);
+    }, [organizationId, loadEntries]);
 
     useEffect(() => {
         if (!organizationId || refreshIntervalMs <= 0) return;

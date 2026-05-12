@@ -1215,7 +1215,6 @@ export async function softDeleteUser(params: {
   return true;
 }
 
-export const deleteUserCompletely = softDeleteUser;
 
 export async function inviteEmployeeToOrganization(params: {
   organizationId: string;

@@ -400,9 +400,3 @@ export async function getClientVisibleTaskTimeSummary(params: {
   };
 }
 
-export type Board = ClientItem;
-
-export const createBoard = createClient;
-export const updateBoard = updateClient;
-export const getBoards = getClients;
-export const getBoardById = getClientById;

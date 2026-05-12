@@ -2,7 +2,7 @@ import { supabase } from "../../../lib/supabase/client";
 import {
   createManualTimeEntry,
   getTimeEntryAuditLogs,
-  recalculateCardTotalTime as recalculateTaskTrackedTime,
+  syncTaskTrackedSecondsCache,
   restoreTimeEntry,
   softDeleteTimeEntry,
   updateTimeEntry,
@@ -112,4 +112,4 @@ export async function getCardTimeAuditLogs(params: {
   });
 }
 
-export const recalculateCardTotalTime = recalculateTaskTrackedTime;
+export const recalculateCardTotalTime = syncTaskTrackedSecondsCache;

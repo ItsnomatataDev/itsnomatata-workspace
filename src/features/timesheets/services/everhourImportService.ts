@@ -1058,7 +1058,7 @@ async function insertEverhourTimeEntry(payload: Record<string, unknown>) {
     return supabase.from("time_entries").insert(nextPayload);
   };
 
-  let { error } = await insert(payload);
+  const { error } = await insert(payload);
   if (!error) return;
 
   const message = error.message ?? "";

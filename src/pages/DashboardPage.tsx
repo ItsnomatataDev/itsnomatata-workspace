@@ -80,12 +80,6 @@ export default function DashboardPage() {
   const [approvalMessage, setApprovalMessage] = useState("");
 
   useEffect(() => {
-    const message = window.localStorage.getItem("account_approved_message");
-    if (message) {
-      setApprovalMessage(message);
-      window.localStorage.removeItem("account_approved_message");
-    }
-
     navigator.geolocation?.getCurrentPosition(
       (position) => {
         setCoords({
@@ -152,20 +146,22 @@ export default function DashboardPage() {
       setAdminSummary(null);
       return;
     }
-
     const fetchAdminSummary = async () => {
       try {
         const summary = await getAdminTimeSummary({
           organizationId,
         });
-        setAdminSummary(summary);
+        setAdminSummary((prevSummary) => {
+          if (prevSummary === null) {
+            return summary;
+          }
+          return summary;
+        });
       } catch (err) {
         console.warn("Failed to load admin time summary:", err);
       }
     };
-
     void fetchAdminSummary();
-
     const interval = window.setInterval(fetchAdminSummary, 60000);
     return () => window.clearInterval(interval);
   }, [organizationId, isAdminView]);
@@ -527,7 +523,7 @@ export default function DashboardPage() {
                                   }}
                                   className="rounded-xl bg-orange-500 px-3 py-2 text-sm font-semibold text-black transition hover:bg-orange-400 disabled:cursor-not-allowed disabled:opacity-60"
                                   title={
-                                    !!activeTimer
+                                    activeTimer
                                       ? "Another timer is running"
                                       : "Start timer"
                                   }

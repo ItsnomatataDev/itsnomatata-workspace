@@ -551,4 +551,3 @@ export async function generateDashboardSummary(
   };
 }
 
-export const generateITWorkspaceSummary = generateDashboardSummary;

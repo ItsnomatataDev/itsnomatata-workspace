@@ -1,0 +1,49 @@
+{
+  "entry": [
+    "src/main.tsx",
+    "src/App.tsx", 
+    "src/app/router/AppRouter.tsx",
+    "src/**/*.tsx",
+    "src/**/*.ts",
+    "supabase/functions/*/index.ts",
+    "supabase/functions/*/index.ts"
+  ],
+  "project": [
+    "src/**/*.ts",
+    "src/**/*.tsx"
+  ],
+  "ignore": [
+    "src/features/meetings/hooks/useMeetingModeration.ts",
+    "src/features/meetings/components/MeetingRequestModal.tsx",
+    "src/features/meetings/components/MeetingParticipantList.tsx",
+    "src/features/meetings/services/meetingSignalService.ts",
+    "src/features/ai-assistant/**/*",
+    "src/features/ai-automation-review/**/*",
+    "src/features/admin/**/*",
+    "src/features/clients/**/*",
+    "src/features/dashboard/**/*",
+    "src/features/employee-inbox/**/*",
+    "src/features/fleet/**/*",
+    "src/features/it-workspace/**/*",
+    "src/features/leave/**/*",
+    "src/features/media-dashboard/**/*",
+    "src/features/notifications/**/*",
+    "src/features/projects/**/*",
+    "src/features/social-posts/**/*",
+    "src/features/tasks/**/*",
+    "src/features/time-tracking/**/*",
+    "src/lib/ai-core/**/*",
+    "src/lib/api/**/*",
+    "src/lib/hooks/**/*",
+    "src/lib/supabase/**/*",
+    "src/lib/utils/**/*",
+    "supabase/migrations/**/*",
+    "supabase/functions/**/*"
+  ],
+  "ignoreDependencies": [
+    "@dnd-kit/core",
+    "@dnd-kit/sortable", 
+    "@dnd-kit/utilities",
+    "web-push"
+  ]
+}
