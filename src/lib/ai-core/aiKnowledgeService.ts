@@ -1,34 +1,77 @@
-// ============================================================
-// AI Knowledge Service - Knowledge Management
-// ============================================================
 
-import { createClient } from '@supabase/supabase-js';
-import type { 
+
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import type {
   AIKnowledgeSource,
   AIKnowledgeChunk,
   KnowledgeListOptions,
-  KnowledgeSourceType
+  KnowledgeSourceType,
 } from './aiTypes';
 
-// ============================================================
-// Knowledge Service Class
-// ============================================================
+type JsonRecord = Record<string, unknown>;
+
+type PaginatedKnowledgeSources = {
+  sources: AIKnowledgeSource[];
+  total: number;
+  page: number;
+  pageSize: number;
+};
+
+type CreateKnowledgeSourceInput = {
+  title: string;
+  sourceType: KnowledgeSourceType;
+  fileUrl?: string | null;
+  rawText?: string | null;
+  metadata?: JsonRecord;
+  uploadedBy: string;
+};
+
+type CreateKnowledgeChunkInput = {
+  text: string;
+  embedding?: number[] | null;
+  metadata?: JsonRecord;
+};
+
+type UpdateKnowledgeSourceInput = Partial<
+  Pick<
+    AIKnowledgeSource,
+    | 'title'
+    | 'source_type'
+    | 'file_url'
+    | 'raw_text'
+    | 'metadata'
+  >
+>;
+
+type KnowledgeSearchMatch = {
+  id: string;
+  source_id: string;
+  organization_id: string;
+  chunk_text: string;
+  metadata: JsonRecord;
+  similarity: number;
+};
 
 export class AIKnowledgeService {
-  private supabase: ReturnType<typeof createClient>;
+  private supabase: SupabaseClient;
 
-  constructor(supabaseUrl: string, supabaseAnonKey: string) {
-    this.supabase = createClient(supabaseUrl, supabaseAnonKey);
+  constructor(supabaseUrlOrClient: string | SupabaseClient, supabaseAnonKey?: string) {
+    if (typeof supabaseUrlOrClient === 'string') {
+      if (!supabaseAnonKey) {
+        throw new Error('Supabase anon key is required when initializing AIKnowledgeService with a URL.');
+      }
+
+      this.supabase = createClient(supabaseUrlOrClient, supabaseAnonKey);
+    } else {
+      this.supabase = supabaseUrlOrClient;
+    }
   }
 
-  // ============================================================
-  // Knowledge Source Management
-  // ============================================================
 
   async getKnowledgeSources(
     organizationId: string,
-    options: KnowledgeListOptions = {}
-  ): Promise<{ sources: AIKnowledgeSource[]; total: number; page: number; pageSize: number }> {
+    options: KnowledgeListOptions = {},
+  ): Promise<PaginatedKnowledgeSources> {
     try {
       const {
         page = 1,
@@ -39,139 +82,115 @@ export class AIKnowledgeService {
 
       let query = this.supabase
         .from('ai_knowledge_sources')
-        .select(`
-          *,
-          profiles!inner(
-            id,
-            full_name,
-            primary_role
-          )
-        `)
+        .select('*', { count: 'exact' })
         .eq('organization_id', organizationId)
         .order('created_at', { ascending: false });
 
-      // Apply filters
       if (sourceType) {
         query = query.eq('source_type', sourceType);
       }
-      if (search) {
-        query = query.ilike('title', `%${searchTerm}%`);
+
+      if (search?.trim()) {
+        const searchTerm = `%${search.trim()}%`;
+        query = query.or(`title.ilike.${searchTerm},raw_text.ilike.${searchTerm}`);
       }
 
-      // Get total count
-      const { count } = await this.supabase
-        .from('ai_knowledge_sources')
-        .select('*', { count: 'exact', head: true })
-        .eq('organization_id', organizationId);
-
-      // Apply pagination
-      const from = (page - 1) * pageSize;
+      const from = Math.max(page - 1, 0) * pageSize;
       const to = from + pageSize - 1;
-      query = query.range(from, to);
 
-      const { data: sources, error } = await query;
+      const { data, error, count } = await query.range(from, to);
 
       if (error) {
         throw new Error(`Failed to fetch knowledge sources: ${error.message}`);
       }
 
       return {
-        sources: sources || [],
-        total: count || 0,
+        sources: (data ?? []) as AIKnowledgeSource[],
+        total: count ?? 0,
         page,
         pageSize,
       };
     } catch (error) {
-      console.error('Knowledge Service Error:', error);
+      console.error('AIKnowledgeService.getKnowledgeSources error:', error);
       throw error;
     }
   }
 
   async getKnowledgeSource(sourceId: string): Promise<AIKnowledgeSource | null> {
     try {
-      const { data: source, error } = await this.supabase
+      const { data, error } = await this.supabase
         .from('ai_knowledge_sources')
-        .select(`
-          *,
-          profiles!inner(
-            id,
-            full_name,
-            primary_role
-          )
-        `)
+        .select('*')
         .eq('id', sourceId)
-        .single();
+        .maybeSingle();
 
       if (error) {
         throw new Error(`Failed to fetch knowledge source: ${error.message}`);
       }
 
-      return source;
+      return (data as AIKnowledgeSource | null) ?? null;
     } catch (error) {
-      console.error('Knowledge Service Error:', error);
+      console.error('AIKnowledgeService.getKnowledgeSource error:', error);
       throw error;
     }
   }
 
   async createKnowledgeSource(
     organizationId: string,
-    data: {
-      title: string;
-      sourceType: KnowledgeSourceType;
-      fileUrl?: string;
-      rawText?: string;
-      metadata?: Record<string, unknown>;
-      uploadedBy: string;
-    }
+    data: CreateKnowledgeSourceInput,
   ): Promise<AIKnowledgeSource> {
     try {
-      const { data: source, error } = await (this.supabase
+      if (!data.fileUrl && !data.rawText) {
+        throw new Error('Knowledge source requires either a file URL or raw text.');
+      }
+
+      const { data: source, error } = await this.supabase
         .from('ai_knowledge_sources')
         .insert({
           organization_id: organizationId,
           title: data.title,
           source_type: data.sourceType,
-          file_url: data.fileUrl || null,
-          raw_text: data.rawText || null,
-          metadata: data.metadata || {},
+          file_url: data.fileUrl ?? null,
+          raw_text: data.rawText ?? null,
+          metadata: data.metadata ?? {},
           uploaded_by: data.uploadedBy,
-        } as any)
-        .select()
-        .single());
+        })
+        .select('*')
+        .single();
 
       if (error) {
         throw new Error(`Failed to create knowledge source: ${error.message}`);
       }
 
-      return source!;
+      return source as AIKnowledgeSource;
     } catch (error) {
-      console.error('Knowledge Service Error:', error);
+      console.error('AIKnowledgeService.createKnowledgeSource error:', error);
       throw error;
     }
   }
 
   async updateKnowledgeSource(
     sourceId: string,
-    updates: Partial<AIKnowledgeSource>
+    updates: UpdateKnowledgeSourceInput,
   ): Promise<AIKnowledgeSource> {
     try {
-      const { data: source, error } = await this.supabase
+      const { data, error } = await this.supabase
         .from('ai_knowledge_sources')
         .update({
           ...updates,
           updated_at: new Date().toISOString(),
-        } as any)
+        })
         .eq('id', sourceId)
-        .select()
+        .select('*')
         .single();
 
       if (error) {
         throw new Error(`Failed to update knowledge source: ${error.message}`);
       }
 
-      return source!;
+      return data as AIKnowledgeSource;
     } catch (error) {
-      console.error('Knowledge Service Error:', error);
+      console.error('AIKnowledgeService.updateKnowledgeSource error:', error);
       throw error;
     }
   }
@@ -187,18 +206,15 @@ export class AIKnowledgeService {
         throw new Error(`Failed to delete knowledge source: ${error.message}`);
       }
     } catch (error) {
-      console.error('Knowledge Service Error:', error);
+      console.error('AIKnowledgeService.deleteKnowledgeSource error:', error);
       throw error;
     }
   }
 
-  // ============================================================
-  // Knowledge Chunk Management
-  // ============================================================
 
   async getKnowledgeChunks(
     organizationId: string,
-    sourceId?: string
+    sourceId?: string,
   ): Promise<AIKnowledgeChunk[]> {
     try {
       let query = this.supabase
@@ -211,15 +227,15 @@ export class AIKnowledgeService {
         query = query.eq('source_id', sourceId);
       }
 
-      const { data: chunks, error } = await query;
+      const { data, error } = await query;
 
       if (error) {
         throw new Error(`Failed to fetch knowledge chunks: ${error.message}`);
       }
 
-      return chunks || [];
+      return (data ?? []) as AIKnowledgeChunk[];
     } catch (error) {
-      console.error('Knowledge Service Error:', error);
+      console.error('AIKnowledgeService.getKnowledgeChunks error:', error);
       throw error;
     }
   }
@@ -227,54 +243,93 @@ export class AIKnowledgeService {
   async createKnowledgeChunks(
     organizationId: string,
     sourceId: string,
-    chunks: Array<{
-      text: string;
-      embedding: number[];
-      metadata?: Record<string, unknown>;
-    }>
+    chunks: CreateKnowledgeChunkInput[],
   ): Promise<AIKnowledgeChunk[]> {
     try {
-      const chunkData = chunks.map(chunk => ({
+      if (!chunks.length) {
+        return [];
+      }
+
+      const chunkData = chunks.map((chunk) => ({
         source_id: sourceId,
         organization_id: organizationId,
         chunk_text: chunk.text,
-        embedding: chunk.embedding,
-        metadata: chunk.metadata || {},
+        embedding: chunk.embedding ?? null,
+        metadata: chunk.metadata ?? {},
       }));
 
-      const { data: createdChunks, error } = await (this.supabase
+      const { data, error } = await this.supabase
         .from('ai_knowledge_chunks')
-        .insert(chunkData as any)
-        .select());
+        .insert(chunkData)
+        .select('*');
 
       if (error) {
         throw new Error(`Failed to create knowledge chunks: ${error.message}`);
       }
 
-      return createdChunks || [];
+      return (data ?? []) as AIKnowledgeChunk[];
     } catch (error) {
-      console.error('Knowledge Service Error:', error);
+      console.error('AIKnowledgeService.createKnowledgeChunks error:', error);
       throw error;
     }
   }
 
-  // ============================================================
+  async deleteKnowledgeChunksBySource(sourceId: string): Promise<void> {
+    try {
+      const { error } = await this.supabase
+        .from('ai_knowledge_chunks')
+        .delete()
+        .eq('source_id', sourceId);
 
-  if (error) {
-    throw new Error(`Failed to fetch knowledge chunks: ${error.message}`);
+      if (error) {
+        throw new Error(`Failed to delete knowledge chunks: ${error.message}`);
+      }
+    } catch (error) {
+      console.error('AIKnowledgeService.deleteKnowledgeChunksBySource error:', error);
+      throw error;
+    }
   }
 
-  // ============================================================
-  // Utility Methods
-  // ============================================================
+  async searchKnowledgeChunks(
+    organizationId: string,
+    queryEmbedding: number[],
+    options: {
+      matchThreshold?: number;
+      matchCount?: number;
+    } = {},
+  ): Promise<KnowledgeSearchMatch[]> {
+    try {
+      const {
+        matchThreshold = 0.7,
+        matchCount = 5,
+      } = options;
+
+      const { data, error } = await this.supabase.rpc('search_knowledge_chunks', {
+        p_organization_id: organizationId,
+        p_query_embedding: queryEmbedding,
+        p_match_threshold: matchThreshold,
+        p_match_count: matchCount,
+      });
+
+      if (error) {
+        throw new Error(`Failed to search knowledge chunks: ${error.message}`);
+      }
+
+      return (data ?? []) as KnowledgeSearchMatch[];
+    } catch (error) {
+      console.error('AIKnowledgeService.searchKnowledgeChunks error:', error);
+      throw error;
+    }
+  }
+
 
   async getKnowledgeSourcesByType(
     organizationId: string,
-    sourceType: KnowledgeSourceType
+    sourceType: KnowledgeSourceType,
   ): Promise<AIKnowledgeSource[]> {
     const result = await this.getKnowledgeSources(organizationId, {
       sourceType,
-      pageSize: 100, // Get all of this type
+      pageSize: 100,
     });
 
     return result.sources;
@@ -282,7 +337,7 @@ export class AIKnowledgeService {
 
   async getRecentKnowledgeSources(
     organizationId: string,
-    limit: number = 10
+    limit = 10,
   ): Promise<AIKnowledgeSource[]> {
     const result = await this.getKnowledgeSources(organizationId, {
       pageSize: limit,
@@ -297,11 +352,14 @@ export class AIKnowledgeService {
     sourcesByType: Record<KnowledgeSourceType, number>;
   }> {
     try {
-      // Get source counts by type
-      const { data: sources } = await this.supabase
+      const { data: sources, error: sourcesError } = await this.supabase
         .from('ai_knowledge_sources')
         .select('source_type')
         .eq('organization_id', organizationId);
+
+      if (sourcesError) {
+        throw new Error(`Failed to fetch knowledge source stats: ${sourcesError.message}`);
+      }
 
       const sourcesByType: Record<KnowledgeSourceType, number> = {
         document: 0,
@@ -312,25 +370,29 @@ export class AIKnowledgeService {
         support_article: 0,
       };
 
-      sources?.forEach((source: any) => {
-        if (source.source_type in sourcesByType) {
-          sourcesByType[source.source_type as KnowledgeSourceType]++;
+      (sources ?? []).forEach((source) => {
+        const sourceType = source.source_type as KnowledgeSourceType;
+        if (sourceType in sourcesByType) {
+          sourcesByType[sourceType] += 1;
         }
       });
 
-      // Get chunk count
-      const { count: totalChunks } = await this.supabase
+      const { count: totalChunks, error: chunksError } = await this.supabase
         .from('ai_knowledge_chunks')
         .select('*', { count: 'exact', head: true })
         .eq('organization_id', organizationId);
 
+      if (chunksError) {
+        throw new Error(`Failed to fetch knowledge chunk stats: ${chunksError.message}`);
+      }
+
       return {
-        totalSources: sources?.length || 0,
-        totalChunks: totalChunks || 0,
+        totalSources: sources?.length ?? 0,
+        totalChunks: totalChunks ?? 0,
         sourcesByType,
       };
     } catch (error) {
-      console.error('Knowledge Service Error:', error);
+      console.error('AIKnowledgeService.getKnowledgeStats error:', error);
       throw error;
     }
   }
@@ -343,17 +405,17 @@ export class AIKnowledgeService {
 let defaultKnowledgeService: AIKnowledgeService | null = null;
 
 export const getKnowledgeService = (
-  supabaseUrl?: string,
-  supabaseAnonKey?: string
+  supabaseUrlOrClient?: string | SupabaseClient,
+  supabaseAnonKey?: string,
 ): AIKnowledgeService => {
-  if (!defaultKnowledgeService && supabaseUrl && supabaseAnonKey) {
-    defaultKnowledgeService = new AIKnowledgeService(supabaseUrl, supabaseAnonKey);
+  if (!defaultKnowledgeService && supabaseUrlOrClient) {
+    defaultKnowledgeService = new AIKnowledgeService(supabaseUrlOrClient, supabaseAnonKey);
   }
-  
+
   if (!defaultKnowledgeService) {
-    throw new Error('Knowledge service not initialized. Provide Supabase URL and anon key.');
+    throw new Error('Knowledge service not initialized. Provide a Supabase client or Supabase URL and anon key.');
   }
-  
+
   return defaultKnowledgeService;
 };
 
@@ -362,7 +424,7 @@ export const getKnowledgeService = (
 // ============================================================
 
 export const getSourceTypeLabel = (type: KnowledgeSourceType): string => {
-  const labels = {
+  const labels: Record<KnowledgeSourceType, string> = {
     document: 'Document',
     faq: 'FAQ',
     website: 'Website',
@@ -370,12 +432,12 @@ export const getSourceTypeLabel = (type: KnowledgeSourceType): string => {
     sop: 'SOP',
     support_article: 'Support Article',
   };
-  
-  return labels[type] || type;
+
+  return labels[type] ?? type;
 };
 
 export const getSourceTypeIcon = (type: KnowledgeSourceType): string => {
-  const icons = {
+  const icons: Record<KnowledgeSourceType, string> = {
     document: 'file-text',
     faq: 'help-circle',
     website: 'globe',
@@ -383,23 +445,24 @@ export const getSourceTypeIcon = (type: KnowledgeSourceType): string => {
     sop: 'clipboard-list',
     support_article: 'book-open',
   };
-  
-  return icons[type] || 'file';
+
+  return icons[type] ?? 'file';
 };
 
 export const formatKnowledgeSourceTitle = (title: string): string => {
   const maxLength = 60;
+
   if (title.length <= maxLength) {
     return title;
   }
-  
-  return title.substring(0, maxLength - 3) + '...';
+
+  return `${title.substring(0, maxLength - 3)}...`;
 };
 
-export const truncateText = (text: string, maxLength: number = 200): string => {
+export const truncateText = (text: string, maxLength = 200): string => {
   if (text.length <= maxLength) {
     return text;
   }
-  
-  return text.substring(0, maxLength - 3) + '...';
+
+  return `${text.substring(0, maxLength - 3)}...`;
 };

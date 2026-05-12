@@ -1,37 +1,65 @@
-// ============================================================
-// AI Conversation Service - Conversation Management
-// ============================================================
-
-import { createClient } from '@supabase/supabase-js';
-import type { 
-  AIConversation, 
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import type {
+  AIConversation,
   AIMessage,
   ConversationListOptions,
   MessageListOptions,
   AIConversationListResponse,
   AIMessagesResponse,
   ConversationStatus,
-  ChannelType
+  ChannelType,
 } from './aiTypes';
 
-// ============================================================
-// Conversation Service Class
-// ============================================================
+type JsonRecord = Record<string, unknown>;
+
+type CreateConversationInput = {
+  userId?: string | null;
+  customerId?: string | null;
+  assistantId?: string | null;
+  channel: ChannelType;
+  title: string;
+  metadata?: JsonRecord;
+};
+
+type UpdateConversationInput = Partial<
+  Pick<
+    AIConversation,
+    | 'assistant_id'
+    | 'user_id'
+    | 'customer_id'
+    | 'channel'
+    | 'title'
+    | 'status'
+    | 'metadata'
+  >
+>;
+
+type AddMessageInput = {
+  senderType: 'employee' | 'customer' | 'ai';
+  senderId?: string | null;
+  content: string;
+  role: 'user' | 'assistant' | 'system' | 'tool';
+  metadata?: JsonRecord;
+};
 
 export class AIConversationService {
-  private supabase: ReturnType<typeof createClient>;
+  private supabase: SupabaseClient;
 
-  constructor(supabaseUrl: string, supabaseAnonKey: string) {
-    this.supabase = createClient(supabaseUrl, supabaseAnonKey);
+  constructor(supabaseUrlOrClient: string | SupabaseClient, supabaseAnonKey?: string) {
+    if (typeof supabaseUrlOrClient === 'string') {
+      if (!supabaseAnonKey) {
+        throw new Error('Supabase anon key is required when initializing AIConversationService with a URL.');
+      }
+
+      this.supabase = createClient(supabaseUrlOrClient, supabaseAnonKey);
+    } else {
+      this.supabase = supabaseUrlOrClient;
+    }
   }
-
-  // ============================================================
-  // Conversation Management
-  // ============================================================
 
   async getConversations(
     organizationId: string,
-    options: ConversationListOptions = {}
+    options: ConversationListOptions = {},
   ): Promise<AIConversationListResponse> {
     try {
       const {
@@ -44,192 +72,144 @@ export class AIConversationService {
 
       let query = this.supabase
         .from('ai_conversations')
-        .select(`
-          *,
-          ai_assistants!inner(
-            id,
-            name,
-            assistant_type
-          ),
-          profiles!inner(
-            id,
-            full_name,
-            primary_role
-          )
-        `)
+        .select('*', { count: 'exact' })
         .eq('organization_id', organizationId)
         .order('updated_at', { ascending: false });
 
-      // Apply filters
       if (status) {
         query = query.eq('status', status);
       }
+
       if (channel) {
         query = query.eq('channel', channel);
       }
+
       if (assistantId) {
         query = query.eq('assistant_id', assistantId);
       }
 
-      // Get total count
-      const { count } = await this.supabase
-        .from('ai_conversations')
-        .select('*', { count: 'exact', head: true })
-        .eq('organization_id', organizationId);
-
-      // Apply pagination
-      const from = (page - 1) * pageSize;
+      const from = Math.max(page - 1, 0) * pageSize;
       const to = from + pageSize - 1;
-      query = query.range(from, to);
 
-      const { data: conversations, error } = await query;
+      const { data, error, count } = await query.range(from, to);
 
       if (error) {
         throw new Error(`Failed to fetch conversations: ${error.message}`);
       }
 
       return {
-        conversations: conversations || [],
-        total: count || 0,
+        conversations: (data ?? []) as AIConversation[],
+        total: count ?? 0,
         page,
         pageSize,
       };
     } catch (error) {
-      console.error('Conversation Service Error:', error);
+      console.error('AIConversationService.getConversations error:', error);
       throw error;
     }
   }
 
   async getConversation(conversationId: string): Promise<AIConversation | null> {
     try {
-      const { data: conversation, error } = await this.supabase
+      const { data, error } = await this.supabase
         .from('ai_conversations')
-        .select(`
-          *,
-          ai_assistants!inner(
-            id,
-            name,
-            assistant_type
-          ),
-          profiles!inner(
-            id,
-            full_name,
-            primary_role
-          )
-        `)
+        .select('*')
         .eq('id', conversationId)
-        .single();
+        .maybeSingle();
 
       if (error) {
         throw new Error(`Failed to fetch conversation: ${error.message}`);
       }
 
-      return conversation;
+      return (data as AIConversation | null) ?? null;
     } catch (error) {
-      console.error('Conversation Service Error:', error);
+      console.error('AIConversationService.getConversation error:', error);
       throw error;
     }
   }
 
   async createConversation(
     organizationId: string,
-    data: {
-      userId?: string;
-      customerId?: string;
-      assistantId?: string;
-      channel: ChannelType;
-      title: string;
-      metadata?: Record<string, unknown>;
-    }
+    data: CreateConversationInput,
   ): Promise<AIConversation> {
     try {
-      const { data: conversation, error } = await (this.supabase
+      const { data: conversation, error } = await this.supabase
         .from('ai_conversations')
         .insert({
           organization_id: organizationId,
-          user_id: data.userId || null,
-          customer_id: data.customerId || null,
-          assistant_id: data.assistantId || null,
+          user_id: data.userId ?? null,
+          customer_id: data.customerId ?? null,
+          assistant_id: data.assistantId ?? null,
           channel: data.channel,
           title: data.title,
           status: 'active',
-          metadata: data.metadata || {},
-        } as any)
-        .select()
-        .single());
+          metadata: data.metadata ?? {},
+        })
+        .select('*')
+        .single();
 
       if (error) {
         throw new Error(`Failed to create conversation: ${error.message}`);
       }
 
-      return conversation!;
+      return conversation as AIConversation;
     } catch (error) {
-      console.error('Conversation Service Error:', error);
+      console.error('AIConversationService.createConversation error:', error);
       throw error;
     }
   }
 
   async updateConversation(
     conversationId: string,
-    updates: Partial<AIConversation>
+    updates: UpdateConversationInput,
   ): Promise<AIConversation> {
     try {
-      const { data: conversation, error } = await (this.supabase
+      const { data, error } = await this.supabase
         .from('ai_conversations')
         .update({
           ...updates,
           updated_at: new Date().toISOString(),
-        } as any)
+        })
         .eq('id', conversationId)
-        .select()
-        .single());
+        .select('*')
+        .single();
 
       if (error) {
         throw new Error(`Failed to update conversation: ${error.message}`);
       }
 
-      return conversation!;
+      return data as AIConversation;
     } catch (error) {
-      console.error('Conversation Service Error:', error);
+      console.error('AIConversationService.updateConversation error:', error);
       throw error;
     }
   }
 
-  async archiveConversation(conversationId: string): Promise<void> {
-    await this.updateConversation(conversationId, { status: 'archived' });
+  async archiveConversation(conversationId: string): Promise<AIConversation> {
+    return this.updateConversation(conversationId, { status: 'archived' });
   }
 
-  async closeConversation(conversationId: string): Promise<void> {
-    await this.updateConversation(conversationId, { status: 'closed' });
+  async closeConversation(conversationId: string): Promise<AIConversation> {
+    return this.updateConversation(conversationId, { status: 'closed' });
   }
-
-  // ============================================================
-  // Message Management
-  // ============================================================
 
   async getMessages(
     conversationId: string,
-    options: MessageListOptions = {}
+    options: MessageListOptions = {},
   ): Promise<AIMessagesResponse> {
     try {
-      const { page = 1, pageSize = 50 } = options;
-      
-      if (!options.conversationId) {
-        throw new Error('Conversation ID is required for getMessages');
+      if (!conversationId) {
+        throw new Error('Conversation ID is required for getMessages.');
       }
 
-      const from = (page - 1) * pageSize;
+      const { page = 1, pageSize = 50 } = options;
+
+      const from = Math.max(page - 1, 0) * pageSize;
       const to = from + pageSize - 1;
 
-      // Get total count
-      const { count } = await this.supabase
+      const { data, error, count } = await this.supabase
         .from('ai_messages')
-        .select('*', { count: 'exact', head: true })
-        .eq('conversation_id', conversationId);
-
-      const { data: messages, error } = await this.supabase
-        .from('ai_messages')
-        .select('*')
+        .select('*', { count: 'exact' })
         .eq('conversation_id', conversationId)
         .order('created_at', { ascending: true })
         .range(from, to);
@@ -239,13 +219,13 @@ export class AIConversationService {
       }
 
       return {
-        messages: messages || [],
-        total: count || 0,
+        messages: (data ?? []) as AIMessage[],
+        total: count ?? 0,
         page,
         pageSize,
       };
     } catch (error) {
-      console.error('Conversation Service Error:', error);
+      console.error('AIConversationService.getMessages error:', error);
       throw error;
     }
   }
@@ -253,47 +233,43 @@ export class AIConversationService {
   async addMessage(
     conversationId: string,
     organizationId: string,
-    message: {
-      senderType: 'employee' | 'customer' | 'ai';
-      senderId?: string;
-      content: string;
-      role: 'user' | 'assistant' | 'system';
-      metadata?: Record<string, unknown>;
-    }
+    message: AddMessageInput,
   ): Promise<AIMessage> {
     try {
-      const { data: newMessage, error } = await (this.supabase
+      const { data, error } = await this.supabase
         .from('ai_messages')
         .insert({
           conversation_id: conversationId,
           organization_id: organizationId,
           sender_type: message.senderType,
-          sender_id: message.senderId || null,
+          sender_id: message.senderId ?? null,
           content: message.content,
           role: message.role,
-          metadata: message.metadata || {},
-        } as any)
-        .select()
-        .single());
+          metadata: message.metadata ?? {},
+        })
+        .select('*')
+        .single();
 
       if (error) {
         throw new Error(`Failed to add message: ${error.message}`);
       }
 
-      return newMessage!;
+      await this.updateConversation(conversationId, {
+        metadata: {
+          last_message_at: new Date().toISOString(),
+        },
+      });
+
+      return data as AIMessage;
     } catch (error) {
-      console.error('Conversation Service Error:', error);
+      console.error('AIConversationService.addMessage error:', error);
       throw error;
     }
   }
 
-  // ============================================================
-  // Utility Methods
-  // ============================================================
-
   async getRecentConversations(
     organizationId: string,
-    limit: number = 10
+    limit = 10,
   ): Promise<AIConversation[]> {
     const result = await this.getConversations(organizationId, {
       page: 1,
@@ -306,7 +282,7 @@ export class AIConversationService {
   async getConversationsByAssistant(
     organizationId: string,
     assistantId: string,
-    limit: number = 10
+    limit = 10,
   ): Promise<AIConversation[]> {
     const result = await this.getConversations(organizationId, {
       assistantId,
@@ -319,7 +295,7 @@ export class AIConversationService {
   async getConversationsByChannel(
     organizationId: string,
     channel: ChannelType,
-    limit: number = 10
+    limit = 10,
   ): Promise<AIConversation[]> {
     const result = await this.getConversations(organizationId, {
       channel,
@@ -332,102 +308,87 @@ export class AIConversationService {
   async searchConversations(
     organizationId: string,
     searchTerm: string,
-    options: ConversationListOptions = {}
+    options: ConversationListOptions = {},
   ): Promise<AIConversationListResponse> {
     try {
       const { page = 1, pageSize = 20 } = options;
 
-      const from = (page - 1) * pageSize;
+      const from = Math.max(page - 1, 0) * pageSize;
       const to = from + pageSize - 1;
 
-      const { data: conversations, error, count } = await this.supabase
+      let query = this.supabase
         .from('ai_conversations')
-        .select(`
-          *,
-          ai_assistants!inner(
-            id,
-            name,
-            assistant_type
-          ),
-          profiles!inner(
-            id,
-            full_name,
-            primary_role
-          )
-        `, { count: 'exact' })
+        .select('*', { count: 'exact' })
         .eq('organization_id', organizationId)
-        .ilike('title', `%${searchTerm}%`)
-        .order('updated_at', { ascending: false })
-        .range(from, to);
+        .order('updated_at', { ascending: false });
+
+      if (searchTerm.trim()) {
+        query = query.ilike('title', `%${searchTerm.trim()}%`);
+      }
+
+      const { data, error, count } = await query.range(from, to);
 
       if (error) {
         throw new Error(`Failed to search conversations: ${error.message}`);
       }
 
       return {
-        conversations: conversations || [],
-        total: count || 0,
+        conversations: (data ?? []) as AIConversation[],
+        total: count ?? 0,
         page,
         pageSize,
       };
     } catch (error) {
-      console.error('Conversation Service Error:', error);
+      console.error('AIConversationService.searchConversations error:', error);
       throw error;
     }
   }
 }
 
-// ============================================================
-// Default Instance
-// ============================================================
-
 let defaultConversationService: AIConversationService | null = null;
 
 export const getConversationService = (
-  supabaseUrl?: string,
-  supabaseAnonKey?: string
+  supabaseUrlOrClient?: string | SupabaseClient,
+  supabaseAnonKey?: string,
 ): AIConversationService => {
-  if (!defaultConversationService && supabaseUrl && supabaseAnonKey) {
-    defaultConversationService = new AIConversationService(supabaseUrl, supabaseAnonKey);
+  if (!defaultConversationService && supabaseUrlOrClient) {
+    defaultConversationService = new AIConversationService(supabaseUrlOrClient, supabaseAnonKey);
   }
-  
+
   if (!defaultConversationService) {
-    throw new Error('Conversation service not initialized. Provide Supabase URL and anon key.');
+    throw new Error('Conversation service not initialized. Provide a Supabase client or Supabase URL and anon key.');
   }
-  
+
   return defaultConversationService;
 };
 
-// ============================================================
-// Utility Functions
-// ============================================================
-
 export const formatConversationTitle = (message: string): string => {
   const maxLength = 80;
+
   if (message.length <= maxLength) {
     return message;
   }
-  
-  return message.substring(0, maxLength - 3) + '...';
+
+  return `${message.substring(0, maxLength - 3)}...`;
 };
 
 export const getConversationStatusColor = (status: ConversationStatus): string => {
-  const colors = {
+  const colors: Record<ConversationStatus, string> = {
     active: 'green',
     archived: 'yellow',
     closed: 'gray',
   };
-  
-  return colors[status] || 'gray';
+
+  return colors[status] ?? 'gray';
 };
 
 export const getChannelIcon = (channel: ChannelType): string => {
-  const icons = {
+  const icons: Record<ChannelType, string> = {
     internal: 'message-circle',
     website: 'globe',
     whatsapp: 'phone',
     email: 'mail',
   };
-  
-  return icons[channel] || 'message-circle';
+
+  return icons[channel] ?? 'message-circle';
 };

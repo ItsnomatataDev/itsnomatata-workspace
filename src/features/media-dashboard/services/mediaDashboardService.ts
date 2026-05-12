@@ -91,6 +91,53 @@ export type MediaWorkload = {
   trackedSecondsThisWeek: number;
 };
 
+export type MediaCreativeRequest = {
+  id: string;
+  title: string;
+  description: string | null;
+  request_type: string; // poster, video, reel, flyer, etc.
+  priority: string;
+  deadline: string | null;
+  requester: MediaProfile;
+  assigned_to: MediaProfile | null;
+  status: string; // requested, planning, shooting, editing, review, approved, delivered
+  attached_files: Array<{
+    id: string;
+    file_name: string;
+    file_url: string | null;
+  }>;
+  created_at: string;
+  updated_at: string;
+};
+
+export type MediaEquipment = {
+  id: string;
+  asset_name: string;
+  category: string;
+  status: string; // available, assigned, maintenance, damaged, lost
+  condition: string; // excellent, good, fair, poor
+  assigned_user: MediaProfile | null;
+  checkout_date: string | null;
+  expected_return: string | null;
+  last_maintenance: string | null;
+  notes: string | null;
+  created_at: string;
+};
+
+export type MediaDelivery = {
+  id: string;
+  title: string;
+  delivery_type: string; // final_asset, campaign_package, etc.
+  deliverable_format: string; // mp4, jpg, png, zip, etc.
+  delivered_to: string; // client name or department
+  delivery_date: string | null;
+  status: string; // preparing, delivered, feedback_requested, approved, archived
+  approval_received: boolean;
+  feedback_notes: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type MediaDashboardData = {
   kpis: {
     activeCampaigns: number;
@@ -101,16 +148,24 @@ export type MediaDashboardData = {
     scheduledSocialPosts: number;
     publishedSocialPosts: number;
     trackedSecondsThisWeek: number;
+    activeMediaRequests: number;
+    pendingDeliveries: number;
+    equipmentAvailable: number;
+    editingQueueItems: number;
   };
   mediaProfiles: MediaProfile[];
   productionTasks: MediaTask[];
   pipelineTasks: MediaTask[];
   approvalQueue: MediaTask[];
+  creativeRequests: MediaCreativeRequest[];
+  editingQueue: MediaTask[];
   contentCalendar: Array<MediaTask | MediaSocialPost>;
   assets: MediaAsset[];
   socialPosts: MediaSocialPost[];
   workload: MediaWorkload[];
   gear: MediaGearStatus[];
+  equipment: MediaEquipment[];
+  deliveries: MediaDelivery[];
   notifications: Array<{
     id: string;
     title: string;
@@ -465,6 +520,10 @@ export async function getMediaDashboardData(profile: ProfileContext): Promise<Me
     ["review", "approval", "approved"].includes(task.status)
   );
 
+  const editingQueueItems = mediaTasks.filter((task) =>
+    ["editing", "review", "revisions"].includes(task.status)
+  ).length;
+
   return {
     kpis: {
       activeCampaigns: campaigns.filter((campaign) => ["planned", "in_progress", "review"].includes(campaign.status)).length,
@@ -475,6 +534,10 @@ export async function getMediaDashboardData(profile: ProfileContext): Promise<Me
       scheduledSocialPosts: social.filter((post) => post.status === "scheduled").length,
       publishedSocialPosts: social.filter((post) => post.status === "published").length,
       trackedSecondsThisWeek: timeRows.reduce((sum, entry) => sum + Math.max(0, Number(entry.duration_seconds ?? 0)), 0),
+      activeMediaRequests: 0, // Will be populated when creative requests are implemented
+      pendingDeliveries: 0, // Will be populated when deliveries are implemented
+      equipmentAvailable: [...gearMap.values()].reduce((sum, gear) => sum + gear.available, 0),
+      editingQueueItems,
     },
     mediaProfiles,
     productionTasks: mediaTasks
@@ -482,6 +545,10 @@ export async function getMediaDashboardData(profile: ProfileContext): Promise<Me
       .slice(0, 12),
     pipelineTasks: mediaTasks,
     approvalQueue,
+    creativeRequests: [], // Will be populated when creative requests are implemented
+    editingQueue: mediaTasks.filter((task) =>
+      ["editing", "review", "revisions"].includes(task.status)
+    ).slice(0, 12),
     contentCalendar: [...calendarTasks, ...calendarSocial]
       .sort((a, b) => {
         const left = "due_date" in a ? a.due_date : a.scheduled_for;
@@ -493,6 +560,8 @@ export async function getMediaDashboardData(profile: ProfileContext): Promise<Me
     socialPosts: social,
     workload,
     gear: [...gearMap.values()].sort((a, b) => b.total - a.total),
+    equipment: [], // Will be populated when equipment tracking is implemented
+    deliveries: [], // Will be populated when delivery tracking is implemented
     notifications,
     sectionErrors,
   };

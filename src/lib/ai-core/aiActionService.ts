@@ -1,30 +1,75 @@
-
-import { createClient } from '@supabase/supabase-js';
-import type { 
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import type {
   AIAction,
   AIActionApproval,
   ActionStatus,
-  ApprovalStatus
+  ApprovalStatus,
 } from './aiTypes';
 
+type JsonRecord = Record<string, unknown>;
+
+type PaginatedResult<T> = {
+  total: number;
+  page: number;
+  pageSize: number;
+} & T;
+
+type GetActionsOptions = {
+  page?: number;
+  pageSize?: number;
+  status?: ActionStatus;
+  requiresApproval?: boolean;
+};
+
+type GetApprovalsOptions = {
+  page?: number;
+  pageSize?: number;
+  status?: ApprovalStatus;
+};
+
+type CreateActionInput = {
+  actionType: string;
+  requestedBy: string;
+  conversationId?: string | null;
+  targetType?: string | null;
+  targetId?: string | null;
+  payload?: JsonRecord;
+  requiresApproval?: boolean;
+};
+
+type UpdateActionInput = Partial<
+  Pick<
+    AIAction,
+    | 'conversation_id'
+    | 'action_type'
+    | 'requested_by'
+    | 'target_type'
+    | 'target_id'
+    | 'payload'
+    | 'status'
+    | 'requires_approval'
+  >
+>;
 
 export class AIActionService {
-  private supabase: ReturnType<typeof createClient>;
+  private supabase: SupabaseClient;
 
-  constructor(supabaseUrl: string, supabaseAnonKey: string) {
-    this.supabase = createClient(supabaseUrl, supabaseAnonKey);
+  constructor(supabaseUrlOrClient: string | SupabaseClient, supabaseAnonKey?: string) {
+    if (typeof supabaseUrlOrClient === 'string') {
+      if (!supabaseAnonKey) {
+        throw new Error('Supabase anon key is required when initializing AIActionService with a URL.');
+      }
+
+      this.supabase = createClient(supabaseUrlOrClient, supabaseAnonKey);
+    } else {
+      this.supabase = supabaseUrlOrClient;
+    }
   }
 
- 
   async getActions(
     organizationId: string,
-    options: {
-      page?: number;
-      pageSize?: number;
-      status?: ActionStatus;
-      requiresApproval?: boolean;
-    } = {}
-  ): Promise<{ actions: AIAction[]; total: number; page: number; pageSize: number }> {
+    options: GetActionsOptions = {},
+  ): Promise<PaginatedResult<{ actions: AIAction[] }>> {
     try {
       const {
         page = 1,
@@ -35,208 +80,176 @@ export class AIActionService {
 
       let query = this.supabase
         .from('ai_actions')
-        .select(`
-          *,
-          ai_assistants!inner(
-            id,
-            name,
-            assistant_type
-          ),
-          profiles!inner(
-            id,
-            full_name,
-            primary_role
-          )
-        `)
+        .select('*', { count: 'exact' })
         .eq('organization_id', organizationId)
         .order('created_at', { ascending: false });
 
-      // Apply filters
       if (status) {
         query = query.eq('status', status);
       }
+
       if (typeof requiresApproval === 'boolean') {
         query = query.eq('requires_approval', requiresApproval);
       }
 
-      const { count } = await this.supabase
-        .from('ai_actions')
-        .select('*', { count: 'exact', head: true })
-        .eq('organization_id', organizationId);
-
-   
-      const from = (page - 1) * pageSize;
+      const from = Math.max(page - 1, 0) * pageSize;
       const to = from + pageSize - 1;
-      query = query.range(from, to);
 
-      const { data: actions, error } = await query;
+      const { data, error, count } = await query.range(from, to);
 
       if (error) {
-        throw new Error(`Failed to fetch actions: ${error.message}`);
+        throw new Error(`Failed to fetch AI actions: ${error.message}`);
       }
 
       return {
-        actions: actions || [],
-        total: count || 0,
+        actions: (data ?? []) as AIAction[],
+        total: count ?? 0,
         page,
         pageSize,
       };
     } catch (error) {
-      console.error('Action Service Error:', error);
+      console.error('AIActionService.getActions error:', error);
       throw error;
     }
   }
 
   async getAction(actionId: string): Promise<AIAction | null> {
     try {
-      const { data: action, error } = await this.supabase
+      const { data, error } = await this.supabase
         .from('ai_actions')
-        .select(`
-          *,
-          ai_assistants!inner(
-            id,
-            name,
-            assistant_type
-          ),
-          profiles!inner(
-            id,
-            full_name,
-            primary_role
-          )
-        `)
+        .select('*')
         .eq('id', actionId)
-        .single();
+        .maybeSingle();
 
       if (error) {
-        throw new Error(`Failed to fetch action: ${error.message}`);
+        throw new Error(`Failed to fetch AI action: ${error.message}`);
       }
 
-      return action;
+      return (data as AIAction | null) ?? null;
     } catch (error) {
-      console.error('Action Service Error:', error);
+      console.error('AIActionService.getAction error:', error);
       throw error;
     }
   }
 
   async createAction(
     organizationId: string,
-    data: {
-      actionType: string;
-      requestedBy: string;
-      conversationId?: string;
-      targetType?: string;
-      targetId?: string;
-      payload: Record<string, unknown>;
-      requiresApproval?: boolean;
-    }
+    data: CreateActionInput,
   ): Promise<AIAction> {
     try {
-      const { data: action, error } = await (this.supabase
+      const { data: action, error } = await this.supabase
         .from('ai_actions')
         .insert({
           organization_id: organizationId,
           action_type: data.actionType,
           requested_by: data.requestedBy,
-          conversation_id: data.conversationId || null,
-          target_type: data.targetType || null,
-          target_id: data.targetId || null,
-          payload: data.payload,
+          conversation_id: data.conversationId ?? null,
+          target_type: data.targetType ?? null,
+          target_id: data.targetId ?? null,
+          payload: data.payload ?? {},
           status: 'pending',
-          requires_approval: data.requiresApproval || false,
-        } as any)
-        .select()
-        .single());
+          requires_approval: data.requiresApproval ?? false,
+        })
+        .select('*')
+        .single();
 
       if (error) {
-        throw new Error(`Failed to create action: ${error.message}`);
+        throw new Error(`Failed to create AI action: ${error.message}`);
       }
 
-      return action!;
+      return action as AIAction;
     } catch (error) {
-      console.error('Action Service Error:', error);
+      console.error('AIActionService.createAction error:', error);
       throw error;
     }
   }
 
-  async updateAction(
-    actionId: string,
-    updates: Partial<AIAction>
-  ): Promise<AIAction> {
+  async updateAction(actionId: string, updates: UpdateActionInput): Promise<AIAction> {
     try {
-      const { data: action, error } = await (this.supabase
+      const { data, error } = await this.supabase
         .from('ai_actions')
         .update({
           ...updates,
           updated_at: new Date().toISOString(),
-        } as any)
+        })
         .eq('id', actionId)
-        .select()
-        .single());
+        .select('*')
+        .single();
 
       if (error) {
-        throw new Error(`Failed to update action: ${error.message}`);
+        throw new Error(`Failed to update AI action: ${error.message}`);
       }
 
-      return action!;
+      return data as AIAction;
     } catch (error) {
-      console.error('Action Service Error:', error);
+      console.error('AIActionService.updateAction error:', error);
       throw error;
     }
   }
 
-  async executeAction(actionId: string, executedBy: string): Promise<void> {
-    await this.updateAction(actionId, { 
-      status: 'executed',
+  async executeAction(actionId: string, executedBy: string): Promise<AIAction> {
+    const existingAction = await this.getAction(actionId);
 
+    if (!existingAction) {
+      throw new Error('AI action not found.');
+    }
+
+    return this.updateAction(actionId, {
+      status: 'executed',
       payload: {
+        ...(existingAction.payload ?? {}),
         executed_at: new Date().toISOString(),
         executed_by: executedBy,
-      } as any,
+      } as JsonRecord,
     });
   }
 
-  async failAction(actionId: string, error: string): Promise<void> {
-    await this.updateAction(actionId, { 
+  async failAction(actionId: string, failureMessage: string): Promise<AIAction> {
+    const existingAction = await this.getAction(actionId);
+
+    if (!existingAction) {
+      throw new Error('AI action not found.');
+    }
+
+    return this.updateAction(actionId, {
       status: 'failed',
-      // Add failure metadata
       payload: {
+        ...(existingAction.payload ?? {}),
         failed_at: new Date().toISOString(),
-        error: error,
-      } as any,
+        error: failureMessage,
+      } as JsonRecord,
     });
   }
 
   async getApprovals(
     organizationId: string,
-    options: {
-      page?: number;
-      pageSize?: number;
-      status?: ApprovalStatus;
-    } = {}
-  ): Promise<{ approvals: AIActionApproval[]; total: number; page: number; pageSize: number }> {
+    options: GetApprovalsOptions = {},
+  ): Promise<PaginatedResult<{ approvals: AIActionApproval[] }>> {
     try {
       const { page = 1, pageSize = 20, status } = options;
 
       let query = this.supabase
         .from('ai_action_approvals')
-        .select(`
+        .select(
+          `
           *,
-          ai_actions!inner(
+          ai_actions (
             id,
+            organization_id,
+            conversation_id,
             action_type,
-            payload
-          ),
-          profiles!inner(
-            id,
-            full_name,
-            primary_role
-          ),
-          reviewer_profiles!inner(
-            id,
-            full_name,
-            primary_role
+            requested_by,
+            target_type,
+            target_id,
+            payload,
+            status,
+            requires_approval,
+            created_at,
+            updated_at
           )
-        `)
+        `,
+          { count: 'exact' },
+        )
         .eq('organization_id', organizationId)
         .order('created_at', { ascending: false });
 
@@ -244,66 +257,60 @@ export class AIActionService {
         query = query.eq('status', status);
       }
 
-      const { count } = await this.supabase
-        .from('ai_action_approvals')
-        .select('*', { count: 'exact', head: true })
-        .eq('organization_id', organizationId);
-
-   
-      const from = (page - 1) * pageSize;
+      const from = Math.max(page - 1, 0) * pageSize;
       const to = from + pageSize - 1;
-      query = query.range(from, to);
 
-      const { data: approvals, error } = await query;
+      const { data, error, count } = await query.range(from, to);
 
       if (error) {
-        throw new Error(`Failed to fetch approvals: ${error.message}`);
+        throw new Error(`Failed to fetch AI approvals: ${error.message}`);
       }
 
       return {
-        approvals: approvals || [],
-        total: count || 0,
+        approvals: (data ?? []) as AIActionApproval[],
+        total: count ?? 0,
         page,
         pageSize,
       };
     } catch (error) {
-      console.error('Approval Service Error:', error);
+      console.error('AIActionService.getApprovals error:', error);
       throw error;
     }
   }
 
   async getApproval(approvalId: string): Promise<AIActionApproval | null> {
     try {
-      const { data: approval, error } = await this.supabase
+      const { data, error } = await this.supabase
         .from('ai_action_approvals')
-        .select(`
+        .select(
+          `
           *,
-          ai_actions!inner(
+          ai_actions (
             id,
+            organization_id,
+            conversation_id,
             action_type,
-            payload
-          ),
-          profiles!inner(
-            id,
-            full_name,
-            primary_role
-          ),
-          reviewer_profiles!inner(
-            id,
-            full_name,
-            primary_role
+            requested_by,
+            target_type,
+            target_id,
+            payload,
+            status,
+            requires_approval,
+            created_at,
+            updated_at
           )
-        `)
+        `,
+        )
         .eq('id', approvalId)
-        .single();
+        .maybeSingle();
 
       if (error) {
-        throw new Error(`Failed to fetch approval: ${error.message}`);
+        throw new Error(`Failed to fetch AI approval: ${error.message}`);
       }
 
-      return approval;
+      return (data as AIActionApproval | null) ?? null;
     } catch (error) {
-      console.error('Approval Service Error:', error);
+      console.error('AIActionService.getApproval error:', error);
       throw error;
     }
   }
@@ -311,35 +318,36 @@ export class AIActionService {
   async approveAction(
     approvalId: string,
     approvedBy: string,
-    notes?: string
+    notes?: string,
   ): Promise<AIActionApproval> {
     try {
-      const { data: approval, error } = await (this.supabase
+      const { data: approval, error } = await this.supabase
         .from('ai_action_approvals')
         .update({
           approved_by: approvedBy,
           status: 'approved',
-          notes: notes || null,
+          notes: notes ?? null,
           updated_at: new Date().toISOString(),
-        } as any)
+        })
         .eq('id', approvalId)
-        .select()
-        .single());
+        .select('*')
+        .single();
 
       if (error) {
-        throw new Error(`Failed to approve action: ${error.message}`);
+        throw new Error(`Failed to approve AI action: ${error.message}`);
       }
 
-   
-      if (approval?.action_id) {
-        await this.updateAction(approval.action_id, { 
+      const typedApproval = approval as AIActionApproval;
+
+      if (typedApproval.action_id) {
+        await this.updateAction(typedApproval.action_id, {
           status: 'approved',
         });
       }
 
-      return approval!;
+      return typedApproval;
     } catch (error) {
-      console.error('Approval Service Error:', error);
+      console.error('AIActionService.approveAction error:', error);
       throw error;
     }
   }
@@ -347,48 +355,44 @@ export class AIActionService {
   async rejectAction(
     approvalId: string,
     approvedBy: string,
-    notes?: string
+    notes?: string,
   ): Promise<AIActionApproval> {
     try {
-
-      const { data: approval, error } = await (this.supabase
+      const { data: approval, error } = await this.supabase
         .from('ai_action_approvals')
         .update({
           approved_by: approvedBy,
           status: 'rejected',
-          notes: notes || null,
+          notes: notes ?? null,
           updated_at: new Date().toISOString(),
-        } as any)
+        })
         .eq('id', approvalId)
-        .select()
-        .single());
+        .select('*')
+        .single();
 
       if (error) {
-        throw new Error(`Failed to reject action: ${error.message}`);
+        throw new Error(`Failed to reject AI action: ${error.message}`);
       }
 
-      // Then update the action status
-      if (approval?.action_id) {
-        await this.updateAction(approval.action_id, { 
+      const typedApproval = approval as AIActionApproval;
+
+      if (typedApproval.action_id) {
+        await this.updateAction(typedApproval.action_id, {
           status: 'rejected',
         });
       }
 
-      return approval!;
+      return typedApproval;
     } catch (error) {
-      console.error('Approval Service Error:', error);
+      console.error('AIActionService.rejectAction error:', error);
       throw error;
     }
   }
 
-  // ============================================================
-  // Utility Methods
-  // ============================================================
-
   async getPendingActions(organizationId: string): Promise<AIAction[]> {
     const result = await this.getActions(organizationId, {
       status: 'pending',
-      pageSize: 100, // Get all pending
+      pageSize: 100,
     });
 
     return result.actions;
@@ -397,7 +401,7 @@ export class AIActionService {
   async getActionsRequiringApproval(organizationId: string): Promise<AIAction[]> {
     const result = await this.getActions(organizationId, {
       requiresApproval: true,
-      pageSize: 100, // Get all requiring approval
+      pageSize: 100,
     });
 
     return result.actions;
@@ -406,7 +410,7 @@ export class AIActionService {
   async getPendingApprovals(organizationId: string): Promise<AIActionApproval[]> {
     const result = await this.getApprovals(organizationId, {
       status: 'pending',
-      pageSize: 100, // Get all pending
+      pageSize: 100,
     });
 
     return result.approvals;
@@ -414,24 +418,24 @@ export class AIActionService {
 
   async getActionsByType(
     organizationId: string,
-    actionType: string
+    actionType: string,
   ): Promise<AIAction[]> {
     const result = await this.getActions(organizationId, {
       pageSize: 100,
     });
 
-    return result.actions.filter(action => action.action_type === actionType);
+    return result.actions.filter((action) => action.action_type === actionType);
   }
 
   async getActionsByUser(
     organizationId: string,
-    requestedBy: string
+    requestedBy: string,
   ): Promise<AIAction[]> {
     const result = await this.getActions(organizationId, {
       pageSize: 100,
     });
 
-    return result.actions.filter(action => action.requested_by === requestedBy);
+    return result.actions.filter((action) => action.requested_by === requestedBy);
   }
 }
 
@@ -442,17 +446,17 @@ export class AIActionService {
 let defaultActionService: AIActionService | null = null;
 
 export const getActionService = (
-  supabaseUrl?: string,
-  supabaseAnonKey?: string
+  supabaseUrlOrClient?: string | SupabaseClient,
+  supabaseAnonKey?: string,
 ): AIActionService => {
-  if (!defaultActionService && supabaseUrl && supabaseAnonKey) {
-    defaultActionService = new AIActionService(supabaseUrl, supabaseAnonKey);
+  if (!defaultActionService && supabaseUrlOrClient) {
+    defaultActionService = new AIActionService(supabaseUrlOrClient, supabaseAnonKey);
   }
-  
+
   if (!defaultActionService) {
-    throw new Error('Action service not initialized. Provide Supabase URL and anon key.');
+    throw new Error('Action service not initialized. Provide a Supabase client or Supabase URL and anon key.');
   }
-  
+
   return defaultActionService;
 };
 
@@ -461,54 +465,51 @@ export const getActionService = (
 // ============================================================
 
 export const getActionStatusColor = (status: ActionStatus): string => {
-  const colors = {
+  const colors: Record<ActionStatus, string> = {
     pending: 'yellow',
     approved: 'green',
     rejected: 'red',
     executed: 'blue',
     failed: 'red',
   };
-  
-  return colors[status] || 'gray';
+
+  return colors[status] ?? 'gray';
 };
 
 export const getApprovalStatusColor = (status: ApprovalStatus): string => {
-  const colors = {
+  const colors: Record<ApprovalStatus, string> = {
     pending: 'yellow',
     approved: 'green',
     rejected: 'red',
   };
-  
-  return colors[status] || 'gray';
+
+  return colors[status] ?? 'gray';
 };
 
 export const getActionTypeLabel = (actionType: string): string => {
-  // Convert snake_case to Title Case
   return actionType
     .split('_')
-    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(' ');
 };
 
 export const isActionExecutable = (action: AIAction, userRole?: string): boolean => {
-  // Actions can be executed if they don't require approval
-  // or if the user is an admin/manager
   if (!action.requires_approval) {
     return true;
   }
-  
-  // For now, we'll assume admins/managers can execute
-  // In a real implementation, you'd check user permissions
-  return ['admin', 'manager'].includes(userRole || '');
+
+  return ['admin', 'manager'].includes(userRole ?? '');
 };
 
-export const formatActionPayload = (payload: Record<string, unknown>): string => {
-  return JSON.stringify(payload, null, 2);
+export const formatActionPayload = (payload: JsonRecord): string => {
+  return JSON.stringify(payload ?? {}, null, 2);
 };
 
-export const parseActionPayload = (payloadString: string): Record<string, unknown> => {
+export const parseActionPayload = (payloadString: string): JsonRecord => {
   try {
-    return JSON.parse(payloadString);
+    const parsed = JSON.parse(payloadString);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
   } catch {
     return {};
   }

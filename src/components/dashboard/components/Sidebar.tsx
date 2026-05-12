@@ -114,7 +114,32 @@ function getRoleNav(role?: string | null, counts?: SidebarCounts): NavItem[] {
       ];
 
     case "media_team":
-      return [{ to: "/content-library", label: "Content", icon: Image }];
+      return [
+        {
+          type: "group",
+          label: "Media Team",
+          icon: Camera,
+          color: "text-purple-400",
+          activePaths: [
+            "/media-dashboard",
+            "/creative-requests",
+            "/production-pipeline",
+            "/content-assets",
+            "/campaign-visuals",
+            "/editing-queue",
+            "/delivery-tracker",
+          ],
+          children: [
+            { to: "/media-dashboard", label: "Media Dashboard", icon: LayoutDashboard },
+            { to: "/creative-requests", label: "Creative Requests", icon: Sparkles },
+            { to: "/production-pipeline", label: "Production Pipeline", icon: BarChart3 },
+            { to: "/content-assets", label: "Content Assets", icon: Image },
+            { to: "/campaign-visuals", label: "Campaign Visuals", icon: Megaphone },
+            { to: "/editing-queue", label: "Editing Queue", icon: Timer },
+            { to: "/delivery-tracker", label: "Delivery Tracker", icon: Package },
+          ],
+        },
+      ];
 
     case "seo_specialist":
       return [{ to: "/seo", label: "SEO", icon: Search }];
@@ -340,22 +365,8 @@ export default function Sidebar({
   const baseCommonLinks = isThreeLittleBirds
     ? commonLinks.filter((link) => !["/ai-workspace", "/meetings"].includes(link.to))
     : commonLinks;
-  const visibleCommonLinks = baseCommonLinks.map((link) => {
-    if (role === "media_team" && link.to === "/dashboard") {
-      return {
-        ...link,
-        to: "/media-dashboard",
-        label: "Media Team Dashboard",
-      };
-    }
-
-    return link;
-  });
-  const roleAwareCommonLinks = visibleCommonLinks.filter((link) => {
-    if (link.to !== "/media-dashboard") return true;
-    return mediaDashboardRoles.has(String(role ?? ""));
-  });
-  const allNav: NavItem[] = [...roleAwareCommonLinks, ...getRoleNav(role, counts)];
+  const visibleCommonLinks = baseCommonLinks;
+  const allNav: NavItem[] = [...visibleCommonLinks, ...getRoleNav(role, counts)];
 
   const handleLogout = async () => {
     try {

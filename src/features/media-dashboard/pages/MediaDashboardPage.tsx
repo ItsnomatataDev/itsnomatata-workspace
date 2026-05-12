@@ -12,6 +12,7 @@ import {
   Megaphone,
   Package,
   Sparkles,
+  Timer,
   Users,
 } from "lucide-react";
 import Sidebar from "../../../components/dashboard/components/Sidebar";
@@ -315,6 +316,10 @@ export default function MediaDashboardPage() {
                 <KpiCard label="Scheduled posts" value={data.kpis.scheduledSocialPosts} Icon={Megaphone} />
                 <KpiCard label="Published posts" value={data.kpis.publishedSocialPosts} Icon={Sparkles} />
                 <KpiCard label="Team hours this week" value={formatDurationHms(data.kpis.trackedSecondsThisWeek)} Icon={Clock3} />
+                <KpiCard label="Active media requests" value={data.kpis.activeMediaRequests} Icon={Sparkles} helper="Creative requests from departments" />
+                <KpiCard label="Pending deliveries" value={data.kpis.pendingDeliveries} Icon={Package} helper="Awaiting delivery or feedback" />
+                <KpiCard label="Equipment available" value={data.kpis.equipmentAvailable} Icon={Camera} helper="Gear ready for checkout" />
+                <KpiCard label="Editing queue" value={data.kpis.editingQueueItems} Icon={Timer} helper="Items in editing/review" />
               </section>
 
               <section className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
@@ -370,6 +375,20 @@ export default function MediaDashboardPage() {
                     );
                   })}
                 </div>
+              </section>
+
+              <section className="rounded-3xl border border-white/10 bg-white/5 p-5">
+                <div className="mb-4 flex items-center justify-between">
+                  <h2 className="text-lg font-semibold">Editing Queue</h2>
+                  <Timer size={18} className="text-orange-400" />
+                </div>
+                {data.editingQueue.length === 0 ? (
+                  <EmptyState>No items are currently in editing, review, or revisions.</EmptyState>
+                ) : (
+                  <div className="grid gap-3 md:grid-cols-2">
+                    {data.editingQueue.map((task) => <TaskCard key={task.id} task={task} />)}
+                  </div>
+                )}
               </section>
 
               <section className="grid gap-6 xl:grid-cols-2">

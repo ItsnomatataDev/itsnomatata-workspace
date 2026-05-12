@@ -150,6 +150,30 @@ export const ROUTE_ACCESS: Record<string, RouteAccessRule> = {
     roles: ["social_media", "media_team", "admin", "manager", "seo_specialist"],
   },
 
+  "/media-dashboard": {
+    roles: ["media_team", "admin", "manager", "seo_specialist", "social_media"],
+  },
+
+  "/creative-requests": {
+    roles: ["media_team", "admin", "manager"],
+  },
+
+  "/production-pipeline": {
+    roles: ["media_team", "admin", "manager"],
+  },
+
+  "/campaign-visuals": {
+    roles: ["media_team", "admin", "manager"],
+  },
+
+  "/editing-queue": {
+    roles: ["media_team", "admin", "manager"],
+  },
+
+  "/delivery-tracker": {
+    roles: ["media_team", "admin", "manager"],
+  },
+
   "/stock": {
     roles: ["admin", "it", "manager"],
   },

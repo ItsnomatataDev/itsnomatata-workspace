@@ -42,6 +42,8 @@ import GuestMeetingJoinPage from "../../features/meetings/pages/GuestMeetingJoin
 import SocialPostsPage from "../../features/social-posts/pages/SocialPostsPage";
 import SocialMediaDashboardPage from "../../features/social-media/pages/SocialMediaDashboardPage";
 import MediaDashboardPage from "../../features/media-dashboard/pages/MediaDashboardPage";
+import CreativeRequestsPage from "../../features/media-dashboard/pages/CreativeRequestsPage";
+import DeliveryTrackerPage from "../../features/media-dashboard/pages/DeliveryTrackerPage";
 import AssetsPage from "../../features/stock/pages/AssetsPage";
 import AssetDetailsPage from "../../features/stock/pages/AssetDetailsPage";
 import ScanAssetPage from "../../features/stock/pages/ScanAssetPage";
@@ -281,6 +283,110 @@ const AppRouter = () => {
                 ]}
               >
                 <MediaDashboardPage />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/creative-requests"
+          element={
+            <ProtectedRoute>
+              <RoleRoute
+                roles={[
+                  "admin",
+                  "manager",
+                  "media_team",
+                ]}
+              >
+                <CreativeRequestsPage />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/production-pipeline"
+          element={
+            <ProtectedRoute>
+              <RoleRoute
+                roles={[
+                  "admin",
+                  "manager",
+                  "media_team",
+                ]}
+              >
+                <MediaDashboardPage />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/content-assets"
+          element={
+            <ProtectedRoute>
+              <RoleRoute
+                roles={[
+                  "admin",
+                  "manager",
+                  "seo_specialist",
+                  "social_media",
+                  "media_team",
+                ]}
+              >
+                <ContentLibraryPage />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/campaign-visuals"
+          element={
+            <ProtectedRoute>
+              <RoleRoute
+                roles={[
+                  "admin",
+                  "manager",
+                  "media_team",
+                ]}
+              >
+                <MediaDashboardPage />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/editing-queue"
+          element={
+            <ProtectedRoute>
+              <RoleRoute
+                roles={[
+                  "admin",
+                  "manager",
+                  "media_team",
+                ]}
+              >
+                <MediaDashboardPage />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/delivery-tracker"
+          element={
+            <ProtectedRoute>
+              <RoleRoute
+                roles={[
+                  "admin",
+                  "manager",
+                  "media_team",
+                ]}
+              >
+                <DeliveryTrackerPage />
               </RoleRoute>
             </ProtectedRoute>
           }
