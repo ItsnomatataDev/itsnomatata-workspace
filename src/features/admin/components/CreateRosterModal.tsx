@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import {
   createDutyRosterWithSetup,
+  getCurrentDutyWeekStart,
   setDutyRosterDuties,
   setDutyRosterMembers,
   updateDutyRoster,
@@ -54,12 +55,12 @@ export default function CreateRosterModal({
 
     setTitle(roster?.title ?? "ITsNomatata Weekly Duties");
     setDepartment(roster?.department ?? "ITsNomatata");
-    setWeekStart(roster?.week_start ?? "");
+    setWeekStart(roster?.week_start ?? getCurrentDutyWeekStart());
     setNotes(roster?.notes ?? "");
     setSelectedUsers(rosterMembers.map((member) => member.user_id));
     setSelectedDuties(rosterDuties.map((item) => item.duty_id));
     setError("");
-  }, [open, roster, rosterDuties, rosterMembers]);
+  }, [open, roster?.id]);
 
   if (!open) return null;
 
