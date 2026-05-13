@@ -1,0 +1,152 @@
+export type PlatformAdminRole =
+  | "platform_owner"
+  | "platform_admin"
+  | "platform_support";
+
+export type OrganizationAccessStatus =
+  | "active"
+  | "trialing"
+  | "suspended"
+  | "cancelled";
+
+export type OrganizationRow = {
+  id: string;
+  name: string;
+  slug: string;
+  timezone: string;
+  is_active: boolean;
+  is_system_organization: boolean;
+  access_status: OrganizationAccessStatus;
+  suspended_reason: string | null;
+  suspended_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type OrganizationBranding = {
+  id: string;
+  organization_id: string;
+  brand_name: string | null;
+  logo_url: string | null;
+  favicon_url: string | null;
+  login_background_url: string | null;
+  primary_color: string | null;
+  secondary_color: string | null;
+  accent_color: string | null;
+  company_slogan: string | null;
+  company_welcome_text: string | null;
+  dashboard_greeting_text: string | null;
+  custom_terminology: Record<string, unknown>;
+  invitation_template: string | null;
+  onboarding_wording: Record<string, unknown>;
+  custom_domain: string | null;
+  subdomain: string | null;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type OrganizationSubscription = {
+  id: string;
+  organization_id: string;
+  status: string;
+  plan_name: string;
+  billing_interval: string;
+  amount_usd: number;
+  payment_method: string;
+  notes: string | null;
+  current_period_start: string | null;
+  current_period_end: string | null;
+};
+
+export type OrganizationFeature = {
+  id: string;
+  organization_id: string;
+  feature_key: string;
+  module_label?: string | null;
+  module_category?: string | null;
+  enabled: boolean;
+  limits: Record<string, unknown>;
+  configuration?: Record<string, unknown>;
+  permissions?: Record<string, unknown>;
+};
+
+export type OrganizationRole = {
+  id: string;
+  organization_id: string;
+  role_key: string;
+  role_label: string;
+  description: string | null;
+  department: string | null;
+  is_admin_role: boolean;
+  is_manager_role: boolean;
+  is_default_signup_role: boolean;
+  requires_approval: boolean;
+  is_active: boolean;
+  permissions: Record<string, unknown>;
+};
+
+export type OrganizationInvitation = {
+  id: string;
+  organization_id: string;
+  email: string;
+  full_name: string | null;
+  role_key: string;
+  invited_by: string | null;
+  status: "pending" | "accepted" | "revoked" | "expired";
+  token_hash: string | null;
+  expires_at: string | null;
+  accepted_by: string | null;
+  accepted_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type PlatformAuditLog = {
+  id: string;
+  actor_user_id: string | null;
+  target_organization_id: string | null;
+  target_user_id: string | null;
+  action: string;
+  reason: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+};
+
+export type OrganizationAnalytics = {
+  usersCount: number;
+  activeUsers: number;
+  onlineUsers: number;
+  departments: number;
+  meetingsUsage: number;
+  activeMeetings: number;
+  aiUsage: number;
+  automationUsage: number;
+  failedAutomations: number;
+  attendanceSessions: number;
+  timesheetEntries: number;
+  tasksTotal: number;
+  tasksCompleted: number;
+  taskCompletionRate: number;
+  recentActivity: PlatformAuditLog[];
+};
+
+export type OperationsCenterMetrics = {
+  totalOrganizations: number;
+  activeOrganizations: number;
+  suspendedOrganizations: number;
+  totalActiveUsers: number;
+  usersOnlineNow: number;
+  activeMeetings: number;
+  aiRequests: number;
+  automationExecutions: number;
+  failedAutomations: number;
+  realtimeSystemHealth: "healthy" | "warning" | "critical";
+  notificationHealth: "healthy" | "warning" | "critical";
+  storageUsage: number;
+  taskCompletionRate: number;
+  attendanceSummaries: number;
+  incidents: number;
+  edgeFunctionFailures: number;
+  meetingFailures: number;
+  workflowFailures: number;
+};

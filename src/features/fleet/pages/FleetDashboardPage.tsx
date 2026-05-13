@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
 import {
@@ -34,6 +34,7 @@ import {
   fetchFleetDashboardData,
   type CreateFuelPurchaseInput,
   type FleetDashboardData,
+  type FleetDashboardDateRange,
   type FleetDailySummary,
   type FleetFuelPurchase,
   type FleetImportBatch,
@@ -49,7 +50,7 @@ const EMPTY_DATA: FleetDashboardData = {
   fuelPurchases: [],
 };
 
-type DateRangeFilter = "7d" | "30d" | "all";
+type DateRangeFilter = "day" | "7d" | "30d";
 type ImportStatusFilter = "all" | "completed" | "attention";
 type FuelPurchaseFormState = {
   vehicleId: string;
@@ -196,6 +197,32 @@ function normalizeKey(value?: string | null) {
   return String(value ?? "").trim().toLowerCase();
 }
 
+function toDateKey(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+function getFleetDateRange(range: DateRangeFilter): FleetDashboardDateRange {
+  if (range === "day") {
+    return { mode: "latest-import-day" };
+  }
+
+  const end = new Date();
+  end.setHours(0, 0, 0, 0);
+
+  const start = new Date(end);
+  start.setDate(start.getDate() - (range === "7d" ? 7 : 30));
+
+  return {
+    mode: "fixed",
+    startDate: toDateKey(start),
+    endDate: toDateKey(end),
+  };
+}
+
 function getVehicleLabel(summary: FleetDailySummary) {
   return summary.vehicle?.vehicle_name ?? "Unknown vehicle";
 }
@@ -204,18 +231,15 @@ function getFuelPurchaseVehicleLabel(purchase: FleetFuelPurchase) {
   return purchase.vehicle?.vehicle_name ?? "Unknown vehicle";
 }
 
-function isWithinRange(summary: FleetDailySummary, range: DateRangeFilter) {
-  if (range === "all") return true;
+function isWithinRange(
+  summary: FleetDailySummary,
+  range: ReturnType<typeof getFleetDateRange>,
+) {
+  if (range.mode === "latest-import-day") return true;
 
-  const date = new Date(`${summary.summary_date}T00:00:00`);
-  if (Number.isNaN(date.getTime())) return false;
-
-  const days = range === "7d" ? 7 : 30;
-  const threshold = new Date();
-  threshold.setHours(0, 0, 0, 0);
-  threshold.setDate(threshold.getDate() - (days - 1));
-
-  return date >= threshold;
+  return (
+    summary.summary_date >= range.startDate && summary.summary_date <= range.endDate
+  );
 }
 
 function buildChartData(summaries: FleetDailySummary[]): ChartDatum[] {
@@ -1066,35 +1090,36 @@ export default function FleetDashboardPage() {
   const showingImports = location.pathname.startsWith("/fleet/imports");
   const showingFuelPurchases =
     location.pathname.startsWith("/fleet/fuel-purchases");
+  const fleetDateRange = useMemo(() => getFleetDateRange(dateRange), [dateRange]);
 
-  const loadFleetData = async () => {
+  const loadFleetData = useCallback(async () => {
     if (!organizationId) return;
 
     setLoading(true);
     setError(null);
 
     try {
-      const result = await fetchFleetDashboardData(organizationId);
+      const result = await fetchFleetDashboardData(organizationId, fleetDateRange);
       setData(result);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load fleet data.");
     } finally {
       setLoading(false);
     }
-  };
+  }, [fleetDateRange, organizationId]);
 
   useEffect(() => {
     void loadFleetData();
-  }, [organizationId]);
+  }, [loadFleetData]);
 
   const filteredSummaries = useMemo(
     () =>
       data.summaries.filter((summary) => {
         const vehicleMatches =
           vehicleFilter === "all" || summary.vehicle_id === vehicleFilter;
-        return vehicleMatches && isWithinRange(summary, dateRange);
+        return vehicleMatches && isWithinRange(summary, fleetDateRange);
       }),
-    [data.summaries, dateRange, vehicleFilter],
+    [data.summaries, fleetDateRange, vehicleFilter],
   );
 
   const filteredBatches = useMemo(
@@ -1299,9 +1324,9 @@ export default function FleetDashboardPage() {
                   }
                   className={selectClassName()}
                 >
+                  <option value="day">Day</option>
                   <option value="7d">Last 7 days</option>
                   <option value="30d">Last 30 days</option>
-                  <option value="all">All imported dates</option>
                 </select>
               </label>
 

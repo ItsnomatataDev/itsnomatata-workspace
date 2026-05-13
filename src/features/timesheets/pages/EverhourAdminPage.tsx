@@ -266,6 +266,95 @@ const BILLING_COLORS: Record<BillingType, string> = {
 };
 
 const STORAGE_KEY = "everhour_board_billing_v1";
+const SHEARWATER_GROUP = "Shearwater Group";
+const STAND_ALONE_GROUP = "Stand Alone";
+
+const SHEARWATER_BOARD_NAMES = [
+  "SW Main",
+  "Shearwater",
+  "Shearwater Main",
+  "SW Village",
+  "Shearwater Village",
+  "Simunye",
+  "SW Bungee",
+  "SW Bungee Company",
+  "Shearwater Bungee",
+  "Shearwater Bungee Company",
+  "ZHC",
+  "Chobezi",
+  "Rain Forest Cafe",
+  "Rainforest Cafe",
+  "Rainforest",
+  "Rain Forest",
+  "EleCrew",
+  "Marula",
+  "Pristine",
+];
+
+const STAND_ALONE_BOARD_NAMES = [
+  "Stone Dynamics",
+  "Goat Rest Camp",
+  "Essential Beauty",
+  "Dingani",
+  "Bamba",
+  "Chobe4x4",
+  "Epic Retreats",
+  "Simply Africa",
+  "Rhino Expeditions",
+];
+
+function normalizeBoardName(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/&/g, "and")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+const SHEARWATER_BOARD_NAME_SET = new Set(
+  SHEARWATER_BOARD_NAMES.map(normalizeBoardName),
+);
+
+const SHEARWATER_NAME_TOKENS = [
+  "shearwater",
+  "rainforest",
+  "rain forest",
+  "sw bungee",
+];
+
+const BOARD_GROUP_ORDER = new Map<string, number>(
+  [...SHEARWATER_BOARD_NAMES, ...STAND_ALONE_BOARD_NAMES].map(
+    (name, index) => [normalizeBoardName(name), index],
+  ),
+);
+
+function getBoardOperationalGroup(boardName: string): string {
+  const normalizedName = normalizeBoardName(boardName);
+  const isShearwaterBoard =
+    SHEARWATER_BOARD_NAME_SET.has(normalizedName) ||
+    SHEARWATER_NAME_TOKENS.some((token) =>
+      normalizedName.includes(normalizeBoardName(token)),
+    );
+
+  return isShearwaterBoard
+    ? SHEARWATER_GROUP
+    : STAND_ALONE_GROUP;
+}
+
+function sortBoardsByOperationalOrder(
+  a: BoardWithTime,
+  b: BoardWithTime,
+): number {
+  const aOrder = BOARD_GROUP_ORDER.get(normalizeBoardName(a.name));
+  const bOrder = BOARD_GROUP_ORDER.get(normalizeBoardName(b.name));
+
+  if (aOrder != null && bOrder != null) return aOrder - bOrder;
+  if (aOrder != null) return -1;
+  if (bOrder != null) return 1;
+  return a.name.localeCompare(b.name);
+}
 
 function loadBillingConfig(): Record<string, BoardBillingConfig> {
   try {
@@ -435,7 +524,7 @@ function BoardRow({
             {board.name}
           </p>
           <p className="text-[10px] text-white/30">
-            {board.industry ?? "Stand Alone"}
+            {getBoardOperationalGroup(board.name)}
           </p>
         </div>
       </div>
@@ -1171,30 +1260,34 @@ export default function EverhourAdminPage() {
   const groups = useMemo((): GroupedBoards[] => {
     const q = searchValue.trim().toLowerCase();
     const filtered = q
-      ? boardsWithTime.filter(
-          (b) =>
+      ? boardsWithTime.filter((b) => {
+          const groupName = getBoardOperationalGroup(b.name);
+          return (
             b.name.toLowerCase().includes(q) ||
-            (b.industry ?? "").toLowerCase().includes(q),
-        )
+            groupName.toLowerCase().includes(q)
+          );
+        })
       : boardsWithTime;
 
     const groupMap = new Map<string, BoardWithTime[]>();
 
     for (const board of filtered) {
-      const industry = board.industry?.trim();
-      const key = industry ? `Industry · ${industry}` : "Standalone Boards";
+      const key = getBoardOperationalGroup(board.name);
       const arr = groupMap.get(key) ?? [];
       arr.push(board);
       groupMap.set(key, arr);
     }
 
-    return Array.from(groupMap.entries())
-      .map(([groupName, gBoards]) => ({
-        groupName,
-        boards: gBoards.sort((a, b) => a.name.localeCompare(b.name)),
-        totalTracked: gBoards.reduce((s, b) => s + b.trackedSeconds, 0),
-      }))
-      .sort((a, b) => a.groupName.localeCompare(b.groupName));
+    return [SHEARWATER_GROUP, STAND_ALONE_GROUP]
+      .map((groupName) => {
+        const gBoards = groupMap.get(groupName) ?? [];
+        return {
+          groupName,
+          boards: gBoards.sort(sortBoardsByOperationalOrder),
+          totalTracked: gBoards.reduce((s, b) => s + b.trackedSeconds, 0),
+        };
+      })
+      .filter((group) => group.boards.length > 0);
   }, [boardsWithTime, searchValue]);
 
   const summary = useMemo(() => {

@@ -15,19 +15,26 @@ type TokenRequestBody = {
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
+    return json(200, { ok: true });
+  }
+
+  if (req.method !== "POST") {
+    return json(405, { error: "Method not allowed" });
   }
 
   try {
     const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      return json(401, { error: "Missing authorization header" });
+
+    if (!authHeader?.startsWith("Bearer ")) {
+      return json(401, { error: "Missing or invalid authorization header" });
     }
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
     const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-    const livekitUrl = normalizeLivekitUrl(Deno.env.get("LIVEKIT_URL"));
+
+    const rawLivekitUrl = Deno.env.get("LIVEKIT_URL");
+    const livekitUrl = normalizeLivekitUrl(rawLivekitUrl);
     const livekitApiKey = Deno.env.get("LIVEKIT_API_KEY");
     const livekitApiSecret = Deno.env.get("LIVEKIT_API_SECRET");
 
@@ -35,10 +42,21 @@ serve(async (req) => {
       !supabaseUrl ||
       !supabaseAnonKey ||
       !supabaseServiceRoleKey ||
+      !livekitUrl ||
       !livekitApiKey ||
       !livekitApiSecret
     ) {
-      return json(500, { error: "Missing required environment variables" });
+      return json(500, {
+        error: "Missing required environment variables",
+        missing: {
+          SUPABASE_URL: !supabaseUrl,
+          SUPABASE_ANON_KEY: !supabaseAnonKey,
+          SUPABASE_SERVICE_ROLE_KEY: !supabaseServiceRoleKey,
+          LIVEKIT_URL: !livekitUrl,
+          LIVEKIT_API_KEY: !livekitApiKey,
+          LIVEKIT_API_SECRET: !livekitApiSecret,
+        },
+      });
     }
 
     const authClient = createClient(supabaseUrl, supabaseAnonKey, {
@@ -49,7 +67,12 @@ serve(async (req) => {
       },
     });
 
-    const adminClient = createClient(supabaseUrl, supabaseServiceRoleKey);
+    const adminClient = createClient(supabaseUrl, supabaseServiceRoleKey, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+      },
+    });
 
     const {
       data: { user },
@@ -58,11 +81,18 @@ serve(async (req) => {
 
     if (userError || !user) {
       return json(401, {
-        error: userError?.message || "Unauthorized",
+        error: userError?.message || "Unauthorized user",
       });
     }
 
-    const body = (await req.json()) as TokenRequestBody;
+    let body: TokenRequestBody;
+
+    try {
+      body = (await req.json()) as TokenRequestBody;
+    } catch {
+      return json(400, { error: "Invalid JSON body" });
+    }
+
     const meetingId = body.meetingId?.trim();
 
     if (!meetingId) {
@@ -71,14 +101,22 @@ serve(async (req) => {
 
     const { data: meeting, error: meetingError } = await adminClient
       .from("meetings")
-      .select("id, title, organization_id, host_id")
+      .select("id, title, organization_id, host_id, status")
       .eq("id", meetingId)
-      .single();
+      .maybeSingle();
 
-    if (meetingError || !meeting) {
-      return json(404, {
-        error: meetingError?.message || "Meeting not found",
+    if (meetingError) {
+      return json(500, {
+        error: `Failed to fetch meeting: ${meetingError.message}`,
       });
+    }
+
+    if (!meeting) {
+      return json(404, { error: "Meeting not found" });
+    }
+
+    if (meeting.status === "ended" || meeting.status === "cancelled") {
+      return json(400, { error: "This meeting has already ended" });
     }
 
     const { data: participant, error: participantError } = await adminClient
@@ -89,12 +127,16 @@ serve(async (req) => {
       .maybeSingle();
 
     if (participantError) {
-      return json(500, { error: participantError.message });
+      return json(500, {
+        error: `Failed to fetch participant: ${participantError.message}`,
+      });
     }
 
-    if (!participant) {
+    if (!participant && meeting.host_id !== user.id) {
       return json(403, {
         error: "You are not a participant in this meeting",
+        userId: user.id,
+        meetingId,
       });
     }
 
@@ -106,13 +148,13 @@ serve(async (req) => {
       user.email ||
       "User";
 
-    const at = new AccessToken(livekitApiKey, livekitApiSecret, {
+    const tokenBuilder = new AccessToken(livekitApiKey, livekitApiSecret, {
       identity,
       name,
       ttl: "2h",
     });
 
-    at.addGrant({
+    tokenBuilder.addGrant({
       roomJoin: true,
       room: roomName,
       canPublish: true,
@@ -120,7 +162,7 @@ serve(async (req) => {
       canPublishData: true,
     });
 
-    const token = await at.toJwt();
+    const token = await tokenBuilder.toJwt();
 
     return json(200, {
       token,
@@ -149,29 +191,21 @@ function json(status: number, payload: unknown) {
 function normalizeLivekitUrl(value: string | undefined) {
   if (!value?.trim()) return null;
 
-  try {
-    const url = new URL(value.trim());
+  const url = new URL(value.trim());
 
-    if (url.protocol === "https:") {
-      url.protocol = "wss:";
-    } else if (url.protocol === "http:") {
-      url.protocol = "ws:";
-    }
-
-    if (!["ws:", "wss:"].includes(url.protocol)) {
-      throw new Error("LIVEKIT_URL must use wss://, ws://, https://, or http://.");
-    }
-
-    url.pathname = "";
-    url.search = "";
-    url.hash = "";
-
-    return url.toString().replace(/\/$/, "");
-  } catch (error) {
-    throw new Error(
-      error instanceof Error
-        ? `Invalid LIVEKIT_URL: ${error.message}`
-        : "Invalid LIVEKIT_URL.",
-    );
+  if (url.protocol === "https:") {
+    url.protocol = "wss:";
+  } else if (url.protocol === "http:") {
+    url.protocol = "ws:";
   }
+
+  if (!["ws:", "wss:"].includes(url.protocol)) {
+    throw new Error("LIVEKIT_URL must use wss://, ws://, https://, or http://.");
+  }
+
+  url.pathname = "";
+  url.search = "";
+  url.hash = "";
+
+  return url.toString().replace(/\/$/, "");
 }

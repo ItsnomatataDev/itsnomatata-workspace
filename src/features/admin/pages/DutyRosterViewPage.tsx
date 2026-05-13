@@ -1,44 +1,30 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CalendarClock, Clock3, Users } from "lucide-react";
+import { CalendarClock, Sparkles, Users } from "lucide-react";
 import Sidebar from "../../../components/dashboard/components/Sidebar";
 import { useAuth } from "../../../app/providers/AuthProvider";
+import RosterTable from "../components/RosterTable";
 import {
+  getCurrentDutyWeekStart,
+  getDutyAssignmentsForWeek,
+  getDutyDefinitions,
+  getDutyRosterDuties,
+  getDutyRosterMembers,
   getDutyRosters,
-  getDutyRosterEntries,
+  getITsNomatataOffice,
   getOrganizationUsersForRoster,
+  isITsNomatataOfficeProfile,
+  type DutyAssignmentPreview,
+  type DutyDefinitionRow,
+  type DutyRosterDutyRow,
+  type DutyRosterMemberRow,
   type DutyRosterRow,
-  type DutyRosterEntryRow,
   type ProfileRosterUserRow,
 } from "../services/adminService";
 
-const SHIFT_COLORS: Record<string, string> = {
-  morning: "bg-amber-500/15 text-amber-200 border-amber-500/20",
-  afternoon: "bg-sky-500/15 text-sky-200 border-sky-500/20",
-  evening: "bg-purple-500/15 text-purple-200 border-purple-500/20",
-  night: "bg-indigo-500/15 text-indigo-200 border-indigo-500/20",
-  off: "bg-white/5 text-white/40 border-white/10",
-};
-
-function getShiftColor(shiftName: string) {
-  const lower = shiftName.toLowerCase();
-  for (const key of Object.keys(SHIFT_COLORS)) {
-    if (lower.includes(key)) return SHIFT_COLORS[key];
-  }
-  return "bg-orange-500/15 text-orange-200 border-orange-500/20";
-}
-
-function formatTime(value?: string | null) {
-  if (!value) return "--";
-  return value.slice(0, 5);
-}
-
-function formatShiftDate(dateStr: string) {
-  const date = new Date(dateStr);
-  return date.toLocaleDateString("en-ZA", {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-  });
+function addDays(dateKey: string, days: number) {
+  const date = new Date(`${dateKey}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
 }
 
 export default function DutyRosterViewPage() {
@@ -46,23 +32,23 @@ export default function DutyRosterViewPage() {
   const profile = auth?.profile ?? null;
   const user = auth?.user ?? null;
   const organizationId = profile?.organization_id ?? null;
+  const isITOffice = isITsNomatataOfficeProfile(profile);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [rosters, setRosters] = useState<DutyRosterRow[]>([]);
-  const [selectedRosterId, setSelectedRosterId] = useState("");
-  const [entries, setEntries] = useState<DutyRosterEntryRow[]>([]);
   const [users, setUsers] = useState<ProfileRosterUserRow[]>([]);
+  const [duties, setDuties] = useState<DutyDefinitionRow[]>([]);
+  const [rosterMembers, setRosterMembers] = useState<DutyRosterMemberRow[]>([]);
+  const [rosterDuties, setRosterDuties] = useState<DutyRosterDutyRow[]>([]);
 
   const selectedRoster = useMemo(
-    () => rosters.find((r) => r.id === selectedRosterId) ?? null,
-    [rosters, selectedRosterId],
+    () => rosters.find((roster) => (roster.status ?? "active") === "active") ?? rosters[0] ?? null,
+    [rosters],
   );
 
-  const myEntries = useMemo(
-    () => entries.filter((e) => e.user_id === user?.id),
-    [entries, user?.id],
-  );
+  const currentWeek = getCurrentDutyWeekStart();
+  const nextWeek = addDays(currentWeek, 7);
 
   const loadPage = useCallback(async () => {
     if (!organizationId) return;
@@ -71,61 +57,115 @@ export default function DutyRosterViewPage() {
       setLoading(true);
       setError("");
 
-      const [rostersData, usersData] = await Promise.all([
-        getDutyRosters(organizationId),
-        getOrganizationUsersForRoster(organizationId),
+      const office = await getITsNomatataOffice(organizationId);
+
+      if (!office || !isITOffice) {
+        setRosters([]);
+        setUsers([]);
+        setDuties([]);
+        setRosterMembers([]);
+        setRosterDuties([]);
+        return;
+      }
+
+      const [rostersData, usersData, dutiesData] = await Promise.all([
+        getDutyRosters(organizationId, office.id),
+        getOrganizationUsersForRoster(organizationId, office.id),
+        getDutyDefinitions(organizationId, office.id),
       ]);
+
+      const activeRoster =
+        rostersData.find((roster) => (roster.status ?? "active") === "active") ??
+        rostersData[0] ??
+        null;
+
+      const [membersData, rosterDutiesData] = activeRoster
+        ? await Promise.all([
+            getDutyRosterMembers(activeRoster.id),
+            getDutyRosterDuties(activeRoster.id),
+          ])
+        : [[], []];
 
       setRosters(rostersData);
       setUsers(usersData);
-
-      const rosterIdToUse = rostersData[0]?.id ?? "";
-      setSelectedRosterId(rosterIdToUse);
-
-      if (rosterIdToUse) {
-        const entriesData = await getDutyRosterEntries(rosterIdToUse);
-        setEntries(entriesData);
-      }
+      setDuties(dutiesData);
+      setRosterMembers(membersData);
+      setRosterDuties(rosterDutiesData);
     } catch (err: any) {
       setError(err?.message ?? "Failed to load duty roster.");
     } finally {
       setLoading(false);
     }
-  }, [organizationId]);
+  }, [isITOffice, organizationId]);
 
   useEffect(() => {
     void loadPage();
   }, [loadPage]);
 
-  const handleRosterChange = async (rosterId: string) => {
-    try {
-      setSelectedRosterId(rosterId);
-      const entriesData = await getDutyRosterEntries(rosterId);
-      setEntries(entriesData);
-    } catch (err: any) {
-      setError(err?.message ?? "Failed to load roster.");
-    }
-  };
+  const thisWeekAssignments = useMemo(() => {
+    if (!selectedRoster) return [];
+    return getDutyAssignmentsForWeek({
+      roster: selectedRoster,
+      weekStart: currentWeek,
+      rosterMembers,
+      rosterDuties,
+      duties,
+    });
+  }, [currentWeek, duties, rosterDuties, rosterMembers, selectedRoster]);
 
-  const userMap = useMemo(() => new Map(users.map((u) => [u.id, u])), [users]);
+  const nextWeekAssignments = useMemo(() => {
+    if (!selectedRoster) return [];
+    return getDutyAssignmentsForWeek({
+      roster: selectedRoster,
+      weekStart: nextWeek,
+      rosterMembers,
+      rosterDuties,
+      duties,
+    });
+  }, [duties, nextWeek, rosterDuties, rosterMembers, selectedRoster]);
 
-  // Group entries by date for a calendar-like view
-  const entriesByDate = useMemo(() => {
-    const map = new Map<string, DutyRosterEntryRow[]>();
-    for (const entry of entries) {
-      const list = map.get(entry.shift_date) ?? [];
-      list.push(entry);
-      map.set(entry.shift_date, list);
-    }
-    return map;
-  }, [entries]);
-
-  const sortedDates = useMemo(
-    () => [...entriesByDate.keys()].sort(),
-    [entriesByDate],
+  const myAssignments = useMemo(
+    () =>
+      thisWeekAssignments.filter(
+        (assignment) => assignment.user_id === user?.id,
+      ),
+    [thisWeekAssignments, user?.id],
   );
 
+  const fatFriday = useMemo(
+    () =>
+      thisWeekAssignments.find((assignment) => assignment.is_fat_friday) ??
+      null,
+    [thisWeekAssignments],
+  );
+
+  const userMap = useMemo(() => new Map(users.map((u) => [u.id, u])), [users]);
+  const fatFridayUser = fatFriday ? userMap.get(fatFriday.user_id) : null;
+
   if (!profile || !user) return null;
+
+  if (!isITOffice) {
+    return (
+      <div className="min-h-screen bg-black text-white">
+        <div className="flex min-h-screen flex-col lg:flex-row">
+          <Sidebar role={profile.primary_role} />
+          <main className="min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-8">
+            <div className="rounded-3xl border border-white/10 bg-white/5 p-8">
+              <p className="text-xs uppercase tracking-[0.3em] text-orange-500">
+                Duty Roster
+              </p>
+              <h1 className="mt-2 text-2xl font-bold text-white">
+                ITsNomatata office only
+              </h1>
+              <p className="mt-3 text-white/55">
+                Duty roster is only available for the ITsNomatata office.
+              </p>
+            </div>
+          </main>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-black text-white">
@@ -133,15 +173,14 @@ export default function DutyRosterViewPage() {
         <Sidebar role={profile.primary_role} />
 
         <main className="min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-8">
-          {/* Header */}
           <div className="mb-8">
             <p className="text-xs uppercase tracking-[0.3em] text-orange-500">
-              Organisation
+              ITsNomatata
             </p>
             <h1 className="mt-2 text-3xl font-bold">Duty Roster</h1>
             <p className="mt-2 text-sm text-white/50">
-              View who is on shift, when, and what department — across the
-              entire team.
+              This week's duties, your assignment, next week preview, and the
+              team duty board.
             </p>
           </div>
 
@@ -155,198 +194,135 @@ export default function DutyRosterViewPage() {
             <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-sm text-white/50">
               Loading duty roster...
             </div>
-          ) : rosters.length === 0 ? (
+          ) : !selectedRoster ? (
             <div className="rounded-2xl border border-white/10 bg-white/5 p-10 text-center">
               <CalendarClock size={36} className="mx-auto mb-4 text-white/20" />
               <p className="font-semibold text-white">
-                No rosters published yet
+                No duty roster published yet
               </p>
               <p className="mt-2 text-sm text-white/50">
-                Your administrator hasn't created any rosters yet. Check back
-                soon.
+                An ITsNomatata admin can create the first rotating duty roster.
               </p>
             </div>
           ) : (
             <>
-              {/* Stats */}
-              <section className="mb-6 grid gap-4 sm:grid-cols-3">
+              <section className="mb-6 grid gap-4 md:grid-cols-3">
                 <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm text-white/60">Rosters</p>
-                    <CalendarClock size={18} className="text-orange-500" />
-                  </div>
-                  <p className="mt-4 text-3xl font-bold">{rosters.length}</p>
+                  <p className="text-sm text-white/60">This week</p>
+                  <p className="mt-3 text-2xl font-bold text-white">
+                    {currentWeek}
+                  </p>
+                  <p className="mt-1 text-xs text-white/35">
+                    {thisWeekAssignments.length} active duties
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-orange-500/30 bg-orange-500/10 p-5">
+                  <p className="text-sm text-orange-200">My duty this week</p>
+                  <p className="mt-3 text-2xl font-bold text-white">
+                    {myAssignments.length > 0
+                      ? myAssignments.map((item) => item.duty_name).join(", ")
+                      : "No duty"}
+                  </p>
+                  <p className="mt-1 text-xs text-orange-100/60">
+                    {myAssignments.length > 0
+                      ? "You're on duty"
+                      : "You're clear this week"}
+                  </p>
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm text-white/60">Team members</p>
-                    <Users size={18} className="text-orange-500" />
-                  </div>
-                  <p className="mt-4 text-3xl font-bold">{users.length}</p>
-                </div>
-                <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm text-white/60">My shifts</p>
-                    <Clock3 size={18} className="text-orange-500" />
-                  </div>
-                  <p className="mt-4 text-3xl font-bold">{myEntries.length}</p>
+                  <p className="text-sm text-white/60">Team members</p>
+                  <p className="mt-3 text-3xl font-bold text-white">
+                    {users.length}
+                  </p>
                 </div>
               </section>
 
-              {/* Your upcoming shifts callout */}
-              {myEntries.length > 0 ? (
-                <section className="mb-6 rounded-2xl border border-orange-500/20 bg-orange-500/10 p-5">
-                  <p className="text-xs uppercase tracking-[0.2em] text-orange-400">
-                    Your shifts
-                  </p>
-                  <div className="mt-3 flex flex-wrap gap-3">
-                    {myEntries.slice(0, 5).map((entry) => (
-                      <div
-                        key={entry.id}
-                        className={[
-                          "rounded-2xl border px-4 py-3 text-sm",
-                          getShiftColor(entry.shift_name),
-                        ].join(" ")}
-                      >
-                        <p className="font-semibold">{entry.shift_name}</p>
-                        <p className="mt-1 text-xs opacity-80">
-                          {formatShiftDate(entry.shift_date)}
-                        </p>
-                        <p className="text-xs opacity-70">
-                          {formatTime(entry.start_time)} –{" "}
-                          {formatTime(entry.end_time)}
-                        </p>
-                      </div>
-                    ))}
+              {fatFriday ? (
+                <section className="mb-6 rounded-3xl border border-amber-500/25 bg-amber-500/10 p-5">
+                  <div className="flex flex-wrap items-center justify-between gap-4">
+                    <div>
+                      <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.25em] text-amber-200">
+                        <Sparkles size={15} />
+                        Fat Friday
+                      </p>
+                      <h2 className="mt-2 text-2xl font-bold text-white">
+                        {fatFridayUser?.full_name ||
+                          fatFridayUser?.email ||
+                          "Assigned user"}
+                      </h2>
+                      <p className="mt-1 text-sm text-amber-100/65">
+                        {fatFriday.description ||
+                          "Friday-only duty for the team."}
+                      </p>
+                    </div>
+                    <div className="rounded-2xl border border-amber-500/20 bg-black/30 px-4 py-3 text-sm font-semibold text-amber-100">
+                      {fatFriday.shift_date ?? "Friday"}
+                    </div>
                   </div>
                 </section>
               ) : null}
 
-              {/* Roster selector */}
-              <section className="mb-6 rounded-2xl border border-white/10 bg-white/5 p-5">
-                <label className="mb-2 block text-sm text-white/70">
-                  Select week / roster
-                </label>
-                <select
-                  value={selectedRosterId}
-                  onChange={(e) => void handleRosterChange(e.target.value)}
-                  className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 text-sm text-white outline-none focus:border-orange-500 sm:max-w-sm"
-                >
-                  {rosters.map((roster) => (
-                    <option key={roster.id} value={roster.id}>
-                      {roster.title}
-                      {roster.department
-                        ? ` — ${roster.department}`
-                        : ""} (w/c {roster.week_start})
-                    </option>
-                  ))}
-                </select>
-                {selectedRoster?.department ? (
-                  <p className="mt-2 text-xs text-white/40">
-                    Department: {selectedRoster.department}
-                  </p>
-                ) : null}
+              <section className="mb-6">
+                <div className="mb-4 flex items-center gap-2">
+                  <CalendarClock size={18} className="text-orange-400" />
+                  <h2 className="font-semibold text-white">
+                    This Week's Duties
+                  </h2>
+                </div>
+                <RosterTable
+                  assignments={thisWeekAssignments}
+                  users={users}
+                  currentUserId={user.id}
+                />
               </section>
 
-              {/* Calendar-style grid */}
-              {entries.length === 0 ? (
-                <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-sm text-white/50">
-                  No shifts have been entered for this roster yet.
+              <section className="mb-6 rounded-2xl border border-white/10 bg-white/5 p-5">
+                <div className="mb-4 flex items-center gap-2">
+                  <CalendarClock size={18} className="text-orange-400" />
+                  <h2 className="font-semibold text-white">
+                    Next Week Preview
+                  </h2>
                 </div>
-              ) : (
-                <section className="space-y-4">
-                  {sortedDates.map((date) => {
-                    const dayEntries = entriesByDate.get(date) ?? [];
+                <RosterTable
+                  assignments={nextWeekAssignments}
+                  users={users}
+                  currentUserId={user.id}
+                />
+              </section>
 
+              <section className="rounded-2xl border border-white/10 bg-white/5 p-5">
+                <div className="mb-4 flex items-center gap-2">
+                  <Users size={18} className="text-orange-400" />
+                  <h2 className="font-semibold text-white">Team Duty Board</h2>
+                </div>
+                <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                  {users.map((item) => {
+                    const assigned = thisWeekAssignments.filter(
+                      (assignment) => assignment.user_id === item.id,
+                    );
                     return (
                       <div
-                        key={date}
-                        className="overflow-hidden rounded-2xl border border-white/10 bg-white/5"
+                        key={item.id}
+                        className={[
+                          "rounded-xl border px-3 py-3",
+                          item.id === user.id
+                            ? "border-orange-500/30 bg-orange-500/10"
+                            : "border-white/8 bg-black/30",
+                        ].join(" ")}
                       >
-                        <div className="border-b border-white/10 bg-white/5 px-5 py-3">
-                          <p className="text-sm font-semibold text-white">
-                            {formatShiftDate(date)}
-                          </p>
-                          <p className="text-xs text-white/40">
-                            {dayEntries.length} shift
-                            {dayEntries.length === 1 ? "" : "s"}
-                          </p>
-                        </div>
-
-                        <div className="divide-y divide-white/5">
-                          {dayEntries.map((entry) => {
-                            const entryUser = userMap.get(entry.user_id);
-                            const isMe = entry.user_id === user.id;
-
-                            return (
-                              <div
-                                key={entry.id}
-                                className={[
-                                  "flex flex-wrap items-center gap-4 px-5 py-4",
-                                  isMe ? "bg-orange-500/5" : "",
-                                ].join(" ")}
-                              >
-                                {/* Employee */}
-                                <div className="min-w-40 flex-1">
-                                  <div className="flex items-center gap-2">
-                                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/10 text-xs font-bold text-white">
-                                      {(
-                                        entryUser?.full_name ??
-                                        entryUser?.email ??
-                                        "?"
-                                      )
-                                        .charAt(0)
-                                        .toUpperCase()}
-                                    </div>
-                                    <div>
-                                      <p className="text-sm font-medium text-white">
-                                        {entryUser?.full_name ??
-                                          entryUser?.email ??
-                                          "Unknown"}
-                                        {isMe ? (
-                                          <span className="ml-2 text-[10px] font-semibold uppercase tracking-wider text-orange-400">
-                                            You
-                                          </span>
-                                        ) : null}
-                                      </p>
-                                      <p className="text-xs text-white/40">
-                                        {entryUser?.primary_role ?? "—"}
-                                      </p>
-                                    </div>
-                                  </div>
-                                </div>
-
-                                {/* Shift badge */}
-                                <span
-                                  className={[
-                                    "rounded-full border px-3 py-1 text-xs font-semibold",
-                                    getShiftColor(entry.shift_name),
-                                  ].join(" ")}
-                                >
-                                  {entry.shift_name}
-                                </span>
-
-                                {/* Time */}
-                                <p className="text-sm text-white/60">
-                                  {formatTime(entry.start_time)} –{" "}
-                                  {formatTime(entry.end_time)}
-                                </p>
-
-                                {/* Notes */}
-                                {entry.notes ? (
-                                  <p className="text-xs text-white/40">
-                                    {entry.notes}
-                                  </p>
-                                ) : null}
-                              </div>
-                            );
-                          })}
-                        </div>
+                        <p className="text-sm font-medium text-white">
+                          {item.full_name || item.email || "Unknown user"}
+                        </p>
+                        <p className="mt-1 text-xs text-white/40">
+                          {assigned.length > 0
+                            ? assigned.map((entry) => entry.duty_name).join(", ")
+                            : "No duty this week"}
+                        </p>
                       </div>
                     );
                   })}
-                </section>
-              )}
+                </div>
+              </section>
             </>
           )}
         </main>

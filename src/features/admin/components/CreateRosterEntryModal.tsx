@@ -1,39 +1,57 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import {
-  createDutyRosterEntry,
-  createWeeklyDutyRosterEntries,
-  type ProfileRosterUserRow,
+  upsertDutyDefinition,
+  type DutyDefinitionRow,
+  type DutyType,
 } from "../services/adminService";
 
 type CreateRosterEntryModalProps = {
   open: boolean;
   onClose: () => void;
-  rosterId: string;
-  weekStart?: string | null;
-  users: ProfileRosterUserRow[];
+  organizationId: string;
+  officeId: string;
+  userId: string;
+  duty?: DutyDefinitionRow | null;
   onCreated: () => Promise<void> | void;
 };
+
+const DAYS = [
+  { value: 1, label: "Monday" },
+  { value: 2, label: "Tuesday" },
+  { value: 3, label: "Wednesday" },
+  { value: 4, label: "Thursday" },
+  { value: 5, label: "Friday" },
+  { value: 6, label: "Saturday" },
+  { value: 7, label: "Sunday" },
+];
 
 export default function CreateRosterEntryModal({
   open,
   onClose,
-  rosterId,
-  weekStart,
-  users,
+  organizationId,
+  officeId,
+  userId,
+  duty,
   onCreated,
 }: CreateRosterEntryModalProps) {
-  const [assignmentMode, setAssignmentMode] = useState<"single" | "week">(
-    "single",
-  );
-  const [userId, setUserId] = useState("");
-  const [shiftDate, setShiftDate] = useState("");
-  const [shiftName, setShiftName] = useState("");
-  const [startTime, setStartTime] = useState("");
-  const [endTime, setEndTime] = useState("");
-  const [notes, setNotes] = useState("");
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [dutyType, setDutyType] = useState<DutyType>("weekly_rotating");
+  const [dayOfWeek, setDayOfWeek] = useState(5);
+  const [isActive, setIsActive] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!open) return;
+    setName(duty?.name ?? "");
+    setDescription(duty?.description ?? "");
+    setDutyType(duty?.duty_type ?? "weekly_rotating");
+    setDayOfWeek(duty?.day_of_week ?? 5);
+    setIsActive(duty?.is_active ?? true);
+    setError("");
+  }, [duty, open]);
 
   if (!open) return null;
 
@@ -43,46 +61,23 @@ export default function CreateRosterEntryModal({
 
     try {
       setBusy(true);
-
-      if (assignmentMode === "week") {
-        if (!weekStart) {
-          throw new Error("Select a roster with a week start first.");
-        }
-
-        await createWeeklyDutyRosterEntries({
-          rosterId,
-          userId,
-          weekStart,
-          shiftName,
-          startTime: startTime || null,
-          endTime: endTime || null,
-          notes,
-        });
-      } else {
-        await createDutyRosterEntry({
-          rosterId,
-          userId,
-          shiftDate,
-          shiftName,
-          startTime: startTime || null,
-          endTime: endTime || null,
-          notes,
-        });
-      }
+      await upsertDutyDefinition({
+        id: duty?.id,
+        organizationId,
+        officeId,
+        name,
+        description,
+        dutyType,
+        dayOfWeek,
+        isActive,
+        createdBy: userId,
+      });
 
       await onCreated();
       onClose();
-
-      setUserId("");
-      setShiftDate("");
-      setShiftName("");
-      setStartTime("");
-      setEndTime("");
-      setNotes("");
-      setAssignmentMode("single");
     } catch (err: any) {
-      console.error("CREATE ROSTER ENTRY ERROR:", err);
-      setError(err?.message || "Failed to add roster entry.");
+      console.error("SAVE DUTY ERROR:", err);
+      setError(err?.message || "Failed to save duty.");
     } finally {
       setBusy(false);
     }
@@ -93,9 +88,11 @@ export default function CreateRosterEntryModal({
       <div className="max-h-[92dvh] w-full max-w-xl overflow-y-auto rounded-3xl border border-white/10 bg-zinc-950 p-5 shadow-2xl sm:p-6">
         <div className="mb-6 flex items-center justify-between">
           <div>
-            <h2 className="text-xl font-bold text-white">Add Shift</h2>
+            <h2 className="text-xl font-bold text-white">
+              {duty ? "Edit Duty" : "Create Duty"}
+            </h2>
             <p className="mt-1 text-sm text-white/55">
-              Assign a staff member to a duty shift
+              Define reusable duties for the ITsNomatata rotation.
             </p>
           </div>
 
@@ -115,129 +112,100 @@ export default function CreateRosterEntryModal({
         ) : null}
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <button
-              type="button"
-              onClick={() => setAssignmentMode("single")}
-              className={[
-                "rounded-2xl border px-4 py-3 text-left text-sm transition",
-                assignmentMode === "single"
-                  ? "border-orange-500 bg-orange-500/10 text-white"
-                  : "border-white/10 bg-black text-white/60 hover:bg-white/5",
-              ].join(" ")}
-            >
-              Single day
-            </button>
-            <button
-              type="button"
-              onClick={() => setAssignmentMode("week")}
-              className={[
-                "rounded-2xl border px-4 py-3 text-left text-sm transition",
-                assignmentMode === "week"
-                  ? "border-orange-500 bg-orange-500/10 text-white"
-                  : "border-white/10 bg-black text-white/60 hover:bg-white/5",
-              ].join(" ")}
-            >
-              Whole week duty
-            </button>
-          </div>
-
-          <div>
-            <label className="mb-2 block text-sm text-white/70">Employee</label>
-            <select
-              value={userId}
-              onChange={(e) => setUserId(e.target.value)}
-              required
-              className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 text-white outline-none focus:border-orange-500"
-            >
-              <option value="">Select employee</option>
-              {users.map((user) => (
-                <option key={user.id} value={user.id}>
-                  {user.full_name || user.email || "Unknown user"}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {assignmentMode === "single" ? (
-            <div>
-              <label className="mb-2 block text-sm text-white/70">
-                Shift Date
-              </label>
-              <input
-                type="date"
-                value={shiftDate}
-                onChange={(e) => setShiftDate(e.target.value)}
-                required
-                className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 text-white outline-none focus:border-orange-500"
-              />
-            </div>
-          ) : (
-            <div className="rounded-2xl border border-orange-500/20 bg-orange-500/10 px-4 py-3 text-sm text-orange-100">
-              This duty will be assigned every day for the roster week
-              {weekStart ? ` starting ${weekStart}` : ""}.
-            </div>
-          )}
-
           <div>
             <label className="mb-2 block text-sm text-white/70">
-              Shift Name
+              Duty Name
             </label>
             <input
               type="text"
-              value={shiftName}
-              onChange={(e) => setShiftName(e.target.value)}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
               required
-              placeholder={
-                assignmentMode === "week" ? "Wash plates" : "Morning Shift"
-              }
+              placeholder="Washing, Plates, Kitchen, Fat Friday"
               className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 text-white outline-none focus:border-orange-500"
             />
-          </div>
-
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div>
-              <label className="mb-2 block text-sm text-white/70">
-                Start Time
-              </label>
-              <input
-                type="time"
-                value={startTime}
-                onChange={(e) => setStartTime(e.target.value)}
-                className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 text-white outline-none focus:border-orange-500"
-              />
-            </div>
-
-            <div>
-              <label className="mb-2 block text-sm text-white/70">
-                End Time
-              </label>
-              <input
-                type="time"
-                value={endTime}
-                onChange={(e) => setEndTime(e.target.value)}
-                className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 text-white outline-none focus:border-orange-500"
-              />
-            </div>
           </div>
 
           <div>
-            <label className="mb-2 block text-sm text-white/70">Notes</label>
+            <label className="mb-2 block text-sm text-white/70">
+              Description
+            </label>
             <textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
               rows={3}
               className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 text-white outline-none focus:border-orange-500"
-              placeholder="Optional notes"
+              placeholder="What should the assigned person handle?"
             />
           </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={() => setDutyType("weekly_rotating")}
+              className={[
+                "rounded-2xl border px-4 py-3 text-left text-sm transition",
+                dutyType === "weekly_rotating"
+                  ? "border-orange-500 bg-orange-500/10 text-white"
+                  : "border-white/10 bg-black text-white/60 hover:bg-white/5",
+              ].join(" ")}
+            >
+              Weekly rotating
+            </button>
+            <button
+              type="button"
+              onClick={() => setDutyType("single_day")}
+              className={[
+                "rounded-2xl border px-4 py-3 text-left text-sm transition",
+                dutyType === "single_day"
+                  ? "border-orange-500 bg-orange-500/10 text-white"
+                  : "border-white/10 bg-black text-white/60 hover:bg-white/5",
+              ].join(" ")}
+            >
+              Single-day
+            </button>
+          </div>
+
+          {dutyType === "single_day" ? (
+            <div>
+              <label className="mb-2 block text-sm text-white/70">
+                Day of Week
+              </label>
+              <select
+                value={dayOfWeek}
+                onChange={(e) => setDayOfWeek(Number(e.target.value))}
+                className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 text-white outline-none focus:border-orange-500"
+              >
+                {DAYS.map((day) => (
+                  <option key={day.value} value={day.value}>
+                    {day.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
+
+          <button
+            type="button"
+            onClick={() => setIsActive((current) => !current)}
+            className={`flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-sm ${
+              isActive
+                ? "border-green-500/20 bg-green-500/10 text-green-300"
+                : "border-white/10 bg-white/5 text-white/45"
+            }`}
+          >
+            <span>{isActive ? "Active" : "Inactive"}</span>
+            <span className="text-xs">
+              {isActive ? "Shown in roster setup" : "Hidden from rotation"}
+            </span>
+          </button>
 
           <button
             type="submit"
             disabled={busy}
             className="w-full rounded-2xl bg-orange-500 px-4 py-3 font-semibold text-black transition hover:bg-orange-400 disabled:opacity-60"
           >
-            {busy ? "Adding..." : "Add Shift"}
+            {busy ? "Saving..." : duty ? "Save Duty" : "Create Duty"}
           </button>
         </form>
       </div>

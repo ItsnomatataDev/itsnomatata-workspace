@@ -127,6 +127,16 @@ export type FleetDashboardData = {
   fuelPurchases: FleetFuelPurchase[];
 };
 
+export type FleetDashboardDateRange =
+  | {
+      mode: "fixed";
+      startDate: string;
+      endDate: string;
+    }
+  | {
+      mode: "latest-import-day";
+    };
+
 function asNumber(value: unknown, fallback = 0) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
@@ -195,9 +205,66 @@ function normalizeFuelPurchase(row: Record<string, unknown>): FleetFuelPurchase 
   };
 }
 
+async function resolveFleetDashboardDateRange(
+  organizationId: string,
+  dateRange: FleetDashboardDateRange,
+) {
+  if (dateRange.mode === "fixed") {
+    return {
+      startDate: dateRange.startDate,
+      endDate: dateRange.endDate,
+    };
+  }
+
+  const { data, error } = await supabase
+    .from("fleet_daily_summaries")
+    .select("summary_date")
+    .eq("organization_id", organizationId)
+    .order("summary_date", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(error.message || "Failed to load latest fleet import day.");
+  }
+
+  const latestImportDay = String(data?.summary_date ?? "");
+
+  return {
+    startDate: latestImportDay,
+    endDate: latestImportDay,
+  };
+}
+
 export async function fetchFleetDashboardData(
   organizationId: string,
+  dateRange: FleetDashboardDateRange,
 ): Promise<FleetDashboardData> {
+  const resolvedDateRange = await resolveFleetDashboardDateRange(
+    organizationId,
+    dateRange,
+  );
+
+  const summariesQuery = supabase
+    .from("fleet_daily_summaries")
+    .select(
+      `
+      *,
+      vehicle:fleet_vehicles(
+        id,
+        vehicle_name,
+        registration_number,
+        current_odometer_km,
+        status
+      )
+    `,
+    )
+    .eq("organization_id", organizationId)
+    .gte("summary_date", resolvedDateRange.startDate)
+    .lte("summary_date", resolvedDateRange.endDate)
+    .order("summary_date", { ascending: false })
+    .order("created_at", { ascending: false });
+
   const [vehiclesResult, summariesResult, batchesResult, fuelPurchasesResult] =
     await Promise.all([
     supabase
@@ -205,24 +272,7 @@ export async function fetchFleetDashboardData(
       .select("id, vehicle_name, registration_number, current_odometer_km, status")
       .eq("organization_id", organizationId)
       .order("vehicle_name", { ascending: true }),
-    supabase
-      .from("fleet_daily_summaries")
-      .select(
-        `
-        *,
-        vehicle:fleet_vehicles(
-          id,
-          vehicle_name,
-          registration_number,
-          current_odometer_km,
-          status
-        )
-      `,
-      )
-      .eq("organization_id", organizationId)
-      .order("summary_date", { ascending: false })
-      .order("created_at", { ascending: false })
-      .limit(60),
+    summariesQuery,
     supabase
       .from("fleet_import_batches")
       .select("*")

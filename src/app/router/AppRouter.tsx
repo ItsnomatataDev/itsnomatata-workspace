@@ -63,6 +63,8 @@ import UserTimesheetPage from "../../features/timesheets/pages/UserTimesheetPage
 import EmployeeInboxPage from "../../features/employee-inbox/pages/EmployeeInboxPage";
 import AdminDocumentCenterPage from "../../features/employee-inbox/pages/AdminDocumentCenterPage";
 import PayslipDeliveryPage from "../../features/employee-inbox/pages/PayslipDeliveryPage";
+import PlatformAdminPage from "../../features/platform-admin/pages/PlatformAdminPage";
+import OperationsCenterPage from "../../features/platform-admin/pages/OperationsCenterPage";
 
 const AppRouter = () => {
   return (
@@ -259,7 +261,22 @@ const AppRouter = () => {
             </ProtectedRoute>
           }
         />
-
+<Route 
+          path="/platform-admin"
+          element={
+            <ProtectedRoute>
+              <PlatformAdminPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/operations-center"
+          element={
+            <ProtectedRoute>
+              <OperationsCenterPage />
+            </ProtectedRoute>
+          }
+        />
         <Route
           path="/campaigns"
           element={

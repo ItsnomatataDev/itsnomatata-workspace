@@ -13,6 +13,8 @@ import {
   notifyUser,
 } from "../../notifications/services/notificationOrchestrationService";
 import { runAdminUserAction } from "../../it-workspace/services/warRoomService";
+import { OFFICE_SLUGS, type CompanyOffice } from "../../../lib/offices";
+import { getCompanyOfficeBySlug } from "../../../lib/supabase/queries/offices";
 
 type NotificationSummary = {
   ok?: boolean;
@@ -282,10 +284,16 @@ export type LeaveTypeRow = {
 export type DutyRosterRow = {
   id: string;
   organization_id: string;
+  office_id?: string | null;
   title: string;
   department: string | null;
   week_start: string;
+  status?: "active" | "paused" | "archived" | string;
+  rotation_seed?: number | null;
+  notes?: string | null;
   created_by: string | null;
+  archived_at?: string | null;
+  archived_by?: string | null;
   created_at: string;
 };
 
@@ -317,6 +325,54 @@ export type ProfileRosterUserRow = {
   email: string | null;
   primary_role: string | null;
   department: string | null;
+  office_id?: string | null;
+};
+
+export type DutyType = "weekly_rotating" | "single_day";
+
+export type DutyDefinitionRow = {
+  id: string;
+  organization_id: string;
+  office_id: string | null;
+  name: string;
+  description: string | null;
+  duty_type: DutyType;
+  day_of_week: number | null;
+  is_active: boolean;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type DutyRosterMemberRow = {
+  id: string;
+  roster_id: string;
+  user_id: string;
+  sort_order: number;
+  created_at: string;
+};
+
+export type DutyRosterDutyRow = {
+  id: string;
+  roster_id: string;
+  duty_id: string;
+  rotation_offset: number;
+  sort_order: number;
+  created_at: string;
+};
+
+export type DutyAssignmentPreview = {
+  id: string;
+  roster_id: string;
+  duty_id: string;
+  duty_name: string;
+  description: string | null;
+  duty_type: DutyType;
+  day_of_week: number | null;
+  shift_date: string | null;
+  week_start: string;
+  user_id: string;
+  is_fat_friday: boolean;
 };
 
 export type EmployeeRow = {
@@ -1416,15 +1472,137 @@ export async function getRecentCRMDeals(
   return (data ?? []) as CRMDealRow[];
 }
 
-export async function getDutyRosters(organizationId: string) {
-  const { data, error } = await supabase
-    .from("duty_rosters")
-    .select(
-      "id, organization_id, title, department, week_start, created_by, created_at",
+const DUTY_ROSTER_SELECT =
+  "id, organization_id, office_id, title, department, week_start, status, rotation_seed, notes, created_by, archived_at, archived_by, created_at";
+
+const DUTY_DEFINITION_SELECT =
+  "id, organization_id, office_id, name, description, duty_type, day_of_week, is_active, created_by, created_at, updated_at";
+
+function getWeekStartFromDate(date: Date) {
+  const next = new Date(date);
+  const day = next.getDay();
+  const diffToMonday = day === 0 ? -6 : 1 - day;
+  next.setDate(next.getDate() + diffToMonday);
+  next.setHours(0, 0, 0, 0);
+  return toDateKey(next);
+}
+
+function getWeekDifference(fromWeekStart: string, toWeekStart: string) {
+  return Math.round(
+    (new Date(`${toWeekStart}T00:00:00.000Z`).getTime() -
+      new Date(`${fromWeekStart}T00:00:00.000Z`).getTime()) /
+      (7 * 86400000),
+  );
+}
+
+function dayOfWeekToDate(weekStart: string, dayOfWeek: number | null) {
+  if (!dayOfWeek) return null;
+  return addDays(weekStart, dayOfWeek - 1);
+}
+
+export function getCurrentDutyWeekStart() {
+  return getWeekStartFromDate(new Date());
+}
+
+export function getUpcomingDutyWeekStarts(count = 4, from = new Date()) {
+  const start = getWeekStartFromDate(from);
+  return Array.from({ length: count }, (_, index) => addDays(start, index * 7));
+}
+
+export function getDutyAssignmentsForWeek(params: {
+  roster: DutyRosterRow;
+  weekStart: string;
+  rosterMembers: DutyRosterMemberRow[];
+  rosterDuties: DutyRosterDutyRow[];
+  duties: DutyDefinitionRow[];
+}): DutyAssignmentPreview[] {
+  const members = [...params.rosterMembers].sort(
+    (a, b) => a.sort_order - b.sort_order,
+  );
+  const rosterDuties = [...params.rosterDuties].sort(
+    (a, b) => a.sort_order - b.sort_order,
+  );
+
+  if (members.length === 0 || rosterDuties.length === 0) return [];
+
+  const dutyMap = new Map(params.duties.map((duty) => [duty.id, duty]));
+  const weekOffset = getWeekDifference(
+    params.roster.week_start,
+    params.weekStart,
+  );
+  const seed = params.roster.rotation_seed ?? 0;
+
+  return rosterDuties
+    .map((rosterDuty, dutyIndex) => {
+      const duty = dutyMap.get(rosterDuty.duty_id);
+      if (!duty || !duty.is_active) return null;
+
+      const memberIndex =
+        (((seed + rosterDuty.rotation_offset + dutyIndex + weekOffset) %
+          members.length) +
+          members.length) %
+        members.length;
+      const member = members[memberIndex];
+      const isFatFriday = duty.name.toLowerCase().includes("fat friday");
+
+      return {
+        id: `${params.roster.id}:${params.weekStart}:${duty.id}`,
+        roster_id: params.roster.id,
+        duty_id: duty.id,
+        duty_name: duty.name,
+        description: duty.description,
+        duty_type: duty.duty_type,
+        day_of_week: duty.day_of_week,
+        shift_date:
+          duty.duty_type === "single_day"
+            ? dayOfWeekToDate(params.weekStart, duty.day_of_week)
+            : null,
+        week_start: params.weekStart,
+        user_id: member.user_id,
+        is_fat_friday: isFatFriday,
+      } satisfies DutyAssignmentPreview;
+    })
+    .filter((assignment): assignment is DutyAssignmentPreview => Boolean(assignment));
+}
+
+export async function getITsNomatataOffice(organizationId: string) {
+  return getCompanyOfficeBySlug({
+    organizationId,
+    slug: OFFICE_SLUGS.itsNoMatata,
+  });
+}
+
+export function isITsNomatataOfficeProfile(profile?: {
+  office?: { slug?: string | null } | null;
+} | null) {
+  return profile?.office?.slug === OFFICE_SLUGS.itsNoMatata;
+}
+
+export function canManageITDutyRoster(profile?: {
+  primary_role?: string | null;
+  office?: { slug?: string | null } | null;
+} | null) {
+  return (
+    isITsNomatataOfficeProfile(profile) &&
+    ["admin", "manager", "it-superadmin", "superadmin"].includes(
+      String(profile?.primary_role ?? ""),
     )
+  );
+}
+
+export async function getDutyRosters(
+  organizationId: string,
+  officeId?: string | null,
+) {
+  let query = supabase
+    .from("duty_rosters")
+    .select(DUTY_ROSTER_SELECT)
     .eq("organization_id", organizationId)
     .order("week_start", { ascending: false });
 
+  if (officeId) query = query.eq("office_id", officeId);
+
+  const { data, error } = await query;
   if (error) throw error;
   return (data ?? []) as DutyRosterRow[];
 }
@@ -1442,40 +1620,301 @@ export async function getDutyRosterEntries(rosterId: string) {
   return (data ?? []) as DutyRosterEntryRow[];
 }
 
-export async function getOrganizationUsersForRoster(organizationId: string) {
-  const { data, error } = await supabase
+export async function getOrganizationUsersForRoster(
+  organizationId: string,
+  officeId?: string | null,
+) {
+  let query = supabase
     .from("profiles")
-    .select("id, full_name, email, primary_role, department")
+    .select("id, full_name, email, primary_role, department, office_id")
     .eq("organization_id", organizationId)
     .order("full_name", { ascending: true });
 
+  if (officeId) query = query.eq("office_id", officeId);
+
+  const { data, error } = await query;
   if (error) throw error;
   return (data ?? []) as ProfileRosterUserRow[];
 }
 
+export async function getITsNomatataUsersForRoster(organizationId: string) {
+  const office = await getITsNomatataOffice(organizationId);
+  if (!office) return [];
+  return getOrganizationUsersForRoster(organizationId, office.id);
+}
+
 export async function createDutyRoster(params: {
   organizationId: string;
+  officeId?: string | null;
   title: string;
   department?: string;
   weekStart: string;
+  notes?: string;
+  rotationSeed?: number;
   createdBy?: string | null;
 }) {
   const { data, error } = await supabase
     .from("duty_rosters")
     .insert({
       organization_id: params.organizationId,
+      office_id: params.officeId ?? null,
       title: params.title,
       department: params.department ?? null,
       week_start: params.weekStart,
+      notes: params.notes ?? null,
+      rotation_seed: params.rotationSeed ?? 0,
+      status: "active",
       created_by: params.createdBy ?? null,
     })
-    .select(
-      "id, organization_id, title, department, week_start, created_by, created_at",
-    )
+    .select(DUTY_ROSTER_SELECT)
     .single();
 
   if (error) throw error;
   return data as DutyRosterRow;
+}
+
+export async function updateDutyRoster(params: {
+  rosterId: string;
+  title?: string;
+  department?: string | null;
+  notes?: string | null;
+  status?: "active" | "paused" | "archived";
+  actorUserId?: string | null;
+}) {
+  const patch: Record<string, unknown> = {
+    updated_at: new Date().toISOString(),
+  };
+  if (params.title !== undefined) patch.title = params.title;
+  if (params.department !== undefined) patch.department = params.department;
+  if (params.notes !== undefined) patch.notes = params.notes;
+  if (params.status !== undefined) {
+    patch.status = params.status;
+    if (params.status === "archived") {
+      patch.archived_at = new Date().toISOString();
+      patch.archived_by = params.actorUserId ?? null;
+    }
+  }
+
+  const { data, error } = await supabase
+    .from("duty_rosters")
+    .update(patch)
+    .eq("id", params.rosterId)
+    .select(DUTY_ROSTER_SELECT)
+    .single();
+
+  if (error) throw error;
+  return data as DutyRosterRow;
+}
+
+export async function deleteDutyRosterSafely(rosterId: string) {
+  await supabase.from("duty_roster_entries").delete().eq("roster_id", rosterId);
+  await supabase.from("duty_roster_members").delete().eq("roster_id", rosterId);
+  await supabase.from("duty_roster_duties").delete().eq("roster_id", rosterId);
+
+  const { error } = await supabase
+    .from("duty_rosters")
+    .delete()
+    .eq("id", rosterId);
+
+  if (error) throw error;
+}
+
+export async function getDutyDefinitions(
+  organizationId: string,
+  officeId?: string | null,
+) {
+  let query = supabase
+    .from("duty_definitions")
+    .select(DUTY_DEFINITION_SELECT)
+    .eq("organization_id", organizationId)
+    .order("created_at", { ascending: true });
+
+  if (officeId) query = query.eq("office_id", officeId);
+
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data ?? []) as DutyDefinitionRow[];
+}
+
+export async function upsertDutyDefinition(params: {
+  id?: string;
+  organizationId: string;
+  officeId: string;
+  name: string;
+  description?: string | null;
+  dutyType: DutyType;
+  dayOfWeek?: number | null;
+  isActive: boolean;
+  createdBy?: string | null;
+}) {
+  const payload = {
+    organization_id: params.organizationId,
+    office_id: params.officeId,
+    name: params.name.trim(),
+    description: params.description?.trim() || null,
+    duty_type: params.dutyType,
+    day_of_week: params.dutyType === "single_day" ? params.dayOfWeek ?? 5 : null,
+    is_active: params.isActive,
+    created_by: params.createdBy ?? null,
+    updated_at: new Date().toISOString(),
+  };
+
+  const query = params.id
+    ? supabase.from("duty_definitions").update(payload).eq("id", params.id)
+    : supabase.from("duty_definitions").insert(payload);
+
+  const { data, error } = await query
+    .select(DUTY_DEFINITION_SELECT)
+    .single();
+
+  if (error) throw error;
+  return data as DutyDefinitionRow;
+}
+
+export async function getDutyRosterMembers(rosterId: string) {
+  const { data, error } = await supabase
+    .from("duty_roster_members")
+    .select("id, roster_id, user_id, sort_order, created_at")
+    .eq("roster_id", rosterId)
+    .order("sort_order", { ascending: true });
+
+  if (error) throw error;
+  return (data ?? []) as DutyRosterMemberRow[];
+}
+
+export async function setDutyRosterMembers(rosterId: string, userIds: string[]) {
+  const { error: deleteError } = await supabase
+    .from("duty_roster_members")
+    .delete()
+    .eq("roster_id", rosterId);
+  if (deleteError) throw deleteError;
+
+  if (userIds.length === 0) return [];
+
+  const { data, error } = await supabase
+    .from("duty_roster_members")
+    .insert(
+      userIds.map((userId, index) => ({
+        roster_id: rosterId,
+        user_id: userId,
+        sort_order: index,
+      })),
+    )
+    .select("id, roster_id, user_id, sort_order, created_at");
+
+  if (error) throw error;
+  return (data ?? []) as DutyRosterMemberRow[];
+}
+
+export async function getDutyRosterDuties(rosterId: string) {
+  const { data, error } = await supabase
+    .from("duty_roster_duties")
+    .select("id, roster_id, duty_id, rotation_offset, sort_order, created_at")
+    .eq("roster_id", rosterId)
+    .order("sort_order", { ascending: true });
+
+  if (error) throw error;
+  return (data ?? []) as DutyRosterDutyRow[];
+}
+
+export async function setDutyRosterDuties(rosterId: string, dutyIds: string[]) {
+  const { error: deleteError } = await supabase
+    .from("duty_roster_duties")
+    .delete()
+    .eq("roster_id", rosterId);
+  if (deleteError) throw deleteError;
+
+  if (dutyIds.length === 0) return [];
+
+  const { data, error } = await supabase
+    .from("duty_roster_duties")
+    .insert(
+      dutyIds.map((dutyId, index) => ({
+        roster_id: rosterId,
+        duty_id: dutyId,
+        rotation_offset: index,
+        sort_order: index,
+      })),
+    )
+    .select("id, roster_id, duty_id, rotation_offset, sort_order, created_at");
+
+  if (error) throw error;
+  return (data ?? []) as DutyRosterDutyRow[];
+}
+
+export async function createDutyRosterWithSetup(params: {
+  organizationId: string;
+  office: CompanyOffice;
+  title: string;
+  department?: string;
+  weekStart: string;
+  notes?: string;
+  createdBy?: string | null;
+  userIds: string[];
+  dutyIds: string[];
+}) {
+  const roster = await createDutyRoster({
+    organizationId: params.organizationId,
+    officeId: params.office.id,
+    title: params.title,
+    department: params.department,
+    weekStart: params.weekStart,
+    notes: params.notes,
+    createdBy: params.createdBy,
+  });
+
+  await Promise.all([
+    setDutyRosterMembers(roster.id, params.userIds),
+    setDutyRosterDuties(roster.id, params.dutyIds),
+  ]);
+
+  try {
+    const [members, rosterDuties, duties] = await Promise.all([
+      getDutyRosterMembers(roster.id),
+      getDutyRosterDuties(roster.id),
+      getDutyDefinitions(params.organizationId, params.office.id),
+    ]);
+    const assignments = getDutyAssignmentsForWeek({
+      roster,
+      weekStart: getCurrentDutyWeekStart(),
+      rosterMembers: members,
+      rosterDuties,
+      duties,
+    });
+    const assignmentsByUser = new Map<string, string[]>();
+    for (const assignment of assignments) {
+      const current = assignmentsByUser.get(assignment.user_id) ?? [];
+      current.push(assignment.duty_name);
+      assignmentsByUser.set(assignment.user_id, current);
+    }
+
+    await Promise.all(
+      [...assignmentsByUser.entries()].map(([assignedUserId, dutyNames]) =>
+        notifyUser({
+          organizationId: params.organizationId,
+          userId: assignedUserId,
+          type: "duty_roster_assigned",
+          title: "Duty roster assigned",
+          message: `You are assigned this week: ${dutyNames.join(", ")}.`,
+          entityType: "duty_roster",
+          entityId: roster.id,
+          actionUrl: "/roster",
+          priority: "medium",
+          category: "roster",
+          dedupeKey: `duty-roster:${roster.id}:${getCurrentDutyWeekStart()}:${assignedUserId}`,
+          metadata: {
+            rosterId: roster.id,
+            weekStart: getCurrentDutyWeekStart(),
+            duties: dutyNames,
+          },
+        }),
+      ),
+    );
+  } catch (notificationError) {
+    console.error("DUTY ROSTER SETUP NOTIFICATION ERROR:", notificationError);
+  }
+
+  return roster;
 }
 
 export async function createDutyRosterEntry(params: {

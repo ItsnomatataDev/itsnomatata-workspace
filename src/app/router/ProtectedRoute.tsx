@@ -40,6 +40,26 @@ function AccountGateMessage({
   );
 }
 
+function getOrganizationAccess(profile: Record<string, unknown> | null | undefined) {
+  const organization = profile?.organization;
+
+  if (!organization || typeof organization !== "object") {
+    return {
+      isSystemOrganization: false,
+      accessStatus: null,
+      isActive: true,
+    };
+  }
+
+  const org = organization as Record<string, unknown>;
+
+  return {
+    isSystemOrganization: Boolean(org.is_system_organization) || org.slug === "its-nomatata",
+    accessStatus: typeof org.access_status === "string" ? org.access_status : null,
+    isActive: org.is_active !== false,
+  };
+}
+
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const auth = useAuth();
 
@@ -109,6 +129,23 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
         title="Account removed"
         message="This account has been removed from the workspace."
         tone="zinc"
+      />
+    );
+  }
+
+  const organizationAccess = getOrganizationAccess(profile);
+
+  if (
+    !organizationAccess.isSystemOrganization &&
+    (organizationAccess.accessStatus === "suspended" ||
+      organizationAccess.accessStatus === "cancelled" ||
+      !organizationAccess.isActive)
+  ) {
+    return (
+      <AccountGateMessage
+        title="Organization access paused"
+        message="This organization is suspended or cancelled. Platform support must reactivate it before users can enter the workspace."
+        tone="red"
       />
     );
   }

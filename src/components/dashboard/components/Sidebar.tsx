@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   LayoutDashboard,
   Users,
@@ -37,6 +37,7 @@ import { signOutUser } from "../../../lib/supabase/auth";
 import NotificationBell from "../../../features/notifications/components/NotificationBell";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import { OFFICE_SLUGS } from "../../../lib/offices";
+import { checkIsPlatformAdmin } from "../../../features/platform-admin/services/platformAdminService";
 
 type LinkItem = {
   to: string;
@@ -63,15 +64,6 @@ type SidebarCounts = {
   pendingInvites?: number;
   openIssues?: number;
 };
-
-const mediaDashboardRoles = new Set([
-  "admin",
-  "manager",
-  "media_team",
-  "social_media",
-  "seo_specialist",
-  "marketing",
-]);
 
 const commonLinks: LinkItem[] = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -197,9 +189,7 @@ function getRoleNav(role?: string | null, counts?: SidebarCounts): NavItem[] {
         { to: "/it/support", label: "Account Support", icon: ShieldCheck },
       ];
 
-
-
-    case "manager":
+case "manager":
 return [
 { type: "group", label: "Assets", icon: Package, color: "text-blue-400", activePaths: ["/assets", "/scan", "/fleet"],children: [
 { to: "/assets", label: "Assets", icon: ShieldCheck },
@@ -212,9 +202,9 @@ return [
 { to: "/ai-automation-review", label: "AI Automation Review", icon: Bot },
 ];
 
-    case "admin":
-      return [
-        {
+ case "admin":
+  return [
+    {
           to: "/admin/dashboard",
           label: "Admin Dashboard",
           icon: LayoutDashboard,
@@ -226,7 +216,6 @@ return [
         { to: "/admin/attendance", label: "Attendance", icon: Timer },
         { to: "/admin/documents", label: "Documents", icon: FileText },
         { to: "/admin/payslips", label: "Payslips", icon: ClipboardList },
-        { to: "/admin/crm", label: "CRM", icon: BriefcaseBusiness },
         {
           type: "group",
           label: "Assets",
@@ -357,6 +346,24 @@ export default function Sidebar({
   const navigate = useNavigate();
   const auth = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+
+    checkIsPlatformAdmin()
+      .then((result) => {
+        if (mounted) setIsPlatformAdmin(result);
+      })
+      .catch((err) => {
+        console.error("SIDEBAR PLATFORM ADMIN CHECK ERROR:", err);
+        if (mounted) setIsPlatformAdmin(false);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [auth?.user?.id]);
 
   const isThreeLittleBirds =
     auth?.profile?.office && "slug" in auth.profile.office
@@ -366,7 +373,17 @@ export default function Sidebar({
     ? commonLinks.filter((link) => !["/ai-workspace", "/meetings"].includes(link.to))
     : commonLinks;
   const visibleCommonLinks = baseCommonLinks;
-  const allNav: NavItem[] = [...visibleCommonLinks, ...getRoleNav(role, counts)];
+  const platformLinks: LinkItem[] = isPlatformAdmin
+    ? [
+        { to: "/platform-admin", label: "Platform Admin", icon: ShieldCheck },
+        { to: "/operations-center", label: "Operations Center", icon: Activity },
+      ]
+    : [];
+  const allNav: NavItem[] = [
+    ...visibleCommonLinks,
+    ...platformLinks,
+    ...getRoleNav(role, counts),
+  ];
 
   const handleLogout = async () => {
     try {
