@@ -13,6 +13,20 @@ export type LeaveBalanceAuditRow = {
   created_at: string;
 };
 
+export type LeaveBalanceEmployeeRow = {
+  id: string;
+  full_name: string | null;
+  email: string | null;
+  primary_role: string | null;
+  leave_days_total: number;
+  leave_days_remaining: number;
+};
+
+export type LeaveBalanceAuditHistoryRow = LeaveBalanceAuditRow & {
+  employee: { full_name: string | null; email: string | null } | null;
+  modifier: { full_name: string | null; email: string | null } | null;
+};
+
 export async function recordBalanceChange(params: {
   organizationId: string;
   userId: string;
@@ -42,6 +56,54 @@ export async function recordBalanceChange(params: {
   return data as LeaveBalanceAuditRow;
 }
 
+export async function getLeaveBalanceEmployees(organizationId: string) {
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("id, full_name, email, primary_role, leave_days_total, leave_days_remaining")
+    .eq("organization_id", organizationId)
+    .is("deleted_at", null)
+    .order("full_name", { ascending: true });
+
+  if (error) throw error;
+
+  return (data ?? []).map((employee) => {
+    const total = Number(employee.leave_days_total ?? 22);
+    return {
+      id: employee.id,
+      full_name: employee.full_name ?? null,
+      email: employee.email ?? null,
+      primary_role: employee.primary_role ?? null,
+      leave_days_total: total,
+      leave_days_remaining: Number(employee.leave_days_remaining ?? total),
+    };
+  }) as LeaveBalanceEmployeeRow[];
+}
+
+export async function getRecentBalanceHistory(params: {
+  organizationId: string;
+  limit?: number;
+}) {
+  const { data, error } = await supabase
+    .from("leave_balance_audit")
+    .select(`
+      *,
+      employee:profiles!leave_balance_audit_user_id_fkey (
+        full_name,
+        email
+      ),
+      modifier:profiles!leave_balance_audit_modified_by_fkey (
+        full_name,
+        email
+      )
+    `)
+    .eq("organization_id", params.organizationId)
+    .order("created_at", { ascending: false })
+    .limit(params.limit || 8);
+
+  if (error) throw error;
+  return (data ?? []) as LeaveBalanceAuditHistoryRow[];
+}
+
 export async function getBalanceHistory(params: {
   organizationId: string;
   userId: string;
@@ -62,5 +124,5 @@ export async function getBalanceHistory(params: {
     .limit(params.limit || 50);
 
   if (error) throw error;
-  return data as (LeaveBalanceAuditRow & { modifier: { full_name: string; email: string } | null })[];
+  return data as (LeaveBalanceAuditRow & { modifier: { full_name: string | null; email: string | null } | null })[];
 }

@@ -883,6 +883,10 @@ export async function modifyUserLeaveBalance(params: {
   const newTotal = params.newTotal ?? previousTotal;
   const newRemaining = params.newRemaining ?? previousRemaining;
 
+  if (newTotal < 0 || newRemaining < 0) {
+    throw new Error("Leave balances cannot be below 0.");
+  }
+
   // Update profile
   const { error: updateError } = await supabase
     .from("profiles")

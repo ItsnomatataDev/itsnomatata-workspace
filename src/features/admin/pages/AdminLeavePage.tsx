@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CalendarDays, Plus, ShieldCheck, Lock, Unlock, Edit, Wallet } from "lucide-react";
+import { CalendarDays, Plus, ShieldCheck, Lock, Unlock } from "lucide-react";
+import { toast } from "react-toastify";
 import Sidebar from "../../../components/dashboard/components/Sidebar";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import LeaveRequestTable from "../components/LeaveRequestTable";
@@ -8,7 +9,7 @@ import CreateLeaveRuleModal from "../../leave/components/CreateLeaveRuleModal";
 import LeaveCalendar from "../../leave/components/leaveCalender";
 import LeaveRuleList from "../../leave/components/LeaveRuleList";
 import ModifyLeaveRequestModal from "../components/ModifyLeaveRequestModal";
-import ModifyLeaveBalanceModal from "../components/ModifyLeaveBalanceModal";
+import LeaveBalanceAdjustmentCard from "../components/LeaveBalanceAdjustmentCard";
 import {
   getLeaveRequests,
   getLeaveTypes,
@@ -29,6 +30,12 @@ import {
   modifyUserLeaveBalance,
   getPublicHolidays,
 } from "../../leave/services/leaveService";
+import {
+  getLeaveBalanceEmployees,
+  getRecentBalanceHistory,
+  type LeaveBalanceAuditHistoryRow,
+  type LeaveBalanceEmployeeRow,
+} from "../../leave/services/leaveBalanceAuditService";
 import type { PublicHolidayRow } from "../../leave/components/leaveCalender";
 
 function formatDateForDb(date: Date) {
@@ -62,27 +69,43 @@ export default function AdminLeavePage() {
   const [createTypeOpen, setCreateTypeOpen] = useState(false);
   const [createRuleOpen, setCreateRuleOpen] = useState(false);
   const [modifyLeaveOpen, setModifyLeaveOpen] = useState(false);
-  const [modifyBalanceOpen, setModifyBalanceOpen] = useState(false);
+  const [balanceSaving, setBalanceSaving] = useState(false);
   const [selectedLeaveForModify, setSelectedLeaveForModify] = useState<LeaveRequestRow | null>(null);
-  const [selectedUserForBalance, setSelectedUserForBalance] = useState<LeaveRequestRow | null>(null);
+  const [balanceEmployees, setBalanceEmployees] = useState<LeaveBalanceEmployeeRow[]>([]);
+  const [balanceHistory, setBalanceHistory] = useState<LeaveBalanceAuditHistoryRow[]>([]);
   const [activeFilter, setActiveFilter] = useState<
     "all" | "pending" | "approved" | "rejected"
   >("all");
 
   const loadPage = useCallback(async () => {
     if (!organizationId) return;
+    const shouldLoadBalanceTools = profile?.primary_role === "admin";
 
     try {
       setLoading(true);
       setError("");
 
-      const [requestsData, leaveTypesData, approvedLeavesData, rulesData, holidaysData] =
+      const [
+        requestsData,
+        leaveTypesData,
+        approvedLeavesData,
+        rulesData,
+        holidaysData,
+        balanceEmployeesData,
+        balanceHistoryData,
+      ] =
         await Promise.all([
           getLeaveRequests(organizationId),
           getLeaveTypes(organizationId),
           getApprovedLeaveCalendarEvents(organizationId),
           getLeaveCalendarRules(organizationId),
           getPublicHolidays({ organizationId }),
+          shouldLoadBalanceTools
+            ? getLeaveBalanceEmployees(organizationId)
+            : Promise.resolve([]),
+          shouldLoadBalanceTools
+            ? getRecentBalanceHistory({ organizationId, limit: 8 })
+            : Promise.resolve([]),
         ]);
 
       setRequests(requestsData);
@@ -90,13 +113,15 @@ export default function AdminLeavePage() {
       setApprovedLeaves(approvedLeavesData);
       setRules(rulesData);
       setHolidays(holidaysData);
+      setBalanceEmployees(balanceEmployeesData);
+      setBalanceHistory(balanceHistoryData);
     } catch (err: any) {
       console.error("ADMIN LEAVE LOAD ERROR:", err);
       setError(err?.message || "Failed to load leave management.");
     } finally {
       setLoading(false);
     }
-  }, [organizationId]);
+  }, [organizationId, profile?.primary_role]);
 
   useEffect(() => {
     if (!organizationId) return;
@@ -221,11 +246,6 @@ export default function AdminLeavePage() {
     setModifyLeaveOpen(true);
   };
 
-  const handleModifyLeaveBalance = async (request: LeaveRequestRow) => {
-    setSelectedUserForBalance(request);
-    setModifyBalanceOpen(true);
-  };
-
   const handleSaveLeaveModification = async (params: {
     newStartDate: string;
     newEndDate: string;
@@ -259,19 +279,21 @@ export default function AdminLeavePage() {
   };
 
   const handleSaveBalanceModification = async (params: {
-    newTotal?: number;
-    newRemaining?: number;
+    userId: string;
+    newTotal: number;
+    newRemaining: number;
     reason: string;
   }) => {
-    if (!selectedUserForBalance || !userId || !organizationId) return;
+    if (!userId || !organizationId) return;
 
     try {
+      setBalanceSaving(true);
       setError("");
       setSuccessMessage("");
 
       await modifyUserLeaveBalance({
         organizationId,
-        userId: selectedUserForBalance.user_id,
+        userId: params.userId,
         modifiedByUserId: userId,
         newTotal: params.newTotal,
         newRemaining: params.newRemaining,
@@ -279,12 +301,14 @@ export default function AdminLeavePage() {
       });
 
       setSuccessMessage("Leave balance updated successfully.");
-      setModifyBalanceOpen(false);
-      setSelectedUserForBalance(null);
+      toast.success("Leave balance updated successfully.");
       await loadPage();
     } catch (err: any) {
       console.error("MODIFY BALANCE ERROR:", err);
       setError(err?.message || "Failed to modify leave balance.");
+      throw err;
+    } finally {
+      setBalanceSaving(false);
     }
   };
 
@@ -333,6 +357,7 @@ export default function AdminLeavePage() {
   const openRulesCount = rules.filter(
     (rule) => rule.rule_type === "open",
   ).length;
+  const canAdjustLeaveBalances = profile?.primary_role === "admin";
 
   if (authLoading) {
     return (
@@ -487,6 +512,15 @@ export default function AdminLeavePage() {
                 />
               </section>
 
+              {canAdjustLeaveBalances ? (
+                <LeaveBalanceAdjustmentCard
+                  employees={balanceEmployees}
+                  history={balanceHistory}
+                  saving={balanceSaving}
+                  onSave={handleSaveBalanceModification}
+                />
+              ) : null}
+
               <section className="mb-6 grid gap-6 xl:grid-cols-3">
                 <div className="rounded-2xl border border-white/10 bg-white/5 p-5 xl:col-span-2">
                   <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -527,7 +561,6 @@ export default function AdminLeavePage() {
                       onApprove={handleApprove}
                       onReject={handleReject}
                       onModifyDates={handleModifyLeaveDates}
-                      onModifyBalance={handleModifyLeaveBalance}
                       actionLoadingId={actionLoadingId}
                     />
                   )}
@@ -592,15 +625,6 @@ export default function AdminLeavePage() {
         onSave={handleSaveLeaveModification}
       />
 
-      <ModifyLeaveBalanceModal
-        open={modifyBalanceOpen}
-        onClose={() => {
-          setModifyBalanceOpen(false);
-          setSelectedUserForBalance(null);
-        }}
-        userRequest={selectedUserForBalance}
-        onSave={handleSaveBalanceModification}
-      />
     </div>
   );
 }
