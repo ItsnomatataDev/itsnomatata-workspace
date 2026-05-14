@@ -12,24 +12,114 @@ import type {
 } from "../types/platformAdmin";
 
 type JsonRecord = Record<string, unknown>;
+type OrganizationBrandingInput = {
+  brandName?: string | null;
+  logoUrl?: string | null;
+  faviconUrl?: string | null;
+  loginBackgroundUrl?: string | null;
+  primaryColor?: string | null;
+  secondaryColor?: string | null;
+  accentColor?: string | null;
+  companySlogan?: string | null;
+  companyWelcomeText?: string | null;
+  dashboardGreetingText?: string | null;
+  customTerminology?: JsonRecord;
+  invitationTemplate?: string | null;
+  onboardingWording?: JsonRecord;
+  dnsTarget?: string | null;
+  domainError?: string | null;
+};
 
 const SYSTEM_ORGANIZATION_SLUG = "its-nomatata";
+const PROFILE_COMPATIBLE_ROLES = new Set([
+  "admin",
+  "org_admin",
+  "user",
+  "manager",
+  "it",
+  "social_media",
+  "media_team",
+  "seo_specialist",
+  "superadmin",
+  "it-superadmin",
+  "super_admin",
+]);
 
-const DEFAULT_FEATURES = [
-  { key: "ai_workspace", label: "AI Module", category: "Intelligence" },
-  { key: "meetings", label: "Meetings Module", category: "Collaboration" },
-  { key: "chat", label: "Chat Module", category: "Collaboration" },
-  { key: "boards", label: "Boards Module", category: "Work Management" },
-  { key: "tasks", label: "Tasks Module", category: "Work Management" },
-  { key: "attendance", label: "Attendance Module", category: "HR" },
-  { key: "timesheets", label: "Timesheets Module", category: "HR" },
-  { key: "finance", label: "Finance Module", category: "Finance" },
-  { key: "media_dashboard", label: "Media Module", category: "Media" },
-  { key: "social_media", label: "Social Media Module", category: "Media" },
-  { key: "automation", label: "Automation Module", category: "Operations" },
-  { key: "notifications", label: "Notifications Module", category: "Operations" },
-  { key: "fleet", label: "Fleet Module", category: "Assets" },
-  { key: "stock", label: "Asset Tracking Module", category: "Assets" },
+function toProfileCompatibleRole(roleKey: string) {
+  return PROFILE_COMPATIBLE_ROLES.has(roleKey) ? roleKey : "user";
+}
+
+export type OrganizationSignupRoleOption = {
+  organization_id: string;
+  organization_name: string;
+  organization_slug: string;
+  role_key: string;
+  role_label: string;
+  is_default_signup_role: boolean;
+};
+
+export async function getOrganizationSignupRoles(params: {
+  organizationId?: string | null;
+  organizationSlug?: string | null;
+}): Promise<OrganizationSignupRoleOption[]> {
+  const { data, error } = await supabase.rpc("get_organization_signup_roles", {
+    target_organization_id: params.organizationId ?? null,
+    target_organization_slug: params.organizationSlug ?? null,
+  });
+
+  if (error) throw error;
+  return (data ?? []) as OrganizationSignupRoleOption[];
+}
+
+function getSupabaseErrorMessage(error: unknown, fallback = "Supabase request failed.") {
+  if (error instanceof Error && error.message) return error.message;
+
+  if (error && typeof error === "object") {
+    const record = error as Record<string, unknown>;
+    const message = record.message ?? record.details ?? record.hint ?? record.code;
+    if (typeof message === "string" && message.trim()) return message;
+  }
+
+  return fallback;
+}
+
+async function runSetupStep(label: string, action: () => Promise<void>) {
+  try {
+    await action();
+  } catch (error) {
+    throw new Error(`${label}: ${getSupabaseErrorMessage(error)}`);
+  }
+}
+
+export const DEFAULT_FEATURES = [
+  { key: "admin_dashboard", label: "Admin Dashboard", category: "Admin" },
+  { key: "admin_users", label: "Admin Users", category: "Admin" },
+  { key: "admin_leave", label: "Admin Leave", category: "Admin" },
+  { key: "admin_roster", label: "Admin Roster", category: "Admin" },
+  { key: "meetings", label: "Meetings", category: "Collaboration" },
+  { key: "ai_workspace", label: "AI Workspace", category: "Intelligence" },
+  { key: "ai_agent", label: "AI Agent", category: "Intelligence" },
+  { key: "fleet", label: "Fleet", category: "Assets" },
+  { key: "stock", label: "Stock", category: "Assets" },
+  { key: "assets", label: "Assets", category: "Assets" },
+  { key: "finance", label: "Finance", category: "Finance" },
+  { key: "attendance", label: "Attendance", category: "HR" },
+  { key: "timesheets", label: "Timesheets", category: "HR" },
+  { key: "leave_requests", label: "Leave Requests", category: "HR" },
+  { key: "duty_roster", label: "Duty Roster", category: "HR" },
+  { key: "media_dashboard", label: "Media Dashboard", category: "Media" },
+  { key: "social_media", label: "Social Media", category: "Media" },
+  { key: "automation", label: "Automation", category: "Operations" },
+  { key: "notifications", label: "Notifications", category: "Operations" },
+  { key: "boards", label: "Boards", category: "Work Management" },
+  { key: "tasks", label: "Tasks", category: "Work Management" },
+  { key: "chat", label: "Chat", category: "Collaboration" },
+  { key: "reports", label: "Reports", category: "Analytics" },
+  { key: "clients", label: "Clients", category: "CRM" },
+  { key: "invoices", label: "Invoices", category: "Finance" },
+  { key: "expenses", label: "Expenses", category: "Finance" },
+  { key: "budgets", label: "Budgets", category: "Finance" },
+  { key: "knowledge_base", label: "Knowledge Base", category: "Knowledge" },
 ];
 
 const DEFAULT_ROLES = [
@@ -177,7 +267,9 @@ async function getOrganizationById(organizationId: string) {
     .eq("id", organizationId)
     .maybeSingle();
 
-  if (error) throw error;
+  if (error) {
+    throw new Error(`organization row: ${getSupabaseErrorMessage(error)}`);
+  }
   return data as Pick<
     OrganizationRow,
     "id" | "slug" | "is_system_organization" | "access_status" | "is_active"
@@ -225,7 +317,19 @@ export async function createOrganization(params: {
   name: string;
   slug: string;
   timezone?: string;
+  subdomain?: string | null;
+  customDomain?: string | null;
+  adminEmail?: string | null;
+  adminFullName?: string | null;
+  adminRole?: string;
+  branding?: OrganizationBrandingInput;
+  enabledFeatureKeys?: string[];
 }): Promise<OrganizationRow> {
+  await assertDomainAvailable({
+    subdomain: params.subdomain,
+    customDomain: params.customDomain,
+  });
+
   const { data: organization, error } = await supabase
     .from("organizations")
     .insert({
@@ -258,12 +362,55 @@ export async function createOrganization(params: {
 
   const organizationId = organization.id;
 
-  await Promise.all([
+  await runSetupStep("default subscription", () =>
     createDefaultSubscription(organizationId),
-    createDefaultBranding(organizationId, params.name),
+  );
+  await runSetupStep("default branding", () =>
+    createDefaultBranding(organizationId, params.name, {
+      ...params.branding,
+      subdomain: params.subdomain,
+      customDomain: params.customDomain,
+    }),
+  );
+  await runSetupStep("default features", () =>
     createDefaultFeatures(organizationId),
-    createDefaultRoles(organizationId),
-  ]);
+  );
+  await runSetupStep("default roles", () => createDefaultRoles(organizationId));
+
+  if (params.enabledFeatureKeys) {
+    const enabledSet = new Set(params.enabledFeatureKeys);
+    let featureQuery = supabase
+      .from("organization_features")
+      .update({ enabled: false, updated_at: new Date().toISOString() })
+      .eq("organization_id", organizationId);
+
+    if (enabledSet.size > 0) {
+      featureQuery = featureQuery.not(
+        "feature_key",
+        "in",
+        `(${[...enabledSet].map((key) => `"${key}"`).join(",")})`,
+      );
+    }
+
+    const { error: featureError } = await featureQuery;
+
+    if (featureError) {
+      throw new Error(`feature selection: ${getSupabaseErrorMessage(featureError)}`);
+    }
+  }
+
+  const adminEmail = params.adminEmail?.trim();
+
+  if (adminEmail) {
+    await runSetupStep("first admin invitation", async () => {
+      await createOrganizationInvitation({
+        organizationId,
+        email: adminEmail,
+        fullName: params.adminFullName ?? null,
+        roleKey: params.adminRole ?? "admin",
+      });
+    });
+  }
 
   await createPlatformAuditLog({
     action: "organization_created",
@@ -276,6 +423,108 @@ export async function createOrganization(params: {
   });
 
   return organization as OrganizationRow;
+}
+
+function normalizeNullableText(value?: string | null) {
+  const normalized = value?.trim().toLowerCase();
+  return normalized || null;
+}
+
+function shouldRetryBrandingWithoutDomainMetadata(error: unknown) {
+  const message = getSupabaseErrorMessage(error, "").toLowerCase();
+  return [
+    "domain_status",
+    "domain_verification_token",
+    "dns_target",
+    "domain_error",
+    "schema cache",
+  ].some((term) => message.includes(term));
+}
+
+function removeDomainMetadataColumns<T extends Record<string, unknown>>(payload: T) {
+  const {
+    domain_status: _domainStatus,
+    domain_verification_token: _domainVerificationToken,
+    dns_target: _dnsTarget,
+    domain_error: _domainError,
+    ...safePayload
+  } = payload;
+
+  return safePayload;
+}
+
+async function upsertOrganizationBrandingPayload(
+  payload: Record<string, unknown>,
+  options: { returnRow?: boolean } = {},
+): Promise<OrganizationBranding | undefined> {
+  const runUpsert = async (nextPayload: Record<string, unknown>) => {
+    const request = supabase
+      .from("organization_branding")
+      .upsert(nextPayload, {
+        onConflict: "organization_id",
+      });
+
+    if (options.returnRow) {
+      return request.select("*").single();
+    }
+
+    return request;
+  };
+
+  const result = await runUpsert(payload);
+  if (!result.error) {
+    return options.returnRow
+      ? (result.data as OrganizationBranding)
+      : undefined;
+  }
+
+  if (!shouldRetryBrandingWithoutDomainMetadata(result.error)) {
+    throw result.error;
+  }
+
+  console.warn("BRANDING UPSERT RETRY WITHOUT DOMAIN METADATA:", result.error);
+  const retryResult = await runUpsert(removeDomainMetadataColumns(payload));
+  if (retryResult.error) throw retryResult.error;
+
+  if (options.returnRow) return retryResult.data as OrganizationBranding;
+  return undefined;
+}
+
+async function assertDomainAvailable(params: {
+  organizationId?: string;
+  subdomain?: string | null;
+  customDomain?: string | null;
+}) {
+  const subdomain = normalizeNullableText(params.subdomain);
+  const customDomain = normalizeNullableText(params.customDomain);
+
+  if (!subdomain && !customDomain) return;
+
+  if (subdomain) {
+    const { data, error } = await supabase
+      .from("organization_branding")
+      .select("organization_id")
+      .ilike("subdomain", subdomain)
+      .maybeSingle();
+
+    if (error) throw error;
+    if (data && data.organization_id !== params.organizationId) {
+      throw new Error("This subdomain is already assigned to another organization.");
+    }
+  }
+
+  if (customDomain) {
+    const { data, error } = await supabase
+      .from("organization_branding")
+      .select("organization_id")
+      .ilike("custom_domain", customDomain)
+      .maybeSingle();
+
+    if (error) throw error;
+    if (data && data.organization_id !== params.organizationId) {
+      throw new Error("This custom domain is already assigned to another organization.");
+    }
+  }
 }
 
 async function createDefaultSubscription(organizationId: string) {
@@ -298,26 +547,43 @@ async function createDefaultSubscription(organizationId: string) {
   if (error) throw error;
 }
 
-async function createDefaultBranding(organizationId: string, brandName: string) {
-  const { error } = await supabase.from("organization_branding").upsert(
-    {
-      organization_id: organizationId,
-      brand_name: brandName,
-      primary_color: "#000000",
-      secondary_color: "#ffffff",
-      accent_color: "#f97316",
-      company_slogan: "Enterprise operations without friction.",
-      company_welcome_text: `Welcome to ${brandName}.`,
-      dashboard_greeting_text: "Here is what needs attention today.",
-      custom_terminology: {},
-      onboarding_wording: {},
-    },
-    {
-      onConflict: "organization_id",
-    },
-  );
+async function createDefaultBranding(
+  organizationId: string,
+  brandName: string,
+  branding: OrganizationBrandingInput & {
+    subdomain?: string | null;
+    customDomain?: string | null;
+  } = {},
+) {
+  const normalizedCustomDomain = normalizeNullableText(branding.customDomain);
+  const normalizedSubdomain = normalizeNullableText(branding.subdomain);
 
-  if (error) throw error;
+  await upsertOrganizationBrandingPayload({
+    organization_id: organizationId,
+    brand_name: branding.brandName ?? brandName,
+    logo_url: branding.logoUrl ?? null,
+    favicon_url: branding.faviconUrl ?? null,
+    login_background_url: branding.loginBackgroundUrl ?? null,
+    primary_color: branding.primaryColor ?? "#000000",
+    secondary_color: branding.secondaryColor ?? "#ffffff",
+    accent_color: branding.accentColor ?? "#f97316",
+    company_slogan:
+      branding.companySlogan ?? "Enterprise operations without friction.",
+    company_welcome_text:
+      branding.companyWelcomeText ?? `Welcome to ${brandName}.`,
+    dashboard_greeting_text:
+      branding.dashboardGreetingText ?? "Here is what needs attention today.",
+    custom_terminology: branding.customTerminology ?? {},
+    invitation_template: branding.invitationTemplate ?? null,
+    onboarding_wording: branding.onboardingWording ?? {},
+    custom_domain: normalizedCustomDomain,
+    subdomain: normalizedSubdomain,
+    domain_status: normalizedCustomDomain || normalizedSubdomain ? "pending" : null,
+    domain_verification_token:
+      normalizedCustomDomain || normalizedSubdomain ? crypto.randomUUID() : null,
+    dns_target: branding.dnsTarget ?? "cname.itsnomatata.com",
+    domain_error: branding.domainError ?? null,
+  });
 }
 
 async function createDefaultFeatures(organizationId: string) {
@@ -339,6 +605,10 @@ async function createDefaultFeatures(organizationId: string) {
     });
 
   if (error) throw error;
+}
+
+async function ensureOrganizationFeatures(organizationId: string) {
+  await createDefaultFeatures(organizationId);
 }
 
 async function createDefaultRoles(organizationId: string) {
@@ -459,6 +729,23 @@ export async function reactivateOrganization(organizationId: string) {
   });
 }
 
+export async function deleteOrganization(organizationId: string) {
+  await assertSystemOrganizationMayChange(organizationId, "deleted");
+
+  const { error } = await supabase
+    .from("organizations")
+    .delete()
+    .eq("id", organizationId)
+    .eq("is_system_organization", false);
+
+  if (error) throw error;
+
+  await createPlatformAuditLog({
+    action: "organization_deleted",
+    targetOrganizationId: organizationId,
+  });
+}
+
 export async function getOrganizationSubscription(
   organizationId: string,
 ): Promise<OrganizationSubscription | null> {
@@ -537,6 +824,10 @@ export async function updateOrganizationSubscription(params: {
 export async function getOrganizationFeatures(
   organizationId: string,
 ): Promise<OrganizationFeature[]> {
+  if (await checkIsPlatformAdmin()) {
+    await ensureOrganizationFeatures(organizationId);
+  }
+
   const { data, error } = await supabase
     .from("organization_features")
     .select("*")
@@ -617,16 +908,34 @@ export async function createOrganizationRole(params: {
   isDefaultSignupRole?: boolean;
   requiresApproval?: boolean;
   permissions?: JsonRecord;
+  onboardingConfig?: JsonRecord;
+  departmentAccess?: JsonRecord;
 }) {
   const {
     data: { user },
   } = await supabase.auth.getUser();
+  const roleKey = params.roleKey.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+
+  if (!roleKey) throw new Error("Role key is required.");
+
+  if (params.isDefaultSignupRole) {
+    const { error: defaultError } = await supabase
+      .from("organization_roles")
+      .update({
+        is_default_signup_role: false,
+        updated_at: new Date().toISOString(),
+        updated_by: user?.id ?? null,
+      })
+      .eq("organization_id", params.organizationId);
+
+    if (defaultError) throw defaultError;
+  }
 
   const { data, error } = await supabase
     .from("organization_roles")
     .insert({
       organization_id: params.organizationId,
-      role_key: params.roleKey,
+      role_key: roleKey,
       role_label: params.roleLabel,
       department: params.department ?? null,
       description: params.description ?? null,
@@ -636,7 +945,10 @@ export async function createOrganizationRole(params: {
       requires_approval: params.requiresApproval ?? true,
       is_active: true,
       permissions: params.permissions ?? {},
+      onboarding_config: params.onboardingConfig ?? {},
+      department_access: params.departmentAccess ?? {},
       created_by: user?.id ?? null,
+      updated_by: user?.id ?? null,
     })
     .select("*")
     .single();
@@ -647,7 +959,7 @@ export async function createOrganizationRole(params: {
     action: "role_created",
     targetOrganizationId: params.organizationId,
     metadata: {
-      roleKey: params.roleKey,
+      roleKey,
       roleLabel: params.roleLabel,
     },
   });
@@ -666,9 +978,15 @@ export async function updateOrganizationRole(params: {
   requiresApproval?: boolean;
   isActive?: boolean;
   permissions?: JsonRecord;
+  onboardingConfig?: JsonRecord;
+  departmentAccess?: JsonRecord;
 }) {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   const updates: Record<string, unknown> = {
     updated_at: new Date().toISOString(),
+    updated_by: user?.id ?? null,
   };
 
   if (params.roleLabel !== undefined) updates.role_label = params.roleLabel;
@@ -684,6 +1002,33 @@ export async function updateOrganizationRole(params: {
   }
   if (params.isActive !== undefined) updates.is_active = params.isActive;
   if (params.permissions !== undefined) updates.permissions = params.permissions;
+  if (params.onboardingConfig !== undefined) {
+    updates.onboarding_config = params.onboardingConfig;
+  }
+  if (params.departmentAccess !== undefined) {
+    updates.department_access = params.departmentAccess;
+  }
+
+  if (params.isDefaultSignupRole) {
+    const { data: currentRole, error: currentRoleError } = await supabase
+      .from("organization_roles")
+      .select("organization_id")
+      .eq("id", params.roleId)
+      .single();
+
+    if (currentRoleError) throw currentRoleError;
+
+    const { error: defaultError } = await supabase
+      .from("organization_roles")
+      .update({
+        is_default_signup_role: false,
+        updated_at: new Date().toISOString(),
+        updated_by: user?.id ?? null,
+      })
+      .eq("organization_id", currentRole.organization_id);
+
+    if (defaultError) throw defaultError;
+  }
 
   const { data, error } = await supabase
     .from("organization_roles")
@@ -694,8 +1039,17 @@ export async function updateOrganizationRole(params: {
 
   if (error) throw error;
 
+  const roleAction =
+    params.isActive === false
+      ? "role_disabled"
+      : params.isActive === true
+        ? "role_enabled"
+        : params.permissions !== undefined
+          ? "role_permission_changed"
+          : "role_updated";
+
   await createPlatformAuditLog({
-    action: "role_updated",
+    action: roleAction,
     targetOrganizationId: data.organization_id,
     metadata: {
       roleId: params.roleId,
@@ -716,8 +1070,30 @@ export async function getOrganizationBranding(
     .maybeSingle();
 
   if (error) throw error;
+  if (data) return data as OrganizationBranding;
 
-  return (data as OrganizationBranding | null) ?? null;
+  const { data: organization, error: organizationError } = await supabase
+    .from("organizations")
+    .select("name")
+    .eq("id", organizationId)
+    .maybeSingle();
+
+  if (organizationError) throw organizationError;
+
+  await createDefaultBranding(
+    organizationId,
+    organization?.name ?? "ITsNomatata",
+  );
+
+  const { data: created, error: createdError } = await supabase
+    .from("organization_branding")
+    .select("*")
+    .eq("organization_id", organizationId)
+    .maybeSingle();
+
+  if (createdError) throw createdError;
+
+  return (created as OrganizationBranding | null) ?? null;
 }
 
 export async function updateOrganizationBranding(params: {
@@ -737,7 +1113,18 @@ export async function updateOrganizationBranding(params: {
   onboardingWording?: JsonRecord;
   customDomain?: string | null;
   subdomain?: string | null;
+  dnsTarget?: string | null;
+  domainError?: string | null;
 }) {
+  await assertDomainAvailable({
+    organizationId: params.organizationId,
+    subdomain: params.subdomain,
+    customDomain: params.customDomain,
+  });
+
+  const normalizedCustomDomain = normalizeNullableText(params.customDomain);
+  const normalizedSubdomain = normalizeNullableText(params.subdomain);
+
   const payload = {
     organization_id: params.organizationId,
     brand_name: params.brandName ?? null,
@@ -753,20 +1140,20 @@ export async function updateOrganizationBranding(params: {
     custom_terminology: params.customTerminology ?? {},
     invitation_template: params.invitationTemplate ?? null,
     onboarding_wording: params.onboardingWording ?? {},
-    custom_domain: params.customDomain ?? null,
-    subdomain: params.subdomain ?? null,
+    custom_domain: normalizedCustomDomain,
+    subdomain: normalizedSubdomain,
+    domain_status: normalizedCustomDomain || normalizedSubdomain ? "pending" : null,
+    domain_verification_token:
+      normalizedCustomDomain || normalizedSubdomain ? crypto.randomUUID() : null,
+    dns_target: params.dnsTarget ?? "cname.itsnomatata.com",
+    domain_error: params.domainError ?? null,
     updated_at: new Date().toISOString(),
   };
 
-  const { data, error } = await supabase
-    .from("organization_branding")
-    .upsert(payload, {
-      onConflict: "organization_id",
-    })
-    .select("*")
-    .single();
-
-  if (error) throw error;
+  const data = await upsertOrganizationBrandingPayload(payload, {
+    returnRow: true,
+  });
+  if (!data) throw new Error("Branding saved but no row was returned by Supabase.");
 
   await createPlatformAuditLog({
     action: "branding_updated",
@@ -801,17 +1188,26 @@ export async function createOrganizationInvitation(params: {
     data: { user },
   } = await supabase.auth.getUser();
 
+  const normalizedEmail = params.email.trim().toLowerCase();
+  const roleKey = params.roleKey ?? "admin";
+  const profileRole = toProfileCompatibleRole(roleKey);
+  const tokenHash = crypto.randomUUID();
+
   const { data, error } = await supabase
     .from("organization_invitations")
     .upsert(
       {
         organization_id: params.organizationId,
-        email: params.email.trim().toLowerCase(),
+        email: normalizedEmail,
         full_name: params.fullName ?? null,
-        role_key: params.roleKey ?? "admin",
+        role_key: roleKey,
         invited_by: user?.id ?? null,
         status: "pending",
+        token_hash: tokenHash,
         expires_at: new Date(Date.now() + 1000 * 60 * 60 * 24 * 14).toISOString(),
+        accepted_by: null,
+        accepted_at: null,
+        updated_at: new Date().toISOString(),
       },
       {
         onConflict: "organization_id,email",
@@ -822,12 +1218,84 @@ export async function createOrganizationInvitation(params: {
 
   if (error) throw error;
 
+  const { data: matchingProfiles, error: profileError } = await supabase
+    .from("profiles")
+    .select("id, email, full_name, organization_id")
+    .ilike("email", normalizedEmail);
+
+  if (profileError) throw profileError;
+
+  if ((matchingProfiles ?? []).length > 1) {
+    throw new Error("Multiple profiles were found for this email. Clean up duplicate profile rows first.");
+  }
+
+  const matchingProfile = matchingProfiles?.[0];
+
+  if (matchingProfile?.id) {
+    const { error: memberError } = await supabase.from("organization_members").upsert(
+      {
+        organization_id: params.organizationId,
+        user_id: matchingProfile.id,
+        role: roleKey,
+        status: "active",
+        invited_by: user?.id ?? null,
+        joined_at: new Date().toISOString(),
+      },
+      {
+        onConflict: "organization_id,user_id",
+      },
+    );
+
+    if (memberError) throw memberError;
+
+    const { error: profileUpdateError } = await supabase
+      .from("profiles")
+      .update({
+        organization_id: params.organizationId,
+        full_name: matchingProfile.full_name ?? params.fullName ?? null,
+        primary_role: profileRole,
+        organization_role_key: roleKey,
+        account_status: "active",
+        is_active: true,
+        is_suspended: false,
+      })
+      .eq("id", matchingProfile.id);
+
+    if (profileUpdateError) throw profileUpdateError;
+
+    const { error: acceptError } = await supabase
+      .from("organization_invitations")
+      .update({
+        status: "accepted",
+        accepted_by: matchingProfile.id,
+        accepted_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", data.id);
+
+    if (acceptError) throw acceptError;
+
+    await createPlatformAuditLog({
+      action: "organization_admin_assigned",
+      targetOrganizationId: params.organizationId,
+      targetUserId: matchingProfile.id,
+      metadata: {
+        email: normalizedEmail,
+        roleKey,
+      },
+    });
+  }
+
   await createPlatformAuditLog({
-    action: "invitation_created",
+    action: matchingProfile?.id ? "invitation_accepted_existing_profile" : "invitation_created",
     targetOrganizationId: params.organizationId,
     metadata: {
-      email: params.email,
-      roleKey: params.roleKey ?? "admin",
+      email: normalizedEmail,
+      roleKey,
+      inviteLink:
+        typeof window !== "undefined"
+          ? `${window.location.origin}/invite/${data.token_hash}`
+          : `/invite/${data.token_hash}`,
     },
   });
 

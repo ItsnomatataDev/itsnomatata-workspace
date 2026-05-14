@@ -12,6 +12,8 @@ import BoardsGridPage from "../../features/boards/pages/BoardsGridPage";
 import BoardViewPage from "../../features/boards/pages/BoardViewPage";
 import ProtectedRoute from "./ProtectedRoute";
 import RoleRoute from "./RoleRoute";
+import FeatureRoute from "./FeatureRoute";
+import SystemOwnerAdminRoute from "./SystemOwnerAdminRoute";
 import TasksPage from "../../features/tasks/pages/TasksPage";
 import TimePage from "../../features/time/pages/TimePage";
 import CampaignsPage from "../../features/campaigns/pages/CampaignsPage";
@@ -65,6 +67,9 @@ import AdminDocumentCenterPage from "../../features/employee-inbox/pages/AdminDo
 import PayslipDeliveryPage from "../../features/employee-inbox/pages/PayslipDeliveryPage";
 import PlatformAdminPage from "../../features/platform-admin/pages/PlatformAdminPage";
 import OperationsCenterPage from "../../features/platform-admin/pages/OperationsCenterPage";
+import OrganizationSettingsPage from "../../features/organization/pages/OrganizationSettingsPage";
+import AcceptOrganizationInvitePage from "../../features/organization/pages/AcceptOrganizationInvitePage";
+import TeamPage from "../../features/organization-members/pages/TeamPage";
 
 const AppRouter = () => {
   return (
@@ -76,6 +81,7 @@ const AppRouter = () => {
         <Route path="/signup" element={<SignupPage />} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         <Route path="/resetpassword" element={<ResetPasswordPage />} />
+        <Route path="/invite/:token" element={<AcceptOrganizationInvitePage />} />
      
         {/* Public guest meeting routes */}
         <Route path="/join/:meetingCode" element={<GuestMeetingJoinPage />} />
@@ -98,7 +104,7 @@ const AppRouter = () => {
           path="/meetings"
           element={
             <ProtectedRoute>
-              <MeetingsPage />
+              <FeatureRoute feature="meetings"><MeetingsPage /></FeatureRoute>
             </ProtectedRoute>
           }
         />
@@ -107,7 +113,7 @@ const AppRouter = () => {
           path="/meetings/:meetingId"
           element={
             <ProtectedRoute>
-              <MeetingRoomPage />
+              <FeatureRoute feature="meetings"><MeetingRoomPage /></FeatureRoute>
             </ProtectedRoute>
           }
         />
@@ -116,7 +122,7 @@ const AppRouter = () => {
           path="/boards"
           element={
             <ProtectedRoute>
-              <BoardsGridPage />
+              <FeatureRoute feature="boards"><BoardsGridPage /></FeatureRoute>
             </ProtectedRoute>
           }
         />
@@ -125,7 +131,7 @@ const AppRouter = () => {
           path="/boards/:boardId"
           element={
             <ProtectedRoute>
-              <BoardViewPage />
+              <FeatureRoute feature="boards"><BoardViewPage /></FeatureRoute>
             </ProtectedRoute>
           }
         />
@@ -134,7 +140,7 @@ const AppRouter = () => {
           path="/clients"
           element={
             <ProtectedRoute>
-              <ClientsPage />
+              <FeatureRoute feature="clients"><ClientsPage /></FeatureRoute>
             </ProtectedRoute>
           }
         />
@@ -143,7 +149,7 @@ const AppRouter = () => {
           path="/clients/:clientId"
           element={
             <ProtectedRoute>
-              <ClientDetailsPage />
+              <FeatureRoute feature="clients"><ClientDetailsPage /></FeatureRoute>
             </ProtectedRoute>
           }
         />
@@ -152,7 +158,7 @@ const AppRouter = () => {
           path="/clients/:clientId/workspace"
           element={
             <ProtectedRoute>
-              <ClientWorkspacePage />
+              <FeatureRoute feature="clients"><ClientWorkspacePage /></FeatureRoute>
             </ProtectedRoute>
           }
         />
@@ -161,7 +167,7 @@ const AppRouter = () => {
           path="/tasks"
           element={
             <ProtectedRoute>
-              <TasksPage />
+              <FeatureRoute feature="tasks"><TasksPage /></FeatureRoute>
             </ProtectedRoute>
           }
         />
@@ -170,7 +176,7 @@ const AppRouter = () => {
           path="/assets"
           element={
             <ProtectedRoute>
-              <AssetsPage />
+              <FeatureRoute feature="stock"><AssetsPage /></FeatureRoute>
             </ProtectedRoute>
           }
         />
@@ -179,7 +185,7 @@ const AppRouter = () => {
           path="/assets/:assetId"
           element={
             <ProtectedRoute>
-              <AssetDetailsPage />
+              <FeatureRoute feature="stock"><AssetDetailsPage /></FeatureRoute>
             </ProtectedRoute>
           }
         />
@@ -188,7 +194,7 @@ const AppRouter = () => {
           path="/scan"
           element={
             <ProtectedRoute>
-              <ScanAssetPage />
+              <FeatureRoute feature="stock"><ScanAssetPage /></FeatureRoute>
             </ProtectedRoute>
           }
         />
@@ -197,8 +203,10 @@ const AppRouter = () => {
           path="/fleet"
           element={
             <ProtectedRoute>
-              <RoleRoute roles={["admin", "manager", "it"]}>
-                <FleetDashboardPage />
+              <RoleRoute roles={["admin", "org_admin", "manager", "it"]}>
+                <FeatureRoute feature="fleet">
+                  <FleetDashboardPage />
+                </FeatureRoute>
               </RoleRoute>
             </ProtectedRoute>
           }
@@ -208,8 +216,10 @@ const AppRouter = () => {
           path="/fleet/imports"
           element={
             <ProtectedRoute>
-              <RoleRoute roles={["admin", "manager", "it"]}>
-                <FleetDashboardPage />
+              <RoleRoute roles={["admin", "org_admin", "manager", "it"]}>
+                <FeatureRoute feature="fleet">
+                  <FleetDashboardPage />
+                </FeatureRoute>
               </RoleRoute>
             </ProtectedRoute>
           }
@@ -219,8 +229,10 @@ const AppRouter = () => {
           path="/fleet/fuel-purchases"
           element={
             <ProtectedRoute>
-              <RoleRoute roles={["admin", "manager", "it"]}>
-                <FleetDashboardPage />
+              <RoleRoute roles={["admin", "org_admin", "manager", "it"]}>
+                <FeatureRoute feature="fleet">
+                  <FleetDashboardPage />
+                </FeatureRoute>
               </RoleRoute>
             </ProtectedRoute>
           }
@@ -230,7 +242,7 @@ const AppRouter = () => {
           path="/time"
           element={
             <ProtectedRoute>
-              <TimePage />
+              <FeatureRoute feature="timesheets"><TimePage /></FeatureRoute>
             </ProtectedRoute>
           }
         />
@@ -239,7 +251,7 @@ const AppRouter = () => {
           path="/time-tracking"
           element={
             <ProtectedRoute>
-              <TimeTrackingPage />
+              <FeatureRoute feature="timesheets"><TimeTrackingPage /></FeatureRoute>
             </ProtectedRoute>
           }
         />
@@ -248,7 +260,7 @@ const AppRouter = () => {
           path="/leave"
           element={
             <ProtectedRoute>
-              <LeavePage />
+              <FeatureRoute feature="leave_requests"><LeavePage /></FeatureRoute>
             </ProtectedRoute>
           }
         />
@@ -257,7 +269,7 @@ const AppRouter = () => {
           path="/chat"
           element={
             <ProtectedRoute>
-              <ChatPage />
+              <FeatureRoute feature="chat"><ChatPage /></FeatureRoute>
             </ProtectedRoute>
           }
         />
@@ -265,7 +277,19 @@ const AppRouter = () => {
           path="/platform-admin"
           element={
             <ProtectedRoute>
-              <PlatformAdminPage />
+              <SystemOwnerAdminRoute>
+                <PlatformAdminPage />
+              </SystemOwnerAdminRoute>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/platform-admin"
+          element={
+            <ProtectedRoute>
+              <SystemOwnerAdminRoute>
+                <PlatformAdminPage />
+              </SystemOwnerAdminRoute>
             </ProtectedRoute>
           }
         />
@@ -273,7 +297,19 @@ const AppRouter = () => {
           path="/operations-center"
           element={
             <ProtectedRoute>
-              <OperationsCenterPage />
+              <SystemOwnerAdminRoute>
+                <OperationsCenterPage />
+              </SystemOwnerAdminRoute>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/operations-center"
+          element={
+            <ProtectedRoute>
+              <SystemOwnerAdminRoute>
+                <OperationsCenterPage />
+              </SystemOwnerAdminRoute>
             </ProtectedRoute>
           }
         />
@@ -281,7 +317,7 @@ const AppRouter = () => {
           path="/campaigns"
           element={
             <ProtectedRoute>
-              <CampaignsPage />
+              <FeatureRoute feature="social_media"><CampaignsPage /></FeatureRoute>
             </ProtectedRoute>
           }
         />
@@ -299,7 +335,7 @@ const AppRouter = () => {
                   "media_team",
                 ]}
               >
-                <MediaDashboardPage />
+                <FeatureRoute feature="media_dashboard"><MediaDashboardPage /></FeatureRoute>
               </RoleRoute>
             </ProtectedRoute>
           }
@@ -316,7 +352,7 @@ const AppRouter = () => {
                   "media_team",
                 ]}
               >
-                <CreativeRequestsPage />
+                <FeatureRoute feature="media_dashboard"><CreativeRequestsPage /></FeatureRoute>
               </RoleRoute>
             </ProtectedRoute>
           }
@@ -333,7 +369,7 @@ const AppRouter = () => {
                   "media_team",
                 ]}
               >
-                <MediaDashboardPage />
+                <FeatureRoute feature="media_dashboard"><MediaDashboardPage /></FeatureRoute>
               </RoleRoute>
             </ProtectedRoute>
           }
@@ -352,7 +388,7 @@ const AppRouter = () => {
                   "media_team",
                 ]}
               >
-                <ContentLibraryPage />
+                <FeatureRoute feature="media_dashboard"><ContentLibraryPage /></FeatureRoute>
               </RoleRoute>
             </ProtectedRoute>
           }
@@ -369,7 +405,7 @@ const AppRouter = () => {
                   "media_team",
                 ]}
               >
-                <MediaDashboardPage />
+                <FeatureRoute feature="media_dashboard"><MediaDashboardPage /></FeatureRoute>
               </RoleRoute>
             </ProtectedRoute>
           }
@@ -386,7 +422,7 @@ const AppRouter = () => {
                   "media_team",
                 ]}
               >
-                <MediaDashboardPage />
+                <FeatureRoute feature="media_dashboard"><MediaDashboardPage /></FeatureRoute>
               </RoleRoute>
             </ProtectedRoute>
           }
@@ -403,7 +439,7 @@ const AppRouter = () => {
                   "media_team",
                 ]}
               >
-                <DeliveryTrackerPage />
+                <FeatureRoute feature="media_dashboard"><DeliveryTrackerPage /></FeatureRoute>
               </RoleRoute>
             </ProtectedRoute>
           }
@@ -422,7 +458,7 @@ const AppRouter = () => {
                   "media_team",
                 ]}
               >
-                <SocialPostsPage />
+                <FeatureRoute feature="social_media"><SocialPostsPage /></FeatureRoute>
               </RoleRoute>
             </ProtectedRoute>
           }
@@ -435,7 +471,7 @@ const AppRouter = () => {
               <RoleRoute
                 roles={["social_media", "media_team", "admin", "manager"]}
               >
-                <SocialMediaDashboardPage />
+                <FeatureRoute feature="social_media"><SocialMediaDashboardPage /></FeatureRoute>
               </RoleRoute>
             </ProtectedRoute>
           }
@@ -445,7 +481,7 @@ const AppRouter = () => {
           path="/reports"
           element={
             <ProtectedRoute>
-              <ReportsPage />
+              <FeatureRoute feature="reports"><ReportsPage /></FeatureRoute>
             </ProtectedRoute>
           }
         />
@@ -454,7 +490,7 @@ const AppRouter = () => {
           path="/content-library"
           element={
             <ProtectedRoute>
-              <ContentLibraryPage />
+              <FeatureRoute feature="media_dashboard"><ContentLibraryPage /></FeatureRoute>
             </ProtectedRoute>
           }
         />
@@ -463,7 +499,7 @@ const AppRouter = () => {
           path="/notifications"
           element={
             <ProtectedRoute>
-              <NotificationsPage />
+              <FeatureRoute feature="notifications"><NotificationsPage /></FeatureRoute>
             </ProtectedRoute>
           }
         />
@@ -487,10 +523,21 @@ const AppRouter = () => {
         />
 
         <Route
+          path="/organization/settings"
+          element={
+            <ProtectedRoute>
+              <RoleRoute roles={["admin", "org_admin", "super_admin", "superadmin", "it-superadmin"]}>
+                <OrganizationSettingsPage />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
           path="/ai-workspace"
           element={
             <ProtectedRoute>
-              <AIWorkspacePage />
+              <FeatureRoute feature="ai_workspace"><AIWorkspacePage /></FeatureRoute>
             </ProtectedRoute>
           }
         />
@@ -499,7 +546,7 @@ const AppRouter = () => {
           path="/ai-assistant"
           element={
             <ProtectedRoute>
-              <AiAssistantPage />
+              <FeatureRoute feature="ai_workspace"><AiAssistantPage /></FeatureRoute>
             </ProtectedRoute>
           }
         />
@@ -509,7 +556,7 @@ const AppRouter = () => {
           element={
             <ProtectedRoute>
               <RoleRoute roles={["admin", "manager", "it", "superadmin", "it-superadmin"]}>
-                <AIAutomationReviewPage />
+                <FeatureRoute feature="automation"><AIAutomationReviewPage /></FeatureRoute>
               </RoleRoute>
             </ProtectedRoute>
           }
@@ -519,7 +566,7 @@ const AppRouter = () => {
           path="/attendance"
           element={
             <ProtectedRoute>
-              <AttendancePage />
+              <FeatureRoute feature="attendance"><AttendancePage /></FeatureRoute>
             </ProtectedRoute>
           }
         />
@@ -528,7 +575,7 @@ const AppRouter = () => {
           path="/timesheet"
           element={
             <ProtectedRoute>
-              <UserTimesheetPage />
+              <FeatureRoute feature="timesheets"><UserTimesheetPage /></FeatureRoute>
             </ProtectedRoute>
           }
         />
@@ -538,8 +585,8 @@ const AppRouter = () => {
           path="/admin/dashboard"
           element={
             <ProtectedRoute>
-              <RoleRoute roles={["admin"]}>
-                <AdminDashboardPage />
+              <RoleRoute roles={["admin", "org_admin", "super_admin"]}>
+                <FeatureRoute feature="admin_dashboard"><AdminDashboardPage /></FeatureRoute>
               </RoleRoute>
             </ProtectedRoute>
           }
@@ -549,8 +596,8 @@ const AppRouter = () => {
           path="/admin/employees"
           element={
             <ProtectedRoute>
-              <RoleRoute roles={["admin"]}>
-                <AdminEmployeesPage />
+              <RoleRoute roles={["admin", "org_admin", "super_admin"]}>
+                <FeatureRoute feature="admin_users"><AdminEmployeesPage /></FeatureRoute>
               </RoleRoute>
             </ProtectedRoute>
           }
@@ -560,8 +607,8 @@ const AppRouter = () => {
           path="/admin/employees/:userId"
           element={
             <ProtectedRoute>
-              <RoleRoute roles={["admin"]}>
-                <AdminEmployeeDetailsPage />
+              <RoleRoute roles={["admin", "org_admin", "super_admin"]}>
+                <FeatureRoute feature="admin_users"><AdminEmployeeDetailsPage /></FeatureRoute>
               </RoleRoute>
             </ProtectedRoute>
           }
@@ -571,8 +618,10 @@ const AppRouter = () => {
           path="/admin/leave"
           element={
             <ProtectedRoute>
-              <RoleRoute roles={["admin", "manager"]}>
-                <AdminLeavePage />
+              <RoleRoute roles={["admin", "org_admin", "manager"]}>
+                <FeatureRoute feature="admin_leave">
+                  <AdminLeavePage />
+                </FeatureRoute>
               </RoleRoute>
             </ProtectedRoute>
           }
@@ -582,8 +631,10 @@ const AppRouter = () => {
           path="/admin/roster"
           element={
             <ProtectedRoute>
-              <RoleRoute roles={["admin", "manager"]}>
-                <AdminRosterPage />
+              <RoleRoute roles={["admin", "org_admin", "manager"]}>
+                <FeatureRoute feature="admin_roster">
+                  <AdminRosterPage />
+                </FeatureRoute>
               </RoleRoute>
             </ProtectedRoute>
           }
@@ -593,8 +644,8 @@ const AppRouter = () => {
           path="/admin/attendance"
           element={
             <ProtectedRoute>
-              <RoleRoute roles={["admin", "manager", "hr"]}>
-                <AdminAttendancePage />
+              <RoleRoute roles={["admin", "org_admin", "manager", "hr"]}>
+                <FeatureRoute feature="attendance"><AdminAttendancePage /></FeatureRoute>
               </RoleRoute>
             </ProtectedRoute>
           }
@@ -604,8 +655,8 @@ const AppRouter = () => {
           path="/admin/documents"
           element={
             <ProtectedRoute>
-              <RoleRoute roles={["admin", "manager", "hr"]}>
-                <AdminDocumentCenterPage />
+              <RoleRoute roles={["admin", "org_admin", "manager", "hr"]}>
+                <FeatureRoute feature="knowledge_base"><AdminDocumentCenterPage /></FeatureRoute>
               </RoleRoute>
             </ProtectedRoute>
           }
@@ -615,8 +666,8 @@ const AppRouter = () => {
           path="/admin/payslips"
           element={
             <ProtectedRoute>
-              <RoleRoute roles={["admin", "manager", "hr"]}>
-                <PayslipDeliveryPage />
+              <RoleRoute roles={["admin", "org_admin", "manager", "hr"]}>
+                <FeatureRoute feature="finance"><PayslipDeliveryPage /></FeatureRoute>
               </RoleRoute>
             </ProtectedRoute>
           }
@@ -626,8 +677,8 @@ const AppRouter = () => {
           path="/admin/everhouradmin"
           element={
             <ProtectedRoute>
-              <RoleRoute roles={["admin"]}>
-                <EverhourAdminPage />
+              <RoleRoute roles={["admin", "org_admin", "super_admin"]}>
+                <FeatureRoute feature="timesheets"><EverhourAdminPage /></FeatureRoute>
               </RoleRoute>
             </ProtectedRoute>
           }
@@ -637,8 +688,8 @@ const AppRouter = () => {
           path="/admin/notification-deliveries"
           element={
             <ProtectedRoute>
-              <RoleRoute roles={["admin", "manager", "it"]}>
-                <AdminNotificationsPage />
+              <RoleRoute roles={["admin", "org_admin", "manager", "it"]}>
+                <FeatureRoute feature="notifications"><AdminNotificationsPage /></FeatureRoute>
               </RoleRoute>
             </ProtectedRoute>
           }
@@ -648,8 +699,8 @@ const AppRouter = () => {
           path="/admin/work-intelligence"
           element={
             <ProtectedRoute>
-              <RoleRoute roles={["admin", "manager"]}>
-                <WorkIntelligenceBoardPage />
+              <RoleRoute roles={["admin", "org_admin", "manager"]}>
+                <FeatureRoute feature="timesheets"><WorkIntelligenceBoardPage /></FeatureRoute>
               </RoleRoute>
             </ProtectedRoute>
           }
@@ -760,7 +811,7 @@ const AppRouter = () => {
           element={
             <ProtectedRoute>
               <RoleRoute roles={["admin", "it", "superadmin", "it-superadmin"]}>
-                <AttendancePage />
+                <FeatureRoute feature="attendance"><AttendancePage /></FeatureRoute>
               </RoleRoute>
             </ProtectedRoute>
           }
@@ -771,7 +822,9 @@ const AppRouter = () => {
           element={
             <ProtectedRoute>
               <RoleRoute roles={["admin", "it", "superadmin", "it-superadmin"]}>
-                <AutomationFlowsPage />
+                <FeatureRoute feature="automation">
+                  <AutomationFlowsPage />
+                </FeatureRoute>
               </RoleRoute>
             </ProtectedRoute>
           }
@@ -782,7 +835,9 @@ const AppRouter = () => {
           element={
             <ProtectedRoute>
               <RoleRoute roles={["admin", "it", "superadmin", "it-superadmin"]}>
-                <AutomationRunsPage />
+                <FeatureRoute feature="automation">
+                  <AutomationRunsPage />
+                </FeatureRoute>
               </RoleRoute>
             </ProtectedRoute>
           }
@@ -793,7 +848,7 @@ const AppRouter = () => {
           path="/roster"
           element={
             <ProtectedRoute>
-              <DutyRosterViewPage />
+              <FeatureRoute feature="duty_roster"><DutyRosterViewPage /></FeatureRoute>
             </ProtectedRoute>
           }
         />
@@ -803,8 +858,8 @@ const AppRouter = () => {
           path="/timesheets/team"
           element={
             <ProtectedRoute>
-              <RoleRoute roles={["admin", "manager", "it"]}>
-                <TeamTimesheetsPage />
+              <RoleRoute roles={["admin", "org_admin", "manager", "it"]}>
+                <FeatureRoute feature="timesheets"><TeamTimesheetsPage /></FeatureRoute>
               </RoleRoute>
             </ProtectedRoute>
           }
@@ -814,8 +869,8 @@ const AppRouter = () => {
           path="/timesheets/reports"
           element={
             <ProtectedRoute>
-              <RoleRoute roles={["admin", "manager"]}>
-                <ReportsPage />
+              <RoleRoute roles={["admin", "org_admin", "manager"]}>
+                <FeatureRoute feature="reports"><ReportsPage /></FeatureRoute>
               </RoleRoute>
             </ProtectedRoute>
           }
@@ -825,8 +880,8 @@ const AppRouter = () => {
           path="/timesheets/everhouradmin"
           element={
             <ProtectedRoute>
-              <RoleRoute roles={["admin"]}>
-                <EverhourAdminPage />
+              <RoleRoute roles={["admin", "org_admin", "super_admin"]}>
+                <FeatureRoute feature="timesheets"><EverhourAdminPage /></FeatureRoute>
               </RoleRoute>
             </ProtectedRoute>
           }
@@ -837,8 +892,10 @@ const AppRouter = () => {
           path="/board-management"
           element={
             <ProtectedRoute>
-              <RoleRoute roles={["admin", "manager"]}>
-                <BoardTimeManagementPage />
+              <RoleRoute roles={["admin", "org_admin", "manager"]}>
+                <FeatureRoute feature="boards">
+                  <BoardTimeManagementPage />
+                </FeatureRoute>
               </RoleRoute>
             </ProtectedRoute>
           }
@@ -848,8 +905,10 @@ const AppRouter = () => {
           path="/board-details/:boardId"
           element={
             <ProtectedRoute>
-              <RoleRoute roles={["admin", "manager"]}>
-                <BoardDetailView />
+              <RoleRoute roles={["admin", "org_admin", "manager"]}>
+                <FeatureRoute feature="boards">
+                  <BoardDetailView />
+                </FeatureRoute>
               </RoleRoute>
             </ProtectedRoute>
           }
@@ -862,3 +921,11 @@ const AppRouter = () => {
 };
 
 export default AppRouter;
+        <Route
+          path="/organization/team"
+          element={
+            <ProtectedRoute>
+              <FeatureRoute feature="admin_users"><TeamPage /></FeatureRoute>
+            </ProtectedRoute>
+          }
+        />

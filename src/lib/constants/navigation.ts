@@ -1,9 +1,11 @@
 import type { AppRole } from "./roles";
+import type { FeatureKey } from "../hooks/useOrganizationFeatures";
 
 export type NavItem = {
   label: string;
   to: string;
   roles: AppRole[];
+  featureKey?: FeatureKey;
 };
 
 export const NAV_ITEMS: NavItem[] = [
@@ -22,10 +24,10 @@ export const NAV_ITEMS: NavItem[] = [
   },
   { label: "Everhour", to: "/everhour", roles: ["admin", "manager"] },
   { label: "Admin", to: "/admin", roles: ["admin"] },
-  { label: "Employees", to: "/admin/employees", roles: ["admin", "manager"] },
-  { label: "Inbox", to: "/inbox", roles: ["admin", "manager", "hr", "it", "seo_specialist", "social_media", "media_team"] },
-  { label: "Documents", to: "/admin/documents", roles: ["admin", "manager", "hr"] },
-  { label: "Payslips", to: "/admin/payslips", roles: ["admin", "manager", "hr"] },
+  { label: "Employees", to: "/admin/employees", roles: ["admin", "manager"], featureKey: "admin_users" },
+  { label: "Inbox", to: "/inbox", roles: ["admin", "manager", "hr", "it", "seo_specialist", "social_media", "media_team"], featureKey: "notifications" },
+  { label: "Documents", to: "/admin/documents", roles: ["admin", "manager", "hr"], featureKey: "knowledge_base" },
+  { label: "Payslips", to: "/admin/payslips", roles: ["admin", "manager", "hr"], featureKey: "finance" },
   { label: "Approvals", to: "/approvals", roles: ["admin", "manager"] },
   { label: "IT Workspace", to: "/it", roles: ["admin", "manager", "it"] },
   {
@@ -40,6 +42,7 @@ export const NAV_ITEMS: NavItem[] = [
       "social_media",
       "media_team",
     ],
+    featureKey: "boards",
   },
   {
     label: "Tasks",
@@ -53,6 +56,7 @@ export const NAV_ITEMS: NavItem[] = [
       "social_media",
       "media_team",
     ],
+    featureKey: "tasks",
   },
   {
     label: "Meetings",
@@ -66,6 +70,7 @@ export const NAV_ITEMS: NavItem[] = [
       "social_media",
       "media_team",
     ],
+    featureKey: "meetings",
   },
   {
     label: "Chat",
@@ -79,6 +84,7 @@ export const NAV_ITEMS: NavItem[] = [
       "social_media",
       "media_team",
     ],
+    featureKey: "chat",
   },
   {
     label: "SEO",
@@ -95,7 +101,7 @@ export const NAV_ITEMS: NavItem[] = [
     to: "/content-library",
     roles: ["admin", "manager", "seo_specialist", "social_media", "media_team"],
   },
-  { label: "Stock", to: "/stock", roles: ["admin", "manager", "it"] },
+  { label: "Stock", to: "/stock", roles: ["admin", "manager", "it"], featureKey: "stock" },
   {
     label: "Time",
     to: "/time",
@@ -108,6 +114,7 @@ export const NAV_ITEMS: NavItem[] = [
       "social_media",
       "media_team",
     ],
+    featureKey: "timesheets",
   },
   {
     label: "Timesheets",
@@ -121,6 +128,7 @@ export const NAV_ITEMS: NavItem[] = [
       "social_media",
       "media_team",
     ],
+    featureKey: "timesheets",
   },
   {
     label: "Reports",
@@ -134,6 +142,7 @@ export const NAV_ITEMS: NavItem[] = [
       "social_media",
       "media_team",
     ],
+    featureKey: "reports",
   },
   {
     label: "AI Workspace",
@@ -146,5 +155,6 @@ export const NAV_ITEMS: NavItem[] = [
       "social_media",
       "media_team",
     ],
+    featureKey: "ai_workspace",
   },
 ];

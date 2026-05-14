@@ -2,9 +2,11 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Eye, EyeOff } from "lucide-react";
 import { signInUser, signInWithGoogle } from "../../../lib/supabase/auth";
+import { useOrganizationBranding } from "../../../app/providers/OrganizationBrandingProvider";
 
 export default function LoginPage() {
   const navigate = useNavigate();
+  const { branding } = useOrganizationBranding();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -64,25 +66,43 @@ export default function LoginPage() {
     }
   };
 
+  const brandName = branding.brand_name || "ITsNomatata";
+  const logoUrl = branding.logo_url;
+  const welcomeText =
+    branding.company_welcome_text ||
+    "Login to continue managing clients, campaigns, tasks, reports, assets, and collaboration.";
+  const accentColor = branding.accent_color || "#f97316";
+  const panelBackground = branding.login_background_url
+    ? {
+        backgroundImage: `linear-gradient(rgba(0,0,0,.82), rgba(0,0,0,.82)), url(${branding.login_background_url})`,
+        backgroundSize: "cover",
+        backgroundPosition: "center",
+      }
+    : undefined;
+
   return (
     <div className="min-h-screen bg-black text-white">
       <div className="grid min-h-screen lg:grid-cols-2">
-        <div className="hidden flex-col items-start justify-between border-r border-orange-500/20 bg-linear-to-br from-black via-black to-orange-950/20 p-10 lg:flex">
+        <div
+          className="hidden flex-col items-start justify-between border-r border-orange-500/20 bg-linear-to-br from-black via-black to-orange-950/20 p-10 lg:flex"
+          style={{
+            borderRightColor: `${accentColor}33`,
+            ...panelBackground,
+          }}
+        >
           <div className="flex flex-col items-start">
             <div className="w-20 h-20">
-              <img
-                src="https://res.cloudinary.com/dnqjax5ut/image/upload/v1776754504/Itsnomatata-Logo-White-with-tagline-2-768x643_u3n4j0.png"
-                alt="IT's Nomatata"
-              />
+              {logoUrl ? (
+                <img src={logoUrl} alt={brandName} className="h-full w-full object-contain object-left" />
+              ) : null}
             </div>
 
             <h1 className="mt-8 max-w-md text-5xl font-bold leading-tight">
-              Welcome back to your workspace.
+              Welcome back to {brandName}.
             </h1>
 
             <p className="mt-5 max-w-lg text-base text-white/70">
-              Login to continue managing clients, campaigns, tasks, reports,
-              assets, and collaboration.
+              {welcomeText}
             </p>
 
             <div className="relative mt-8 flex justify-start self-start">
@@ -97,7 +117,7 @@ export default function LoginPage() {
             <div className="mb-8">
               <h2 className="text-3xl font-bold text-white">Login</h2>
               <p className="mt-2 text-sm text-white/60">
-                Access your dashboard and continue your work.
+                Access {brandName} and continue your work.
               </p>
             </div>
 
@@ -145,6 +165,7 @@ export default function LoginPage() {
                 <Link
                   to="/forgot-password"
                   className="text-sm text-orange-400 hover:text-orange-300"
+                  style={{ color: accentColor }}
                 >
                   Forgot password?
                 </Link>
@@ -154,6 +175,7 @@ export default function LoginPage() {
                 type="submit"
                 disabled={busy}
                 className="w-full rounded-2xl bg-orange-500 px-4 py-3 font-semibold text-black transition hover:bg-orange-400 disabled:opacity-60"
+                style={{ backgroundColor: accentColor }}
               >
                 {busy ? "Logging in..." : "Login"}
               </button>
@@ -181,6 +203,7 @@ export default function LoginPage() {
               <Link
                 to="/signup"
                 className="font-semibold text-orange-400 hover:text-orange-300"
+                style={{ color: accentColor }}
               >
                 Create one
               </Link>

@@ -41,6 +41,10 @@ export type OrganizationBranding = {
   onboarding_wording: Record<string, unknown>;
   custom_domain: string | null;
   subdomain: string | null;
+  domain_status?: "pending" | "verified" | "active" | "failed" | null;
+  domain_verification_token?: string | null;
+  dns_target?: string | null;
+  domain_error?: string | null;
   created_at?: string;
   updated_at?: string;
 };
@@ -83,6 +87,12 @@ export type OrganizationRole = {
   requires_approval: boolean;
   is_active: boolean;
   permissions: Record<string, unknown>;
+  onboarding_config?: Record<string, unknown>;
+  department_access?: Record<string, unknown>;
+  created_by?: string | null;
+  updated_by?: string | null;
+  created_at?: string;
+  updated_at?: string;
 };
 
 export type OrganizationInvitation = {

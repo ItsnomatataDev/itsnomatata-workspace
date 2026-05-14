@@ -1,6 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { X } from "lucide-react";
 import { inviteEmployeeToOrganization } from "../services/adminService";
+import { getOrganizationRoles } from "../../platform-admin/services/platformAdminService";
 
 type InviteUserModalProps = {
   open: boolean;
@@ -10,15 +11,11 @@ type InviteUserModalProps = {
   onInvited: () => Promise<void> | void;
 };
 
-const ROLE_OPTIONS = [
-  { value: "admin", label: "Admin" },
-  { value: "manager", label: "Manager" },
-  { value: "it", label: "IT" },
-  { value: "social_media", label: "Social Media" },
-  { value: "media_team", label: "Media Team" },
-  { value: "seo_specialist", label: "SEO Specialist" },
-];
-
+type RoleOption = {
+  value: string;
+  label: string;
+  isDefault?: boolean;
+};
 
 function normalizeEmail(value: string) {
   return value.trim().toLowerCase();
@@ -55,19 +52,69 @@ export default function InviteUserModal({
 }: InviteUserModalProps) {
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
-  const [role, setRole] = useState("social_media");
+  const [role, setRole] = useState("user");
+  const [roleOptions, setRoleOptions] = useState<RoleOption[]>([
+    { value: "employee", label: "Employee", isDefault: true },
+  ]);
+  const [rolesLoading, setRolesLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
 
   const normalizedEmail = useMemo(() => normalizeEmail(email), [email]);
 
+  useEffect(() => {
+    if (!open || !organizationId) return;
+
+    let mounted = true;
+    async function loadRoles() {
+      try {
+        setRolesLoading(true);
+        const roles = await getOrganizationRoles(organizationId);
+        if (!mounted) return;
+
+        const activeRoles = roles
+          .filter((item) => item.is_active)
+          .map((item) => ({
+            value: item.role_key,
+            label: item.role_label,
+            isDefault: item.is_default_signup_role,
+          }));
+        const nextRoles =
+          activeRoles.length > 0
+            ? activeRoles
+            : [{ value: "employee", label: "Employee", isDefault: true }];
+        setRoleOptions(nextRoles);
+        setRole((current) => {
+          if (nextRoles.some((option) => option.value === current)) return current;
+          return (
+            nextRoles.find((option) => option.isDefault)?.value ??
+            nextRoles[0].value
+          );
+        });
+      } catch (err) {
+        console.error("LOAD INVITE ROLES ERROR:", err);
+        if (mounted) {
+          setError(getFriendlyErrorMessage(err instanceof Error ? err.message : ""));
+        }
+      } finally {
+        if (mounted) setRolesLoading(false);
+      }
+    }
+
+    void loadRoles();
+
+    return () => {
+      mounted = false;
+    };
+  }, [open, organizationId]);
+
   if (!open) return null;
 
   const resetForm = () => {
     setFullName("");
     setEmail("");
-    setRole("social_media");
+    setRole(roleOptions.find((option) => option.isDefault)?.value ?? roleOptions[0]?.value ?? "employee");
     setError("");
     setSuccessMessage("");
   };
@@ -131,7 +178,7 @@ export default function InviteUserModal({
           <div>
             <h2 className="text-xl font-bold text-white">Add Employee</h2>
             <p className="mt-1 text-sm text-white/55">
-              Link an existing registered user to this organization
+              Invite a team member into this organization
             </p>
           </div>
 
@@ -194,15 +241,20 @@ export default function InviteUserModal({
             <select
               value={role}
               onChange={(e) => setRole(e.target.value)}
-              disabled={busy}
+              disabled={busy || rolesLoading}
               className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 text-white outline-none focus:border-orange-500 disabled:opacity-60"
             >
-              {ROLE_OPTIONS.map((option) => (
+              {roleOptions.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
                 </option>
               ))}
             </select>
+            <p className="mt-2 text-xs text-white/40">
+              {rolesLoading
+                ? "Loading organization roles..."
+                : "Roles come from this organization's role settings."}
+            </p>
           </div>
 
           <button
@@ -210,11 +262,10 @@ export default function InviteUserModal({
             disabled={busy}
             className="w-full rounded-2xl bg-orange-500 px-4 py-3 font-semibold text-black transition hover:bg-orange-400 disabled:opacity-60"
           >
-            {busy ? "Adding user..." : "Add User"}
+              {busy ? "Creating invite..." : "Create Invite"}
           </button>
         </form>
       </div>
     </div>
   );
 }
-

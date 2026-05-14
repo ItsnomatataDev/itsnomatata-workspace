@@ -16,10 +16,12 @@ import {
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../app/providers/AuthProvider";
+import { useOrganizationBranding } from "../app/providers/OrganizationBrandingProvider";
 import Sidebar from "../components/dashboard/components/Sidebar";
 import TimeTrackerCard from "../components/dashboard/components/TimeTrackerCard";
 import AttendanceClockCard from "../features/attendance/components/AttendanceClockCard";
 import { useDashboard } from "../lib/hooks/useDashboard";
+import { useOrganizationFeatures } from "../lib/hooks/useOrganizationFeatures";
 import { getAdminTimeSummary } from "../lib/supabase/queries/adminTime";
 import { canManageAllOffices } from "../lib/offices";
 
@@ -66,9 +68,11 @@ function StatCard({
 export default function DashboardPage() {
   const navigate = useNavigate();
   const auth = useAuth();
+  const { branding } = useOrganizationBranding();
   const user = auth?.user ?? null;
   const profile = auth?.profile ?? null;
   const authLoading = auth?.loading ?? true;
+  const { isEnabled } = useOrganizationFeatures();
 
   const [coords, setCoords] = useState<{
     latitude: number | null;
@@ -134,6 +138,15 @@ export default function DashboardPage() {
   const organizationId = profile?.organization_id ?? null;
   const isAdminView =
     profile?.primary_role === "admin" || profile?.primary_role === "manager";
+  const canSeeTasks = isEnabled("tasks");
+  const canSeeAttendance = isEnabled("attendance");
+  const canSeeTimesheets = isEnabled("timesheets");
+  const canSeeNotifications = isEnabled("notifications");
+  const canSeeAI = isEnabled("ai_workspace");
+  const dashboardGreeting =
+    branding.dashboard_greeting_text ||
+    branding.company_welcome_text ||
+    "Real-time workspace dashboard for tasks, approvals, time tracking, announcements and operations.";
 
   const [adminSummary, setAdminSummary] = useState<{
     totalSeconds: number;
@@ -222,8 +235,7 @@ export default function DashboardPage() {
                 Welcome back, {profile.full_name || "User"}
               </h1>
               <p className="mt-2 text-sm text-white/50">
-                Real-time workspace dashboard for tasks, approvals, time
-                tracking, announcements and operations.
+                {dashboardGreeting}
               </p>
             </div>
           </div>
@@ -247,33 +259,34 @@ export default function DashboardPage() {
               <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
                 <StatCard
                   title="Open Tasks"
-                  value={stats?.openTasks ?? 0}
+                  value={canSeeTasks ? (stats?.openTasks ?? 0) : "Off"}
                   icon={ClipboardList}
                 />
                 <StatCard
                   title="In Progress"
-                  value={stats?.inProgressTasks ?? 0}
+                  value={canSeeTasks ? (stats?.inProgressTasks ?? 0) : "Off"}
                   icon={CheckSquare}
                 />
                 <StatCard
                   title="Review"
-                  value={stats?.reviewTasks ?? 0}
+                  value={canSeeTasks ? (stats?.reviewTasks ?? 0) : "Off"}
                   icon={ShieldCheck}
                 />
                 <StatCard
                   title="Unread Alerts"
-                  value={stats?.unreadNotifications ?? 0}
+                  value={canSeeNotifications ? (stats?.unreadNotifications ?? 0) : "Off"}
                   icon={Bell}
                 />
                 <StatCard
                   title="Tracked Today"
-                  value={formatDuration(stats?.todaySeconds ?? 0)}
+                  value={canSeeTimesheets ? formatDuration(stats?.todaySeconds ?? 0) : "Off"}
                   icon={Clock3}
                   subtitle="Completed, manual, and active"
                 />
               </section>
 
               <section className="mt-6 grid gap-6 xl:grid-cols-3">
+                {canSeeTasks ? (
                 <div className="rounded-2xl border border-white/10 bg-white/5 p-5 xl:col-span-2">
                   <div className="flex items-center justify-between">
                     <div>
@@ -539,14 +552,18 @@ export default function DashboardPage() {
                     )}
                   </div>
                 </div>
+                ) : null}
 
                 <div className="space-y-6">
-                  <AttendanceClockCard
+                  {canSeeAttendance ? (
+                    <AttendanceClockCard
                     organizationId={organizationId}
                     userId={user.id}
                   />
+                  ) : null}
 
-                  <TimeTrackerCard
+                  {canSeeTimesheets ? (
+                    <TimeTrackerCard
                     activeTimeEntry={activeTimer}
                     todaySeconds={stats?.todaySeconds ?? 0}
                     activeSessionSeconds={activeSessionSeconds}
@@ -555,8 +572,10 @@ export default function DashboardPage() {
                     onStart={() => void startTimer(null, "General work")}
                     onStop={() => void stopTimer()}
                   />
+                  ) : null}
 
-                  <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+                  {canSeeTimesheets ? (
+                    <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
                     <div className="flex items-center gap-3">
                       <div className="rounded-xl bg-orange-500/15 p-2 text-orange-500">
                         <TimerReset size={18} />
@@ -600,6 +619,7 @@ export default function DashboardPage() {
                       ) : null}
                     </div>
                   </div>
+                  ) : null}
 
                   <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
                     <div className="flex items-center gap-3">
@@ -684,6 +704,7 @@ export default function DashboardPage() {
                   ) : null}
                 </div>
 
+                {canSeeAI ? (
                 <div className="rounded-2xl border border-white/10 bg-linear-to-br from-orange-500/10 to-white/5 p-5">
                   <div className="flex items-center gap-3">
                     <div className="rounded-xl bg-orange-500 p-2 text-black">
@@ -716,9 +737,10 @@ export default function DashboardPage() {
                     Open assistant <ArrowRight size={16} />
                   </button>
                 </div>
+                ) : null}
               </section>
 
-              {isAdminView ? (
+              {isAdminView && canSeeTimesheets ? (
                 <section className="mt-6 grid gap-6 xl:grid-cols-3">
                   <div className="rounded-2xl border border-white/10 bg-white/5 p-5 xl:col-span-2">
                     <div className="flex items-center gap-3">

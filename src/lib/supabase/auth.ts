@@ -5,13 +5,16 @@ const ORGANIZATION_SLUG = "its-nomatata";
 
 export type AppRole =
   | "admin"
+  | "org_admin"
+  | "user"
   | "manager"
   | "it"
   | "social_media"
   | "media_team"
-  | "seo_specialist";
+  | "seo_specialist"
+  | "finance";
 
-export type PublicSignupRole = Exclude<AppRole, "admin">;
+export type PublicSignupRole = string;
 
 type SignUpUserParams = {
   email: string;
@@ -19,6 +22,9 @@ type SignUpUserParams = {
   fullName: string;
   role?: PublicSignupRole;
   officeSlug?: OfficeSlug;
+  inviteToken?: string | null;
+  organizationId?: string | null;
+  organizationSlug?: string | null;
 };
 
 type SignInUserParams = {
@@ -49,11 +55,14 @@ function isAppRole(value: unknown): value is AppRole {
     typeof value === "string" &&
     [
       "admin",
+      "org_admin",
+      "user",
       "manager",
       "it",
       "social_media",
       "media_team",
       "seo_specialist",
+      "finance",
     ].includes(value)
   );
 }
@@ -61,13 +70,7 @@ function isAppRole(value: unknown): value is AppRole {
 function isPublicSignupRole(value: unknown): value is PublicSignupRole {
   return (
     typeof value === "string" &&
-    [
-      "manager",
-      "it",
-      "social_media",
-      "media_team",
-      "seo_specialist",
-    ].includes(value)
+    value.trim().length > 0
   );
 }
 
@@ -88,7 +91,7 @@ function resolveSignupRole(
     return "admin";
   }
 
-  return requestedRole ?? "social_media";
+  return requestedRole && isAppRole(requestedRole) ? requestedRole : "user";
 }
 
 async function getOrganizationBySlug(
@@ -113,26 +116,41 @@ export async function signUpUser(params: SignUpUserParams) {
 
   try {
     const email = normalizeEmail(params.email);
-    const organization = await getOrganizationBySlug(ORGANIZATION_SLUG);
+    const isCompanyEmail = email.endsWith("@itsnomatata.com");
+    const organization = isCompanyEmail
+      ? await getOrganizationBySlug(ORGANIZATION_SLUG)
+      : params.organizationSlug
+        ? await getOrganizationBySlug(params.organizationSlug)
+      : null;
     const resolvedRole = resolveSignupRole(email, params.role);
     const officeSlug = params.officeSlug ?? OFFICE_SLUGS.itsNoMatata;
 
-    // Determine initial account status based on email domain
-    const isCompanyEmail = email.endsWith("@itsnomatata.com");
     const initialStatus = isCompanyEmail ? "active" : "pending_approval";
+    const metadata: Record<string, unknown> = {
+      full_name: params.fullName.trim(),
+      role: resolvedRole,
+      requested_role_key: params.role ?? resolvedRole,
+      account_status: initialStatus,
+    };
+
+    if (params.inviteToken) {
+      metadata.invite_token = params.inviteToken;
+    }
+
+    if (isCompanyEmail) {
+      metadata.organization_slug = ORGANIZATION_SLUG;
+      metadata.organization_id = organization?.id ?? null;
+      metadata.office_slug = officeSlug;
+    } else if (params.organizationId || organization?.id) {
+      metadata.organization_id = params.organizationId ?? organization?.id ?? null;
+      metadata.organization_slug = params.organizationSlug ?? organization?.slug ?? null;
+    }
 
     const { data, error } = await supabase.auth.signUp({
       email,
       password: params.password,
       options: {
-        data: {
-          full_name: params.fullName.trim(),
-          role: resolvedRole,
-          organization_slug: ORGANIZATION_SLUG,
-          organization_id: organization?.id ?? null,
-          office_slug: officeSlug,
-          account_status: initialStatus,
-        },
+        data: metadata,
       },
     });
 
@@ -152,7 +170,7 @@ export async function signUpUser(params: SignUpUserParams) {
         organizationFound: Boolean(organization),
         organization,
       },
-      approvalRequired: !isCompanyEmail,
+      approvalRequired: !isCompanyEmail && !params.inviteToken,
     };
   } finally {
     authRequestInFlight = false;

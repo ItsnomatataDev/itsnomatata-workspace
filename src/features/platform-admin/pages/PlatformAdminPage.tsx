@@ -7,6 +7,7 @@ import {
   Plus,
   RefreshCw,
   Shield,
+  Trash2,
   XCircle,
 } from "lucide-react";
 
@@ -20,6 +21,8 @@ import SubscriptionPanel from "../components/SubscriptionPanel";
 import {
   checkIsPlatformAdmin,
   createOrganization,
+  createOrganizationRole,
+  deleteOrganization,
   createOrganizationInvitation,
   getOrganizationAnalytics,
   getOrganizationBranding,
@@ -35,6 +38,7 @@ import {
   updateOrganizationFeature,
   updateOrganizationRole,
   updateOrganizationSubscription,
+  DEFAULT_FEATURES,
 } from "../services/platformAdminService";
 import type {
   OrganizationAnalytics,
@@ -55,6 +59,18 @@ function slugify(value: string) {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
+}
+
+function getErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message) return error.message;
+
+  if (error && typeof error === "object") {
+    const record = error as Record<string, unknown>;
+    const message = record.message ?? record.details ?? record.hint ?? record.code;
+    if (typeof message === "string" && message.trim()) return message;
+  }
+
+  return fallback;
 }
 
 function MetricCard({
@@ -85,6 +101,11 @@ const defaultBranding: BrandingValues = {
   onboarding_wording: {},
 };
 
+const createFeatureOptions = DEFAULT_FEATURES.map((feature) => ({
+  key: feature.key,
+  label: feature.label,
+}));
+
 export default function PlatformAdminPage() {
   const [allowed, setAllowed] = useState<boolean | null>(null);
   const [organizations, setOrganizations] = useState<OrganizationRow[]>([]);
@@ -99,6 +120,20 @@ export default function PlatformAdminPage() {
   const [analytics, setAnalytics] = useState<OrganizationAnalytics | null>(null);
   const [newOrgName, setNewOrgName] = useState("");
   const [newOrgSlug, setNewOrgSlug] = useState("");
+  const [newOrgSubdomain, setNewOrgSubdomain] = useState("");
+  const [newOrgCustomDomain, setNewOrgCustomDomain] = useState("");
+  const [newOrgAdminName, setNewOrgAdminName] = useState("");
+  const [newOrgAdminEmail, setNewOrgAdminEmail] = useState("");
+  const [newOrgBrandName, setNewOrgBrandName] = useState("");
+  const [newOrgLogoUrl, setNewOrgLogoUrl] = useState("");
+  const [newOrgPrimaryColor, setNewOrgPrimaryColor] = useState("#000000");
+  const [newOrgSecondaryColor, setNewOrgSecondaryColor] = useState("#ffffff");
+  const [newOrgAccentColor, setNewOrgAccentColor] = useState("#f97316");
+  const [newOrgWelcomeText, setNewOrgWelcomeText] = useState("");
+  const [newOrgGreetingText, setNewOrgGreetingText] = useState("");
+  const [newOrgFeatures, setNewOrgFeatures] = useState<string[]>(
+    createFeatureOptions.map((feature) => feature.key),
+  );
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteName, setInviteName] = useState("");
   const [creatingOrg, setCreatingOrg] = useState(false);
@@ -107,6 +142,7 @@ export default function PlatformAdminPage() {
   const [brandingSaving, setBrandingSaving] = useState(false);
   const [subscriptionSaving, setSubscriptionSaving] = useState(false);
   const [featureSavingId, setFeatureSavingId] = useState<string | null>(null);
+  const [roleSaving, setRoleSaving] = useState(false);
   const [inviting, setInviting] = useState(false);
   const [error, setError] = useState("");
 
@@ -224,10 +260,38 @@ export default function PlatformAdminPage() {
         name,
         slug,
         timezone: "Africa/Harare",
+        subdomain: newOrgSubdomain || null,
+        customDomain: newOrgCustomDomain || null,
+        adminEmail: newOrgAdminEmail || null,
+        adminFullName: newOrgAdminName || null,
+        adminRole: "admin",
+        branding: {
+          brandName: newOrgBrandName || name,
+          logoUrl: newOrgLogoUrl || null,
+          primaryColor: newOrgPrimaryColor,
+          secondaryColor: newOrgSecondaryColor,
+          accentColor: newOrgAccentColor,
+          companyWelcomeText: newOrgWelcomeText || `Welcome to ${newOrgBrandName || name}.`,
+          dashboardGreetingText:
+            newOrgGreetingText || "Here is what needs attention today.",
+        },
+        enabledFeatureKeys: newOrgFeatures,
       });
 
       setNewOrgName("");
       setNewOrgSlug("");
+      setNewOrgSubdomain("");
+      setNewOrgCustomDomain("");
+      setNewOrgAdminName("");
+      setNewOrgAdminEmail("");
+      setNewOrgBrandName("");
+      setNewOrgLogoUrl("");
+      setNewOrgPrimaryColor("#000000");
+      setNewOrgSecondaryColor("#ffffff");
+      setNewOrgAccentColor("#f97316");
+      setNewOrgWelcomeText("");
+      setNewOrgGreetingText("");
+      setNewOrgFeatures(createFeatureOptions.map((feature) => feature.key));
 
       const data = await getOrganizations();
       setOrganizations(data);
@@ -237,9 +301,7 @@ export default function PlatformAdminPage() {
       await loadOrganizationDetails(createdOrg.id);
     } catch (err) {
       console.error("CREATE ORGANIZATION ERROR:", err);
-      setError(
-        err instanceof Error ? err.message : "Failed to create organization.",
-      );
+      setError(getErrorMessage(err, "Failed to create organization."));
     } finally {
       setCreatingOrg(false);
     }
@@ -269,6 +331,23 @@ export default function PlatformAdminPage() {
     }
   }
 
+  async function handleDeleteOrganization(org: OrganizationRow) {
+    if (org.is_system_organization) return;
+    const confirmed = window.confirm(
+      `Delete ${org.name}? This removes the organization and dependent organization data.`,
+    );
+    if (!confirmed) return;
+
+    try {
+      setError("");
+      await deleteOrganization(org.id);
+      setSelectedOrg(null);
+      await loadOrganizations();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete organization.");
+    }
+  }
+
   async function handleSaveBranding() {
     if (!selectedOrg) return;
 
@@ -293,13 +372,15 @@ export default function PlatformAdminPage() {
         onboardingWording: branding.onboarding_wording ?? {},
         customDomain: branding.custom_domain ?? null,
         subdomain: branding.subdomain ?? null,
+        dnsTarget: branding.dns_target ?? "cname.itsnomatata.com",
+        domainError: branding.domain_error ?? null,
       });
 
       setBranding(saved);
       setAuditLogs(await getPlatformAuditLogs({ organizationId: selectedOrg.id, limit: 20 }));
     } catch (err) {
       console.error("SAVE BRANDING ERROR:", err);
-      setError(err instanceof Error ? err.message : "Failed to save branding.");
+      setError(getErrorMessage(err, "Failed to save branding."));
     } finally {
       setBrandingSaving(false);
     }
@@ -364,6 +445,7 @@ export default function PlatformAdminPage() {
 
   async function handleToggleRole(role: OrganizationRole) {
     try {
+      setRoleSaving(true);
       const updated = await updateOrganizationRole({
         roleId: role.id,
         isActive: !role.is_active,
@@ -371,9 +453,83 @@ export default function PlatformAdminPage() {
       setRoles((current) =>
         current.map((item) => (item.id === updated.id ? updated : item)),
       );
+      if (selectedOrg) {
+        setAuditLogs(await getPlatformAuditLogs({ organizationId: selectedOrg.id, limit: 20 }));
+      }
     } catch (err) {
       console.error("TOGGLE ROLE ERROR:", err);
       setError(err instanceof Error ? err.message : "Failed to update role.");
+    } finally {
+      setRoleSaving(false);
+    }
+  }
+
+  async function handleCreateRole(payload: {
+    roleKey: string;
+    roleLabel: string;
+    description?: string | null;
+    department?: string | null;
+    isAdminRole?: boolean;
+    isManagerRole?: boolean;
+    isDefaultSignupRole?: boolean;
+    requiresApproval?: boolean;
+    permissions?: Record<string, unknown>;
+    onboardingConfig?: Record<string, unknown>;
+    departmentAccess?: Record<string, unknown>;
+  }) {
+    if (!selectedOrg) return;
+
+    try {
+      setRoleSaving(true);
+      setError("");
+      await createOrganizationRole({
+        organizationId: selectedOrg.id,
+        ...payload,
+      });
+      setRoles(await getOrganizationRoles(selectedOrg.id));
+      setAuditLogs(await getPlatformAuditLogs({ organizationId: selectedOrg.id, limit: 20 }));
+    } catch (err) {
+      console.error("CREATE ROLE ERROR:", err);
+      setError(getErrorMessage(err, "Failed to create role."));
+      throw err;
+    } finally {
+      setRoleSaving(false);
+    }
+  }
+
+  async function handleUpdateRole(
+    role: OrganizationRole,
+    payload: {
+      roleLabel?: string;
+      description?: string | null;
+      department?: string | null;
+      isAdminRole?: boolean;
+      isManagerRole?: boolean;
+      isDefaultSignupRole?: boolean;
+      requiresApproval?: boolean;
+      isActive?: boolean;
+      permissions?: Record<string, unknown>;
+      onboardingConfig?: Record<string, unknown>;
+      departmentAccess?: Record<string, unknown>;
+    },
+  ) {
+    if (!selectedOrg) return;
+
+    try {
+      setRoleSaving(true);
+      setError("");
+      await updateOrganizationRole({
+        roleId: role.id,
+        ...payload,
+      });
+      setRoles(await getOrganizationRoles(selectedOrg.id));
+      setAuditLogs(await getPlatformAuditLogs({ organizationId: selectedOrg.id, limit: 20 }));
+    } catch (err) {
+      console.error("UPDATE ROLE ERROR:", err);
+      setError(getErrorMessage(err, "Failed to update role."));
+      throw err;
+    } finally {
+      setRoleSaving(false);
     }
   }
 
@@ -395,7 +551,7 @@ export default function PlatformAdminPage() {
       setAuditLogs(await getPlatformAuditLogs({ organizationId: selectedOrg.id, limit: 20 }));
     } catch (err) {
       console.error("INVITE ADMIN ERROR:", err);
-      setError(err instanceof Error ? err.message : "Failed to invite admin.");
+      setError(getErrorMessage(err, "Failed to invite admin."));
     } finally {
       setInviting(false);
     }
@@ -489,6 +645,111 @@ export default function PlatformAdminPage() {
                   placeholder="organization-slug"
                   className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 text-sm text-white outline-none placeholder:text-white/30 focus:border-orange-500"
                 />
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <input
+                    value={newOrgSubdomain}
+                    onChange={(event) => setNewOrgSubdomain(slugify(event.target.value))}
+                    placeholder="subdomain"
+                    className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 text-sm text-white outline-none placeholder:text-white/30 focus:border-orange-500"
+                  />
+                  <input
+                    value={newOrgCustomDomain}
+                    onChange={(event) => setNewOrgCustomDomain(event.target.value)}
+                    placeholder="workspace.company.com"
+                    className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 text-sm text-white outline-none placeholder:text-white/30 focus:border-orange-500"
+                  />
+                </div>
+                <input
+                  value={newOrgAdminName}
+                  onChange={(event) => setNewOrgAdminName(event.target.value)}
+                  placeholder="First admin full name"
+                  className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 text-sm text-white outline-none placeholder:text-white/30 focus:border-orange-500"
+                />
+                <input
+                  value={newOrgAdminEmail}
+                  onChange={(event) => setNewOrgAdminEmail(event.target.value)}
+                  placeholder="First admin email"
+                  className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 text-sm text-white outline-none placeholder:text-white/30 focus:border-orange-500"
+                />
+                <div className="rounded-2xl border border-white/10 bg-black p-3">
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-white/45">
+                    Branding
+                  </p>
+                  <div className="space-y-2">
+                    <input
+                      value={newOrgBrandName}
+                      onChange={(event) => setNewOrgBrandName(event.target.value)}
+                      placeholder="Brand name"
+                      className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none placeholder:text-white/30 focus:border-orange-500"
+                    />
+                    <input
+                      value={newOrgLogoUrl}
+                      onChange={(event) => setNewOrgLogoUrl(event.target.value)}
+                      placeholder="Logo URL"
+                      className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none placeholder:text-white/30 focus:border-orange-500"
+                    />
+                    <div className="grid gap-2 sm:grid-cols-3">
+                      <input
+                        type="color"
+                        value={newOrgPrimaryColor}
+                        onChange={(event) => setNewOrgPrimaryColor(event.target.value)}
+                        className="h-10 w-full rounded-xl border border-white/10 bg-white/5"
+                      />
+                      <input
+                        type="color"
+                        value={newOrgSecondaryColor}
+                        onChange={(event) => setNewOrgSecondaryColor(event.target.value)}
+                        className="h-10 w-full rounded-xl border border-white/10 bg-white/5"
+                      />
+                      <input
+                        type="color"
+                        value={newOrgAccentColor}
+                        onChange={(event) => setNewOrgAccentColor(event.target.value)}
+                        className="h-10 w-full rounded-xl border border-white/10 bg-white/5"
+                      />
+                    </div>
+                    <textarea
+                      value={newOrgWelcomeText}
+                      onChange={(event) => setNewOrgWelcomeText(event.target.value)}
+                      placeholder="Welcome text"
+                      rows={2}
+                      className="w-full resize-none rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none placeholder:text-white/30 focus:border-orange-500"
+                    />
+                    <textarea
+                      value={newOrgGreetingText}
+                      onChange={(event) => setNewOrgGreetingText(event.target.value)}
+                      placeholder="Dashboard greeting text"
+                      rows={2}
+                      className="w-full resize-none rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none placeholder:text-white/30 focus:border-orange-500"
+                    />
+                  </div>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-black p-3">
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-white/45">
+                    Enabled features
+                  </p>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {createFeatureOptions.map((feature) => (
+                      <label
+                        key={feature.key}
+                        className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/70"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={newOrgFeatures.includes(feature.key)}
+                          onChange={(event) => {
+                            setNewOrgFeatures((current) =>
+                              event.target.checked
+                                ? [...current, feature.key]
+                                : current.filter((key) => key !== feature.key),
+                            );
+                          }}
+                        />
+                        {feature.label}
+                      </label>
+                    ))}
+                  </div>
+                </div>
                 <button
                   type="button"
                   disabled={
@@ -559,6 +820,15 @@ export default function PlatformAdminPage() {
                         Suspend
                       </button>
                     )}
+                    <button
+                      type="button"
+                      disabled={isSystemOrg}
+                      onClick={() => void handleDeleteOrganization(selectedOrg)}
+                      className="inline-flex items-center gap-2 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-2 text-sm font-semibold text-red-200 transition hover:bg-red-500/15 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      <Trash2 size={16} />
+                      Delete
+                    </button>
                   </div>
                 </div>
 
@@ -629,6 +899,23 @@ export default function PlatformAdminPage() {
                         <p className="mt-3 text-xs text-white/45">
                           {invitations.length} invitations created.
                         </p>
+                        <div className="mt-3 space-y-2">
+                          {invitations.slice(0, 3).map((invitation) => (
+                            <div
+                              key={invitation.id}
+                              className="rounded-xl border border-white/10 bg-black px-3 py-2 text-xs text-white/55"
+                            >
+                              <div className="font-medium text-white/80">
+                                {invitation.email} / {invitation.status}
+                              </div>
+                              {invitation.status === "pending" && invitation.token_hash ? (
+                                <div className="mt-1 break-all text-orange-300">
+                                  {`${window.location.origin}/invite/${invitation.token_hash}`}
+                                </div>
+                              ) : null}
+                            </div>
+                          ))}
+                        </div>
                       </section>
                     </div>
 
@@ -663,6 +950,11 @@ export default function PlatformAdminPage() {
                         </h3>
                         <RoleManagementTable
                           roles={roles}
+                          canCreate
+                          canEdit
+                          saving={roleSaving}
+                          onCreate={(payload) => handleCreateRole(payload)}
+                          onUpdate={(role, payload) => handleUpdateRole(role, payload)}
                           onToggleActive={(role) => void handleToggleRole(role)}
                         />
                       </div>

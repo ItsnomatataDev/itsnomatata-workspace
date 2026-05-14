@@ -36,14 +36,17 @@ import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { signOutUser } from "../../../lib/supabase/auth";
 import NotificationBell from "../../../features/notifications/components/NotificationBell";
 import { useAuth } from "../../../app/providers/AuthProvider";
+import { useOrganizationBranding } from "../../../app/providers/OrganizationBrandingProvider";
 import { OFFICE_SLUGS } from "../../../lib/offices";
 import { checkIsPlatformAdmin } from "../../../features/platform-admin/services/platformAdminService";
+import { useOrganizationFeatures, type FeatureKey } from "../../../lib/hooks/useOrganizationFeatures";
 
 type LinkItem = {
   to: string;
   label: string;
   icon: React.ComponentType<{ size?: number; className?: string }>;
   badge?: number;
+  featureKey?: FeatureKey;
 };
 
 type GroupItem = {
@@ -53,6 +56,7 @@ type GroupItem = {
   color: string;
   activePaths: string[];
   children: LinkItem[];
+  featureKey?: FeatureKey;
 };
 
 type NavItem = LinkItem | GroupItem;
@@ -67,17 +71,35 @@ type SidebarCounts = {
 
 const commonLinks: LinkItem[] = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { to: "/inbox", label: "Inbox", icon: Inbox },
-  { to: "/boards", label: "Boards", icon: BriefcaseBusiness },
-  { to: "/timesheet", label: "Timesheet", icon: Clock3 },
-  { to: "/attendance", label: "Attendance", icon: Timer },
-  { to: "/leave", label: "Leave", icon: CalendarDays },
-  { to: "/roster", label: "Duty Roster", icon: CalendarClock },
-  { to: "/chat", label: "Team Chat", icon: MessageSquare },
-  { to: "/meetings", label: "Meetings", icon: Video },
-  { to: "/ai-workspace", label: "AI Workspace", icon: Sparkles },
-  { to: "/settings", label: "Settings", icon: Settings },
+  { to: "/inbox", label: "Inbox", icon: Inbox, featureKey: "notifications" },
+  { to: "/boards", label: "Boards", icon: BriefcaseBusiness, featureKey: "boards" },
+  { to: "/timesheet", label: "Timesheet", icon: Clock3, featureKey: "timesheets" },
+  { to: "/attendance", label: "Attendance", icon: Timer, featureKey: "attendance" },
+  { to: "/leave", label: "Leave", icon: CalendarDays, featureKey: "leave_requests" },
+  { to: "/roster", label: "Duty Roster", icon: CalendarClock, featureKey: "duty_roster" },
+  { to: "/chat", label: "Team Chat", icon: MessageSquare, featureKey: "chat" },
+  { to: "/meetings", label: "Meetings", icon: Video, featureKey: "meetings" },
+  { to: "/ai-workspace", label: "AI Workspace", icon: Sparkles, featureKey: "ai_workspace" },
+
 ];
+
+const systemOwnerAdminLinks: LinkItem[] = [
+  { to: "/admin/platform-admin", label: "Platform Admin", icon: ShieldCheck },
+  { to: "/admin/operations-center", label: "Operations Center", icon: Activity },
+];
+
+function filterNavByFeatures(items: NavItem[], isEnabled: (featureKey?: string | null) => boolean) {
+  return items.flatMap((item) => {
+    if ("type" in item && item.type === "group") {
+      if (!isEnabled(item.featureKey)) return [];
+      const children = item.children.filter((child) => isEnabled(child.featureKey));
+      if (children.length === 0) return [];
+      return [{ ...item, children }];
+    }
+
+    return isEnabled(item.featureKey) ? [item] : [];
+  });
+}
 
 function getRoleNav(role?: string | null, counts?: SidebarCounts): NavItem[] {
   switch (role) {
@@ -94,13 +116,14 @@ function getRoleNav(role?: string | null, counts?: SidebarCounts): NavItem[] {
             "/social-posts",
           ],
           children: [
-            { to: "/social-media", label: "Command Center", icon: BarChart3 },
+            { to: "/social-media", label: "Command Center", icon: BarChart3, featureKey: "social_media" },
             {
               to: "/social-media-manager",
               label: "AI Content Manager",
               icon: Sparkles,
+              featureKey: "social_media",
             },
-            { to: "/social-posts", label: "Social Posts", icon: Megaphone },
+            { to: "/social-posts", label: "Social Posts", icon: Megaphone, featureKey: "social_media" },
           ],
         },
       ];
@@ -122,13 +145,13 @@ function getRoleNav(role?: string | null, counts?: SidebarCounts): NavItem[] {
             "/delivery-tracker",
           ],
           children: [
-            { to: "/media-dashboard", label: "Media Dashboard", icon: LayoutDashboard },
-            { to: "/creative-requests", label: "Creative Requests", icon: Sparkles },
-            { to: "/production-pipeline", label: "Production Pipeline", icon: BarChart3 },
-            { to: "/content-assets", label: "Content Assets", icon: Image },
-            { to: "/campaign-visuals", label: "Campaign Visuals", icon: Megaphone },
-            { to: "/editing-queue", label: "Editing Queue", icon: Timer },
-            { to: "/delivery-tracker", label: "Delivery Tracker", icon: Package },
+            { to: "/media-dashboard", label: "Media Dashboard", icon: LayoutDashboard, featureKey: "media_dashboard" },
+            { to: "/creative-requests", label: "Creative Requests", icon: Sparkles, featureKey: "media_dashboard" },
+            { to: "/production-pipeline", label: "Production Pipeline", icon: BarChart3, featureKey: "media_dashboard" },
+            { to: "/content-assets", label: "Content Assets", icon: Image, featureKey: "media_dashboard" },
+            { to: "/campaign-visuals", label: "Campaign Visuals", icon: Megaphone, featureKey: "media_dashboard" },
+            { to: "/editing-queue", label: "Editing Queue", icon: Timer, featureKey: "media_dashboard" },
+            { to: "/delivery-tracker", label: "Delivery Tracker", icon: Package, featureKey: "media_dashboard" },
           ],
         },
       ];
@@ -144,6 +167,7 @@ function getRoleNav(role?: string | null, counts?: SidebarCounts): NavItem[] {
           label: "Boards / Clients",
           icon: BriefcaseBusiness,
           badge: counts?.boards ?? counts?.projects,
+          featureKey: "boards",
         },
         {
           type: "group",
@@ -152,9 +176,9 @@ function getRoleNav(role?: string | null, counts?: SidebarCounts): NavItem[] {
           color: "text-orange-400",
           activePaths: ["/timesheet", "/timesheets", "/admin/attendance"],
           children: [
-            { to: "/timesheet", label: "My Timesheet", icon: Clock3 },
-            { to: "/timesheets/team", label: "Team Timesheet", icon: Clock3 },
-            { to: "/admin/attendance", label: "Attendance", icon: Timer },
+            { to: "/timesheet", label: "My Timesheet", icon: Clock3, featureKey: "timesheets" },
+            { to: "/timesheets/team", label: "Team Timesheet", icon: Clock3, featureKey: "timesheets" },
+            { to: "/admin/attendance", label: "Attendance", icon: Timer, featureKey: "attendance" },
           ],
         },
         {
@@ -164,15 +188,15 @@ function getRoleNav(role?: string | null, counts?: SidebarCounts): NavItem[] {
           color: "text-blue-400",
           activePaths: ["/assets", "/scan", "/fleet"],
           children: [
-            { to: "/assets", label: "Assets", icon: ShieldCheck },
-            { to: "/scan", label: "Scan Asset", icon: ScanLine },
-            { to: "/fleet", label: "Fleet", icon: Truck },
-            { to: "/fleet/imports", label: "Fleet Imports", icon: ClipboardList },
-            { to: "/fleet/fuel-purchases", label: "Fuel Purchases", icon: Timer },
+            { to: "/assets", label: "Assets", icon: ShieldCheck, featureKey: "stock" },
+            { to: "/scan", label: "Scan Asset", icon: ScanLine, featureKey: "stock" },
+            { to: "/fleet", label: "Fleet", icon: Truck, featureKey: "fleet" },
+            { to: "/fleet/imports", label: "Fleet Imports", icon: ClipboardList, featureKey: "fleet" },
+            { to: "/fleet/fuel-purchases", label: "Fuel Purchases", icon: Timer, featureKey: "fleet" },
           ],
         },
-        { to: "/automations", label: "Automations", icon: Sparkles },
-        { to: "/ai-automation-review", label: "AI Automation Review", icon: Bot },
+        { to: "/automations", label: "Automations", icon: Sparkles, featureKey: "automation" },
+        { to: "/ai-automation-review", label: "AI Automation Review", icon: Bot, featureKey: "automation" },
         { to: "/automation-runs", label: "Automation Runs", icon: Activity },
         {
           to: "/admin/notification-deliveries",
@@ -191,31 +215,35 @@ function getRoleNav(role?: string | null, counts?: SidebarCounts): NavItem[] {
 
 case "manager":
 return [
-{ type: "group", label: "Assets", icon: Package, color: "text-blue-400", activePaths: ["/assets", "/scan", "/fleet"],children: [
-{ to: "/assets", label: "Assets", icon: ShieldCheck },
-{ to: "/scan", label: "Scan Asset", icon: ScanLine },
-{ to: "/fleet", label: "Fleet", icon: Truck },
-{ to: "/fleet/imports", label: "Fleet Imports", icon: ClipboardList },
-{ to: "/fleet/fuel-purchases", label: "Fuel Purchases", icon: Timer },
+{ type: "group", label: "Assets", icon: Package, color: "text-blue-400", activePaths: ["/assets", "/scan", "/fleet"], children: [
+{ to: "/assets", label: "Assets", icon: ShieldCheck, featureKey: "stock" },
+{ to: "/scan", label: "Scan Asset", icon: ScanLine, featureKey: "stock" },
+{ to: "/fleet", label: "Fleet", icon: Truck, featureKey: "fleet" },
+{ to: "/fleet/imports", label: "Fleet Imports", icon: ClipboardList, featureKey: "fleet" },
+{ to: "/fleet/fuel-purchases", label: "Fuel Purchases", icon: Timer, featureKey: "fleet" },
 ],
 },
-{ to: "/ai-automation-review", label: "AI Automation Review", icon: Bot },
+{ to: "/ai-automation-review", label: "AI Automation Review", icon: Bot, featureKey: "automation" },
 ];
 
+ case "org_admin":
  case "admin":
   return [
     {
           to: "/admin/dashboard",
           label: "Admin Dashboard",
           icon: LayoutDashboard,
+          featureKey: "admin_dashboard",
         },
 
-        { to: "/admin/employees", label: "Employees", icon: Users },
-        { to: "/admin/leave", label: "Leave Request", icon: CalendarDays },
-        { to: "/admin/roster", label: "Duty Roster", icon: CalendarClock },
-        { to: "/admin/attendance", label: "Attendance", icon: Timer },
-        { to: "/admin/documents", label: "Documents", icon: FileText },
-        { to: "/admin/payslips", label: "Payslips", icon: ClipboardList },
+        { to: "/admin/employees", label: "Employees", icon: Users, featureKey: "admin_users" },
+        { to: "/organization/team", label: "Team Access", icon: Users, featureKey: "admin_users" },
+        { to: "/admin/leave", label: "Leave Request", icon: CalendarDays, featureKey: "admin_leave" },
+        { to: "/admin/roster", label: "Duty Roster", icon: CalendarClock, featureKey: "admin_roster" },
+        { to: "/admin/attendance", label: "Attendance", icon: Timer, featureKey: "attendance" },
+        { to: "/organization/settings", label: "Org Settings", icon: Settings },
+        { to: "/admin/documents", label: "Documents", icon: FileText, featureKey: "knowledge_base" },
+        { to: "/admin/payslips", label: "Payslips", icon: ClipboardList, featureKey: "finance" },
         {
           type: "group",
           label: "Assets",
@@ -223,11 +251,11 @@ return [
           color: "text-blue-400",
           activePaths: ["/assets", "/scan", "/fleet"],
           children: [
-            { to: "/assets", label: "All Assets", icon: ShieldCheck },
-            { to: "/scan", label: "Scan Asset", icon: ScanLine },
-            { to: "/fleet", label: "Fleet", icon: Truck },
-            { to: "/fleet/imports", label: "Fleet Imports", icon: ClipboardList },
-            { to: "/fleet/fuel-purchases", label: "Fuel Purchases", icon: Timer },
+            { to: "/assets", label: "All Assets", icon: ShieldCheck, featureKey: "stock" },
+            { to: "/scan", label: "Scan Asset", icon: ScanLine, featureKey: "stock" },
+            { to: "/fleet", label: "Fleet", icon: Truck, featureKey: "fleet" },
+            { to: "/fleet/imports", label: "Fleet Imports", icon: ClipboardList, featureKey: "fleet" },
+            { to: "/fleet/fuel-purchases", label: "Fuel Purchases", icon: Timer, featureKey: "fleet" },
           ],
         },
         {
@@ -237,28 +265,39 @@ return [
           color: "text-orange-400",
           activePaths: ["/timesheets", "/everhour", "/board-management"],
           children: [
-            { to: "/timesheets/team", label: "Team Timesheet", icon: Clock3 },
-            { to: "/timesheets/reports", label: "Reports", icon: BarChart3 },
+            { to: "/timesheets/team", label: "Team Timesheet", icon: Clock3, featureKey: "timesheets" },
+            { to: "/timesheets/reports", label: "Reports", icon: BarChart3, featureKey: "reports" },
             {
               to: "/timesheets/everhouradmin",
               label: "Admin Everhour",
               icon: ClipboardList,
+              featureKey: "timesheets",
             },
             {
               to: "/board-management",
               label: "Board Management",
               icon: BriefcaseBusiness,
+              featureKey: "boards",
             },
             {
               to: "/board-management",
               label: "Stop All Timers",
               icon: Timer,
+              featureKey: "timesheets",
             },
           ],
         },
-        { to: "/ai-automation-review", label: "AI Automation Review", icon: Bot },
+        { to: "/ai-automation-review", label: "AI Automation Review", icon: Bot, featureKey: "automation" },
       
       ];
+
+    case "user":
+      return [];
+
+    case "super_admin":
+    case "superadmin":
+    case "it-superadmin":
+      return getRoleNav("admin", counts);
 
     default:
       return [];
@@ -345,6 +384,8 @@ export default function Sidebar({
 }) {
   const navigate = useNavigate();
   const auth = useAuth();
+  const { isEnabled } = useOrganizationFeatures();
+  const { branding } = useOrganizationBranding();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
 
@@ -369,20 +410,34 @@ export default function Sidebar({
     auth?.profile?.office && "slug" in auth.profile.office
       ? auth.profile.office.slug === OFFICE_SLUGS.threeLittleBirds
       : false;
+  const organization = auth?.profile?.organization as
+    | {
+        slug?: string;
+        is_system_organization?: boolean;
+        is_system_owner?: boolean;
+      }
+    | null
+    | undefined;
+  const isItsNomatataOrganization = Boolean(
+    organization?.slug === "its-nomatata" ||
+      organization?.is_system_organization ||
+      organization?.is_system_owner,
+  );
   const baseCommonLinks = isThreeLittleBirds
     ? commonLinks.filter((link) => !["/ai-workspace", "/meetings"].includes(link.to))
     : commonLinks;
-  const visibleCommonLinks = baseCommonLinks;
-  const platformLinks: LinkItem[] = isPlatformAdmin
-    ? [
-        { to: "/platform-admin", label: "Platform Admin", icon: ShieldCheck },
-        { to: "/operations-center", label: "Operations Center", icon: Activity },
-      ]
-    : [];
+  const visibleCommonLinks = filterNavByFeatures(baseCommonLinks, isEnabled) as LinkItem[];
+  const canSeeSystemOwnerAdminLinks =
+    isPlatformAdmin &&
+    isItsNomatataOrganization &&
+    ["admin", "org_admin", "super_admin", "superadmin", "it-superadmin"].includes(
+      String(role ?? ""),
+    );
+  const roleNav = filterNavByFeatures(getRoleNav(role, counts), isEnabled);
   const allNav: NavItem[] = [
     ...visibleCommonLinks,
-    ...platformLinks,
-    ...getRoleNav(role, counts),
+    ...roleNav,
+    ...(canSeeSystemOwnerAdminLinks ? systemOwnerAdminLinks : []),
   ];
 
   const handleLogout = async () => {
@@ -395,6 +450,9 @@ export default function Sidebar({
   };
 
   const closeMobileMenu = () => setMobileOpen(false);
+  const brandName = branding.brand_name || "ITsNomatata";
+  const logoUrl = branding.logo_url;
+  const accentColor = branding.accent_color || "#f97316";
 
   const sidebarContent = (
     <>
@@ -405,11 +463,17 @@ export default function Sidebar({
           </p>
 
           <div className="mt-2 w-28">
-            <img
-              src="https://res.cloudinary.com/dnqjax5ut/image/upload/v1776754504/Itsnomatata-Logo-White-with-tagline-2-768x643_u3n4j0.png"
-              alt="IT's Nomatata logo"
-              className="h-auto w-full"
-            />
+            {logoUrl ? (
+              <img
+                src={logoUrl}
+                alt={`${brandName} logo`}
+                className="h-auto max-h-16 w-full object-contain object-left"
+              />
+            ) : (
+              <p className="truncate text-xl font-bold text-white">
+                {brandName}
+              </p>
+            )}
           </div>
         </div>
 
@@ -496,7 +560,7 @@ export default function Sidebar({
         </button>
 
         <h1 className="truncate text-lg font-bold text-white">
-          IT's<span className="text-orange-500">No matata</span>
+          {brandName}
         </h1>
 
         <NotificationBell />
@@ -506,7 +570,10 @@ export default function Sidebar({
       <div className="hidden w-72 shrink-0 lg:block" />
 
       {/* Desktop fixed sidebar */}
-      <aside className="fixed left-0 top-0 z-40 hidden h-screen w-72 flex-col border-r border-white/10 bg-black lg:flex">
+      <aside
+        className="fixed left-0 top-0 z-40 hidden h-screen w-72 flex-col border-r border-white/10 bg-black lg:flex"
+        style={{ borderRightColor: `${accentColor}33` }}
+      >
         {sidebarContent}
       </aside>
 
@@ -520,7 +587,10 @@ export default function Sidebar({
             onClick={() => setMobileOpen(false)}
           />
 
-          <aside className="absolute left-0 top-0 flex h-full w-72 max-w-[85vw] flex-col border-r border-white/10 bg-black shadow-2xl">
+          <aside
+            className="absolute left-0 top-0 flex h-full w-72 max-w-[85vw] flex-col border-r border-white/10 bg-black shadow-2xl"
+            style={{ borderRightColor: `${accentColor}33` }}
+          >
             {sidebarContent}
           </aside>
         </div>

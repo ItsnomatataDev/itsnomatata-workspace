@@ -15,6 +15,7 @@ import {
 import { runAdminUserAction } from "../../it-workspace/services/warRoomService";
 import { OFFICE_SLUGS, type CompanyOffice } from "../../../lib/offices";
 import { getCompanyOfficeBySlug } from "../../../lib/supabase/queries/offices";
+import { createOrganizationInvitation } from "../../platform-admin/services/platformAdminService";
 
 type NotificationSummary = {
   ok?: boolean;
@@ -1281,14 +1282,9 @@ export async function inviteEmployeeToOrganization(params: {
 }): Promise<EmployeeInviteResult> {
   const normalizedEmail = params.email.trim().toLowerCase();
   const normalizedRole = params.role.trim().toLowerCase();
+  const profileRole = isAppRole(normalizedRole) ? normalizedRole : "user";
 
-  if (!isAppRole(normalizedRole)) {
-    throw new Error("Invalid role selected.");
-  }
-
-  if (
-    normalizedRole === "admin" && !isSuperAdminAllowedEmail(normalizedEmail)
-  ) {
+  if (normalizedRole === "admin" && !isSuperAdminAllowedEmail(normalizedEmail)) {
     throw new Error(
       "This email is not allowed to be invited as Super Admin.",
     );
@@ -1302,45 +1298,12 @@ export async function inviteEmployeeToOrganization(params: {
   if (profileError) throw profileError;
 
   if (!matchingProfiles || matchingProfiles.length === 0) {
-    const invitationPayload = {
-      organization_id: params.organizationId,
+    const invitation = await createOrganizationInvitation({
+      organizationId: params.organizationId,
       email: normalizedEmail,
-      full_name: params.fullName,
-      role: normalizedRole,
-      status: "pending",
-      invited_by: params.invitedBy ?? null,
-      expires_at: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000)
-        .toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-
-    const { data: existingInvitation, error: existingInviteError } =
-      await supabase
-        .from("employee_invitations")
-        .select("id")
-        .eq("organization_id", params.organizationId)
-        .ilike("email", normalizedEmail)
-        .eq("status", "pending")
-        .maybeSingle();
-
-    if (existingInviteError) throw existingInviteError;
-
-    const invitationRequest = existingInvitation?.id
-      ? supabase
-        .from("employee_invitations")
-        .update(invitationPayload)
-        .eq("id", existingInvitation.id)
-        .select("id")
-        .single()
-      : supabase
-        .from("employee_invitations")
-        .insert(invitationPayload)
-        .select("id")
-        .single();
-
-    const { data: invitation, error: inviteError } = await invitationRequest;
-
-    if (inviteError) throw inviteError;
+      fullName: params.fullName,
+      roleKey: normalizedRole,
+    });
 
     await logAdminAudit({
       organizationId: params.organizationId,
@@ -1356,7 +1319,7 @@ export async function inviteEmployeeToOrganization(params: {
       status: "invite_created",
       invitationId: invitation.id,
       message:
-        "Invite recorded. The user must complete signup before an admin can approve access.",
+        "Invite created. The user can sign up with this email and will be linked to your organization.",
     };
   }
 
@@ -1372,7 +1335,8 @@ export async function inviteEmployeeToOrganization(params: {
     .from("profiles")
     .update({
       full_name: existingProfile.full_name || params.fullName,
-      primary_role: normalizedRole,
+      primary_role: profileRole,
+      organization_role_key: normalizedRole,
       organization_id: params.organizationId,
       is_active: true,
       is_suspended: false,

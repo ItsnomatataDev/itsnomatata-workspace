@@ -13,6 +13,9 @@ import { OFFICE_SLUGS } from "../../lib/offices";
 import { resolveCompanyOfficeId } from "../../lib/supabase/queries/offices";
 
 type AppRole =
+  | "super_admin"
+  | "org_admin"
+  | "user"
   | "admin"
   | "superadmin"
   | "it-superadmin"
@@ -38,6 +41,7 @@ type AuthProfile = {
   organization_id?: string | null;
   office_id?: string | null;
   primary_role?: AppRole | null;
+  organization_role_key?: string | null;
   account_status?: AccountStatus | null;
   is_active?: boolean | null;
   is_suspended?: boolean | null;
@@ -65,16 +69,37 @@ export const AuthContext = createContext<AuthContextType | undefined>(
 
 const ORGANIZATION_SLUG = "its-nomatata";
 
+type PendingOrganizationInvitation = {
+  id: string;
+  organization_id: string;
+  email: string;
+  full_name: string | null;
+  role_key: string;
+  status: string;
+  expires_at: string | null;
+};
+
 function isValidRole(value: unknown): value is AppRole {
   return [
     "admin",
+    "super_admin",
+    "org_admin",
+    "user",
+    "superadmin",
+    "it-superadmin",
     "manager",
     "hr",
     "it",
     "social_media",
     "media_team",
     "seo_specialist",
+    "finance",
   ].includes(String(value));
+}
+
+function toProfileCompatibleRole(roleKey?: string | null): AppRole | null {
+  if (!roleKey) return null;
+  return isValidRole(roleKey) ? (roleKey as AppRole) : ("user" as AppRole);
 }
 
 function isCompanyEmail(email?: string | null) {
@@ -131,6 +156,30 @@ async function getOrganization() {
   return data;
 }
 
+async function getPendingOrganizationInvitation(
+  email?: string | null,
+): Promise<PendingOrganizationInvitation | null> {
+  if (!email) return null;
+
+  const { data, error } = await supabase
+    .from("organization_invitations")
+    .select("id, organization_id, email, full_name, role_key, status, expires_at")
+    .ilike("email", email.trim().toLowerCase())
+    .eq("status", "pending")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) return null;
+
+  if (data.expires_at && new Date(data.expires_at).getTime() < Date.now()) {
+    return null;
+  }
+
+  return data as PendingOrganizationInvitation;
+}
+
 async function getOfficeId(params: {
   organizationId: string;
   requestedSlug?: string | null;
@@ -147,8 +196,6 @@ async function getOfficeId(params: {
 }
 
 async function ensureProfile(user: User): Promise<AuthProfile | null> {
-  const organization = await getOrganization();
-
   const { data: existing, error: selectError } = await supabase
     .from("profiles")
     .select("*")
@@ -158,29 +205,65 @@ async function ensureProfile(user: User): Promise<AuthProfile | null> {
   if (selectError) throw selectError;
 
   const existingProfile = (existing as AuthProfile | null) ?? null;
+  const pendingInvitation = await getPendingOrganizationInvitation(user.email);
+  const invitedRole = toProfileCompatibleRole(pendingInvitation?.role_key);
 
-  const resolvedRole = resolveUserRole(user, existingProfile);
+  const resolvedRole = invitedRole && isValidRole(invitedRole)
+    ? invitedRole
+    : resolveUserRole(user, existingProfile);
 
-  const resolvedStatus = resolveAccountStatus(user, existingProfile);
+  const resolvedStatus = pendingInvitation
+    ? "active"
+    : resolveAccountStatus(user, existingProfile);
 
-  const organizationId =
+  const metadataOrganizationId =
+    typeof user.user_metadata?.organization_id === "string"
+      ? user.user_metadata.organization_id
+      : null;
+  const requestedRoleKey =
+    typeof user.user_metadata?.requested_role_key === "string"
+      ? user.user_metadata.requested_role_key
+      : null;
+  let organizationId =
+    pendingInvitation?.organization_id ??
     existing?.organization_id ??
-    user.user_metadata?.organization_id ??
-    organization.id;
+    metadataOrganizationId ??
+    null;
 
-  const officeId = await getOfficeId({
-    organizationId,
-    requestedSlug: String(user.user_metadata?.office_slug ?? ""),
-    fallbackOfficeId: existingProfile?.office_id ?? null,
-  });
+  if (!organizationId && isCompanyEmail(user.email)) {
+    const organization = await getOrganization();
+    organizationId = organization.id;
+  }
+
+  const requestedOfficeSlug =
+    typeof user.user_metadata?.office_slug === "string"
+      ? user.user_metadata.office_slug
+      : "";
+  const shouldResolveOffice =
+    Boolean(existingProfile?.office_id) ||
+    Boolean(requestedOfficeSlug) ||
+    (isCompanyEmail(user.email) && organizationId && !pendingInvitation);
+
+  const officeId = organizationId && shouldResolveOffice
+    ? await getOfficeId({
+        organizationId,
+        requestedSlug: requestedOfficeSlug,
+        fallbackOfficeId: existingProfile?.office_id ?? null,
+      })
+    : existingProfile?.office_id ?? null;
 
   const payload = {
     id: user.id,
     email: user.email ?? existing?.email ?? null,
-    full_name: user.user_metadata?.full_name ?? existing?.full_name ?? null,
+    full_name:
+      pendingInvitation?.full_name ??
+      user.user_metadata?.full_name ??
+      existing?.full_name ??
+      null,
     organization_id: organizationId,
     office_id: officeId,
     primary_role: resolvedRole,
+    organization_role_key: pendingInvitation?.role_key ?? requestedRoleKey ?? resolvedRole,
     account_status: resolvedStatus,
     is_active: resolvedStatus === "active",
     is_suspended: resolvedStatus === "suspended",
@@ -194,6 +277,62 @@ async function ensureProfile(user: User): Promise<AuthProfile | null> {
     });
 
   if (upsertError) throw upsertError;
+
+  if (pendingInvitation && organizationId) {
+    const { error: memberError } = await supabase.from("organization_members").upsert(
+      {
+        organization_id: organizationId,
+        user_id: user.id,
+        role: pendingInvitation.role_key,
+        status: "active",
+        joined_at: new Date().toISOString(),
+      },
+      {
+        onConflict: "organization_id,user_id",
+      },
+    );
+
+    if (memberError) throw memberError;
+
+    const { error: inviteError } = await supabase
+      .from("organization_invitations")
+      .update({
+        status: "accepted",
+        accepted_by: user.id,
+        accepted_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", pendingInvitation.id);
+
+    if (inviteError) throw inviteError;
+
+    await supabase.from("platform_audit_logs").insert({
+      actor_user_id: user.id,
+      target_organization_id: organizationId,
+      target_user_id: user.id,
+      action: "organization_invitation_accepted",
+      metadata: {
+        email: user.email,
+        roleKey: pendingInvitation.role_key,
+        profileRole: resolvedRole,
+      },
+    });
+  } else if (organizationId && requestedRoleKey) {
+    const { error: memberError } = await supabase.from("organization_members").upsert(
+      {
+        organization_id: organizationId,
+        user_id: user.id,
+        role: requestedRoleKey,
+        status: resolvedStatus === "active" ? "active" : "pending_approval",
+        joined_at: resolvedStatus === "active" ? new Date().toISOString() : null,
+      },
+      {
+        onConflict: "organization_id,user_id",
+      },
+    );
+
+    if (memberError) throw memberError;
+  }
 
   // FIXED RELATIONSHIP QUERY
   const { data: refreshed, error: refreshedError } = await supabase

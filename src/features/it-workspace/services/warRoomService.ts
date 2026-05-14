@@ -92,6 +92,7 @@ export async function submitAccountAccessRequest(input: {
   phone?: string | null;
   company?: string | null;
   requestedRole?: string | null;
+  organizationId?: string | null;
   message?: string | null;
 }) {
   const { data, error } = await supabase
@@ -102,6 +103,7 @@ export async function submitAccountAccessRequest(input: {
       phone: input.phone?.trim() || null,
       company: input.company?.trim() || null,
       requested_role: input.requestedRole?.trim() || null,
+      organization_id: input.organizationId ?? null,
       message: input.message?.trim() || null,
       status: "pending",
     })

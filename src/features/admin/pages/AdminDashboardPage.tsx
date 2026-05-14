@@ -2,17 +2,21 @@ import { useCallback, useEffect, useState } from "react";
 import {
   Users,
   CalendarDays,
+  Building2,
   HandCoins,
   PackageSearch,
   CheckSquare,
   MessagesSquare,
   Clock3,
   Activity,
+  ShieldCheck,
   UserCheck,
   UserX,
 } from "lucide-react";
+import { Link } from "react-router-dom";
 import Sidebar from "../../../components/dashboard/components/Sidebar";
 import { useAuth } from "../../../app/providers/AuthProvider";
+import { useOrganizationFeatures } from "../../../lib/hooks/useOrganizationFeatures";
 import {
   getAdminDashboardStats,
   getAdminPeopleStats,
@@ -46,12 +50,53 @@ function AdminStatCard({
   );
 }
 
+function AdminRouteCard({
+  title,
+  description,
+  to,
+  icon: Icon,
+}: {
+  title: string;
+  description: string;
+  to: string;
+  icon: React.ComponentType<{ size?: number }>;
+}) {
+  return (
+    <Link
+      to={to}
+      className="rounded-2xl border border-orange-500/20 bg-orange-500/10 p-5 transition hover:border-orange-500/40 hover:bg-orange-500/15"
+    >
+      <div className="flex items-center gap-3">
+        <div className="rounded-xl bg-orange-500 p-2 text-black">
+          <Icon size={18} />
+        </div>
+        <h3 className="font-semibold text-white">{title}</h3>
+      </div>
+      <p className="mt-3 text-sm leading-6 text-white/60">{description}</p>
+    </Link>
+  );
+}
+
 export default function AdminDashboardPage() {
   const auth = useAuth();
   const user = auth?.user ?? null;
   const profile = auth?.profile ?? null;
   const authLoading = auth?.loading ?? true;
+  const { isEnabled } = useOrganizationFeatures();
   const organizationId = profile?.organization_id ?? null;
+  const organization = profile?.organization as
+    | {
+        slug?: string;
+        is_system_organization?: boolean;
+        is_system_owner?: boolean;
+      }
+    | null
+    | undefined;
+  const isItsNomatataOrganization = Boolean(
+    organization?.slug === "its-nomatata" ||
+      organization?.is_system_organization ||
+      organization?.is_system_owner,
+  );
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -62,6 +107,13 @@ export default function AdminDashboardPage() {
   const [crmDeals, setCrmDeals] = useState<any[]>([]);
   const [pendingApprovals, setPendingApprovals] = useState<any[]>([]);
   const [processingApproval, setProcessingApproval] = useState<string | null>(null);
+  const canUseAdminUsers = isEnabled("admin_users");
+  const canUseAdminLeave = isEnabled("admin_leave");
+  const canUseStock = isEnabled("stock");
+  const canUseClients = isEnabled("clients");
+  const canUseTasks = isEnabled("tasks");
+  const canUseChat = isEnabled("chat");
+  const canUseTimesheets = isEnabled("timesheets");
 
   const handleApproveUser = async (userId: string) => {
     if (!organizationId || !user?.id) return;
@@ -242,17 +294,17 @@ export default function AdminDashboardPage() {
                 />
                 <AdminStatCard
                   title="Tracking Now"
-                  value={peopleStats?.currentlyTracking ?? 0}
+                  value={canUseTimesheets ? (peopleStats?.currentlyTracking ?? 0) : "Off"}
                   icon={Clock3}
                 />
                 <AdminStatCard
                   title="Today Hours"
-                  value={peopleStats?.totalTodayHours ?? 0}
+                  value={canUseTimesheets ? (peopleStats?.totalTodayHours ?? 0) : "Off"}
                   icon={Clock3}
                 />
                 <AdminStatCard
                   title="Week Hours"
-                  value={peopleStats?.totalWeekHours ?? 0}
+                  value={canUseTimesheets ? (peopleStats?.totalWeekHours ?? 0) : "Off"}
                   icon={Clock3}
                 />
               </section>
@@ -260,32 +312,60 @@ export default function AdminDashboardPage() {
               <section className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
                 <AdminStatCard
                   title="Pending Leave"
-                  value={stats?.pendingLeaveRequests ?? 0}
+                  value={canUseAdminLeave ? (stats?.pendingLeaveRequests ?? 0) : "Off"}
                   icon={CalendarDays}
                 />
                 <AdminStatCard
                   title="Active Deals"
-                  value={stats?.activeCRMDeals ?? 0}
+                  value={canUseClients ? (stats?.activeCRMDeals ?? 0) : "Off"}
                   icon={HandCoins}
                 />
                 <AdminStatCard
                   title="Low Stock"
-                  value={stats?.lowStockItems ?? 0}
+                  value={canUseStock ? (stats?.lowStockItems ?? 0) : "Off"}
                   icon={PackageSearch}
                 />
                 <AdminStatCard
                   title="Open Tasks"
-                  value={stats?.openTasks ?? 0}
+                  value={canUseTasks ? (stats?.openTasks ?? 0) : "Off"}
                   icon={CheckSquare}
                 />
                 <AdminStatCard
                   title="Channels"
-                  value={stats?.activeChannels ?? 0}
+                  value={canUseChat ? (stats?.activeChannels ?? 0) : "Off"}
                   icon={MessagesSquare}
                 />
               </section>
 
+              {isItsNomatataOrganization ? (
+                <section className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-5">
+                  <div className="mb-4">
+                    <p className="text-xs uppercase tracking-[0.25em] text-orange-500">
+                      ITsNomatata Only
+                    </p>
+                    <h2 className="mt-2 text-lg font-semibold">
+                      System Owner Controls
+                    </h2>
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <AdminRouteCard
+                      title="Organizations"
+                      description="Create, edit, suspend, delete, and configure client organizations."
+                      to="/admin/platform-admin"
+                      icon={Building2}
+                    />
+                    <AdminRouteCard
+                      title="Operations Center"
+                      description="View platform-wide health, activity, and operational signals."
+                      to="/admin/operations-center"
+                      icon={ShieldCheck}
+                    />
+                  </div>
+                </section>
+              ) : null}
+
               <section className="mt-6 grid gap-6 xl:grid-cols-3">
+                {canUseAdminUsers ? (
                 <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
                   <h2 className="text-lg font-semibold">
                     Pending Approvals
@@ -339,7 +419,9 @@ export default function AdminDashboardPage() {
                     )}
                   </div>
                 </div>
+                ) : null}
 
+                {canUseAdminLeave ? (
                 <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
                   <h2 className="text-lg font-semibold">
                     Recent Leave Requests
@@ -366,7 +448,9 @@ export default function AdminDashboardPage() {
                     )}
                   </div>
                 </div>
+                ) : null}
 
+                {canUseStock ? (
                 <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
                   <h2 className="text-lg font-semibold">Low Stock Items</h2>
                   <div className="mt-4 space-y-3">
@@ -389,8 +473,10 @@ export default function AdminDashboardPage() {
                     )}
                   </div>
                 </div>
+                ) : null}
               </section>
 
+              {canUseClients ? (
               <section className="mt-6 grid gap-6 xl:grid-cols-2">
                 <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
                   <h2 className="text-lg font-semibold">Recent CRM Deals</h2>
@@ -415,6 +501,7 @@ export default function AdminDashboardPage() {
                   </div>
                 </div>
               </section>
+              ) : null}
             </>
           )}
         </main>
