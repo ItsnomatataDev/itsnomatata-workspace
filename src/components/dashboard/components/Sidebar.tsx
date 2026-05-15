@@ -125,6 +125,7 @@ function getRoleNav(role?: string | null, counts?: SidebarCounts): NavItem[] {
               featureKey: "social_media",
             },
             { to: "/social-posts", label: "Social Posts", icon: Megaphone, featureKey: "social_media" },
+            { to: "/admin/content-studio", label: "Content Studio", icon: FileText, featureKey: "content_review" },
           ],
         },
       ];
@@ -150,6 +151,7 @@ function getRoleNav(role?: string | null, counts?: SidebarCounts): NavItem[] {
             { to: "/creative-requests", label: "Creative Requests", icon: Sparkles, featureKey: "media_dashboard" },
             { to: "/production-pipeline", label: "Production Pipeline", icon: BarChart3, featureKey: "media_dashboard" },
             { to: "/content-assets", label: "Content Assets", icon: Image, featureKey: "media_dashboard" },
+            { to: "/admin/content-studio/uploads", label: "Review Uploads", icon: FileText, featureKey: "content_review" },
             { to: "/campaign-visuals", label: "Campaign Visuals", icon: Megaphone, featureKey: "media_dashboard" },
             { to: "/editing-queue", label: "Editing Queue", icon: Timer, featureKey: "media_dashboard" },
             { to: "/delivery-tracker", label: "Delivery Tracker", icon: Package, featureKey: "media_dashboard" },
@@ -246,6 +248,7 @@ return [
         { to: "/admin/attendance", label: "Attendance", icon: Timer, featureKey: "attendance" },
         { to: "/organization/settings", label: "Org Settings", icon: Settings },
         { to: "/admin/documents", label: "Documents", icon: FileText, featureKey: "knowledge_base" },
+        { to: "/admin/content-studio", label: "Content Studio", icon: FileText, featureKey: "content_review" },
         { to: "/admin/payslips", label: "Payslips", icon: ClipboardList, featureKey: "finance" },
         {
           type: "group",
@@ -437,7 +440,20 @@ export default function Sidebar({
     ["admin", "org_admin", "super_admin", "superadmin", "it-superadmin"].includes(
       String(role ?? ""),
     );
-  const roleNav = filterNavByFeatures(getRoleNav(role, counts), isEnabled);
+  const rawRoleNav = getRoleNav(role, counts);
+  const officeScopedRoleNav = isThreeLittleBirds
+    ? rawRoleNav.flatMap<NavItem>((item) => {
+        if ("type" in item && item.type === "group") {
+          const children = item.children.filter(
+            (child) => !child.to.startsWith("/admin/content-studio"),
+          );
+          return children.length > 0 ? [{ ...item, children } as GroupItem] : [];
+        }
+        const link = item as LinkItem;
+        return link.to.startsWith("/admin/content-studio") ? [] : [link];
+      })
+    : rawRoleNav;
+  const roleNav = filterNavByFeatures(officeScopedRoleNav, isEnabled);
   const allNav: NavItem[] = [
     ...visibleCommonLinks,
     ...roleNav,

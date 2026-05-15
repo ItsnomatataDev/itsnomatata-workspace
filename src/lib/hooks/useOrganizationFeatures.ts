@@ -22,6 +22,7 @@ export type FeatureKey =
   | "attendance"
   | "timesheets"
   | "media_dashboard"
+  | "content_review"
   | "social_media"
   | "automation"
   | "notifications"

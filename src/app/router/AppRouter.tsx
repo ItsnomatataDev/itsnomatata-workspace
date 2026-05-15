@@ -70,6 +70,9 @@ import OperationsCenterPage from "../../features/platform-admin/pages/Operations
 import OrganizationSettingsPage from "../../features/organization/pages/OrganizationSettingsPage";
 import AcceptOrganizationInvitePage from "../../features/organization/pages/AcceptOrganizationInvitePage";
 import TeamPage from "../../features/organization-members/pages/TeamPage";
+import ContentStudioPage from "../../features/content-review/pages/ContentStudioPage";
+import ContentStudioEditorPage from "../../features/content-review/pages/ContentStudioEditorPage";
+import PublicClientReviewPage from "../../features/content-review/pages/PublicClientReviewPage";
 
 const AppRouter = () => {
   return (
@@ -82,6 +85,7 @@ const AppRouter = () => {
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         <Route path="/resetpassword" element={<ResetPasswordPage />} />
         <Route path="/invite/:token" element={<AcceptOrganizationInvitePage />} />
+        <Route path="/client-review/:token" element={<PublicClientReviewPage />} />
      
         {/* Public guest meeting routes */}
         <Route path="/join/:meetingCode" element={<GuestMeetingJoinPage />} />
@@ -349,6 +353,41 @@ const AppRouter = () => {
                 ]}
               >
                 <FeatureRoute feature="media_dashboard"><MediaDashboardPage /></FeatureRoute>
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+
+        {[
+          "/admin/content-studio",
+          "/admin/content-studio/drafts",
+          "/admin/content-studio/uploads",
+          "/admin/content-studio/reviews",
+          "/admin/content-studio/calendar",
+        ].map((path) => (
+          <Route
+            key={path}
+            path={path}
+            element={
+              <ProtectedRoute>
+                <RoleRoute roles={["admin", "social_media", "media_team"]}>
+                  <FeatureRoute feature="content_review">
+                    <ContentStudioPage />
+                  </FeatureRoute>
+                </RoleRoute>
+              </ProtectedRoute>
+            }
+          />
+        ))}
+
+        <Route
+          path="/admin/content-studio/editor/:draftId"
+          element={
+            <ProtectedRoute>
+              <RoleRoute roles={["admin", "social_media", "media_team"]}>
+                <FeatureRoute feature="content_review">
+                  <ContentStudioEditorPage />
+                </FeatureRoute>
               </RoleRoute>
             </ProtectedRoute>
           }
