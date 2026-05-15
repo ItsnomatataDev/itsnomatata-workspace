@@ -1,10 +1,11 @@
-import { ArrowLeft, Eye, Loader2, Save, Send } from "lucide-react";
+import { ArrowLeft, Eye, Loader2, Save, Send, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import { ContentReviewRenderer } from "../components/ContentReviewRenderer";
 import {
   assertCanUseContentStudio,
+  deleteContentReviewDraft,
   getContentReviewDetail,
   listContentClients,
   inferLayoutType,
@@ -153,6 +154,21 @@ export default function ContentStudioEditorPage() {
     }
   }
 
+  async function deleteDraft() {
+    if (!detail) return;
+    const confirmed = window.confirm(`Delete "${detail.draft.title}" and its uploaded media? Clients will no longer be able to access it.`);
+    if (!confirmed) return;
+    try {
+      setSaving(true);
+      await deleteContentReviewDraft(detail.draft.id);
+      navigate("/admin/content-studio");
+    } catch (err) {
+      setError(`Failed to delete draft: ${err instanceof Error ? err.message : "Unknown error"}`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-black text-white">
@@ -223,6 +239,15 @@ export default function ContentStudioEditorPage() {
             >
               <Send size={16} />
               Send for review
+            </button>
+            <button
+              type="button"
+              onClick={() => void deleteDraft()}
+              disabled={saving}
+              className="inline-flex items-center gap-2 rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm font-semibold text-red-200 hover:bg-red-500/15 disabled:opacity-60"
+            >
+              <Trash2 size={16} />
+              Delete
             </button>
           </div>
         </div>

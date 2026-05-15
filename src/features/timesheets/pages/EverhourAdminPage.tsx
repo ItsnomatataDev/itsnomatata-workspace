@@ -45,6 +45,7 @@ import {
 
 type BillingType = "fixed" | "hourly" | "non_billable";
 type BoardTimeView = "day" | "week" | "month" | "year";
+type BoardGroupMode = "operational" | "custom";
 
 interface BoardBillingConfig {
   boardId: string;
@@ -69,6 +70,11 @@ interface GroupedBoards {
   groupName: string;
   boards: BoardWithTime[];
   totalTracked: number;
+}
+
+interface CustomBoardGrouping {
+  groups: string[];
+  assignments: Record<string, string>;
 }
 
 type ProfileOption = {
@@ -266,8 +272,10 @@ const BILLING_COLORS: Record<BillingType, string> = {
 };
 
 const STORAGE_KEY = "everhour_board_billing_v1";
+const CUSTOM_GROUP_STORAGE_KEY = "everhour_board_custom_groups_v1";
 const SHEARWATER_GROUP = "Shearwater Group";
 const STAND_ALONE_GROUP = "Stand Alone";
+const UNGROUPED_CUSTOM_GROUP = "Ungrouped";
 
 const SHEARWATER_BOARD_NAMES = [
   "SW Main",
@@ -371,6 +379,77 @@ function saveBillingConfig(config: Record<string, BoardBillingConfig>): void {
   } catch {
     // ignore local storage errors
   }
+}
+
+function makeCustomGroupStorageKey(organizationId: string): string {
+  return `${CUSTOM_GROUP_STORAGE_KEY}:${organizationId || "default"}`;
+}
+
+function normalizeCustomGroupName(name: string): string {
+  return name.trim().replace(/\s+/g, " ");
+}
+
+function loadCustomGrouping(organizationId: string): CustomBoardGrouping {
+  try {
+    const raw = localStorage.getItem(makeCustomGroupStorageKey(organizationId));
+    if (!raw) return { groups: [], assignments: {} };
+
+    const parsed = JSON.parse(raw) as Partial<CustomBoardGrouping>;
+    const groups = Array.isArray(parsed.groups)
+      ? parsed.groups
+          .map((group) =>
+            typeof group === "string" ? normalizeCustomGroupName(group) : "",
+          )
+          .filter((group, index, arr) => group && arr.indexOf(group) === index)
+      : [];
+
+    const assignments =
+      parsed.assignments && typeof parsed.assignments === "object"
+        ? Object.fromEntries(
+            Object.entries(parsed.assignments).filter(
+              ([boardId, groupName]) =>
+                Boolean(boardId) &&
+                typeof groupName === "string" &&
+                normalizeCustomGroupName(groupName),
+            ),
+          )
+        : {};
+
+    return { groups, assignments };
+  } catch {
+    return { groups: [], assignments: {} };
+  }
+}
+
+function saveCustomGrouping(
+  organizationId: string,
+  grouping: CustomBoardGrouping,
+): void {
+  try {
+    localStorage.setItem(
+      makeCustomGroupStorageKey(organizationId),
+      JSON.stringify(grouping),
+    );
+  } catch {
+    // ignore local storage errors
+  }
+}
+
+function getCustomBoardGroup(
+  boardId: string,
+  grouping: CustomBoardGrouping,
+): string {
+  const assigned = grouping.assignments[boardId];
+  return assigned ? normalizeCustomGroupName(assigned) : UNGROUPED_CUSTOM_GROUP;
+}
+
+function makeInitialCustomGrouping(boards: BoardWithTime[]): CustomBoardGrouping {
+  const groups = [SHEARWATER_GROUP, STAND_ALONE_GROUP];
+  const assignments = Object.fromEntries(
+    boards.map((board) => [board.id, getBoardOperationalGroup(board.name)]),
+  );
+
+  return { groups, assignments };
 }
 
 function BudgetEditor({
@@ -479,17 +558,25 @@ function BoardRow({
   board,
   canDelete,
   isDeleting,
+  groupMode,
+  customGroupNames,
+  customGroupName,
   onUpdateBilling,
   onDeleteBoard,
+  onAssignCustomGroup,
 }: {
   board: BoardWithTime;
   canDelete: boolean;
   isDeleting: boolean;
+  groupMode: BoardGroupMode;
+  customGroupNames: string[];
+  customGroupName: string;
   onUpdateBilling: (
     boardId: string,
     patch: Partial<BoardBillingConfig>,
   ) => void;
   onDeleteBoard: (board: BoardWithTime) => void;
+  onAssignCustomGroup: (boardId: string, groupName: string) => void;
 }) {
   const [editingBudget, setEditingBudget] = useState(false);
   const { billing, trackedSeconds, memberAvatars } = board;
@@ -523,9 +610,34 @@ function BoardRow({
           <p className="truncate text-sm font-medium text-white">
             {board.name}
           </p>
-          <p className="text-[10px] text-white/30">
-            {getBoardOperationalGroup(board.name)}
-          </p>
+          {groupMode === "custom" ? (
+            <select
+              value={customGroupName}
+              onChange={(event) =>
+                onAssignCustomGroup(board.id, event.target.value)
+              }
+              onClick={(event) => event.stopPropagation()}
+              className="mt-1 max-w-full rounded-lg border border-orange-500/20 bg-orange-500/10 px-2 py-1 text-[10px] font-medium text-orange-100 outline-none transition focus:border-orange-400/60"
+              title="Move this board card to a custom group"
+            >
+              <option className="bg-[#111] text-white" value={UNGROUPED_CUSTOM_GROUP}>
+                Ungrouped
+              </option>
+              {customGroupNames.map((groupName) => (
+                <option
+                  key={groupName}
+                  className="bg-[#111] text-white"
+                  value={groupName}
+                >
+                  {groupName}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <p className="text-[10px] text-white/30">
+              {getBoardOperationalGroup(board.name)}
+            </p>
+          )}
         </div>
       </div>
 
@@ -676,19 +788,46 @@ function GroupSection({
   group,
   canDelete,
   deletingBoardId,
+  groupMode,
+  customGrouping,
   onUpdateBilling,
   onDeleteBoard,
+  onAssignCustomGroup,
+  onRenameCustomGroup,
+  onDeleteCustomGroup,
 }: {
   group: GroupedBoards;
   canDelete: boolean;
   deletingBoardId: string | null;
+  groupMode: BoardGroupMode;
+  customGrouping: CustomBoardGrouping;
   onUpdateBilling: (
     boardId: string,
     patch: Partial<BoardBillingConfig>,
   ) => void;
   onDeleteBoard: (board: BoardWithTime) => void;
+  onAssignCustomGroup: (boardId: string, groupName: string) => void;
+  onRenameCustomGroup: (oldName: string, newName: string) => void;
+  onDeleteCustomGroup: (groupName: string) => void;
 }) {
   const [collapsed, setCollapsed] = useState(false);
+  const [editingGroupName, setEditingGroupName] = useState(false);
+  const [draftGroupName, setDraftGroupName] = useState(group.groupName);
+
+  useEffect(() => {
+    if (!editingGroupName) setDraftGroupName(group.groupName);
+  }, [editingGroupName, group.groupName]);
+
+  const canEditGroup =
+    groupMode === "custom" && group.groupName !== UNGROUPED_CUSTOM_GROUP;
+
+  function saveGroupName() {
+    const cleanName = normalizeCustomGroupName(draftGroupName);
+    if (cleanName && cleanName !== group.groupName) {
+      onRenameCustomGroup(group.groupName, cleanName);
+    }
+    setEditingGroupName(false);
+  }
 
   return (
     <div className="overflow-hidden rounded-2xl border border-white/8 bg-[#080808]">
@@ -705,15 +844,77 @@ function GroupSection({
         <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-white/8">
           <Users size={12} className="text-white/50" />
         </div>
-        <span className="text-sm font-semibold text-white">
-          {group.groupName}
-        </span>
+        {editingGroupName ? (
+          <input
+            value={draftGroupName}
+            autoFocus
+            onClick={(event) => event.stopPropagation()}
+            onChange={(event) => setDraftGroupName(event.target.value)}
+            onBlur={saveGroupName}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") saveGroupName();
+              if (event.key === "Escape") {
+                setDraftGroupName(group.groupName);
+                setEditingGroupName(false);
+              }
+            }}
+            className="w-48 rounded-lg border border-orange-500/35 bg-black/40 px-2 py-1 text-sm font-semibold text-white outline-none focus:border-orange-400"
+          />
+        ) : (
+          <span className="text-sm font-semibold text-white">
+            {group.groupName}
+          </span>
+        )}
         <span className="rounded-full bg-white/8 px-2 py-0.5 text-[10px] text-white/40">
           {group.boards.length} board{group.boards.length === 1 ? "" : "s"}
         </span>
-        <div className="ml-auto flex items-center gap-1.5 text-xs text-white/30">
-          <Clock size={11} />
-          {formatHours(group.totalTracked)}
+        <div className="ml-auto flex items-center gap-2 text-xs text-white/30">
+          <span className="flex items-center gap-1.5">
+            <Clock size={11} />
+            {formatHours(group.totalTracked)}
+          </span>
+          {canEditGroup && (
+            <span
+              role="button"
+              tabIndex={0}
+              onClick={(event) => {
+                event.stopPropagation();
+                setEditingGroupName(true);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setEditingGroupName(true);
+                }
+              }}
+              className="rounded-lg p-1.5 text-white/25 transition hover:bg-white/8 hover:text-orange-300"
+              title="Rename custom group"
+            >
+              <Edit3 size={13} />
+            </span>
+          )}
+          {canEditGroup && (
+            <span
+              role="button"
+              tabIndex={0}
+              onClick={(event) => {
+                event.stopPropagation();
+                onDeleteCustomGroup(group.groupName);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onDeleteCustomGroup(group.groupName);
+                }
+              }}
+              className="rounded-lg p-1.5 text-white/25 transition hover:bg-red-500/10 hover:text-red-300"
+              title="Remove custom group"
+            >
+              <Trash2 size={13} />
+            </span>
+          )}
         </div>
       </button>
 
@@ -741,8 +942,12 @@ function GroupSection({
               board={board}
               canDelete={canDelete}
               isDeleting={deletingBoardId === board.id}
+              groupMode={groupMode}
+              customGroupNames={customGrouping.groups}
+              customGroupName={getCustomBoardGroup(board.id, customGrouping)}
               onUpdateBilling={onUpdateBilling}
               onDeleteBoard={onDeleteBoard}
+              onAssignCustomGroup={onAssignCustomGroup}
             />
           ))}
         </>
@@ -1024,6 +1229,13 @@ export default function EverhourAdminPage() {
     >
   >({});
   const [searchValue, setSearchValue] = useState("");
+  const [boardGroupMode, setBoardGroupMode] =
+    useState<BoardGroupMode>("operational");
+  const [customGrouping, setCustomGrouping] = useState<CustomBoardGrouping>({
+    groups: [],
+    assignments: {},
+  });
+  const [newGroupName, setNewGroupName] = useState("");
   const [boardTimeView, setBoardTimeView] = useState<BoardTimeView>("month");
   const [boardAnchorDate, setBoardAnchorDate] = useState(() => new Date());
   const [showAddHours, setShowAddHours] = useState(false);
@@ -1105,6 +1317,36 @@ export default function EverhourAdminPage() {
   useEffect(() => {
     setBillingConfig(loadBillingConfig());
   }, []);
+
+  useEffect(() => {
+    if (!organizationId) return;
+    setCustomGrouping(loadCustomGrouping(organizationId));
+  }, [organizationId]);
+
+  useEffect(() => {
+    if (!organizationId || boards.length === 0) return;
+
+    setCustomGrouping((prev) => {
+      const validBoardIds = new Set(boards.map((board) => board.id));
+      const assignments = Object.fromEntries(
+        Object.entries(prev.assignments).filter(([boardId, groupName]) => {
+          return (
+            validBoardIds.has(boardId) &&
+            groupName !== UNGROUPED_CUSTOM_GROUP &&
+            prev.groups.includes(groupName)
+          );
+        }),
+      );
+
+      if (Object.keys(assignments).length === Object.keys(prev.assignments).length) {
+        return prev;
+      }
+
+      const next = { ...prev, assignments };
+      saveCustomGrouping(organizationId, next);
+      return next;
+    });
+  }, [boards, organizationId]);
 
   useEffect(() => {
     if (!organizationId || boards.length === 0) return;
@@ -1261,7 +1503,10 @@ export default function EverhourAdminPage() {
     const q = searchValue.trim().toLowerCase();
     const filtered = q
       ? boardsWithTime.filter((b) => {
-          const groupName = getBoardOperationalGroup(b.name);
+          const groupName =
+            boardGroupMode === "custom"
+              ? getCustomBoardGroup(b.id, customGrouping)
+              : getBoardOperationalGroup(b.name);
           return (
             b.name.toLowerCase().includes(q) ||
             groupName.toLowerCase().includes(q)
@@ -1272,23 +1517,39 @@ export default function EverhourAdminPage() {
     const groupMap = new Map<string, BoardWithTime[]>();
 
     for (const board of filtered) {
-      const key = getBoardOperationalGroup(board.name);
+      const key =
+        boardGroupMode === "custom"
+          ? getCustomBoardGroup(board.id, customGrouping)
+          : getBoardOperationalGroup(board.name);
       const arr = groupMap.get(key) ?? [];
       arr.push(board);
       groupMap.set(key, arr);
     }
 
-    return [SHEARWATER_GROUP, STAND_ALONE_GROUP]
+    const groupOrder =
+      boardGroupMode === "custom"
+        ? [
+            ...customGrouping.groups,
+            ...(groupMap.has(UNGROUPED_CUSTOM_GROUP)
+              ? [UNGROUPED_CUSTOM_GROUP]
+              : []),
+          ]
+        : [SHEARWATER_GROUP, STAND_ALONE_GROUP];
+
+    return groupOrder
       .map((groupName) => {
         const gBoards = groupMap.get(groupName) ?? [];
         return {
           groupName,
-          boards: gBoards.sort(sortBoardsByOperationalOrder),
+          boards:
+            boardGroupMode === "custom"
+              ? gBoards.sort((a, b) => a.name.localeCompare(b.name))
+              : gBoards.sort(sortBoardsByOperationalOrder),
           totalTracked: gBoards.reduce((s, b) => s + b.trackedSeconds, 0),
         };
       })
       .filter((group) => group.boards.length > 0);
-  }, [boardsWithTime, searchValue]);
+  }, [boardGroupMode, boardsWithTime, customGrouping, searchValue]);
 
   const summary = useMemo(() => {
     const totalTracked = boardsWithTime.reduce(
@@ -1330,6 +1591,133 @@ export default function EverhourAdminPage() {
     [],
   );
 
+  const handleAddCustomGroup = useCallback(() => {
+    if (!organizationId) return;
+
+    const cleanName = normalizeCustomGroupName(newGroupName);
+    if (!cleanName || cleanName === UNGROUPED_CUSTOM_GROUP) return;
+
+    setCustomGrouping((prev) => {
+      if (
+        prev.groups.some(
+          (groupName) => groupName.toLowerCase() === cleanName.toLowerCase(),
+        )
+      ) {
+        return prev;
+      }
+
+      const next = {
+        ...prev,
+        groups: [...prev.groups, cleanName],
+      };
+      saveCustomGrouping(organizationId, next);
+      return next;
+    });
+
+    setNewGroupName("");
+    setBoardGroupMode("custom");
+  }, [newGroupName, organizationId]);
+
+  const handleAssignCustomGroup = useCallback(
+    (boardId: string, groupName: string) => {
+      if (!organizationId) return;
+
+      setCustomGrouping((prev) => {
+        const cleanName = normalizeCustomGroupName(groupName);
+        const assignments = { ...prev.assignments };
+
+        if (!cleanName || cleanName === UNGROUPED_CUSTOM_GROUP) {
+          delete assignments[boardId];
+        } else {
+          assignments[boardId] = cleanName;
+        }
+
+        const next = { ...prev, assignments };
+        saveCustomGrouping(organizationId, next);
+        return next;
+      });
+    },
+    [organizationId],
+  );
+
+  const handleRenameCustomGroup = useCallback(
+    (oldName: string, newName: string) => {
+      if (!organizationId || oldName === UNGROUPED_CUSTOM_GROUP) return;
+
+      const cleanName = normalizeCustomGroupName(newName);
+      if (!cleanName || cleanName === UNGROUPED_CUSTOM_GROUP) return;
+
+      setCustomGrouping((prev) => {
+        if (!prev.groups.includes(oldName)) return prev;
+
+        const groups = prev.groups.reduce<string[]>((nextGroups, group) => {
+          const nextName = group === oldName ? cleanName : group;
+          if (
+            !nextGroups.some(
+              (existing) => existing.toLowerCase() === nextName.toLowerCase(),
+            )
+          ) {
+            nextGroups.push(nextName);
+          }
+          return nextGroups;
+        }, []);
+
+        const assignments = Object.fromEntries(
+          Object.entries(prev.assignments).map(([boardId, group]) => [
+            boardId,
+            group === oldName ? cleanName : group,
+          ]),
+        );
+
+        const next = { groups, assignments };
+        saveCustomGrouping(organizationId, next);
+        return next;
+      });
+    },
+    [organizationId],
+  );
+
+  const handleDeleteCustomGroup = useCallback(
+    (groupName: string) => {
+      if (!organizationId || groupName === UNGROUPED_CUSTOM_GROUP) return;
+
+      const confirmed = window.confirm(
+        `Remove the "${groupName}" group?\n\nBoards in this group will move to Ungrouped.`,
+      );
+      if (!confirmed) return;
+
+      setCustomGrouping((prev) => {
+        const groups = prev.groups.filter((group) => group !== groupName);
+        const assignments = Object.fromEntries(
+          Object.entries(prev.assignments).filter(
+            ([, assignedGroup]) => assignedGroup !== groupName,
+          ),
+        );
+        const next = { groups, assignments };
+        saveCustomGrouping(organizationId, next);
+        return next;
+      });
+    },
+    [organizationId],
+  );
+
+  const handleSetBoardGroupMode = useCallback(
+    (mode: BoardGroupMode) => {
+      if (mode === "custom" && organizationId) {
+        setCustomGrouping((prev) => {
+          if (prev.groups.length > 0) return prev;
+
+          const next = makeInitialCustomGrouping(boardsWithTime);
+          saveCustomGrouping(organizationId, next);
+          return next;
+        });
+      }
+
+      setBoardGroupMode(mode);
+    },
+    [boardsWithTime, organizationId],
+  );
+
   const handleDeleteBoard = useCallback(
     async (board: BoardWithTime) => {
       if (!organizationId || profile?.primary_role !== "admin") return;
@@ -1354,6 +1742,13 @@ export default function EverhourAdminPage() {
           const next = { ...prev };
           delete next[board.id];
           saveBillingConfig(next);
+          return next;
+        });
+        setCustomGrouping((prev) => {
+          const assignments = { ...prev.assignments };
+          delete assignments[board.id];
+          const next = { ...prev, assignments };
+          saveCustomGrouping(organizationId, next);
           return next;
         });
         await Promise.all([refetch(), loadClientInvoices()]);
@@ -1862,6 +2257,52 @@ export default function EverhourAdminPage() {
                 className="w-full rounded-xl border border-white/8 bg-white/4 py-2 pl-9 pr-4 text-sm text-white outline-none transition placeholder:text-white/20 focus:border-orange-500/40"
               />
             </div>
+
+            <div className="flex rounded-xl border border-white/8 bg-white/4 p-1">
+              {[
+                { value: "operational", label: "Auto groups" },
+                { value: "custom", label: "My groups" },
+              ].map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() =>
+                    handleSetBoardGroupMode(option.value as BoardGroupMode)
+                  }
+                  className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                    boardGroupMode === option.value
+                      ? "bg-orange-500 text-white"
+                      : "text-white/45 hover:bg-white/8 hover:text-white"
+                  }`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+
+            {boardGroupMode === "custom" && (
+              <div className="flex min-w-[240px] items-center gap-2">
+                <input
+                  value={newGroupName}
+                  onChange={(event) => setNewGroupName(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") handleAddCustomGroup();
+                  }}
+                  placeholder="New group name"
+                  className="min-w-0 flex-1 rounded-xl border border-white/8 bg-white/4 px-3 py-2 text-sm text-white outline-none transition placeholder:text-white/20 focus:border-orange-500/40"
+                />
+                <button
+                  type="button"
+                  onClick={handleAddCustomGroup}
+                  disabled={!normalizeCustomGroupName(newGroupName)}
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-orange-500 text-white transition hover:bg-orange-400 disabled:cursor-not-allowed disabled:opacity-40"
+                  title="Add custom group"
+                >
+                  <Plus size={15} />
+                </button>
+              </div>
+            )}
+
             <span className="text-xs text-white/25">
               {boards.length} boards · {groups.length} groups ·{" "}
               {formatBoardPeriodLabel(boardTimeView, boardAnchorDate)}
@@ -1893,8 +2334,13 @@ export default function EverhourAdminPage() {
                   group={group}
                   canDelete={profile.primary_role === "admin"}
                   deletingBoardId={deletingBoardId}
+                  groupMode={boardGroupMode}
+                  customGrouping={customGrouping}
                   onUpdateBilling={handleUpdateBilling}
                   onDeleteBoard={handleDeleteBoard}
+                  onAssignCustomGroup={handleAssignCustomGroup}
+                  onRenameCustomGroup={handleRenameCustomGroup}
+                  onDeleteCustomGroup={handleDeleteCustomGroup}
                 />
               ))}
           </div>

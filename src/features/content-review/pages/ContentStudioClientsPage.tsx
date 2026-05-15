@@ -1,4 +1,4 @@
-import { Copy, KeyRound, Loader2, Plus } from "lucide-react";
+import { Copy, KeyRound, Loader2, Plus, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { Link, useParams } from "react-router-dom";
 import Sidebar from "../../../components/dashboard/components/Sidebar";
@@ -8,6 +8,8 @@ import {
   buildClientPortalUrl,
   createContentClient,
   createContentReviewDraft,
+  deleteContentClient,
+  deleteContentReviewDraft,
   getContentClient,
   listContentClients,
   listContentReviewDrafts,
@@ -148,6 +150,39 @@ export default function ContentStudioClientsPage() {
     setMessage(`${label} copied.`);
   }
 
+  async function handleDeleteDraft(draft: ContentReviewDraft) {
+    const confirmed = window.confirm(`Delete "${draft.title}" and its uploaded media? This removes it from the client portal.`);
+    if (!confirmed) return;
+    try {
+      setSaving(true);
+      await deleteContentReviewDraft(draft.id);
+      setMessage("Draft and attached media deleted.");
+      await load();
+    } catch (err) {
+      setError(`Failed to delete draft: ${err instanceof Error ? err.message : "Unknown error"}`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDeleteClient() {
+    if (!client) return;
+    const confirmed = window.confirm(
+      `Delete ${client.company_name}, all assigned drafts, and uploaded media? The client portal link will stop working.`,
+    );
+    if (!confirmed) return;
+    try {
+      setSaving(true);
+      await deleteContentClient(client.id);
+      setMessage("Client, assigned drafts, and media deleted.");
+      window.location.href = "/admin/content-studio/clients";
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete client.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-black text-white">
@@ -227,6 +262,9 @@ export default function ContentStudioClientsPage() {
                   <button onClick={() => void handleRegeneratePin()} className="inline-flex items-center gap-2 rounded-xl border border-white/10 px-3 py-2 text-sm font-semibold text-white/70">
                     <KeyRound size={15} /> Regenerate PIN
                   </button>
+                  <button onClick={() => void handleDeleteClient()} className="inline-flex items-center gap-2 rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm font-semibold text-red-200">
+                    <Trash2 size={15} /> Delete client
+                  </button>
                 </div>
                 <form onSubmit={handleCreateDraft} className="mt-6 border-t border-white/10 pt-5">
                   <h3 className="font-semibold">Create draft for client</h3>
@@ -251,6 +289,14 @@ export default function ContentStudioClientsPage() {
                       <Link to={`/admin/content-studio/editor/${draft.id}`} className="mt-3 inline-flex rounded-lg border border-orange-500/20 px-3 py-2 text-xs font-semibold text-orange-200 hover:bg-orange-500/10">
                         Open editor
                       </Link>
+                      <button
+                        type="button"
+                        onClick={() => void handleDeleteDraft(draft)}
+                        className="ml-2 mt-3 inline-flex items-center gap-1 rounded-lg border border-red-500/20 px-3 py-2 text-xs font-semibold text-red-200 hover:bg-red-500/10"
+                      >
+                        <Trash2 size={13} />
+                        Delete
+                      </button>
                     </div>
                   ))}
                   {drafts.length === 0 ? <p className="text-sm text-white/50">No drafts assigned to this client yet.</p> : null}

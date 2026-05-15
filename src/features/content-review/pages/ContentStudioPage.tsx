@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
-import { CalendarDays, CheckCircle2, Copy, Image, Loader2, MessageSquare, Plus, Upload } from "lucide-react";
+import { CalendarDays, CheckCircle2, Copy, Image, Loader2, MessageSquare, Plus, Trash2, Upload } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import Sidebar from "../../../components/dashboard/components/Sidebar";
 import { useAuth } from "../../../app/providers/AuthProvider";
@@ -8,6 +8,7 @@ import {
   addInternalContentReviewComment,
   assertCanUseContentStudio,
   createContentReviewDraft,
+  deleteContentReviewDraft,
   getContentReviewDetail,
   getItsNoMatataOffice,
   inferLayoutType,
@@ -299,6 +300,23 @@ export default function ContentStudioPage() {
     }
   }
 
+  async function handleDeleteDraft(draft: ContentReviewDraft) {
+    const confirmed = window.confirm(`Delete "${draft.title}" and its uploaded media? Clients will no longer be able to access it.`);
+    if (!confirmed) return;
+    try {
+      setSaving(true);
+      await deleteContentReviewDraft(draft.id);
+      setMessage("Draft and attached media deleted.");
+      setSelectedDraftId(null);
+      setDetail(null);
+      await load();
+    } catch (err) {
+      setError(`Failed to delete draft: ${err instanceof Error ? err.message : "Unknown error"}`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-black p-6 text-white">Loading Content Studio...</div>
@@ -394,6 +412,20 @@ export default function ContentStudioPage() {
             ))}
           </div>
 
+          {section === "uploads" ? (
+            <UploadsTab
+              drafts={drafts}
+              selectedDraft={selectedDraft}
+              assets={assets}
+              saving={saving}
+              onSelect={setSelectedDraftId}
+              onUpload={handleUpload}
+            />
+          ) : section === "reviews" ? (
+            <ReviewsTab drafts={drafts} detail={detail} onSelect={setSelectedDraftId} />
+          ) : section === "calendar" ? (
+            <CalendarTab drafts={drafts} />
+          ) : (
           <div className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
             <section className="rounded-2xl border border-white/10 bg-white/5 p-4">
               <div className="mb-3 flex items-center justify-between gap-3">
@@ -441,6 +473,14 @@ export default function ContentStudioPage() {
                       >
                         Open editor
                       </Link>
+                      <button
+                        type="button"
+                        onClick={() => void handleDeleteDraft(draft)}
+                        className="ml-2 mt-3 inline-flex items-center gap-1 rounded-lg border border-red-500/20 px-3 py-2 text-xs font-semibold text-red-200 hover:bg-red-500/10"
+                      >
+                        <Trash2 size={13} />
+                        Delete
+                      </button>
                     </div>
                   ))
                 )}
@@ -464,6 +504,14 @@ export default function ContentStudioPage() {
                     >
                       <Copy size={16} />
                       Copy review link
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleDeleteDraft(selectedDraft)}
+                      className="inline-flex items-center justify-center gap-2 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm font-semibold text-red-200 hover:bg-red-500/15"
+                    >
+                      <Trash2 size={16} />
+                      Delete draft
                     </button>
                   </div>
 
@@ -593,9 +641,197 @@ export default function ContentStudioPage() {
               </section>
             )}
           </div>
+          )}
         </main>
       </div>
     </div>
+  );
+}
+
+function UploadsTab({
+  drafts,
+  selectedDraft,
+  assets,
+  saving,
+  onSelect,
+  onUpload,
+}: {
+  drafts: ContentReviewDraft[];
+  selectedDraft: ContentReviewDraft | null;
+  assets: ContentReviewAsset[];
+  saving: boolean;
+  onSelect: (draftId: string) => void;
+  onUpload: (files: FileList | null) => void;
+}) {
+  return (
+    <section className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
+      <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+        <h2 className="text-xl font-semibold">Select draft</h2>
+        <div className="mt-4 space-y-2">
+          {drafts.map((draft) => (
+            <button
+              key={draft.id}
+              type="button"
+              onClick={() => onSelect(draft.id)}
+              className={`w-full rounded-xl border p-4 text-left ${
+                selectedDraft?.id === draft.id
+                  ? "border-orange-500/50 bg-orange-500/10"
+                  : "border-white/10 bg-black/30 hover:bg-white/5"
+              }`}
+            >
+              <p className="font-semibold">{draft.title}</p>
+              <p className="mt-1 text-xs capitalize text-white/45">{formatStatus(draft.status)}</p>
+            </button>
+          ))}
+          {drafts.length === 0 ? <p className="text-sm text-white/50">No drafts available.</p> : null}
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-xl font-semibold">Uploads</h2>
+            <p className="mt-1 text-sm text-white/45">
+              Images are compressed before upload. Media expires after 60 days.
+            </p>
+          </div>
+          <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-orange-500 px-4 py-3 text-sm font-semibold text-black hover:bg-orange-400">
+            <Upload size={16} />
+            Upload media
+            <input
+              type="file"
+              multiple
+              accept="image/*,video/*"
+              className="hidden"
+              disabled={!selectedDraft || saving}
+              onChange={(event) => onUpload(event.target.files)}
+            />
+          </label>
+        </div>
+        {!selectedDraft ? (
+          <p className="mt-5 rounded-xl border border-white/10 bg-black/30 p-4 text-sm text-white/50">
+            Select a draft before uploading media.
+          </p>
+        ) : assets.length === 0 ? (
+          <p className="mt-5 rounded-xl border border-white/10 bg-black/30 p-4 text-sm text-white/50">
+            No media uploaded for this draft yet.
+          </p>
+        ) : (
+          <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {assets.map((asset) => (
+              <div key={asset.id} className="rounded-xl border border-white/10 bg-black/30 p-3">
+                <MediaPreview asset={asset} />
+                <p className="mt-2 truncate text-xs text-white/45">{asset.file_name}</p>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function ReviewsTab({
+  drafts,
+  detail,
+  onSelect,
+}: {
+  drafts: ContentReviewDraft[];
+  detail: ContentReviewDetail | null;
+  onSelect: (draftId: string) => void;
+}) {
+  const reviewDrafts = drafts.filter((draft) =>
+    ["ready_for_review", "sent_to_client", "viewed", "changes_requested", "approved"].includes(draft.status),
+  );
+
+  return (
+    <section className="grid gap-6 xl:grid-cols-[420px_minmax(0,1fr)]">
+      <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+        <h2 className="text-xl font-semibold">Review queue</h2>
+        <div className="mt-4 space-y-2">
+          {reviewDrafts.map((draft) => (
+            <button key={draft.id} type="button" onClick={() => onSelect(draft.id)} className="w-full rounded-xl border border-white/10 bg-black/30 p-4 text-left hover:bg-white/5">
+              <p className="font-semibold">{draft.title}</p>
+              <span className={`mt-2 inline-flex rounded-full border px-2 py-1 text-xs capitalize ${statusClass(draft.status)}`}>
+                {formatStatus(draft.status)}
+              </span>
+            </button>
+          ))}
+          {reviewDrafts.length === 0 ? <p className="text-sm text-white/50">No drafts are currently in review.</p> : null}
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+        <h2 className="text-xl font-semibold">Client feedback and activity</h2>
+        {!detail ? (
+          <p className="mt-4 text-sm text-white/50">Select a review item to see comments and activity.</p>
+        ) : (
+          <div className="mt-4 grid gap-4 lg:grid-cols-2">
+            <div className="space-y-3">
+              {detail.comments.map((comment) => (
+                <div key={comment.id} className="rounded-xl border border-white/10 bg-black/30 p-4">
+                  <span className={`rounded-full border px-2 py-1 text-xs font-semibold ${commentLabelClass(comment)}`}>
+                    {commentLabel(comment)}
+                  </span>
+                  <p className="mt-2 font-semibold">{comment.author_name}</p>
+                  <p className="mt-2 text-sm text-white/70">{comment.body}</p>
+                </div>
+              ))}
+              {detail.comments.length === 0 ? <p className="text-sm text-white/50">No comments yet.</p> : null}
+            </div>
+            <div className="space-y-3">
+              {detail.activity.map((item) => (
+                <div key={item.id} className="rounded-xl border border-white/10 bg-black/30 p-4">
+                  <p className="font-semibold capitalize">{formatStatus(item.activity_type)}</p>
+                  <p className="mt-1 text-xs text-white/45">{new Date(item.created_at).toLocaleString()}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function CalendarTab({ drafts }: { drafts: ContentReviewDraft[] }) {
+  const scheduled = drafts
+    .filter((draft) => draft.scheduled_at)
+    .sort((a, b) => String(a.scheduled_at).localeCompare(String(b.scheduled_at)));
+
+  return (
+    <section className="rounded-2xl border border-white/10 bg-white/5 p-5">
+      <div className="flex items-center gap-3">
+        <CalendarDays className="text-orange-400" size={20} />
+        <div>
+          <h2 className="text-xl font-semibold">Content Calendar</h2>
+          <p className="mt-1 text-sm text-white/45">Scheduled client review items by date.</p>
+        </div>
+      </div>
+      <div className="mt-5 grid gap-3">
+        {scheduled.map((draft) => (
+          <div key={draft.id} className="rounded-xl border border-white/10 bg-black/30 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="font-semibold">{draft.title}</p>
+                <p className="mt-1 text-sm text-white/50">{new Date(String(draft.scheduled_at)).toLocaleString()}</p>
+              </div>
+              <span className={`rounded-full border px-3 py-1 text-xs font-semibold capitalize ${statusClass(draft.status)}`}>
+                {formatStatus(draft.status)}
+              </span>
+            </div>
+            <Link to={`/admin/content-studio/editor/${draft.id}`} className="mt-3 inline-flex rounded-lg border border-orange-500/20 px-3 py-2 text-xs font-semibold text-orange-200 hover:bg-orange-500/10">
+              Open editor
+            </Link>
+          </div>
+        ))}
+        {scheduled.length === 0 ? (
+          <p className="rounded-xl border border-white/10 bg-black/30 p-4 text-sm text-white/50">
+            No scheduled content yet. Add a schedule date in the editor.
+          </p>
+        ) : null}
+      </div>
+    </section>
   );
 }
 

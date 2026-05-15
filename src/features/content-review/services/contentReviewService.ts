@@ -66,6 +66,10 @@ export type ContentReviewAsset = {
   asset_type: string;
   caption: string | null;
   sort_order: number;
+  expires_at?: string | null;
+  original_size_bytes?: number | null;
+  stored_size_bytes?: number | null;
+  compression_status?: "compressed" | "stored_original" | "not_applicable";
   created_at: string;
 };
 
@@ -138,6 +142,7 @@ export type ContentReviewDetail = {
 };
 
 const BUCKET = "content-review-assets";
+const ASSET_RETENTION_DAYS = 60;
 
 export function generateReviewToken() {
   const bytes = new Uint8Array(24);
@@ -358,6 +363,65 @@ export async function regenerateContentClientPin(clientId: string) {
   return data as { ok: boolean; pin: string; client: ContentClient };
 }
 
+export async function deleteContentClient(clientId: string) {
+  const { data: assets, error: assetsError } = await supabase
+    .from("content_review_assets")
+    .select("storage_path, draft:content_review_drafts!inner(client_id)")
+    .eq("draft.client_id", clientId);
+  if (assetsError) {
+    throw new Error(assetsError.message || "Failed to load client media for deletion.");
+  }
+
+  await removeStoragePaths(
+    (assets ?? [])
+      .map((asset) => asset.storage_path as string | null)
+      .filter((path): path is string => Boolean(path)),
+  );
+
+  const { data, error } = await supabase.rpc("delete_content_client", {
+    target_client_id: clientId,
+  });
+  if (error) {
+    const rpcMissing =
+      error.code === "PGRST202" ||
+      error.message?.toLowerCase().includes("could not find the function") ||
+      error.message?.toLowerCase().includes("schema cache");
+    if (!rpcMissing) {
+      throw new Error(error.message || "Failed to delete client.");
+    }
+    return deleteContentClientDirect(clientId);
+  }
+  const result = data as { ok: boolean; error?: string };
+  if (!result.ok) {
+    throw new Error(
+      result.error === "forbidden"
+        ? "You do not have access to delete this client."
+        : "Client could not be deleted.",
+    );
+  }
+  return result;
+}
+
+async function deleteContentClientDirect(clientId: string) {
+  const { error: draftsError } = await supabase
+    .from("content_review_drafts")
+    .delete()
+    .eq("client_id", clientId);
+  if (draftsError) {
+    throw new Error(draftsError.message || "Failed to delete client drafts.");
+  }
+
+  const { error: clientError } = await supabase
+    .from("content_clients")
+    .delete()
+    .eq("id", clientId);
+  if (clientError) {
+    throw new Error(clientError.message || "Failed to delete client.");
+  }
+
+  return { ok: true };
+}
+
 export async function updateContentReviewDraft(
   draft: ContentReviewDraft,
   updates: Partial<ContentReviewDraft>,
@@ -373,18 +437,117 @@ export async function updateContentReviewDraft(
   return data as ContentReviewDraft;
 }
 
+function fileExtension(file: File) {
+  const namePart = file.name.split(".").pop();
+  return namePart ? `.${namePart.toLowerCase()}` : "";
+}
+
+async function compressImageFile(file: File) {
+  if (!file.type.startsWith("image/")) {
+    return {
+      file,
+      compressionStatus: "not_applicable" as const,
+      originalSize: file.size,
+      storedSize: file.size,
+    };
+  }
+
+  if (file.type === "image/gif") {
+    return {
+      file,
+      compressionStatus: "stored_original" as const,
+      originalSize: file.size,
+      storedSize: file.size,
+    };
+  }
+
+  const bitmap = await createImageBitmap(file);
+  const canvas = document.createElement("canvas");
+  canvas.width = bitmap.width;
+  canvas.height = bitmap.height;
+  const context = canvas.getContext("2d");
+  if (!context) {
+    bitmap.close();
+    return {
+      file,
+      compressionStatus: "stored_original" as const,
+      originalSize: file.size,
+      storedSize: file.size,
+    };
+  }
+
+  context.drawImage(bitmap, 0, 0);
+  bitmap.close();
+
+  const blob = await new Promise<Blob | null>((resolve) => {
+    canvas.toBlob(resolve, "image/webp", 0.92);
+  });
+
+  if (!blob || blob.size >= file.size) {
+    return {
+      file,
+      compressionStatus: "stored_original" as const,
+      originalSize: file.size,
+      storedSize: file.size,
+    };
+  }
+
+  const compressed = new File(
+    [blob],
+    `${file.name.replace(/\.[^.]+$/, "")}.webp`,
+    { type: "image/webp" },
+  );
+
+  return {
+    file: compressed,
+    compressionStatus: "compressed" as const,
+    originalSize: file.size,
+    storedSize: compressed.size,
+  };
+}
+
+async function cleanupExpiredContentReviewAssets() {
+  const { data: expiredAssets, error: loadError } = await supabase
+    .from("content_review_assets")
+    .select("id, storage_path")
+    .lt("expires_at", new Date().toISOString());
+  if (loadError) {
+    console.warn("Expired content review asset cleanup skipped.", loadError.message);
+    return;
+  }
+
+  await removeStoragePaths(
+    (expiredAssets ?? [])
+      .map((asset) => asset.storage_path as string | null)
+      .filter((path): path is string => Boolean(path)),
+  );
+
+  const ids = (expiredAssets ?? []).map((asset) => asset.id as string);
+  if (ids.length > 0) {
+    const { error: deleteError } = await supabase
+      .from("content_review_assets")
+      .delete()
+      .in("id", ids);
+    if (deleteError) {
+      console.warn("Expired content review asset row cleanup skipped.", deleteError.message);
+    }
+  }
+}
+
 export async function uploadContentReviewAsset(params: {
   draft: ContentReviewDraft;
   file: File;
   uploadedBy: string;
   sortOrder: number;
 }) {
-  const safeName = params.file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-  const path = `${params.draft.organization_id}/${params.draft.id}/${Date.now()}-${safeName}`;
+  await cleanupExpiredContentReviewAssets();
+  const uploadFile = await compressImageFile(params.file);
+  const safeName = uploadFile.file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+  const path = `${params.draft.organization_id}/${params.draft.id}/${Date.now()}-${safeName || `asset${fileExtension(uploadFile.file)}`}`;
   const { error: uploadError } = await supabase.storage
     .from(BUCKET)
-    .upload(path, params.file, {
-      contentType: params.file.type || undefined,
+    .upload(path, uploadFile.file, {
+      contentType: uploadFile.file.type || undefined,
       upsert: false,
     });
 
@@ -398,12 +561,16 @@ export async function uploadContentReviewAsset(params: {
       organization_id: params.draft.organization_id,
       office_id: params.draft.office_id,
       uploaded_by: params.uploadedBy,
-      file_name: params.file.name,
+      file_name: uploadFile.file.name,
       file_url: publicUrl.publicUrl,
       storage_path: path,
-      mime_type: params.file.type || null,
-      asset_type: params.file.type.startsWith("video/") ? "video" : "image",
+      mime_type: uploadFile.file.type || null,
+      asset_type: uploadFile.file.type.startsWith("video/") ? "video" : "image",
       sort_order: params.sortOrder,
+      expires_at: new Date(Date.now() + ASSET_RETENTION_DAYS * 86400000).toISOString(),
+      original_size_bytes: uploadFile.originalSize,
+      stored_size_bytes: uploadFile.storedSize,
+      compression_status: uploadFile.compressionStatus,
     })
     .select("*")
     .single();
@@ -413,9 +580,80 @@ export async function uploadContentReviewAsset(params: {
     draft: params.draft,
     type: "media_uploaded",
     actorUserId: params.uploadedBy,
-    metadata: { fileName: params.file.name },
+    metadata: {
+      fileName: params.file.name,
+      storedFileName: uploadFile.file.name,
+      compressionStatus: uploadFile.compressionStatus,
+      originalSizeBytes: uploadFile.originalSize,
+      storedSizeBytes: uploadFile.storedSize,
+      expiresInDays: ASSET_RETENTION_DAYS,
+    },
   });
   return data as ContentReviewAsset;
+}
+
+export async function deleteContentReviewDraft(draftId: string) {
+  await removeDraftStorage(draftId);
+
+  const { data, error } = await supabase.rpc("delete_content_review_draft", {
+    target_draft_id: draftId,
+  });
+  if (error) {
+    const rpcMissing =
+      error.code === "PGRST202" ||
+      error.message?.toLowerCase().includes("could not find the function") ||
+      error.message?.toLowerCase().includes("schema cache");
+    if (!rpcMissing) {
+      throw new Error(error.message || "Failed to delete draft.");
+    }
+    return deleteContentReviewDraftDirect(draftId);
+  }
+  const result = data as { ok: boolean; error?: string };
+  if (!result.ok) {
+    throw new Error(
+      result.error === "forbidden"
+        ? "You do not have access to delete this draft."
+        : "Draft could not be deleted.",
+    );
+  }
+  return result;
+}
+
+async function removeStoragePaths(paths: string[]) {
+  const uniquePaths = Array.from(new Set(paths));
+  if (uniquePaths.length === 0) return;
+  const { error } = await supabase.storage.from(BUCKET).remove(uniquePaths);
+  if (error) {
+    throw new Error(error.message || "Failed to delete stored media.");
+  }
+}
+
+async function removeDraftStorage(draftId: string) {
+  const { data: assets, error: assetsError } = await supabase
+    .from("content_review_assets")
+    .select("storage_path")
+    .eq("draft_id", draftId);
+  if (assetsError) {
+    throw new Error(assetsError.message || "Failed to load draft media for deletion.");
+  }
+
+  await removeStoragePaths(
+    (assets ?? [])
+      .map((asset) => asset.storage_path as string | null)
+      .filter((path): path is string => Boolean(path)),
+  );
+}
+
+async function deleteContentReviewDraftDirect(draftId: string) {
+  const { error: deleteError } = await supabase
+    .from("content_review_drafts")
+    .delete()
+    .eq("id", draftId);
+  if (deleteError) {
+    throw new Error(deleteError.message || "Failed to delete draft.");
+  }
+
+  return { ok: true };
 }
 
 export async function addInternalContentReviewComment(params: {
