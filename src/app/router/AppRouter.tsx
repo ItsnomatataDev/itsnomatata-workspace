@@ -72,7 +72,11 @@ import AcceptOrganizationInvitePage from "../../features/organization/pages/Acce
 import TeamPage from "../../features/organization-members/pages/TeamPage";
 import ContentStudioPage from "../../features/content-review/pages/ContentStudioPage";
 import ContentStudioEditorPage from "../../features/content-review/pages/ContentStudioEditorPage";
+import ContentStudioClientsPage from "../../features/content-review/pages/ContentStudioClientsPage";
 import PublicClientReviewPage from "../../features/content-review/pages/PublicClientReviewPage";
+import ClientPortalLoginPage from "../../features/content-review/pages/ClientPortalLoginPage";
+import ClientPortalPage from "../../features/content-review/pages/ClientPortalPage";
+import ClientPortalReviewPage from "../../features/content-review/pages/ClientPortalReviewPage";
 
 const AppRouter = () => {
   return (
@@ -86,6 +90,11 @@ const AppRouter = () => {
         <Route path="/resetpassword" element={<ResetPasswordPage />} />
         <Route path="/invite/:token" element={<AcceptOrganizationInvitePage />} />
         <Route path="/client-review/:token" element={<PublicClientReviewPage />} />
+        <Route path="/client-portal" element={<ClientPortalLoginPage />} />
+        <Route path="/client-portal/login" element={<ClientPortalLoginPage />} />
+        <Route path="/client-portal/:clientToken/login" element={<ClientPortalLoginPage />} />
+        <Route path="/client-portal/:clientToken" element={<ClientPortalPage />} />
+        <Route path="/client-portal/:clientToken/reviews/:draftId" element={<ClientPortalReviewPage />} />
      
         {/* Public guest meeting routes */}
         <Route path="/join/:meetingCode" element={<GuestMeetingJoinPage />} />
@@ -373,6 +382,25 @@ const AppRouter = () => {
                 <RoleRoute roles={["admin", "social_media", "media_team"]}>
                   <FeatureRoute feature="content_review">
                     <ContentStudioPage />
+                  </FeatureRoute>
+                </RoleRoute>
+              </ProtectedRoute>
+            }
+          />
+        ))}
+
+        {[
+          "/admin/content-studio/clients",
+          "/admin/content-studio/clients/:clientId",
+        ].map((path) => (
+          <Route
+            key={path}
+            path={path}
+            element={
+              <ProtectedRoute>
+                <RoleRoute roles={["admin", "social_media", "media_team"]}>
+                  <FeatureRoute feature="content_review">
+                    <ContentStudioClientsPage />
                   </FeatureRoute>
                 </RoleRoute>
               </ProtectedRoute>

@@ -374,6 +374,7 @@ export default function ContentStudioPage() {
           <div className="mb-6 flex flex-wrap gap-2 border-b border-white/10">
             {[
               ["/admin/content-studio", "Studio"],
+              ["/admin/content-studio/clients", "Clients"],
               ["/admin/content-studio/drafts", "Drafts"],
               ["/admin/content-studio/uploads", "Uploads"],
               ["/admin/content-studio/reviews", "Reviews"],

@@ -187,7 +187,7 @@ function MetricCard({
   icon: ReactNode;
 }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-5 shadow-lg shadow-black/20">
+    <div className="rounded-2xl border border-white/10 bg-white/4 p-5 shadow-lg shadow-black/20">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <p className="text-sm text-white/55">{label}</p>
@@ -204,7 +204,7 @@ function MetricCard({
 
 function EmptyState({ title, message }: { title: string; message: string }) {
   return (
-    <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.03] p-8 text-center">
+    <div className="rounded-2xl border border-dashed border-white/10 bg-white/3 p-8 text-center">
       <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-white/50">
         <Truck size={22} />
       </div>
@@ -390,24 +390,211 @@ function getServiceStatus(
   currentOdo?: number | null,
   nextServiceOdo?: number | null,
   nextServiceDate?: string | null,
+  estimatedDaysToService?: number | null,
 ): { status: ServiceStatus; remainingKm: number | null } {
   const hasOdo =
     currentOdo !== null &&
     currentOdo !== undefined &&
     nextServiceOdo !== null &&
     nextServiceOdo !== undefined;
-  const remainingKm = hasOdo ? nextServiceOdo - currentOdo : null;
-  const isOdoOverdue = hasOdo ? currentOdo >= nextServiceOdo : false;
-  const isOdoSoon = remainingKm !== null ? remainingKm <= 1000 : false;
+
+  const remainingKm = hasOdo
+    ? Number(nextServiceOdo) - Number(currentOdo)
+    : null;
+
+  const isOdoOverdue = remainingKm !== null && remainingKm <= 0;
+  const isOdoSoon =
+    remainingKm !== null && remainingKm > 0 && remainingKm <= 1000;
+
   const nextDate = parseDateKey(nextServiceDate);
   const daysUntilService = nextDate
     ? differenceInCalendarDays(nextDate, new Date())
     : null;
+
   const isDateSoon =
-    daysUntilService !== null && daysUntilService >= 0 && daysUntilService <= 14;
-  const status = isOdoOverdue ? "overdue" : isOdoSoon || isDateSoon ? "soon" : "ok";
+    daysUntilService !== null &&
+    daysUntilService >= 0 &&
+    daysUntilService <= 14;
+
+  const isUsageSoon =
+    estimatedDaysToService !== null &&
+    estimatedDaysToService !== undefined &&
+    estimatedDaysToService >= 0 &&
+    estimatedDaysToService <= 14;
+
+  const status = isOdoOverdue
+    ? "overdue"
+    : isOdoSoon || isDateSoon || isUsageSoon
+      ? "soon"
+      : "ok";
 
   return { status, remainingKm };
+}
+
+function getLatestVehicleOdometer(
+  vehicle: FleetVehicle,
+  summaries: FleetDailySummary[],
+) {
+  const latestSummary = summaries
+    .filter(
+      (summary) =>
+        summary.vehicle_id === vehicle.id &&
+        summary.odometer_km !== null &&
+        summary.odometer_km !== undefined,
+    )
+    .sort((a, b) => b.summary_date.localeCompare(a.summary_date))[0];
+
+  return latestSummary?.odometer_km ?? vehicle.current_odometer_km ?? null;
+}
+
+function getAverageDailyKm(vehicleId: string, summaries: FleetDailySummary[]) {
+  const readings = summaries
+    .filter(
+      (summary) =>
+        summary.vehicle_id === vehicleId &&
+        summary.odometer_km !== null &&
+        summary.odometer_km !== undefined,
+    )
+    .map((summary) => ({
+      date: summary.summary_date,
+      odometer: Number(summary.odometer_km),
+    }))
+    .filter((reading) => Number.isFinite(reading.odometer))
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  if (readings.length < 2) {
+    return null;
+  }
+
+  const oldest = readings[0];
+  const latest = readings[readings.length - 1];
+
+  const oldestDate = new Date(`${oldest.date}T00:00:00`);
+  const latestDate = new Date(`${latest.date}T00:00:00`);
+
+  if (
+    Number.isNaN(oldestDate.getTime()) ||
+    Number.isNaN(latestDate.getTime())
+  ) {
+    return null;
+  }
+
+  const totalDays = Math.max(
+    1,
+    Math.ceil(
+      (latestDate.getTime() - oldestDate.getTime()) / (1000 * 60 * 60 * 24),
+    ),
+  );
+
+  const totalDistance = latest.odometer - oldest.odometer;
+
+  if (!Number.isFinite(totalDistance) || totalDistance <= 0) {
+    return null;
+  }
+
+  const averageDailyKm = totalDistance / totalDays;
+
+  return Number(averageDailyKm.toFixed(2));
+}
+
+function getEstimatedDaysToService(params: {
+  vehicleId: string;
+  summaries: FleetDailySummary[];
+  remainingKm: number | null;
+}) {
+  if (params.remainingKm === null) return null;
+  if (params.remainingKm <= 0) return 0;
+
+  const averageDailyKm = getAverageDailyKm(params.vehicleId, params.summaries);
+
+  if (!averageDailyKm) return null;
+
+  return params.remainingKm / averageDailyKm;
+}
+
+function calculateEstimatedNextServiceDate(params: {
+  vehicleId: string;
+  serviceDate: string;
+  serviceOdometerKm: number | null;
+  nextServiceOdometerKm: number | null;
+  summaries: FleetDailySummary[];
+}) {
+  if (
+    params.serviceOdometerKm === null ||
+    params.nextServiceOdometerKm === null
+  ) {
+    return null;
+  }
+
+  const averageDailyKm = getAverageDailyKm(params.vehicleId, params.summaries);
+
+  if (!averageDailyKm || averageDailyKm <= 0) {
+    return null;
+  }
+
+  const remainingDistance =
+    Number(params.nextServiceOdometerKm) - Number(params.serviceOdometerKm);
+
+  if (remainingDistance <= 0) {
+    return null;
+  }
+
+  const estimatedDays = Math.ceil(remainingDistance / averageDailyKm);
+
+  const baseDate = new Date(`${params.serviceDate}T00:00:00`);
+
+  if (Number.isNaN(baseDate.getTime())) {
+    return null;
+  }
+
+  baseDate.setDate(baseDate.getDate() + estimatedDays);
+
+  return baseDate.toISOString().slice(0, 10);
+}
+
+function getVehicleServiceStatus(params: {
+  vehicle: FleetVehicle;
+  schedules: FleetServiceSchedule[];
+  summaries: FleetDailySummary[];
+}) {
+  const service = getVehicleServiceSource(params.vehicle, params.schedules);
+  const currentOdo = getLatestVehicleOdometer(params.vehicle, params.summaries);
+  const remainingKm =
+    currentOdo !== null && service.nextServiceOdo !== null
+      ? Number(service.nextServiceOdo) - Number(currentOdo)
+      : null;
+
+  const estimatedDaysToService = getEstimatedDaysToService({
+    vehicleId: params.vehicle.id,
+    summaries: params.summaries,
+    remainingKm,
+  });
+
+  const statusResult = getServiceStatus(
+    currentOdo,
+    service.nextServiceOdo,
+    service.nextServiceDate,
+    estimatedDaysToService,
+  );
+
+  return {
+    service,
+    currentOdo,
+    estimatedDaysToService,
+    ...statusResult,
+  };
+}
+
+function vehicleActiveBadgeClass(status: ServiceStatus) {
+  if (status === "overdue") {
+    return "border-red-400/40 bg-red-500/20 text-red-200";
+  }
+
+  if (status === "soon") {
+    return "border-orange-400/40 bg-orange-500/20 text-orange-200";
+  }
+
+  return "border-emerald-400/30 bg-emerald-500/10 text-emerald-200";
 }
 
 function getVehicleLabel(summary: FleetDailySummary) {
@@ -612,9 +799,11 @@ function serviceLabel(status: ServiceStatus) {
 function VehicleHealthGrid({
   vehicles,
   schedules,
+  summaries,
 }: {
   vehicles: FleetVehicle[];
   schedules: FleetServiceSchedule[];
+  summaries: FleetDailySummary[];
 }) {
   const visibleVehicles = vehicles.slice(0, 6);
 
@@ -623,12 +812,17 @@ function VehicleHealthGrid({
   return (
     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
       {visibleVehicles.map((vehicle) => {
-        const service = getVehicleServiceSource(vehicle, schedules);
-        const { status, remainingKm } = getServiceStatus(
-          vehicle.current_odometer_km,
-          service.nextServiceOdo,
-          service.nextServiceDate,
-        );
+        const {
+          service,
+          currentOdo,
+          status,
+          remainingKm,
+          estimatedDaysToService,
+        } = getVehicleServiceStatus({
+          vehicle,
+          schedules,
+          summaries,
+        });
 
         return (
           <div
@@ -638,34 +832,41 @@ function VehicleHealthGrid({
             <div className="flex items-start justify-between gap-3">
               <div>
                 <h3 className="font-semibold text-white">
-                  {vehicle.vehicle_name ?? vehicle.registration_number ?? "Vehicle"}
+                  {vehicle.vehicle_name ??
+                    vehicle.registration_number ??
+                    "Vehicle"}
                 </h3>
                 <p className="mt-1 text-xs text-white/40">
                   {vehicle.registration_number ?? "No registration"}
                 </p>
               </div>
+
               <span
-                className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold ${serviceBadgeClass(status)}`}
+                className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold ${vehicleActiveBadgeClass(
+                  status,
+                )}`}
               >
                 {status !== "ok" ? <AlertTriangle size={13} /> : null}
-                {serviceLabel(status)}
+                {vehicle.status ?? "active"}
               </span>
             </div>
 
             <div className="mt-5 grid grid-cols-2 gap-2 text-sm">
-              <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
-                <p className="text-white">
-                  {formatNumber(vehicle.current_odometer_km, 0)} km
+              <div className="rounded-xl border border-white/10 bg-white/3 p-3">
+                <p className="text-white">{formatNumber(currentOdo, 0)} km</p>
+                <p className="mt-1 text-xs text-white/40">
+                  Latest EziTrack odo
                 </p>
-                <p className="mt-1 text-xs text-white/40">Current odometer</p>
               </div>
-              <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+
+              <div className="rounded-xl border border-white/10 bg-white/3 p-3">
                 <p className="text-white">
                   {formatNumber(service.lastServiceOdo, 0)} km
                 </p>
                 <p className="mt-1 text-xs text-white/40">Last service odo</p>
               </div>
-              <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+
+              <div className="rounded-xl border border-white/10 bg-white/3 p-3">
                 <p
                   className={
                     status === "overdue" ? "text-red-200" : "text-white"
@@ -675,7 +876,8 @@ function VehicleHealthGrid({
                 </p>
                 <p className="mt-1 text-xs text-white/40">Next service odo</p>
               </div>
-              <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+
+              <div className="rounded-xl border border-white/10 bg-white/3 p-3">
                 <p
                   className={
                     status === "overdue"
@@ -700,6 +902,23 @@ function VehicleHealthGrid({
               </p>
             </div>
 
+            <div className="mt-3 text-xs text-white/45">
+              Estimated days left:{" "}
+              <span
+                className={
+                  status === "overdue"
+                    ? "font-semibold text-red-200"
+                    : status === "soon"
+                      ? "font-semibold text-orange-200"
+                      : "text-white"
+                }
+              >
+                {estimatedDaysToService === null
+                  ? "Using manual/default estimate"
+                  : `${Math.max(0, Math.ceil(estimatedDaysToService))} days`}
+              </span>
+            </div>
+
             {status !== "ok" ? (
               <div
                 className={`mt-4 rounded-xl border p-3 text-sm font-semibold ${
@@ -709,19 +928,8 @@ function VehicleHealthGrid({
                 }`}
               >
                 {status === "overdue"
-                  ? "Service is overdue"
-                  : service.nextServiceDate &&
-                      parseDateKey(service.nextServiceDate) &&
-                      differenceInCalendarDays(
-                        parseDateKey(service.nextServiceDate) as Date,
-                        new Date(),
-                      ) >= 0 &&
-                      differenceInCalendarDays(
-                        parseDateKey(service.nextServiceDate) as Date,
-                        new Date(),
-                      ) <= 14
-                    ? "Service due within 14 days"
-                    : "Service needed soon"}
+                  ? "Service is overdue. This vehicle has passed the next service odometer."
+                  : "Service needed soon based on odometer/date estimate."}
               </div>
             ) : null}
           </div>
@@ -730,8 +938,13 @@ function VehicleHealthGrid({
     </div>
   );
 }
-
-function FleetActivityGrid({ summaries }: { summaries: FleetDailySummary[] }) {
+function FleetActivityGrid({
+  summaries,
+  schedules,
+}: {
+  summaries: FleetDailySummary[];
+  schedules: FleetServiceSchedule[];
+}) {
   const latestByVehicle = new Map<string, FleetDailySummary>();
 
   for (const summary of summaries) {
@@ -746,41 +959,73 @@ function FleetActivityGrid({ summaries }: { summaries: FleetDailySummary[] }) {
 
   return (
     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-      {latest.map((summary) => (
-        <div
-          key={summary.vehicle_id}
-          className="rounded-2xl border border-white/10 bg-black p-5"
-        >
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <h3 className="font-semibold text-white">
-                {getVehicleLabel(summary)}
-              </h3>
-              <p className="mt-1 text-xs text-white/40">
-                Last report {formatDate(summary.summary_date)}
-              </p>
-            </div>
-            <StatusBadge status={summary.vehicle?.status ?? "active"} />
-          </div>
+      {latest.map((summary) => {
+        const vehicle = summary.vehicle;
+        const service = vehicle
+          ? getVehicleServiceSource(vehicle, schedules)
+          : null;
 
-          <div className="mt-5 grid grid-cols-3 gap-2 text-sm">
-            <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
-              <p className="text-white">{formatNumber(summary.route_length_km, 2)}</p>
-              <p className="mt-1 text-xs text-white/40">km</p>
+        const { status } = getServiceStatus(
+          summary.odometer_km ?? vehicle?.current_odometer_km ?? null,
+          service?.nextServiceOdo ?? null,
+          service?.nextServiceDate ?? null,
+        );
+
+        return (
+          <div
+            key={summary.vehicle_id}
+            className={`rounded-2xl border p-5 ${serviceCardClass(status)}`}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="font-semibold text-white">
+                  {getVehicleLabel(summary)}
+                </h3>
+                <p className="mt-1 text-xs text-white/40">
+                  Last report {formatDate(summary.summary_date)}
+                </p>
+              </div>
+
+              <span
+                className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold capitalize ${vehicleActiveBadgeClass(
+                  status,
+                )}`}
+              >
+                {summary.vehicle?.status ?? "active"}
+              </span>
             </div>
-            <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
-              <p className="text-white">
-                {formatNumber(summary.fuel_consumption_litres, 2)}
-              </p>
-              <p className="mt-1 text-xs text-white/40">litres</p>
-            </div>
-            <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
-              <p className="text-white">{formatNumber(summary.odometer_km, 0)}</p>
-              <p className="mt-1 text-xs text-white/40">odo</p>
+
+            <div className="mt-5 grid grid-cols-3 gap-2 text-sm">
+              <div className="rounded-xl border border-white/10 bg-white/3 p-3">
+                <p className="text-white">
+                  {formatNumber(summary.route_length_km, 2)}
+                </p>
+                <p className="mt-1 text-xs text-white/40">km</p>
+              </div>
+              <div className="rounded-xl border border-white/10 bg-white/3 p-3">
+                <p className="text-white">
+                  {formatNumber(summary.fuel_consumption_litres, 2)}
+                </p>
+                <p className="mt-1 text-xs text-white/40">litres</p>
+              </div>
+              <div className="rounded-xl border border-white/10 bg-white/3 p-3">
+                <p
+                  className={
+                    status === "overdue"
+                      ? "text-red-200"
+                      : status === "soon"
+                        ? "text-orange-200"
+                        : "text-white"
+                  }
+                >
+                  {formatNumber(summary.odometer_km, 0)}
+                </p>
+                <p className="mt-1 text-xs text-white/40">odo</p>
+              </div>
             </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -803,7 +1048,7 @@ function FuelPurchasesTable({
     <div className="overflow-hidden rounded-2xl border border-white/10">
       <div className="overflow-x-auto">
         <table className="min-w-full divide-y divide-white/10">
-          <thead className="bg-white/[0.04]">
+          <thead className="bg-white/4">
             <tr>
               {[
                 "Vehicle",
@@ -825,7 +1070,7 @@ function FuelPurchasesTable({
           </thead>
           <tbody className="divide-y divide-white/10 bg-black/20">
             {purchases.map((purchase) => (
-              <tr key={purchase.id} className="hover:bg-white/[0.03]">
+              <tr key={purchase.id} className="hover:bg-white/3">
                 <td className="px-4 py-4">
                   <p className="font-medium text-white">
                     {getFuelPurchaseVehicleLabel(purchase)}
@@ -920,11 +1165,11 @@ function LastRefuelGrid({
                   </p>
                 </div>
                 <div className="grid grid-cols-2 gap-2 text-sm">
-                  <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                  <div className="rounded-xl border border-white/10 bg-white/3 p-3">
                     <p className="text-white">{formatNumber(latest.litres, 2)} L</p>
                     <p className="mt-1 text-xs text-white/40">Fuel bought</p>
                   </div>
-                  <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                  <div className="rounded-xl border border-white/10 bg-white/3 p-3">
                     <p className="text-white">
                       {latest.currency} {formatNumber(latest.total_cost, 2)}
                     </p>
@@ -936,7 +1181,7 @@ function LastRefuelGrid({
                 </p>
               </div>
             ) : (
-              <div className="mt-5 rounded-xl border border-dashed border-white/10 bg-white/[0.03] p-4">
+              <div className="mt-5 rounded-xl border border-dashed border-white/10 bg-white/3 p-4">
                 <p className="text-sm font-medium text-white">No refuel recorded</p>
                 <p className="mt-1 text-xs text-white/45">
                   Add the first fuel purchase for this vehicle.
@@ -1063,7 +1308,7 @@ function FleetDateRangeCalendar({
                   ? "border-orange-400 bg-orange-500 text-black"
                   : inRange
                     ? "border-orange-500/30 bg-orange-500/10 text-white"
-                    : "border-white/10 bg-white/[0.03] text-white hover:bg-white/10"
+                    : "border-white/10 bg-white/3 text-white hover:bg-white/10"
               } ${inMonth ? "" : "opacity-45"}`}
             >
               <span className="block text-sm font-semibold">
@@ -1197,7 +1442,7 @@ function FleetServiceDatePicker({
                   ? "border-orange-400 bg-orange-500 text-black"
                   : inSelectedRange
                     ? "border-orange-500/30 bg-orange-500/10 text-white"
-                    : "border-white/10 bg-white/[0.03] text-white hover:bg-white/10"
+                    : "border-white/10 bg-white/3 text-white hover:bg-white/10"
               } ${inCurrentMonth ? "" : "opacity-45"}`}
             >
               <span className="block text-sm font-semibold">
@@ -1331,7 +1576,7 @@ function ServiceHistoryTable({
     <div className="overflow-hidden rounded-2xl border border-white/10">
       <div className="overflow-x-auto">
         <table className="min-w-full divide-y divide-white/10">
-          <thead className="bg-white/[0.04]">
+          <thead className="bg-white/4">
             <tr>
               {[
                 "Vehicle",
@@ -1354,7 +1599,7 @@ function ServiceHistoryTable({
           </thead>
           <tbody className="divide-y divide-white/10 bg-black/20">
             {records.map((record) => (
-              <tr key={record.id} className="hover:bg-white/[0.03]">
+              <tr key={record.id} className="hover:bg-white/3">
                 <td className="px-4 py-4">
                   <p className="font-medium text-white">
                     {record.vehicle?.vehicle_name ?? "Unknown vehicle"}
@@ -1366,7 +1611,8 @@ function ServiceHistoryTable({
                 <td className="px-4 py-4 text-sm text-white/70">
                   <p>{formatDate(record.service_date)}</p>
                   <p className="text-xs text-white/40">
-                    {getWeekday(record.service_date)} · {getMonthDay(record.service_date)}
+                    {getWeekday(record.service_date)} ·{" "}
+                    {getMonthDay(record.service_date)}
                   </p>
                 </td>
                 <td className="px-4 py-4 text-sm text-white/70">
@@ -1387,15 +1633,15 @@ function ServiceHistoryTable({
                     : `${record.currency} ${formatNumber(record.cost, 2)}`}
                 </td>
                 <td className="max-w-xs px-4 py-4 text-sm text-white/60">
-                  {record.notes ?? record.description ?? "-"}
+                  {record.description ?? "-"}
                 </td>
                 <td className="px-4 py-4 text-sm text-white/70">
-                  {record.receipt_url || record.invoice_url ? (
+                  {record.invoice_url ? (
                     <a
-                      href={record.receipt_url ?? record.invoice_url ?? "#"}
+                      href={record.invoice_url}
                       target="_blank"
                       rel="noreferrer"
-                      className="text-orange-300 hover:text-orange-200"
+                      className="text-orange-300 transition hover:text-orange-200"
                     >
                       View file
                     </a>
@@ -1686,15 +1932,16 @@ function AddFuelPurchaseModal({
     </div>
   );
 }
-
 function AddServiceRecordModal({
   vehicles,
+  summaries,
   organizationId,
   userId,
   onClose,
   onCreated,
 }: {
   vehicles: FleetVehicle[];
+  summaries: FleetDailySummary[];
   organizationId: string;
   userId?: string | null;
   onClose: () => void;
@@ -1713,8 +1960,52 @@ function AddServiceRecordModal({
     receiptUrl: "",
     notes: "",
   });
+
+  const [dateManuallyEdited, setDateManuallyEdited] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const selectedVehicle = useMemo(
+    () => vehicles.find((vehicle) => vehicle.id === form.vehicleId) ?? null,
+    [form.vehicleId, vehicles],
+  );
+
+  const latestOdometerKm = selectedVehicle
+    ? getLatestVehicleOdometer(selectedVehicle, summaries)
+    : null;
+
+  const averageDailyKm = selectedVehicle
+    ? getAverageDailyKm(selectedVehicle.id, summaries)
+    : null;
+
+  const autoNextServiceDate = useMemo(() => {
+    const nextServiceOdometerKm = form.nextServiceOdometerKm
+      ? Number(form.nextServiceOdometerKm)
+      : null;
+
+    return calculateEstimatedNextServiceDate({
+      vehicleId: form.vehicleId,
+      serviceDate: form.serviceDate,
+      serviceOdometerKm: latestOdometerKm,
+      nextServiceOdometerKm,
+      summaries,
+    });
+  }, [
+    form.nextServiceOdometerKm,
+    form.serviceDate,
+    form.vehicleId,
+    latestOdometerKm,
+    summaries,
+  ]);
+
+  useEffect(() => {
+    if (!dateManuallyEdited && autoNextServiceDate) {
+      setForm((current) => ({
+        ...current,
+        nextServiceDate: autoNextServiceDate,
+      }));
+    }
+  }, [autoNextServiceDate, dateManuallyEdited]);
 
   const updateField = (field: keyof MaintenanceFormState, value: string) => {
     setForm((current) => ({ ...current, [field]: value }));
@@ -1724,7 +2015,7 @@ function AddServiceRecordModal({
     event.preventDefault();
     setError(null);
 
-    const odometerKm = form.odometerKm ? Number(form.odometerKm) : null;
+    const odometerKm = latestOdometerKm;
     const cost = form.cost ? Number(form.cost) : null;
     const nextServiceOdometerKm = form.nextServiceOdometerKm
       ? Number(form.nextServiceOdometerKm)
@@ -1740,8 +2031,21 @@ function AddServiceRecordModal({
       return;
     }
 
-    if (odometerKm !== null && (!Number.isFinite(odometerKm) || odometerKm < 0)) {
-      setError("Enter a valid service odometer.");
+    if (odometerKm === null || !Number.isFinite(Number(odometerKm))) {
+      setError(
+        "This vehicle has no imported/current odometer yet. Import EziTrack data first or update the vehicle odometer.",
+      );
+      return;
+    }
+
+    if (
+      nextServiceOdometerKm === null ||
+      !Number.isFinite(nextServiceOdometerKm) ||
+      nextServiceOdometerKm <= Number(odometerKm)
+    ) {
+      setError(
+        "Enter a next service odometer greater than the current odometer.",
+      );
       return;
     }
 
@@ -1750,21 +2054,13 @@ function AddServiceRecordModal({
       return;
     }
 
-    if (
-      nextServiceOdometerKm !== null &&
-      (!Number.isFinite(nextServiceOdometerKm) || nextServiceOdometerKm < 0)
-    ) {
-      setError("Enter a valid next-service odometer.");
-      return;
-    }
-
     const payload: CreateMaintenanceRecordInput = {
       organizationId,
       vehicleId: form.vehicleId,
       serviceDate: form.serviceDate,
-      odometerKm,
+      odometerKm: Number(odometerKm),
       serviceType: form.serviceType,
-      nextServiceDate: form.nextServiceDate || null,
+      nextServiceDate: form.nextServiceDate || autoNextServiceDate || null,
       nextServiceOdometerKm,
       provider: form.provider,
       cost,
@@ -1781,7 +2077,9 @@ function AddServiceRecordModal({
       onClose();
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Failed to record service history.",
+        err instanceof Error
+          ? err.message
+          : "Failed to record service history.",
       );
     } finally {
       setSaving(false);
@@ -1796,7 +2094,9 @@ function AddServiceRecordModal({
             Add service record
           </h2>
           <p className="mt-1 text-sm text-white/45">
-            Capture completed service work and update the next service target.
+            The current odometer is pulled from the latest EziTrack/current
+            vehicle reading. Enter the next service odometer and the date will
+            be estimated automatically.
           </p>
         </div>
 
@@ -1814,12 +2114,17 @@ function AddServiceRecordModal({
               </span>
               <select
                 value={form.vehicleId}
-                onChange={(event) => updateField("vehicleId", event.target.value)}
+                onChange={(event) => {
+                  setDateManuallyEdited(false);
+                  updateField("vehicleId", event.target.value);
+                }}
                 className={selectClassName()}
               >
                 {vehicles.map((vehicle) => (
                   <option key={vehicle.id} value={vehicle.id}>
-                    {vehicle.vehicle_name ?? vehicle.registration_number ?? vehicle.id}
+                    {vehicle.vehicle_name ??
+                      vehicle.registration_number ??
+                      vehicle.id}
                   </option>
                 ))}
               </select>
@@ -1832,24 +2137,25 @@ function AddServiceRecordModal({
               <input
                 type="date"
                 value={form.serviceDate}
-                onChange={(event) => updateField("serviceDate", event.target.value)}
+                onChange={(event) => {
+                  setDateManuallyEdited(false);
+                  updateField("serviceDate", event.target.value);
+                }}
                 className={inputClassName()}
               />
             </label>
 
-            <label className="space-y-2">
-              <span className="text-xs font-semibold uppercase tracking-wide text-white/40">
-                Odometer at service
-              </span>
-              <input
-                type="number"
-                min="0"
-                step="1"
-                value={form.odometerKm}
-                onChange={(event) => updateField("odometerKm", event.target.value)}
-                className={inputClassName()}
-              />
-            </label>
+            <div className="rounded-xl border border-white/10 bg-black p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-white/40">
+                Current odometer
+              </p>
+              <p className="mt-2 text-lg font-semibold text-white">
+                {formatNumber(latestOdometerKm, 0)} km
+              </p>
+              <p className="mt-1 text-xs text-white/40">
+                Pulled from latest EziTrack/current vehicle reading
+              </p>
+            </div>
 
             <label className="space-y-2">
               <span className="text-xs font-semibold uppercase tracking-wide text-white/40">
@@ -1860,23 +2166,46 @@ function AddServiceRecordModal({
                 min="0"
                 step="1"
                 value={form.nextServiceOdometerKm}
-                onChange={(event) =>
-                  updateField("nextServiceOdometerKm", event.target.value)
+                onChange={(event) => {
+                  setDateManuallyEdited(false);
+                  updateField("nextServiceOdometerKm", event.target.value);
+                }}
+                placeholder={
+                  latestOdometerKm
+                    ? String(Math.round(Number(latestOdometerKm) + 10000))
+                    : "Next service km"
                 }
                 className={inputClassName()}
               />
             </label>
 
+            <div className="rounded-xl border border-orange-500/20 bg-orange-500/10 p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-orange-200/70">
+                Estimated next service date
+              </p>
+              <p className="mt-2 text-lg font-semibold text-white">
+                {form.nextServiceDate
+                  ? formatDate(form.nextServiceDate)
+                  : "Not enough EziTrack data"}
+              </p>
+              <p className="mt-1 text-xs text-orange-100/60">
+                {averageDailyKm
+                  ? `Based on about ${formatNumber(averageDailyKm, 1)} km/day`
+                  : "Needs at least two EziTrack odometer readings"}
+              </p>
+            </div>
+
             <label className="space-y-2">
               <span className="text-xs font-semibold uppercase tracking-wide text-white/40">
-                Next service date
+                Override next service date
               </span>
               <input
                 type="date"
                 value={form.nextServiceDate}
-                onChange={(event) =>
-                  updateField("nextServiceDate", event.target.value)
-                }
+                onChange={(event) => {
+                  setDateManuallyEdited(true);
+                  updateField("nextServiceDate", event.target.value);
+                }}
                 className={inputClassName()}
               />
             </label>
@@ -1887,7 +2216,9 @@ function AddServiceRecordModal({
               </span>
               <input
                 value={form.provider}
-                onChange={(event) => updateField("provider", event.target.value)}
+                onChange={(event) =>
+                  updateField("provider", event.target.value)
+                }
                 className={inputClassName()}
               />
             </label>
@@ -1912,18 +2243,22 @@ function AddServiceRecordModal({
               </span>
               <input
                 value={form.currency}
-                onChange={(event) => updateField("currency", event.target.value)}
+                onChange={(event) =>
+                  updateField("currency", event.target.value)
+                }
                 className={inputClassName()}
               />
             </label>
 
             <label className="space-y-2 md:col-span-2">
               <span className="text-xs font-semibold uppercase tracking-wide text-white/40">
-                Receipt/file URL
+                Invoice/file URL
               </span>
               <input
                 value={form.receiptUrl}
-                onChange={(event) => updateField("receiptUrl", event.target.value)}
+                onChange={(event) =>
+                  updateField("receiptUrl", event.target.value)
+                }
                 placeholder="Optional storage URL"
                 className={inputClassName()}
               />
@@ -1955,7 +2290,11 @@ function AddServiceRecordModal({
               disabled={saving || vehicles.length === 0}
               className="inline-flex items-center justify-center gap-2 rounded-xl bg-orange-500 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-orange-500/20 transition hover:bg-orange-400 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {saving ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
+              {saving ? (
+                <Loader2 size={16} className="animate-spin" />
+              ) : (
+                <Plus size={16} />
+              )}
               Save service record
             </button>
           </div>
@@ -1979,7 +2318,7 @@ function FleetSummaryTable({ summaries }: { summaries: FleetDailySummary[] }) {
     <div className="overflow-hidden rounded-2xl border border-white/10">
       <div className="overflow-x-auto">
         <table className="min-w-full divide-y divide-white/10">
-          <thead className="bg-white/[0.04]">
+          <thead className="bg-white/4">
             <tr>
               {[
                 "Vehicle",
@@ -2001,7 +2340,7 @@ function FleetSummaryTable({ summaries }: { summaries: FleetDailySummary[] }) {
           </thead>
           <tbody className="divide-y divide-white/10 bg-black/20">
             {summaries.map((summary) => (
-              <tr key={summary.id} className="hover:bg-white/[0.03]">
+              <tr key={summary.id} className="hover:bg-white/3">
                 <td className="px-4 py-4">
                   <p className="font-medium text-white">
                     {summary.vehicle?.vehicle_name ?? "Unknown vehicle"}
@@ -2079,7 +2418,7 @@ function ImportBatchList({
         return (
           <div
             key={batch.id}
-            className="rounded-2xl border border-white/10 bg-white/[0.04] p-5"
+            className="rounded-2xl border border-white/10 bg-white/4 p-5"
           >
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div className="min-w-0">
@@ -2840,7 +3179,7 @@ export default function FleetDashboardPage() {
           {!showingImports && !showingFuelPurchases && !showingService ? (
             <>
               <FleetTrendPanel chartData={chartData} />
-              <FleetActivityGrid summaries={filteredSummaries} />
+              <FleetActivityGrid summaries={filteredSummaries} schedules={[]} />
             </>
           ) : null}
 
@@ -2910,9 +3249,8 @@ export default function FleetDashboardPage() {
                 />
               ) : (
                 <VehicleHealthGrid
-                  vehicles={serviceVehicles}
-                  schedules={data.serviceSchedules}
-                />
+                    vehicles={serviceVehicles}
+                    schedules={data.serviceSchedules} summaries={[]}                />
               )}
 
               <FleetServiceCalendar
@@ -3028,8 +3366,7 @@ export default function FleetDashboardPage() {
           organizationId={organizationId}
           userId={auth.user?.id ?? null}
           onClose={() => setServiceModalOpen(false)}
-          onCreated={loadFleetData}
-        />
+          onCreated={loadFleetData} summaries={[]}        />
       ) : null}
     </div>
   );

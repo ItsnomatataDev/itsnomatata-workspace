@@ -6,10 +6,12 @@ import { ContentReviewRenderer } from "../components/ContentReviewRenderer";
 import {
   assertCanUseContentStudio,
   getContentReviewDetail,
+  listContentClients,
   inferLayoutType,
   notifyContentReviewTeam,
   updateContentReviewDraft,
   type ContentReviewAsset,
+  type ContentClient,
   type ContentReviewDetail,
   type ContentReviewDraft,
   type ContentReviewLayout,
@@ -47,6 +49,7 @@ function draftToForm(draft: ContentReviewDraft) {
     scheduled_at: draft.scheduled_at?.slice(0, 16) ?? "",
     cta_label: draft.cta_label ?? "",
     cta_url: draft.cta_url ?? "",
+    client_id: draft.client_id ?? "",
   };
 }
 
@@ -58,6 +61,7 @@ export default function ContentStudioEditorPage() {
   const organizationId = profile?.organization_id ?? null;
   const [officeId, setOfficeId] = useState<string | null>(null);
   const [detail, setDetail] = useState<ContentReviewDetail | null>(null);
+  const [clients, setClients] = useState<ContentClient[]>([]);
   const [form, setForm] = useState<ReturnType<typeof draftToForm> | null>(null);
   const [previewMode, setPreviewMode] = useState<PreviewMode>("desktop");
   const [loading, setLoading] = useState(true);
@@ -76,6 +80,7 @@ export default function ContentStudioEditorPage() {
         role: profile?.primary_role ?? null,
       });
       setOfficeId(office.id);
+      setClients(await listContentClients({ organizationId, officeId: office.id }));
       const nextDetail = await getContentReviewDetail({
         organizationId,
         officeId: office.id,
@@ -127,6 +132,7 @@ export default function ContentStudioEditorPage() {
         scheduled_at: form.scheduled_at ? new Date(form.scheduled_at).toISOString() : null,
         cta_label: form.cta_label,
         cta_url: form.cta_url,
+        client_id: form.client_id || null,
         ...(nextStatus ? { status: nextStatus } : {}),
       });
       setDetail({ ...detail, draft: updated });
@@ -237,6 +243,19 @@ export default function ContentStudioEditorPage() {
           <div className="space-y-4">
             <Field label="Title" value={form.title} onChange={(value) => updateForm("title", value)} />
             <Field label="Subtitle" value={form.subtitle} onChange={(value) => updateForm("subtitle", value)} />
+            <label className="space-y-2">
+              <span className="text-xs font-semibold uppercase tracking-wide text-white/40">Client</span>
+              <select
+                value={form.client_id}
+                onChange={(event) => updateForm("client_id", event.target.value)}
+                className={inputClassName()}
+              >
+                <option value="">Unassigned</option>
+                {clients.map((client) => (
+                  <option key={client.id} value={client.id}>{client.company_name}</option>
+                ))}
+              </select>
+            </label>
             <label className="space-y-2">
               <span className="text-xs font-semibold uppercase tracking-wide text-white/40">Layout</span>
               <select

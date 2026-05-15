@@ -26,6 +26,7 @@ export type ContentReviewDraft = {
   id: string;
   organization_id: string;
   office_id: string;
+  client_id?: string | null;
   created_by: string | null;
   assigned_to: string | null;
   title: string;
@@ -39,6 +40,8 @@ export type ContentReviewDraft = {
   cta_url: string | null;
   review_token: string;
   review_url: string | null;
+  slug?: string | null;
+  review_status?: ContentReviewStatus | null;
   status: ContentReviewStatus;
   scheduled_at: string | null;
   expires_at: string | null;
@@ -69,6 +72,7 @@ export type ContentReviewAsset = {
 export type ContentReviewComment = {
   id: string;
   draft_id: string;
+  client_id?: string | null;
   author_name: string;
   author_email: string | null;
   author_company: string | null;
@@ -79,6 +83,40 @@ export type ContentReviewComment = {
   author_type?: "internal" | "client";
   comment_type?: "internal_comment" | "client_comment" | "change_request" | "approval_note";
   created_at: string;
+};
+
+export type ContentClient = {
+  id: string;
+  organization_id: string;
+  office_id: string;
+  company_name: string;
+  contact_name: string;
+  email: string;
+  phone: string | null;
+  portal_token: string;
+  pin_last_generated_at: string;
+  pin_expires_at: string | null;
+  is_active: boolean;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ContentClientPortalSession = {
+  sessionToken: string;
+  email: string;
+  client: Pick<ContentClient, "id" | "company_name" | "contact_name" | "email" | "portal_token">;
+};
+
+export type ContentPortalDraftCard = {
+  id: string;
+  title: string;
+  summary: string | null;
+  status: ContentReviewStatus;
+  scheduled_at: string | null;
+  last_viewed_at: string | null;
+  approved_at: string | null;
+  thumbnail_url: string | null;
 };
 
 export type ContentReviewActivity = {
@@ -109,6 +147,10 @@ export function generateReviewToken() {
 
 export function buildReviewUrl(token: string) {
   return `${window.location.origin}/client-review/${token}`;
+}
+
+export function buildClientPortalUrl(token: string) {
+  return `${window.location.origin}/client-portal/${token}`;
 }
 
 export function inferLayoutType(params: {
@@ -155,6 +197,7 @@ export async function listContentReviewDrafts(params: {
   organizationId: string;
   officeId: string;
   status?: ContentReviewStatus | "all";
+  clientId?: string;
 }) {
   let query = supabase
     .from("content_review_drafts")
@@ -165,6 +208,9 @@ export async function listContentReviewDrafts(params: {
 
   if (params.status && params.status !== "all") {
     query = query.eq("status", params.status);
+  }
+  if (params.clientId) {
+    query = query.eq("client_id", params.clientId);
   }
 
   const { data, error } = await query;
@@ -222,6 +268,7 @@ export async function createContentReviewDraft(params: {
   officeId: string;
   createdBy: string;
   title: string;
+  clientId?: string | null;
 }) {
   const token = generateReviewToken();
   const { data, error } = await supabase
@@ -230,6 +277,7 @@ export async function createContentReviewDraft(params: {
       organization_id: params.organizationId,
       office_id: params.officeId,
       created_by: params.createdBy,
+      client_id: params.clientId ?? null,
       title: params.title.trim() || "Untitled review",
       review_token: token,
       review_url: buildReviewUrl(token),
@@ -246,6 +294,68 @@ export async function createContentReviewDraft(params: {
     actorUserId: params.createdBy,
   });
   return data as ContentReviewDraft;
+}
+
+export async function listContentClients(params: {
+  organizationId: string;
+  officeId: string;
+}) {
+  const { data, error } = await supabase
+    .from("content_clients")
+    .select("*")
+    .eq("organization_id", params.organizationId)
+    .eq("office_id", params.officeId)
+    .order("created_at", { ascending: false });
+
+  if (error) throw error;
+  return (data ?? []) as ContentClient[];
+}
+
+export async function getContentClient(params: {
+  organizationId: string;
+  officeId: string;
+  clientId: string;
+}) {
+  const { data, error } = await supabase
+    .from("content_clients")
+    .select("*")
+    .eq("organization_id", params.organizationId)
+    .eq("office_id", params.officeId)
+    .eq("id", params.clientId)
+    .single();
+
+  if (error) throw error;
+  return data as ContentClient;
+}
+
+export async function createContentClient(params: {
+  organizationId: string;
+  officeId: string;
+  companyName: string;
+  contactName: string;
+  email: string;
+  phone?: string;
+}) {
+  const { data, error } = await supabase.rpc("create_content_client", {
+    target_organization_id: params.organizationId,
+    target_office_id: params.officeId,
+    target_company_name: params.companyName,
+    target_contact_name: params.contactName,
+    target_email: params.email,
+    target_phone: params.phone ?? "",
+    target_pin_expires_at: null,
+  });
+  if (error) throw error;
+  return data as { ok: boolean; pin: string; client: ContentClient };
+}
+
+export async function regenerateContentClientPin(clientId: string) {
+  const { data, error } = await supabase.rpc("regenerate_content_client_pin", {
+    target_client_id: clientId,
+    target_pin_expires_at: null,
+  });
+  if (error) throw error;
+  return data as { ok: boolean; pin: string; client: ContentClient };
 }
 
 export async function updateContentReviewDraft(
@@ -324,6 +434,7 @@ export async function addInternalContentReviewComment(params: {
       author_name: params.authorName,
       author_email: params.authorEmail ?? null,
       body: params.body.trim(),
+      comment: params.body.trim(),
       source: "internal",
       client_visible: false,
       visibility: "internal",
@@ -442,6 +553,87 @@ export async function submitPublicContentReviewFeedback(params: {
     client_name: params.name,
     client_email: params.email,
     client_company: params.company ?? "",
+    feedback_body: params.comment,
+    decision: params.decision,
+  });
+  if (error) throw error;
+  return data as { ok: boolean; error?: string; status?: ContentReviewStatus };
+}
+
+export async function loginContentClientPortal(params: {
+  clientToken: string;
+  email: string;
+  pin: string;
+}) {
+  const { data, error } = await supabase.rpc("login_content_client_portal", {
+    client_token: params.clientToken,
+    login_email: params.email,
+    raw_pin: params.pin,
+  });
+  if (error) throw error;
+  return data as {
+    ok: boolean;
+    error?: "invalid_login" | "pin_expired";
+    session_token?: string;
+    client?: ContentClientPortalSession["client"];
+  };
+}
+
+export async function getContentClientPortal(params: {
+  clientToken: string;
+  sessionToken: string;
+  email: string;
+}) {
+  const { data, error } = await supabase.rpc("get_content_client_portal", {
+    client_token: params.clientToken,
+    session_token: params.sessionToken,
+    login_email: params.email,
+  });
+  if (error) throw error;
+  return data as {
+    ok: boolean;
+    error?: string;
+    client?: ContentClientPortalSession["client"];
+    drafts?: ContentPortalDraftCard[];
+  };
+}
+
+export async function getContentClientReview(params: {
+  clientToken: string;
+  sessionToken: string;
+  email: string;
+  draftId: string;
+}) {
+  const { data, error } = await supabase.rpc("get_content_client_review", {
+    client_token: params.clientToken,
+    session_token: params.sessionToken,
+    login_email: params.email,
+    target_draft_id: params.draftId,
+  });
+  if (error) throw error;
+  return data as {
+    ok: boolean;
+    error?: string;
+    client?: ContentClientPortalSession["client"];
+    draft?: ContentReviewDraft;
+    assets?: ContentReviewAsset[];
+    comments?: ContentReviewComment[];
+  };
+}
+
+export async function submitContentClientReviewFeedback(params: {
+  clientToken: string;
+  sessionToken: string;
+  email: string;
+  draftId: string;
+  comment: string;
+  decision: "comment" | "approved" | "changes_requested";
+}) {
+  const { data, error } = await supabase.rpc("submit_content_client_review_feedback", {
+    client_token: params.clientToken,
+    session_token: params.sessionToken,
+    login_email: params.email,
+    target_draft_id: params.draftId,
     feedback_body: params.comment,
     decision: params.decision,
   });

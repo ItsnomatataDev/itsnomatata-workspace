@@ -12,6 +12,10 @@ export type FleetVehicle = {
   last_service_odometer_km?: number | null;
   next_service_date?: string | null;
   next_service_odometer_km?: number | null;
+  service_interval_km?: number | null;
+  service_status?: string | null;
+  estimated_days_to_service?: number | null;
+  latest_odometer_at?: string | null;
   status: string | null;
   created_at?: string | null;
   office?: {
@@ -47,11 +51,9 @@ export type FleetMaintenanceRecord = {
   odometer_km: number | null;
   service_type: string;
   description: string | null;
-  notes: string | null;
   provider: string | null;
   cost: number | null;
   currency: string;
-  receipt_url: string | null;
   invoice_url: string | null;
   next_service_date: string | null;
   next_service_odometer_km: number | null;
@@ -212,7 +214,59 @@ function asNumber(value: unknown, fallback = 0) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-function normalizeDailySummary(row: Record<string, unknown>): FleetDailySummary {
+function normalizeVehicle(row: Record<string, unknown>): FleetVehicle {
+  const office = row.office as Record<string, unknown> | null | undefined;
+
+  return {
+    id: String(row.id),
+    organization_id: row.organization_id
+      ? String(row.organization_id)
+      : undefined,
+    office_id: (row.office_id as string | null) ?? null,
+    vehicle_name: (row.vehicle_name as string | null) ?? null,
+    registration_number: (row.registration_number as string | null) ?? null,
+    current_odometer_km:
+      row.current_odometer_km === null || row.current_odometer_km === undefined
+        ? null
+        : asNumber(row.current_odometer_km),
+    last_service_date: (row.last_service_date as string | null) ?? null,
+    last_service_odometer_km:
+      row.last_service_odometer_km === null ||
+      row.last_service_odometer_km === undefined
+        ? null
+        : asNumber(row.last_service_odometer_km),
+    next_service_date: (row.next_service_date as string | null) ?? null,
+    next_service_odometer_km:
+      row.next_service_odometer_km === null ||
+      row.next_service_odometer_km === undefined
+        ? null
+        : asNumber(row.next_service_odometer_km),
+    service_interval_km:
+      row.service_interval_km === null || row.service_interval_km === undefined
+        ? null
+        : asNumber(row.service_interval_km),
+    service_status: (row.service_status as string | null) ?? null,
+    estimated_days_to_service:
+      row.estimated_days_to_service === null ||
+      row.estimated_days_to_service === undefined
+        ? null
+        : asNumber(row.estimated_days_to_service),
+    latest_odometer_at: (row.latest_odometer_at as string | null) ?? null,
+    status: (row.status as string | null) ?? null,
+    created_at: (row.created_at as string | null) ?? null,
+    office: office
+      ? {
+          id: String(office.id),
+          name: String(office.name),
+          slug: (office.slug as string | null) ?? null,
+        }
+      : null,
+  };
+}
+
+function normalizeDailySummary(
+  row: Record<string, unknown>,
+): FleetDailySummary {
   return {
     id: String(row.id),
     organization_id: String(row.organization_id),
@@ -227,42 +281,65 @@ function normalizeDailySummary(row: Record<string, unknown>): FleetDailySummary 
     move_duration_seconds: asNumber(row.move_duration_seconds),
     stop_duration_seconds: asNumber(row.stop_duration_seconds),
     stop_count: asNumber(row.stop_count),
-    top_speed_kmh: row.top_speed_kmh === null ? null : asNumber(row.top_speed_kmh),
+    top_speed_kmh:
+      row.top_speed_kmh === null || row.top_speed_kmh === undefined
+        ? null
+        : asNumber(row.top_speed_kmh),
     average_speed_kmh:
-      row.average_speed_kmh === null ? null : asNumber(row.average_speed_kmh),
+      row.average_speed_kmh === null || row.average_speed_kmh === undefined
+        ? null
+        : asNumber(row.average_speed_kmh),
     overspeed_count: asNumber(row.overspeed_count),
     fuel_consumption_litres:
-      row.fuel_consumption_litres === null
+      row.fuel_consumption_litres === null ||
+      row.fuel_consumption_litres === undefined
         ? null
         : asNumber(row.fuel_consumption_litres),
     average_fuel_consumption_per_100km:
-      row.average_fuel_consumption_per_100km === null
+      row.average_fuel_consumption_per_100km === null ||
+      row.average_fuel_consumption_per_100km === undefined
         ? null
         : asNumber(row.average_fuel_consumption_per_100km),
-    fuel_cost: row.fuel_cost === null ? null : asNumber(row.fuel_cost),
+    fuel_cost:
+      row.fuel_cost === null || row.fuel_cost === undefined
+        ? null
+        : asNumber(row.fuel_cost),
     currency: String(row.currency ?? "USD"),
     engine_work_seconds: asNumber(row.engine_work_seconds),
     engine_idle_seconds: asNumber(row.engine_idle_seconds),
-    odometer_km: row.odometer_km === null ? null : asNumber(row.odometer_km),
+    odometer_km:
+      row.odometer_km === null || row.odometer_km === undefined
+        ? null
+        : asNumber(row.odometer_km),
     engine_hours_seconds: asNumber(row.engine_hours_seconds),
     driver_name: (row.driver_name as string | null) ?? null,
     imported_at: String(row.imported_at),
     created_at: String(row.created_at),
-    vehicle: (row.vehicle as FleetVehicle | null) ?? null,
+    vehicle: row.vehicle
+      ? normalizeVehicle(row.vehicle as Record<string, unknown>)
+      : null,
   };
 }
 
-function normalizeFuelPurchase(row: Record<string, unknown>): FleetFuelPurchase {
+function normalizeFuelPurchase(
+  row: Record<string, unknown>,
+): FleetFuelPurchase {
   return {
     id: String(row.id),
     organization_id: String(row.organization_id),
     vehicle_id: String(row.vehicle_id),
     purchase_date: String(row.purchase_date),
     litres: asNumber(row.litres),
-    unit_price: row.unit_price === null ? null : asNumber(row.unit_price),
+    unit_price:
+      row.unit_price === null || row.unit_price === undefined
+        ? null
+        : asNumber(row.unit_price),
     total_cost: asNumber(row.total_cost),
     currency: String(row.currency ?? "USD"),
-    odometer_km: row.odometer_km === null ? null : asNumber(row.odometer_km),
+    odometer_km:
+      row.odometer_km === null || row.odometer_km === undefined
+        ? null
+        : asNumber(row.odometer_km),
     station_name: (row.station_name as string | null) ?? null,
     payment_method: (row.payment_method as string | null) ?? null,
     receipt_number: (row.receipt_number as string | null) ?? null,
@@ -271,59 +348,39 @@ function normalizeFuelPurchase(row: Record<string, unknown>): FleetFuelPurchase 
     notes: (row.notes as string | null) ?? null,
     created_at: String(row.created_at),
     updated_at: String(row.updated_at),
-    vehicle: (row.vehicle as FleetVehicle | null) ?? null,
-  };
-}
-
-function normalizeVehicle(row: Record<string, unknown>): FleetVehicle {
-  return {
-    id: String(row.id),
-    organization_id: row.organization_id ? String(row.organization_id) : undefined,
-    office_id: (row.office_id as string | null) ?? null,
-    vehicle_name: (row.vehicle_name as string | null) ?? null,
-    registration_number: (row.registration_number as string | null) ?? null,
-    current_odometer_km:
-      row.current_odometer_km === null ? null : asNumber(row.current_odometer_km),
-    last_service_date: (row.last_service_date as string | null) ?? null,
-    last_service_odometer_km:
-      row.last_service_odometer_km === null
-        ? null
-        : asNumber(row.last_service_odometer_km),
-    next_service_date: (row.next_service_date as string | null) ?? null,
-    next_service_odometer_km:
-      row.next_service_odometer_km === null
-        ? null
-        : asNumber(row.next_service_odometer_km),
-    status: (row.status as string | null) ?? null,
-    created_at: (row.created_at as string | null) ?? null,
-    office: row.office
-      ? {
-          id: String((row.office as Record<string, unknown>).id),
-          name: String((row.office as Record<string, unknown>).name),
-          slug: ((row.office as Record<string, unknown>).slug as string | null) ?? null,
-        }
+    vehicle: row.vehicle
+      ? normalizeVehicle(row.vehicle as Record<string, unknown>)
       : null,
   };
 }
 
-function normalizeServiceSchedule(row: Record<string, unknown>): FleetServiceSchedule {
+function normalizeServiceSchedule(
+  row: Record<string, unknown>,
+): FleetServiceSchedule {
   return {
     id: String(row.id),
     organization_id: String(row.organization_id),
     vehicle_id: String(row.vehicle_id),
     schedule_name: String(row.schedule_name ?? "Service"),
     service_type: String(row.service_type ?? "Service"),
-    interval_km: row.interval_km === null ? null : asNumber(row.interval_km),
+    interval_km:
+      row.interval_km === null || row.interval_km === undefined
+        ? null
+        : asNumber(row.interval_km),
     interval_months:
-      row.interval_months === null ? null : asNumber(row.interval_months),
+      row.interval_months === null || row.interval_months === undefined
+        ? null
+        : asNumber(row.interval_months),
     last_service_date: (row.last_service_date as string | null) ?? null,
     last_service_odometer_km:
-      row.last_service_odometer_km === null
+      row.last_service_odometer_km === null ||
+      row.last_service_odometer_km === undefined
         ? null
         : asNumber(row.last_service_odometer_km),
     next_service_date: (row.next_service_date as string | null) ?? null,
     next_service_odometer_km:
-      row.next_service_odometer_km === null
+      row.next_service_odometer_km === null ||
+      row.next_service_odometer_km === undefined
         ? null
         : asNumber(row.next_service_odometer_km),
     status: String(row.status ?? "active"),
@@ -343,18 +400,21 @@ function normalizeMaintenanceRecord(
     organization_id: String(row.organization_id),
     vehicle_id: String(row.vehicle_id),
     service_date: String(row.service_date),
-    odometer_km: row.odometer_km === null ? null : asNumber(row.odometer_km),
+    odometer_km:
+      row.odometer_km === null || row.odometer_km === undefined
+        ? null
+        : asNumber(row.odometer_km),
     service_type: String(row.service_type ?? "Service"),
     description: (row.description as string | null) ?? null,
-    notes: (row.notes as string | null) ?? null,
     provider: (row.provider as string | null) ?? null,
-    cost: row.cost === null ? null : asNumber(row.cost),
+    cost:
+      row.cost === null || row.cost === undefined ? null : asNumber(row.cost),
     currency: String(row.currency ?? "USD"),
-    receipt_url: (row.receipt_url as string | null) ?? null,
     invoice_url: (row.invoice_url as string | null) ?? null,
     next_service_date: (row.next_service_date as string | null) ?? null,
     next_service_odometer_km:
-      row.next_service_odometer_km === null
+      row.next_service_odometer_km === null ||
+      row.next_service_odometer_km === undefined
         ? null
         : asNumber(row.next_service_odometer_km),
     created_by: (row.created_by as string | null) ?? null,
@@ -405,28 +465,25 @@ export async function fetchFleetDashboardData(
     dateRange,
   );
 
-  const summariesQuery = supabase
-    .from("fleet_daily_summaries")
-    .select(
-      `
-      *,
-      vehicle:fleet_vehicles(
-        id,
-        vehicle_name,
-        registration_number,
-        current_odometer_km,
-        status
-      )
-    `,
-    )
-    .eq("organization_id", organizationId)
-    .gte("summary_date", resolvedDateRange.startDate)
-    .lte("summary_date", resolvedDateRange.endDate)
-    .order("summary_date", { ascending: false })
-    .order("created_at", { ascending: false });
-
-  const vehicleSelect =
-    "id, organization_id, office_id, vehicle_name, registration_number, current_odometer_km, last_service_date, last_service_odometer_km, next_service_date, next_service_odometer_km, status, created_at, office:company_offices(id, name, slug)";
+  const vehicleSelect = `
+    id,
+    organization_id,
+    office_id,
+    vehicle_name,
+    registration_number,
+    current_odometer_km,
+    last_service_date,
+    last_service_odometer_km,
+    next_service_date,
+    next_service_odometer_km,
+    service_interval_km,
+    service_status,
+    estimated_days_to_service,
+    latest_odometer_at,
+    status,
+    created_at,
+    office:company_offices(id, name, slug)
+  `;
 
   const [
     vehiclesResult,
@@ -441,13 +498,36 @@ export async function fetchFleetDashboardData(
       .select(vehicleSelect)
       .eq("organization_id", organizationId)
       .order("vehicle_name", { ascending: true }),
-    summariesQuery,
+
+    supabase
+      .from("fleet_daily_summaries")
+      .select(
+        `
+        *,
+        vehicle:fleet_vehicles(
+          id,
+          organization_id,
+          office_id,
+          vehicle_name,
+          registration_number,
+          current_odometer_km,
+          status
+        )
+      `,
+      )
+      .eq("organization_id", organizationId)
+      .gte("summary_date", resolvedDateRange.startDate)
+      .lte("summary_date", resolvedDateRange.endDate)
+      .order("summary_date", { ascending: false })
+      .order("created_at", { ascending: false }),
+
     supabase
       .from("fleet_import_batches")
       .select("*")
       .eq("organization_id", organizationId)
       .order("created_at", { ascending: false })
       .limit(20),
+
     supabase
       .from("fleet_fuel_purchases")
       .select(
@@ -455,6 +535,8 @@ export async function fetchFleetDashboardData(
         *,
         vehicle:fleet_vehicles(
           id,
+          organization_id,
+          office_id,
           vehicle_name,
           registration_number,
           current_odometer_km,
@@ -465,6 +547,7 @@ export async function fetchFleetDashboardData(
       .eq("organization_id", organizationId)
       .order("purchase_date", { ascending: false })
       .limit(120),
+
     supabase
       .from("fleet_service_schedules")
       .select(
@@ -475,12 +558,30 @@ export async function fetchFleetDashboardData(
       )
       .eq("organization_id", organizationId)
       .order("next_service_date", { ascending: true, nullsFirst: false })
-      .order("next_service_odometer_km", { ascending: true, nullsFirst: false }),
+      .order("next_service_odometer_km", {
+        ascending: true,
+        nullsFirst: false,
+      }),
+
     supabase
       .from("fleet_maintenance_records")
       .select(
         `
-        *,
+        id,
+        organization_id,
+        vehicle_id,
+        service_date,
+        odometer_km,
+        service_type,
+        description,
+        provider,
+        cost,
+        currency,
+        invoice_url,
+        next_service_date,
+        next_service_odometer_km,
+        created_by,
+        created_at,
         vehicle:fleet_vehicles(${vehicleSelect})
       `,
       )
@@ -489,34 +590,17 @@ export async function fetchFleetDashboardData(
       .limit(120),
   ]);
 
-  if (vehiclesResult.error) {
-    throw new Error(vehiclesResult.error.message || "Failed to load fleet vehicles.");
-  }
-
-  if (summariesResult.error) {
-    throw new Error(summariesResult.error.message || "Failed to load fleet summaries.");
-  }
-
-  if (batchesResult.error) {
-    throw new Error(batchesResult.error.message || "Failed to load fleet imports.");
-  }
-
+  if (vehiclesResult.error) throw new Error(vehiclesResult.error.message);
+  if (summariesResult.error) throw new Error(summariesResult.error.message);
+  if (batchesResult.error) throw new Error(batchesResult.error.message);
   if (fuelPurchasesResult.error) {
-    throw new Error(
-      fuelPurchasesResult.error.message || "Failed to load fuel purchases.",
-    );
+    throw new Error(fuelPurchasesResult.error.message);
   }
-
   if (serviceSchedulesResult.error) {
-    throw new Error(
-      serviceSchedulesResult.error.message || "Failed to load service schedules.",
-    );
+    throw new Error(serviceSchedulesResult.error.message);
   }
-
   if (maintenanceRecordsResult.error) {
-    throw new Error(
-      maintenanceRecordsResult.error.message || "Failed to load service history.",
-    );
+    throw new Error(maintenanceRecordsResult.error.message);
   }
 
   const batches = (batchesResult.data ?? []) as FleetImportBatch[];
@@ -531,6 +615,8 @@ export async function fetchFleetDashboardData(
         *,
         vehicle:fleet_vehicles(
           id,
+          organization_id,
+          office_id,
           vehicle_name,
           registration_number,
           current_odometer_km,
@@ -543,10 +629,7 @@ export async function fetchFleetDashboardData(
       .order("row_number", { ascending: true })
       .limit(120);
 
-    if (rowsResult.error) {
-      throw new Error(rowsResult.error.message || "Failed to load fleet import rows.");
-    }
-
+    if (rowsResult.error) throw new Error(rowsResult.error.message);
     rows = (rowsResult.data ?? []) as FleetImportRow[];
   }
 
@@ -576,7 +659,9 @@ export async function createFuelPurchase(
 ): Promise<FleetFuelPurchase> {
   const unitPrice =
     input.unitPrice ??
-    (input.litres > 0 ? Number((input.totalCost / input.litres).toFixed(4)) : null);
+    (input.litres > 0
+      ? Number((input.totalCost / input.litres).toFixed(4))
+      : null);
 
   const { data, error } = await supabase
     .from("fleet_fuel_purchases")
@@ -601,6 +686,8 @@ export async function createFuelPurchase(
       *,
       vehicle:fleet_vehicles(
         id,
+        organization_id,
+        office_id,
         vehicle_name,
         registration_number,
         current_odometer_km,
@@ -614,35 +701,98 @@ export async function createFuelPurchase(
     throw new Error(error.message || "Failed to record fuel purchase.");
   }
 
+  if (input.odometerKm !== null && input.odometerKm !== undefined) {
+    await updateVehicleOdometerFromReading({
+      organizationId: input.organizationId,
+      vehicleId: input.vehicleId,
+      odometerKm: input.odometerKm,
+      readingAt: input.purchaseDate,
+      source: "fuel_purchase",
+    });
+  }
+
   return normalizeFuelPurchase(data as Record<string, unknown>);
 }
 
 export async function createMaintenanceRecord(
   input: CreateMaintenanceRecordInput,
 ): Promise<FleetMaintenanceRecord> {
+  if (input.odometerKm === null || input.odometerKm === undefined) {
+    throw new Error("Current odometer is required.");
+  }
+
+  if (
+    !Number.isFinite(Number(input.odometerKm)) ||
+    Number(input.odometerKm) < 0
+  ) {
+    throw new Error("Enter a valid current odometer.");
+  }
+
+  const vehicleResult = await supabase
+    .from("fleet_vehicles")
+    .select("id, service_interval_km")
+    .eq("id", input.vehicleId)
+    .eq("organization_id", input.organizationId)
+    .maybeSingle();
+
+  if (vehicleResult.error) {
+    throw new Error(vehicleResult.error.message);
+  }
+
+  const serviceIntervalKm = Number(
+    vehicleResult.data?.service_interval_km ?? 10000,
+  );
+
+  const resolvedNextServiceOdometerKm =
+    input.nextServiceOdometerKm ?? Number(input.odometerKm) + serviceIntervalKm;
+
+  if (
+    !Number.isFinite(resolvedNextServiceOdometerKm) ||
+    resolvedNextServiceOdometerKm <= Number(input.odometerKm)
+  ) {
+    throw new Error(
+      "Next service odometer must be greater than current odometer.",
+    );
+  }
+
   const { data, error } = await supabase
     .from("fleet_maintenance_records")
     .insert({
       organization_id: input.organizationId,
       vehicle_id: input.vehicleId,
       service_date: input.serviceDate,
-      odometer_km: input.odometerKm ?? null,
-      service_type: input.serviceType.trim() || "service",
-      notes: input.notes?.trim() || null,
+      odometer_km: input.odometerKm,
+      service_type: input.serviceType.trim() || "Routine service",
+      description: input.notes?.trim() || null,
       provider: input.provider?.trim() || null,
       cost: input.cost ?? null,
       currency: input.currency?.trim() || "USD",
-      receipt_url: input.receiptUrl?.trim() || null,
+      invoice_url: input.receiptUrl?.trim() || null,
       next_service_date: input.nextServiceDate || null,
-      next_service_odometer_km: input.nextServiceOdometerKm ?? null,
+      next_service_odometer_km: resolvedNextServiceOdometerKm,
       created_by: input.createdBy ?? null,
     })
     .select(
       `
-      *,
+      id,
+      organization_id,
+      vehicle_id,
+      service_date,
+      odometer_km,
+      service_type,
+      description,
+      provider,
+      cost,
+      currency,
+      invoice_url,
+      next_service_date,
+      next_service_odometer_km,
+      created_by,
+      created_at,
       vehicle:fleet_vehicles(
         id,
         organization_id,
+        office_id,
         vehicle_name,
         registration_number,
         current_odometer_km,
@@ -650,6 +800,10 @@ export async function createMaintenanceRecord(
         last_service_odometer_km,
         next_service_date,
         next_service_odometer_km,
+        service_interval_km,
+        service_status,
+        estimated_days_to_service,
+        latest_odometer_at,
         status,
         created_at
       )
@@ -661,29 +815,149 @@ export async function createMaintenanceRecord(
     throw new Error(error.message || "Failed to record service history.");
   }
 
-  const updates: Record<string, unknown> = {
-    last_service_date: input.serviceDate,
-    last_service_odometer_km: input.odometerKm ?? null,
-  };
-
-  if (input.nextServiceDate) updates.next_service_date = input.nextServiceDate;
-  if (input.nextServiceOdometerKm !== undefined) {
-    updates.next_service_odometer_km = input.nextServiceOdometerKm;
-  }
-
   const { error: vehicleError } = await supabase
     .from("fleet_vehicles")
-    .update(updates)
+    .update({
+      current_odometer_km: input.odometerKm,
+      last_service_date: input.serviceDate,
+      last_service_odometer_km: input.odometerKm,
+      next_service_date: input.nextServiceDate || null,
+      next_service_odometer_km: resolvedNextServiceOdometerKm,
+      service_status: "service_ok",
+      estimated_days_to_service: null,
+      latest_odometer_at: new Date().toISOString(),
+    })
     .eq("id", input.vehicleId)
     .eq("organization_id", input.organizationId);
 
   if (vehicleError) {
     throw new Error(
-      vehicleError.message || "Service saved, but vehicle service fields failed.",
+      vehicleError.message ||
+        "Service saved, but vehicle service fields failed.",
     );
   }
 
   return normalizeMaintenanceRecord(data as Record<string, unknown>);
+}
+
+export async function updateVehicleOdometerFromReading(params: {
+  organizationId: string;
+  vehicleId: string;
+  odometerKm: number;
+  readingAt?: string | null;
+  source?: string;
+}) {
+  const { data: vehicle, error: vehicleError } = await supabase
+    .from("fleet_vehicles")
+    .select(
+      "id, current_odometer_km, next_service_odometer_km, next_service_date",
+    )
+    .eq("id", params.vehicleId)
+    .eq("organization_id", params.organizationId)
+    .maybeSingle();
+
+  if (vehicleError) throw new Error(vehicleError.message);
+  if (!vehicle) return null;
+
+  const currentOdo = Number(params.odometerKm);
+  const nextServiceOdo =
+    vehicle.next_service_odometer_km === null ||
+    vehicle.next_service_odometer_km === undefined
+      ? null
+      : Number(vehicle.next_service_odometer_km);
+
+  const remainingKm =
+    nextServiceOdo === null ? null : Number(nextServiceOdo) - currentOdo;
+
+  const estimatedDaysToService = await estimateDaysToService({
+    organizationId: params.organizationId,
+    vehicleId: params.vehicleId,
+    remainingKm,
+  });
+
+  const serviceStatus =
+    remainingKm !== null && remainingKm <= 0
+      ? "service_overdue"
+      : remainingKm !== null &&
+          (remainingKm <= 1000 ||
+            (estimatedDaysToService !== null && estimatedDaysToService <= 14))
+        ? "service_soon"
+        : "service_ok";
+
+  const { error: updateError } = await supabase
+    .from("fleet_vehicles")
+    .update({
+      current_odometer_km: currentOdo,
+      service_status: serviceStatus,
+      estimated_days_to_service: estimatedDaysToService,
+      latest_odometer_at: params.readingAt || new Date().toISOString(),
+    })
+    .eq("id", params.vehicleId)
+    .eq("organization_id", params.organizationId);
+
+  if (updateError) throw new Error(updateError.message);
+
+  return {
+    serviceStatus,
+    remainingKm,
+    estimatedDaysToService,
+  };
+}
+
+async function estimateDaysToService(params: {
+  organizationId: string;
+  vehicleId: string;
+  remainingKm: number | null;
+}) {
+  if (params.remainingKm === null || params.remainingKm <= 0) return 0;
+
+  const { data, error } = await supabase
+    .from("fleet_daily_summaries")
+    .select("summary_date, odometer_km")
+    .eq("organization_id", params.organizationId)
+    .eq("vehicle_id", params.vehicleId)
+    .not("odometer_km", "is", null)
+    .order("summary_date", { ascending: false })
+    .limit(14);
+
+  if (error) throw new Error(error.message);
+
+  const readings = (data ?? [])
+    .map((item) => ({
+      summaryDate: String(item.summary_date),
+      odometerKm: Number(item.odometer_km),
+    }))
+    .filter((item) => Number.isFinite(item.odometerKm))
+    .sort((a, b) => a.summaryDate.localeCompare(b.summaryDate));
+
+  if (readings.length < 2) return null;
+
+  const oldest = readings[0];
+  const latest = readings[readings.length - 1];
+
+  const oldestDate = new Date(`${oldest.summaryDate.slice(0, 10)}T00:00:00`);
+  const latestDate = new Date(`${latest.summaryDate.slice(0, 10)}T00:00:00`);
+
+  if (
+    Number.isNaN(oldestDate.getTime()) ||
+    Number.isNaN(latestDate.getTime())
+  ) {
+    return null;
+  }
+
+  const days = Math.max(
+    1,
+    Math.round(
+      (latestDate.getTime() - oldestDate.getTime()) / (1000 * 60 * 60 * 24),
+    ),
+  );
+
+  const distance = latest.odometerKm - oldest.odometerKm;
+  const averageDailyKm = distance / days;
+
+  if (!Number.isFinite(averageDailyKm) || averageDailyKm <= 0) return null;
+
+  return Number((params.remainingKm / averageDailyKm).toFixed(2));
 }
 
 export async function notifyFleetServiceStatus(params: {
@@ -698,7 +972,13 @@ export async function notifyFleetServiceStatus(params: {
     .from("profiles")
     .select("id")
     .eq("organization_id", params.organizationId)
-    .in("primary_role", ["admin", "manager", "it", "superadmin", "it-superadmin"]);
+    .in("primary_role", [
+      "admin",
+      "manager",
+      "it",
+      "superadmin",
+      "it-superadmin",
+    ]);
 
   if (error) throw error;
 
@@ -715,17 +995,14 @@ export async function notifyFleetServiceStatus(params: {
         type: "system_alert",
         title: overdue ? "Vehicle service overdue" : "Vehicle service due soon",
         message: overdue
-          ? `${params.vehicleLabel} has reached or passed its next service target.`
-          : `${params.vehicleLabel} needs service soon.`,
-        entityType: "fleet_vehicle",
-        entityId: params.vehicleId,
-        actionUrl: "/fleet/service",
-        priority: overdue ? "high" : "medium",
-        category: "fleet",
-        referenceId: params.vehicleId,
-        referenceType: "fleet_vehicle",
-        dedupeKey: `fleet-service:${params.status}:${params.vehicleId}`,
+          ? `${params.vehicleLabel} has passed its next service odometer.`
+          : `${params.vehicleLabel} is close to its next service. ${Math.max(
+              0,
+              Math.round(params.remainingKm),
+            )} km remaining.`,
         metadata: {
+          module: "fleet",
+          vehicleId: params.vehicleId,
           serviceStatus: params.status,
           remainingKm: params.remainingKm,
           nextServiceOdo: params.nextServiceOdo ?? null,
