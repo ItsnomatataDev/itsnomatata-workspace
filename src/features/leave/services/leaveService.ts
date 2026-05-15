@@ -772,7 +772,7 @@ export async function modifyLeaveRequestDates(params: {
     const balanceDelta = newRequestedDays - oldRequestedDays;
     const { data: profileAfterEdit } = await supabase
       .from("profiles")
-      .select("leave_days_total, leave_days_remaining")
+      .select("leave_days_total, leave_days_remaining, office_id")
       .eq("id", leaveRequest.user_id)
       .maybeSingle();
 
@@ -788,6 +788,7 @@ export async function modifyLeaveRequestDates(params: {
         newRemaining,
         reason:
           `Approved leave date edit adjusted balance by ${balanceDelta} day(s). ${params.reason ?? ""}`.trim(),
+        officeId: profileAfterEdit.office_id ?? null,
       });
     }
   }
@@ -865,6 +866,7 @@ export async function modifyUserLeaveBalance(params: {
   newTotal?: number;
   newRemaining?: number;
   reason: string;
+  officeId?: string | null;
 }) {
   // Get current balance
   const { data: profile, error: fetchError } = await supabase
@@ -909,6 +911,7 @@ export async function modifyUserLeaveBalance(params: {
     previousRemaining,
     newRemaining,
     reason: params.reason,
+    officeId: params.officeId ?? null,
   });
 
   // Send notification to user

@@ -2,18 +2,10 @@ import { supabase } from "../client";
 import { pauseRunningTimersAt6pmForOrganization } from "../mutations/timeEntries";
 import { isAtOrAfterZimbabwePause } from "../../utils/zimbabweCalendar";
 
-/**
- * Daily job to pause all running timers at 6 PM Harare time
- * This should be called by a scheduler (cron job, serverless function, etc.)
- * 
- * Usage:
- * - Call this function daily at 6 PM Harare time
- * - Can be called multiple times (idempotent)
- * - Only pauses timers that haven't been paused yet
- */
+
 export async function runDailyTimerPauseJob() {
   try {
-    // Only run if it's 6 PM or later in Harare time
+  
     if (!isAtOrAfterZimbabwePause(new Date(), "18:00:00")) {
       console.log("Timer pause job skipped: Not yet 6 PM Harare time");
       return {
@@ -24,7 +16,7 @@ export async function runDailyTimerPauseJob() {
       };
     }
 
-    // Get all active organizations
+
     const { data: organizations, error: orgError } = await supabase
       .from("organizations")
       .select("id, name")
@@ -42,7 +34,6 @@ export async function runDailyTimerPauseJob() {
       error?: string;
     }> = [];
 
-    // Process each organization
     for (const org of organizations ?? []) {
       try {
         const pausedCount = await pauseRunningTimersAt6pmForOrganization(org.id);
@@ -91,10 +82,6 @@ export async function runDailyTimerPauseJob() {
   }
 }
 
-/**
- * Manual function to pause timers for a specific organization
- * Useful for testing or manual intervention
- */
 export async function pauseTimersForOrganization(organizationId: string) {
   try {
     const pausedCount = await pauseRunningTimersAt6pmForOrganization(organizationId);
@@ -115,9 +102,6 @@ export async function pauseTimersForOrganization(organizationId: string) {
   }
 }
 
-/**
- * Check if the daily pause job should run now
- */
 export function shouldRunDailyPauseJob() {
   return isAtOrAfterZimbabwePause(new Date(), "18:00:00");
 }

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CalendarDays, Plus, ShieldCheck, Lock, Unlock } from "lucide-react";
+import { CalendarDays, Plus, ShieldCheck, Unlock } from "lucide-react";
 import { toast } from "react-toastify";
 import Sidebar from "../../../components/dashboard/components/Sidebar";
 import { useAuth } from "../../../app/providers/AuthProvider";
@@ -30,6 +30,12 @@ import {
   modifyUserLeaveBalance,
   getPublicHolidays,
 } from "../../leave/services/leaveService";
+import { OFFICE_OPTIONS, type CompanyOffice } from "../../../lib/offices";
+import { getCompanyOffices } from "../../../lib/supabase/queries/offices";
+import {
+  getLeaveCountingRuleLabel,
+  normalizeLeaveOffice,
+} from "../../leave/utils/leaveDays";
 import {
   getLeaveBalanceEmployees,
   getRecentBalanceHistory,
@@ -60,6 +66,7 @@ export default function AdminLeavePage() {
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
   const [deletingRuleId, setDeletingRuleId] = useState<string | null>(null);
   const [requests, setRequests] = useState<LeaveRequestRow[]>([]);
+  const [offices, setOffices] = useState<CompanyOffice[]>([]);
   const [leaveTypes, setLeaveTypes] = useState<LeaveTypeRow[]>([]);
   const [approvedLeaves, setApprovedLeaves] = useState<LeaveCalendarEventRow[]>(
     [],
@@ -76,10 +83,16 @@ export default function AdminLeavePage() {
   const [activeFilter, setActiveFilter] = useState<
     "all" | "pending" | "approved" | "rejected"
   >("all");
+  const [selectedOfficeId, setSelectedOfficeId] = useState("all");
+  const [employeeFilter, setEmployeeFilter] = useState("all");
+  const [leaveTypeFilter, setLeaveTypeFilter] = useState("all");
+  const [rangeStartFilter, setRangeStartFilter] = useState("");
+  const [rangeEndFilter, setRangeEndFilter] = useState("");
 
   const loadPage = useCallback(async () => {
     if (!organizationId) return;
     const shouldLoadBalanceTools = profile?.primary_role === "admin";
+    const officeId = selectedOfficeId === "all" ? null : selectedOfficeId;
 
     try {
       setLoading(true);
@@ -87,6 +100,7 @@ export default function AdminLeavePage() {
 
       const [
         requestsData,
+        officesData,
         leaveTypesData,
         approvedLeavesData,
         rulesData,
@@ -95,20 +109,22 @@ export default function AdminLeavePage() {
         balanceHistoryData,
       ] =
         await Promise.all([
-          getLeaveRequests(organizationId),
+          getLeaveRequests({ organizationId, officeId }),
+          getCompanyOffices(organizationId),
           getLeaveTypes(organizationId),
-          getApprovedLeaveCalendarEvents(organizationId),
+          getApprovedLeaveCalendarEvents({ organizationId, officeId }),
           getLeaveCalendarRules(organizationId),
           getPublicHolidays({ organizationId }),
           shouldLoadBalanceTools
-            ? getLeaveBalanceEmployees(organizationId)
+            ? getLeaveBalanceEmployees({ organizationId, officeId })
             : Promise.resolve([]),
           shouldLoadBalanceTools
-            ? getRecentBalanceHistory({ organizationId, limit: 8 })
+            ? getRecentBalanceHistory({ organizationId, officeId, limit: 8 })
             : Promise.resolve([]),
         ]);
 
       setRequests(requestsData);
+      setOffices(officesData);
       setLeaveTypes(leaveTypesData);
       setApprovedLeaves(approvedLeavesData);
       setRules(rulesData);
@@ -121,7 +137,7 @@ export default function AdminLeavePage() {
     } finally {
       setLoading(false);
     }
-  }, [organizationId, profile?.primary_role]);
+  }, [organizationId, profile?.primary_role, selectedOfficeId]);
 
   useEffect(() => {
     if (!organizationId) return;
@@ -298,6 +314,7 @@ export default function AdminLeavePage() {
         newTotal: params.newTotal,
         newRemaining: params.newRemaining,
         reason: params.reason,
+        officeId: selectedOfficeId === "all" ? null : selectedOfficeId,
       });
 
       setSuccessMessage("Leave balance updated successfully.");
@@ -337,19 +354,141 @@ export default function AdminLeavePage() {
   };
 
   const filteredRequests = useMemo(() => {
-    if (activeFilter === "all") return requests;
-    return requests.filter((request) => request.status === activeFilter);
-  }, [requests, activeFilter]);
+    return requests.filter((request) => {
+      if (activeFilter !== "all" && request.status !== activeFilter) return false;
+      if (employeeFilter !== "all" && request.user_id !== employeeFilter) return false;
+      if (leaveTypeFilter !== "all" && request.leave_type_id !== leaveTypeFilter) {
+        return false;
+      }
+      if (selectedOfficeId !== "all") {
+        const requestOfficeId = request.office_id ?? request.requester_office_id ?? null;
+        if (requestOfficeId !== selectedOfficeId) return false;
+      }
+      if (rangeStartFilter && request.end_date < rangeStartFilter) return false;
+      if (rangeEndFilter && request.start_date > rangeEndFilter) return false;
 
-  const pendingCount = requests.filter(
+      return true;
+    });
+  }, [
+    activeFilter,
+    employeeFilter,
+    leaveTypeFilter,
+    rangeEndFilter,
+    rangeStartFilter,
+    requests,
+    selectedOfficeId,
+  ]);
+
+  const filteredCalendarLeaves = useMemo(
+    () =>
+      approvedLeaves.filter((leave) => {
+        if (activeFilter !== "all" && leave.status !== activeFilter) return false;
+        if (employeeFilter !== "all" && leave.user_id !== employeeFilter) {
+          return false;
+        }
+        if (leaveTypeFilter !== "all" && leave.leave_type_id !== leaveTypeFilter) {
+          return false;
+        }
+        if (selectedOfficeId !== "all") {
+          const leaveOfficeId = leave.office_id ?? leave.requester_office_id ?? null;
+          if (leaveOfficeId !== selectedOfficeId) return false;
+        }
+        if (rangeStartFilter && leave.end_date < rangeStartFilter) return false;
+        if (rangeEndFilter && leave.start_date > rangeEndFilter) return false;
+
+        return true;
+      }),
+    [
+      activeFilter,
+      approvedLeaves,
+      employeeFilter,
+      leaveTypeFilter,
+      rangeEndFilter,
+      rangeStartFilter,
+      selectedOfficeId,
+    ],
+  );
+
+  const pendingCount = filteredRequests.filter(
     (item) => item.status === "pending",
   ).length;
-  const approvedCount = requests.filter(
+  const approvedCount = filteredRequests.filter(
     (item) => item.status === "approved",
   ).length;
-  const rejectedCount = requests.filter(
+  const rejectedCount = filteredRequests.filter(
     (item) => item.status === "rejected",
   ).length;
+  const currentMonthKey = formatDateForDb(new Date()).slice(0, 7);
+  const todayKey = formatDateForDb(new Date());
+  const approvedThisMonthCount = filteredRequests.filter(
+    (item) =>
+      item.status === "approved" && item.start_date.slice(0, 7) === currentMonthKey,
+  ).length;
+  const staffOnLeaveTodayCount = filteredRequests.filter(
+    (item) =>
+      item.status === "approved" &&
+      item.start_date <= todayKey &&
+      item.end_date >= todayKey,
+  ).length;
+  const selectedOffice = offices.find((office) => office.id === selectedOfficeId);
+  const selectedOfficeName =
+    selectedOfficeId === "all"
+      ? "All Offices"
+      : selectedOffice?.name ?? "Selected office";
+  const officeSelectOptions =
+    offices.length > 0
+      ? offices
+      : OFFICE_OPTIONS.map((office) => ({
+          id: office.slug,
+          organization_id: organizationId ?? "",
+          name: office.name,
+          slug: office.slug,
+          is_primary: office.slug === "its-no-matata",
+        }));
+  const officeCounts = officeSelectOptions.map((office) => ({
+    office: office.name,
+    count: filteredRequests.filter((request) => {
+      if (request.office_id || request.requester_office_id) {
+        return (request.office_id ?? request.requester_office_id) === office.id;
+      }
+
+      return (
+        normalizeLeaveOffice(request.office ?? request.requester_department) ===
+        office.name
+      );
+    }).length,
+  }));
+  const balanceSummary = balanceEmployees.reduce(
+    (summary, employee) => {
+      const total = Number(employee.leave_days_total ?? 0);
+      const remaining = Number(employee.leave_days_remaining ?? 0);
+      summary.total += total;
+      summary.remaining += remaining;
+      summary.used += Math.max(total - remaining, 0);
+      return summary;
+    },
+    { total: 0, remaining: 0, used: 0 },
+  );
+  const pendingDays = filteredRequests
+    .filter((request) => request.status === "pending")
+    .reduce((total, request) => total + Number(request.requested_days ?? 0), 0);
+  const requestsByStatus = ["pending", "approved", "rejected"].map((status) => ({
+    status,
+    count: filteredRequests.filter((request) => request.status === status).length,
+  }));
+  const leaveTypeCounts = leaveTypes.map((type) => ({
+    name: type.name,
+    count: filteredRequests.filter((request) => request.leave_type_id === type.id)
+      .length,
+  }));
+  const employeeOptions = Array.from(
+    new Map(
+      balanceEmployees.map((employee) => [
+        employee.id,
+        employee.full_name || employee.email || employee.id,
+      ]),
+    ).entries(),
+  );
 
   const closedRulesCount = rules.filter(
     (rule) => rule.rule_type === "closed",
@@ -391,6 +530,9 @@ export default function AdminLeavePage() {
                 Review submitted leave requests, manage leave types, and control
                 leave periods.
               </p>
+              <div className="mt-4 inline-flex rounded-2xl border border-orange-500/20 bg-orange-500/10 px-4 py-2 text-sm font-semibold text-orange-100">
+                Viewing: {selectedOfficeName}
+              </div>
             </div>
 
             <div className="flex flex-wrap gap-3">
@@ -439,7 +581,7 @@ export default function AdminLeavePage() {
                     <CalendarDays size={18} className="text-orange-500" />
                   </div>
                   <p className="mt-4 text-3xl font-bold text-white">
-                    {requests.length}
+                    {filteredRequests.length}
                   </p>
                 </div>
 
@@ -455,34 +597,201 @@ export default function AdminLeavePage() {
 
                 <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
                   <div className="flex items-center justify-between">
-                    <p className="text-sm text-white/60">Approved</p>
+                    <p className="text-sm text-white/60">Approved This Month</p>
                     <ShieldCheck size={18} className="text-emerald-400" />
                   </div>
                   <p className="mt-4 text-3xl font-bold text-emerald-300">
-                    {approvedCount}
+                    {approvedThisMonthCount}
                   </p>
                 </div>
 
                 <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
                   <div className="flex items-center justify-between">
-                    <p className="text-sm text-white/60">Closed Rules</p>
-                    <Lock size={18} className="text-red-400" />
+                    <p className="text-sm text-white/60">On Leave Today</p>
+                    <CalendarDays size={18} className="text-orange-400" />
                   </div>
-                  <p className="mt-4 text-3xl font-bold text-red-300">
-                    {closedRulesCount}
+                  <p className="mt-4 text-3xl font-bold text-orange-300">
+                    {staffOnLeaveTodayCount}
                   </p>
                 </div>
 
                 <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
                   <div className="flex items-center justify-between">
-                    <p className="text-sm text-white/60">Open Rules</p>
+                    <p className="text-sm text-white/60">Requests by Office</p>
                     <Unlock size={18} className="text-emerald-400" />
                   </div>
+                  <div className="mt-4 space-y-1 text-sm text-white/75">
+                    {officeCounts.map((item) => (
+                      <p key={item.office} className="flex justify-between gap-3">
+                        <span>{item.office}</span>
+                        <span className="font-semibold text-white">{item.count}</span>
+                      </p>
+                    ))}
+                  </div>
+                </div>
+              </section>
+
+              <section className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+                  <p className="text-sm text-white/60">Balanced Leave Days</p>
+                  <p className="mt-4 text-3xl font-bold text-white">
+                    {balanceSummary.total}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+                  <p className="text-sm text-white/60">Remaining Leave Days</p>
                   <p className="mt-4 text-3xl font-bold text-emerald-300">
-                    {openRulesCount}
+                    {balanceSummary.remaining}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+                  <p className="text-sm text-white/60">Pending Days</p>
+                  <p className="mt-4 text-3xl font-bold text-orange-300">
+                    {pendingDays}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+                  <p className="text-sm text-white/60">Balance Adjustments</p>
+                  <p className="mt-4 text-3xl font-bold text-white">
+                    {balanceHistory.length}
                   </p>
                 </div>
               </section>
+
+              <section className="mb-6 rounded-2xl border border-white/10 bg-white/5 p-5">
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h2 className="text-lg font-semibold">Calendar Filters</h2>
+                    <p className="mt-1 text-sm text-white/50">
+                      {selectedOfficeId === "all"
+                        ? "Showing all office rules."
+                        : getLeaveCountingRuleLabel(selectedOfficeName)}
+                    </p>
+                  </div>
+                  <div className="text-sm text-white/45">
+                    Approved {approvedCount} · Rejected {rejectedCount} · Closed rules{" "}
+                    {closedRulesCount} · Open rules {openRulesCount}
+                  </div>
+                </div>
+
+                <div className="mb-4 grid gap-3 md:grid-cols-2">
+                  <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                    <p className="text-sm font-semibold text-white">Requests by status</p>
+                    <div className="mt-3 space-y-1 text-sm text-white/65">
+                      {requestsByStatus.map((item) => (
+                        <p key={item.status} className="flex justify-between capitalize">
+                          <span>{item.status}</span>
+                          <span className="font-semibold text-white">{item.count}</span>
+                        </p>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                    <p className="text-sm font-semibold text-white">Requests by leave type</p>
+                    <div className="mt-3 space-y-1 text-sm text-white/65">
+                      {leaveTypeCounts.length === 0 ? (
+                        <p>No leave types created yet.</p>
+                      ) : (
+                        leaveTypeCounts.map((item) => (
+                          <p key={item.name} className="flex justify-between">
+                            <span>{item.name}</span>
+                            <span className="font-semibold text-white">{item.count}</span>
+                          </p>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+                  <label className="space-y-2">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-white/40">
+                      Office
+                    </span>
+                    <select
+                      value={selectedOfficeId}
+                      onChange={(event) => {
+                        setSelectedOfficeId(event.target.value);
+                        setEmployeeFilter("all");
+                      }}
+                      className="w-full rounded-xl border border-white/10 bg-black px-3 py-2 text-sm text-white outline-none focus:border-orange-400/70"
+                    >
+                      <option value="all">All Offices</option>
+                      {officeSelectOptions.map((office) => (
+                        <option key={office.id} value={office.id}>
+                          {office.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="space-y-2">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-white/40">
+                      Employee
+                    </span>
+                    <select
+                      value={employeeFilter}
+                      onChange={(event) => setEmployeeFilter(event.target.value)}
+                      className="w-full rounded-xl border border-white/10 bg-black px-3 py-2 text-sm text-white outline-none focus:border-orange-400/70"
+                    >
+                      <option value="all">All employees</option>
+                      {employeeOptions.map(([userId, label]) => (
+                        <option key={userId} value={userId}>
+                          {label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="space-y-2">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-white/40">
+                      Leave type
+                    </span>
+                    <select
+                      value={leaveTypeFilter}
+                      onChange={(event) => setLeaveTypeFilter(event.target.value)}
+                      className="w-full rounded-xl border border-white/10 bg-black px-3 py-2 text-sm text-white outline-none focus:border-orange-400/70"
+                    >
+                      <option value="all">All leave types</option>
+                      {leaveTypes.map((type) => (
+                        <option key={type.id} value={type.id}>
+                          {type.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="space-y-2">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-white/40">
+                      From
+                    </span>
+                    <input
+                      type="date"
+                      value={rangeStartFilter}
+                      onChange={(event) => setRangeStartFilter(event.target.value)}
+                      className="w-full rounded-xl border border-white/10 bg-black px-3 py-2 text-sm text-white outline-none focus:border-orange-400/70"
+                    />
+                  </label>
+
+                  <label className="space-y-2">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-white/40">
+                      To
+                    </span>
+                    <input
+                      type="date"
+                      value={rangeEndFilter}
+                      onChange={(event) => setRangeEndFilter(event.target.value)}
+                      className="w-full rounded-xl border border-white/10 bg-black px-3 py-2 text-sm text-white outline-none focus:border-orange-400/70"
+                    />
+                  </label>
+                </div>
+              </section>
+
+              {selectedOfficeId !== "all" && balanceEmployees.length === 0 ? (
+                <div className="mb-6 rounded-2xl border border-white/10 bg-black/30 px-4 py-6 text-white/55 sm:px-6">
+                  No workers found for this office.
+                </div>
+              ) : null}
 
               <section className="mb-6 rounded-2xl border border-white/10 bg-white/5 p-5">
                 <div className="mb-4 flex items-center gap-3">
@@ -491,11 +800,12 @@ export default function AdminLeavePage() {
                 </div>
 
                 <LeaveCalendar
-                  approvedLeaves={approvedLeaves}
+                  approvedLeaves={filteredCalendarLeaves}
                   rules={rules}
                   holidays={holidays}
                   canManage={true}
                   onMoveEvent={handleMoveApprovedLeave}
+                  officeFilter={selectedOfficeId === "all" ? "all" : selectedOfficeName}
                 />
               </section>
 
@@ -553,7 +863,9 @@ export default function AdminLeavePage() {
 
                   {filteredRequests.length === 0 ? (
                     <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-6 text-white/55 sm:px-6">
-                      No leave requests found for the selected filter.
+                      {selectedOfficeId === "all"
+                        ? "No leave requests found for the selected filter."
+                        : "No leave requests found for this office."}
                     </div>
                   ) : (
                     <LeaveRequestTable

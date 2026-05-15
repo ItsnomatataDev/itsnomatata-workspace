@@ -176,6 +176,7 @@ export type AdminDashboardStats = {
 export type LeaveRequestRow = {
   id: string;
   organization_id: string;
+  office_id?: string | null;
   user_id: string;
   leave_type_id: string | null;
   start_date: string;
@@ -201,10 +202,11 @@ export type LeaveRequestRow = {
   requester_email?: string | null;
   requester_department?: string | null;
   requester_role?: string | null;
+  requester_office_id?: string | null;
 };
 
 const ADMIN_LEAVE_REQUEST_SELECT =
-  "id, organization_id, user_id, leave_type_id, start_date, end_date, requested_days, request_department, request_role, office, reason, status, approved_by, approved_at, rejection_reason, balance_deducted_at, admin_notes, edited_by, edited_at, cancelled_at, cancelled_by, cancellation_reason, created_at";
+  "id, organization_id, office_id, user_id, leave_type_id, start_date, end_date, requested_days, request_department, request_role, office, reason, status, approved_by, approved_at, rejection_reason, balance_deducted_at, admin_notes, edited_by, edited_at, cancelled_at, cancelled_by, cancellation_reason, created_at";
 
 const LEGACY_ADMIN_LEAVE_REQUEST_SELECT =
   "id, organization_id, user_id, leave_type_id, start_date, end_date, requested_days, request_department, request_role, reason, status, approved_by, approved_at, rejection_reason, balance_deducted_at, created_at";
@@ -215,7 +217,9 @@ function isMissingLeaveLifecycleColumn(error: unknown) {
 
   return [
     "leave_requests.office",
+    "leave_requests.office_id",
     "column office",
+    "column office_id",
     "admin_notes",
     "edited_by",
     "edited_at",
@@ -230,6 +234,7 @@ function normalizeAdminLeaveRequest(
 ): LeaveRequestRow {
   return {
     ...(row as LeaveRequestRow),
+    office_id: row.office_id ?? null,
     office: row.office ?? row.request_department ?? null,
     admin_notes: row.admin_notes ?? null,
     edited_by: row.edited_by ?? null,
@@ -243,6 +248,7 @@ function normalizeAdminLeaveRequest(
 async function getLeaveRequestRows(params: {
   organizationId: string;
   limit?: number;
+  officeId?: string | null;
 }) {
   let query = supabase
     .from("leave_requests")
@@ -250,6 +256,7 @@ async function getLeaveRequestRows(params: {
     .eq("organization_id", params.organizationId)
     .order("created_at", { ascending: false });
 
+  if (params.officeId) query = query.eq("office_id", params.officeId);
   if (params.limit) query = query.limit(params.limit);
 
   const current = await query;
@@ -265,6 +272,19 @@ async function getLeaveRequestRows(params: {
     .select(LEGACY_ADMIN_LEAVE_REQUEST_SELECT)
     .eq("organization_id", params.organizationId)
     .order("created_at", { ascending: false });
+
+  if (params.officeId) {
+    const { data: officeProfiles, error: officeProfilesError } = await supabase
+      .from("profiles")
+      .select("id")
+      .eq("organization_id", params.organizationId)
+      .eq("office_id", params.officeId);
+
+    if (officeProfilesError) throw officeProfilesError;
+    const officeUserIds = (officeProfiles ?? []).map((item) => item.id);
+    if (officeUserIds.length === 0) return [];
+    legacyQuery = legacyQuery.in("user_id", officeUserIds);
+  }
 
   if (params.limit) legacyQuery = legacyQuery.limit(params.limit);
 
@@ -544,8 +564,11 @@ export async function getEmployeeTimeEntries(params: {
   return (data ?? []) as TimeEntryRow[];
 }
 
-export async function getLeaveRequests(organizationId: string) {
-  const requests = await getLeaveRequestRows({ organizationId });
+export async function getLeaveRequests(params: {
+  organizationId: string;
+  officeId?: string | null;
+}) {
+  const requests = await getLeaveRequestRows(params);
 
   const userIds = [
     ...new Set(requests.map((item) => item.user_id).filter(Boolean)),
@@ -555,7 +578,7 @@ export async function getLeaveRequests(organizationId: string) {
 
   const { data: profilesData, error: profilesError } = await supabase
     .from("profiles")
-    .select("id, full_name, email, department, primary_role")
+    .select("id, full_name, email, department, primary_role, office_id")
     .in("id", userIds);
 
   if (profilesError) throw profilesError;
@@ -574,6 +597,7 @@ export async function getLeaveRequests(organizationId: string) {
       requester_department:
         request.office ?? request.request_department ?? requester?.department ?? null,
       requester_role: request.request_role ?? requester?.primary_role ?? null,
+      requester_office_id: request.office_id ?? requester?.office_id ?? null,
     };
   });
 }

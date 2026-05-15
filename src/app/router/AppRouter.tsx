@@ -239,6 +239,19 @@ const AppRouter = () => {
         />
 
         <Route
+          path="/fleet/service"
+          element={
+            <ProtectedRoute>
+              <RoleRoute roles={["admin", "org_admin", "manager", "it"]}>
+                <FeatureRoute feature="fleet">
+                  <FleetDashboardPage />
+                </FeatureRoute>
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
           path="/time"
           element={
             <ProtectedRoute>

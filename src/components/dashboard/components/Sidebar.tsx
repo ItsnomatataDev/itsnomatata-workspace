@@ -31,6 +31,7 @@ import {
   FileText,
   Camera,
   Truck,
+  Wrench,
 } from "lucide-react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { signOutUser } from "../../../lib/supabase/auth";
@@ -193,6 +194,7 @@ function getRoleNav(role?: string | null, counts?: SidebarCounts): NavItem[] {
             { to: "/fleet", label: "Fleet", icon: Truck, featureKey: "fleet" },
             { to: "/fleet/imports", label: "Fleet Imports", icon: ClipboardList, featureKey: "fleet" },
             { to: "/fleet/fuel-purchases", label: "Fuel Purchases", icon: Timer, featureKey: "fleet" },
+            { to: "/fleet/service", label: "Fleet Service", icon: Wrench, featureKey: "fleet" },
           ],
         },
         { to: "/automations", label: "Automations", icon: Sparkles, featureKey: "automation" },
@@ -221,6 +223,7 @@ return [
 { to: "/fleet", label: "Fleet", icon: Truck, featureKey: "fleet" },
 { to: "/fleet/imports", label: "Fleet Imports", icon: ClipboardList, featureKey: "fleet" },
 { to: "/fleet/fuel-purchases", label: "Fuel Purchases", icon: Timer, featureKey: "fleet" },
+{ to: "/fleet/service", label: "Fleet Service", icon: Wrench, featureKey: "fleet" },
 ],
 },
 { to: "/ai-automation-review", label: "AI Automation Review", icon: Bot, featureKey: "automation" },
@@ -256,6 +259,7 @@ return [
             { to: "/fleet", label: "Fleet", icon: Truck, featureKey: "fleet" },
             { to: "/fleet/imports", label: "Fleet Imports", icon: ClipboardList, featureKey: "fleet" },
             { to: "/fleet/fuel-purchases", label: "Fuel Purchases", icon: Timer, featureKey: "fleet" },
+            { to: "/fleet/service", label: "Fleet Service", icon: Wrench, featureKey: "fleet" },
           ],
         },
         {

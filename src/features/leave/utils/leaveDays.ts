@@ -1,7 +1,7 @@
 import { supabase } from "../../../lib/supabase/client";
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
-export const LEAVE_OFFICES = ["IT's Nomatata", "Three Little Birds"] as const;
+export const LEAVE_OFFICES = ["IT's No Matata", "Three Little Birds"] as const;
 export type LeaveOffice = (typeof LEAVE_OFFICES)[number];
 
 function parseDateOnly(value: string) {
@@ -17,7 +17,7 @@ export function normalizeLeaveOffice(office?: string | null): LeaveOffice {
 
   if (normalized === "three little birds") return "Three Little Birds";
 
-  return "IT's Nomatata";
+  return "IT's No Matata";
 }
 
 export function isWeekend(date: Date) {
@@ -139,5 +139,5 @@ export function formatLeaveDaysLabel(days: number) {
 export function getLeaveCountingRuleLabel(office?: string | null) {
   return normalizeLeaveOffice(office) === "Three Little Birds"
     ? "Three Little Birds counts every calendar day, including weekends and Zimbabwe public holidays."
-    : "IT's Nomatata excludes Saturdays, Sundays, and Zimbabwe public holidays.";
+    : "IT's No Matata excludes Saturdays, Sundays, and Zimbabwe public holidays.";
 }

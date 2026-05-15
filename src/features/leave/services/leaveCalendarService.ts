@@ -18,6 +18,7 @@ export type LeaveCalendarRuleRow = {
 export type LeaveCalendarEventRow = {
   id: string;
   organization_id: string;
+  office_id?: string | null;
   user_id: string;
   leave_type_id: string | null;
   leave_type_name?: string | null;
@@ -37,10 +38,11 @@ export type LeaveCalendarEventRow = {
   requester_email?: string | null;
   requester_role?: string | null;
   requester_department?: string | null;
+  requester_office_id?: string | null;
 };
 
 const LEAVE_CALENDAR_EVENT_SELECT =
-  "id, organization_id, user_id, leave_type_id, start_date, end_date, requested_days, request_role, request_department, office, reason, status, approved_by, approved_at, rejection_reason, created_at";
+  "id, organization_id, office_id, user_id, leave_type_id, start_date, end_date, requested_days, request_role, request_department, office, reason, status, approved_by, approved_at, rejection_reason, created_at";
 
 const LEGACY_LEAVE_CALENDAR_EVENT_SELECT =
   "id, organization_id, user_id, leave_type_id, start_date, end_date, requested_days, request_role, request_department, reason, status, approved_by, approved_at, rejection_reason, created_at";
@@ -51,7 +53,9 @@ function isMissingLeaveOfficeColumn(error: unknown) {
   ).toLowerCase();
 
   return message.includes("leave_requests.office") ||
+    message.includes("leave_requests.office_id") ||
     message.includes("column office") ||
+    message.includes("column office_id") ||
     message.includes("'office'");
 }
 
@@ -60,6 +64,7 @@ function normalizeLeaveCalendarEvent(
 ): LeaveCalendarEventRow {
   return {
     ...(row as LeaveCalendarEventRow),
+    office_id: row.office_id ?? null,
     office: row.office ?? row.request_department ?? null,
   };
 }
@@ -158,24 +163,52 @@ export async function deleteLeaveCalendarRule(ruleId: string) {
   if (error) throw error;
 }
 
-export async function getApprovedLeaveCalendarEvents(organizationId: string) {
-  let result = await supabase
+export async function getApprovedLeaveCalendarEvents(
+  params:
+    | string
+    | {
+        organizationId: string;
+        officeId?: string | null;
+      },
+) {
+  const options =
+    typeof params === "string" ? { organizationId: params, officeId: null } : params;
+  let query = supabase
     .from("leave_requests")
     .select(LEAVE_CALENDAR_EVENT_SELECT)
-    .eq("organization_id", organizationId)
-    .in("status", ["pending", "approved"])
-    .order("start_date", { ascending: true }) as {
+    .eq("organization_id", options.organizationId)
+    .in("status", ["pending", "approved", "rejected"])
+    .order("start_date", { ascending: true });
+
+  if (options.officeId) query = query.eq("office_id", options.officeId);
+
+  let result = await query as {
       data: Partial<LeaveCalendarEventRow>[] | null;
       error: unknown | null;
     };
 
   if (result.error && isMissingLeaveOfficeColumn(result.error)) {
-    result = await supabase
+    let legacyQuery = supabase
       .from("leave_requests")
       .select(LEGACY_LEAVE_CALENDAR_EVENT_SELECT)
-      .eq("organization_id", organizationId)
-      .in("status", ["pending", "approved"])
-      .order("start_date", { ascending: true }) as {
+      .eq("organization_id", options.organizationId)
+      .in("status", ["pending", "approved", "rejected"])
+      .order("start_date", { ascending: true });
+
+    if (options.officeId) {
+      const { data: officeProfiles, error: officeProfilesError } = await supabase
+        .from("profiles")
+        .select("id")
+        .eq("organization_id", options.organizationId)
+        .eq("office_id", options.officeId);
+
+      if (officeProfilesError) throw officeProfilesError;
+      const officeUserIds = (officeProfiles ?? []).map((item) => item.id);
+      if (officeUserIds.length === 0) return [];
+      legacyQuery = legacyQuery.in("user_id", officeUserIds);
+    }
+
+    result = await legacyQuery as {
         data: Partial<LeaveCalendarEventRow>[] | null;
         error: unknown | null;
       };
@@ -185,7 +218,9 @@ export async function getApprovedLeaveCalendarEvents(organizationId: string) {
 
   const rows = (result.data ?? [])
     .map(normalizeLeaveCalendarEvent)
-    .filter((row) => row.status === "approved" || row.status === "pending");
+    .filter((row) =>
+      ["approved", "pending", "rejected"].includes(row.status),
+    );
   const userIds = [...new Set(rows.map((item) => item.user_id))];
   const leaveTypeIds = [
     ...new Set(rows.map((item) => item.leave_type_id).filter(Boolean)),
@@ -197,7 +232,7 @@ export async function getApprovedLeaveCalendarEvents(organizationId: string) {
     userIds.length > 0
       ? supabase
           .from("profiles")
-          .select("id, full_name, email, primary_role, department")
+          .select("id, full_name, email, primary_role, department, office_id")
           .in("id", userIds)
       : Promise.resolve({ data: [], error: null }),
     leaveTypeIds.length > 0
@@ -230,6 +265,7 @@ export async function getApprovedLeaveCalendarEvents(organizationId: string) {
       requester_email: profile?.email ?? null,
       requester_role: row.request_role ?? profile?.primary_role ?? null,
       requester_department: row.office ?? row.request_department ?? profile?.department ?? null,
+      requester_office_id: row.office_id ?? profile?.office_id ?? null,
       leave_type_name: row.leave_type_id
         ? leaveTypeMap.get(row.leave_type_id) ?? null
         : null,

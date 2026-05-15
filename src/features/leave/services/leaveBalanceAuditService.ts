@@ -3,6 +3,7 @@ import { supabase } from "../../../lib/supabase/client";
 export type LeaveBalanceAuditRow = {
   id: string;
   organization_id: string;
+  office_id?: string | null;
   user_id: string;
   modified_by: string;
   previous_total: number;
@@ -15,6 +16,7 @@ export type LeaveBalanceAuditRow = {
 
 export type LeaveBalanceEmployeeRow = {
   id: string;
+  office_id?: string | null;
   full_name: string | null;
   email: string | null;
   primary_role: string | null;
@@ -36,11 +38,13 @@ export async function recordBalanceChange(params: {
   previousRemaining: number;
   newRemaining: number;
   reason: string;
+  officeId?: string | null;
 }) {
   const { data, error } = await supabase
     .from("leave_balance_audit")
     .insert({
       organization_id: params.organizationId,
+      office_id: params.officeId ?? null,
       user_id: params.userId,
       modified_by: params.modifiedBy,
       previous_total: params.previousTotal,
@@ -56,13 +60,20 @@ export async function recordBalanceChange(params: {
   return data as LeaveBalanceAuditRow;
 }
 
-export async function getLeaveBalanceEmployees(organizationId: string) {
-  const { data, error } = await supabase
+export async function getLeaveBalanceEmployees(params: {
+  organizationId: string;
+  officeId?: string | null;
+}) {
+  let query = supabase
     .from("profiles")
-    .select("id, full_name, email, primary_role, leave_days_total, leave_days_remaining")
-    .eq("organization_id", organizationId)
+    .select("id, office_id, full_name, email, primary_role, leave_days_total, leave_days_remaining")
+    .eq("organization_id", params.organizationId)
     .is("deleted_at", null)
     .order("full_name", { ascending: true });
+
+  if (params.officeId) query = query.eq("office_id", params.officeId);
+
+  const { data, error } = await query;
 
   if (error) throw error;
 
@@ -70,6 +81,7 @@ export async function getLeaveBalanceEmployees(organizationId: string) {
     const total = Number(employee.leave_days_total ?? 22);
     return {
       id: employee.id,
+      office_id: employee.office_id ?? null,
       full_name: employee.full_name ?? null,
       email: employee.email ?? null,
       primary_role: employee.primary_role ?? null,
@@ -81,9 +93,10 @@ export async function getLeaveBalanceEmployees(organizationId: string) {
 
 export async function getRecentBalanceHistory(params: {
   organizationId: string;
+  officeId?: string | null;
   limit?: number;
 }) {
-  const { data, error } = await supabase
+  let query = supabase
     .from("leave_balance_audit")
     .select(`
       *,
@@ -99,6 +112,10 @@ export async function getRecentBalanceHistory(params: {
     .eq("organization_id", params.organizationId)
     .order("created_at", { ascending: false })
     .limit(params.limit || 8);
+
+  if (params.officeId) query = query.eq("office_id", params.officeId);
+
+  const { data, error } = await query;
 
   if (error) throw error;
   return (data ?? []) as LeaveBalanceAuditHistoryRow[];

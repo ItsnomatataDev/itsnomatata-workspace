@@ -23,6 +23,10 @@ import type {
   LeaveCalendarEventRow,
   LeaveCalendarRuleRow,
 } from "../services/leaveCalendarService";
+import {
+  getLeaveCountingRuleLabel,
+  normalizeLeaveOffice,
+} from "../utils/leaveDays";
 
 export type PublicHolidayRow = {
   id: string;
@@ -114,6 +118,7 @@ export default function LeaveCalendar({
   onManageLeave,
   onManageRule,
   onMoveEvent,
+  officeFilter = "all",
 }: {
   approvedLeaves: LeaveCalendarEventRow[];
   rules: LeaveCalendarRuleRow[];
@@ -124,6 +129,7 @@ export default function LeaveCalendar({
   onManageLeave?: (event: LeaveCalendarEvent) => void;
   onManageRule?: (event: LeaveCalendarEvent) => void;
   onMoveEvent?: (params: { eventId: string; start: Date; end: Date }) => void;
+  officeFilter?: "all" | string;
 }) {
   const [selectedEvent, setSelectedEvent] = useState<LeaveCalendarEvent | null>(
     null,
@@ -137,8 +143,8 @@ export default function LeaveCalendar({
   const [movingLeave, setMovingLeave] = useState(false);
 
   const events = useMemo<LeaveCalendarEvent[]>(() => {
-    const calendarLeaves = approvedLeaves.filter(
-      (item) => item.status === "approved" || item.status === "pending",
+    const calendarLeaves = approvedLeaves.filter((item) =>
+      ["approved", "pending", "rejected"].includes(item.status),
     );
 
     const leaveEvents: LeaveCalendarEvent[] = calendarLeaves.map((item) => ({
@@ -173,6 +179,14 @@ export default function LeaveCalendar({
 
     return [...leaveEvents, ...ruleEvents, ...holidayEvents];
   }, [approvedLeaves, rules, holidays]);
+
+  const holidayDateSet = useMemo(
+    () => new Set((holidays ?? []).map((holiday) => holiday.date)),
+    [holidays],
+  );
+
+  const normalizedOffice =
+    officeFilter === "all" ? "all" : normalizeLeaveOffice(officeFilter);
 
   const visibleLeaveCount = useMemo(() => {
     if (currentView === Views.DAY) {
@@ -274,8 +288,16 @@ export default function LeaveCalendar({
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-3 text-sm text-white/80">
           <div className="flex items-center gap-2">
-            <span className="inline-block h-3 w-3 rounded-full bg-orange-600" />
+            <span className="inline-block h-3 w-3 rounded-full bg-green-600" />
             <span>Approved leave</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="inline-block h-3 w-3 rounded-full bg-orange-600" />
+            <span>Pending leave</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="inline-block h-3 w-3 rounded-full bg-red-600" />
+            <span>Rejected leave</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="inline-block h-3 w-3 rounded-full bg-red-900" />
@@ -342,6 +364,12 @@ export default function LeaveCalendar({
         </div>
       </div>
 
+      <div className="mb-4 rounded-2xl border border-orange-500/20 bg-orange-500/10 p-4 text-sm text-orange-100/85">
+        {officeFilter === "all"
+          ? "All offices are visible. Select one office to inspect its leave-day counting rules."
+          : getLeaveCountingRuleLabel(officeFilter)}
+      </div>
+
       <div className="h-175 overflow-hidden rounded-2xl bg-white p-4 text-black">
         <Calendar
           localizer={localizer}
@@ -393,6 +421,8 @@ export default function LeaveCalendar({
                 backgroundColor:
                   leave.status === "approved"
                     ? "#16a34a"
+                    : leave.status === "rejected"
+                      ? "#dc2626"
                     : "#ea580c",
                 color: "white",
                 borderRadius: "8px",
@@ -403,11 +433,17 @@ export default function LeaveCalendar({
           }}
           dayPropGetter={(date) => {
             const isWeekend = date.getDay() === 0 || date.getDay() === 6;
-            if (!isWeekend) return {};
+            const dateKey = format(date, "yyyy-MM-dd");
+            const isHoliday = holidayDateSet.has(dateKey);
+
+            if (normalizedOffice === "Three Little Birds") return {};
+            if (!isWeekend && !isHoliday) return {};
 
             return {
               style: {
-                backgroundColor: "rgba(251, 191, 36, 0.12)",
+                backgroundColor: isHoliday
+                  ? "rgba(147, 51, 234, 0.12)"
+                  : "rgba(251, 191, 36, 0.12)",
               },
             };
           }}
