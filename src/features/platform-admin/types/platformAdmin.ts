@@ -27,18 +27,34 @@ export type OrganizationBranding = {
   id: string;
   organization_id: string;
   brand_name: string | null;
+  app_name?: string | null;
   logo_url: string | null;
   favicon_url: string | null;
   login_background_url: string | null;
   primary_color: string | null;
   secondary_color: string | null;
   accent_color: string | null;
+  background_color?: string | null;
+  card_color?: string | null;
+  sidebar_color?: string | null;
+  topbar_color?: string | null;
+  text_color?: string | null;
+  muted_text_color?: string | null;
+  border_color?: string | null;
+  button_color?: string | null;
+  button_text_color?: string | null;
+  button_hover_color?: string | null;
+  link_color?: string | null;
+  link_hover_color?: string | null;
+  input_focus_color?: string | null;
   company_slogan: string | null;
   company_welcome_text: string | null;
   dashboard_greeting_text: string | null;
   custom_terminology: Record<string, unknown>;
   invitation_template: string | null;
   onboarding_wording: Record<string, unknown>;
+  custom_css?: Record<string, unknown>;
+  is_active?: boolean;
   custom_domain: string | null;
   subdomain: string | null;
   domain_status?: "pending" | "verified" | "active" | "failed" | null;
@@ -47,6 +63,30 @@ export type OrganizationBranding = {
   domain_error?: string | null;
   created_at?: string;
   updated_at?: string;
+};
+
+export type OrganizationDomain = {
+  id: string;
+  organization_id: string;
+  domain: string;
+  domain_type: "subdomain" | "custom_domain";
+  status: "pending" | "dns_pending" | "verified" | "connected" | "failed" | "disabled";
+  cname_host: string;
+  cname_fqdn?: string | null;
+  cname_target: string;
+  txt_host: string;
+  txt_fqdn?: string | null;
+  txt_value: string;
+  verified_at: string | null;
+  connected_at: string | null;
+  last_checked_at: string | null;
+  last_error: string | null;
+  ssl_status: "pending" | "issuing" | "active" | "failed";
+  provider: string;
+  provider_domain_id: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
 };
 
 export type OrganizationSubscription = {

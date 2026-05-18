@@ -535,16 +535,30 @@ export default function Sidebar({
                 [
                   "flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition-all",
                   isActive
-                    ? "bg-orange-500 text-white shadow-md shadow-orange-500/20"
+                    ? "text-white shadow-md"
                     : "text-white/70 hover:bg-white/5 hover:text-white",
                 ].join(" ")
+              }
+              style={({ isActive }) =>
+                isActive
+                  ? {
+                      backgroundColor: "var(--org-button)",
+                      boxShadow: "0 10px 24px color-mix(in srgb, var(--org-button) 20%, transparent)",
+                    }
+                  : undefined
               }
             >
               <Icon size={18} />
               <span className="flex-1">{link.label}</span>
 
               {typeof link.badge === "number" && link.badge > 0 ? (
-                <span className="rounded-full bg-orange-500 px-2 py-0.5 text-xs font-semibold text-white">
+                <span
+                  className="rounded-full px-2 py-0.5 text-xs font-semibold"
+                  style={{
+                    backgroundColor: "var(--org-button)",
+                    color: "var(--org-button-text)",
+                  }}
+                >
                   {link.badge}
                 </span>
               ) : null}
@@ -569,7 +583,7 @@ export default function Sidebar({
   return (
     <>
       {/* Mobile top bar */}
-      <div className="sticky top-0 z-40 flex h-16 items-center justify-between border-b border-white/10 bg-black px-4 lg:hidden">
+      <div className="sticky top-0 z-40 flex h-16 items-center justify-between border-b border-white/10 px-4 lg:hidden" style={{ backgroundColor: "var(--org-topbar)" }}>
         <button
           type="button"
           onClick={() => setMobileOpen(true)}
@@ -591,8 +605,8 @@ export default function Sidebar({
 
       {/* Desktop fixed sidebar */}
       <aside
-        className="fixed left-0 top-0 z-40 hidden h-screen w-72 flex-col border-r border-white/10 bg-black lg:flex"
-        style={{ borderRightColor: `${accentColor}33` }}
+        className="fixed left-0 top-0 z-40 hidden h-screen w-72 flex-col border-r border-white/10 lg:flex"
+        style={{ backgroundColor: "var(--org-sidebar)", borderRightColor: `${accentColor}33` }}
       >
         {sidebarContent}
       </aside>
@@ -608,8 +622,8 @@ export default function Sidebar({
           />
 
           <aside
-            className="absolute left-0 top-0 flex h-full w-72 max-w-[85vw] flex-col border-r border-white/10 bg-black shadow-2xl"
-            style={{ borderRightColor: `${accentColor}33` }}
+            className="absolute left-0 top-0 flex h-full w-72 max-w-[85vw] flex-col border-r border-white/10 shadow-2xl"
+            style={{ backgroundColor: "var(--org-sidebar)", borderRightColor: `${accentColor}33` }}
           >
             {sidebarContent}
           </aside>

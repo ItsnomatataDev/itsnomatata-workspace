@@ -1,9 +1,23 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { MailPlus, Palette, ShieldCheck, ToggleLeft, Users } from "lucide-react";
+import {
+  Copy,
+  Globe2,
+  Image,
+  Link2,
+  MailPlus,
+  Palette,
+  RefreshCw,
+  ShieldCheck,
+  ToggleLeft,
+  Trash2,
+  Upload,
+  Users,
+} from "lucide-react";
 import Sidebar from "../../../components/dashboard/components/Sidebar";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import { useOrganizationBranding } from "../../../app/providers/OrganizationBrandingProvider";
 import { useOrganizationFeatures } from "../../../lib/hooks/useOrganizationFeatures";
+import { supabase } from "../../../lib/supabase/client";
 import RoleManagementTable from "../../platform-admin/components/RoleManagementTable";
 import {
   createOrganizationInvitation,
@@ -15,8 +29,17 @@ import {
   updateOrganizationRole,
   updateOrganizationBranding,
 } from "../../platform-admin/services/platformAdminService";
+import {
+  connectOrganizationDomainToProvider,
+  createOrganizationDomain,
+  deleteOrganizationDomain,
+  getOrganizationDomains,
+  refreshOrganizationDomainProvider,
+  verifyOrganizationDomainDns,
+} from "../services/organizationDomainService";
 import type {
   OrganizationBranding,
+  OrganizationDomain,
   OrganizationFeature,
   OrganizationInvitation,
   OrganizationRole,
@@ -25,12 +48,50 @@ import type {
 type BrandingValues = Partial<OrganizationBranding>;
 
 const defaultBranding: BrandingValues = {
+  background_color: "#020202",
+  card_color: "#070707",
+  sidebar_color: "#020202",
+  topbar_color: "#020202",
+  text_color: "#ffffff",
+  muted_text_color: "#a3a3a3",
+  border_color: "#1f1f1f",
+  button_color: "#f97316",
+  button_text_color: "#ffffff",
+  button_hover_color: "#ea580c",
+  link_color: "#fb923c",
+  link_hover_color: "#fdba74",
+  input_focus_color: "#f97316",
   primary_color: "#000000",
   secondary_color: "#ffffff",
   accent_color: "#f97316",
   custom_terminology: {},
   onboarding_wording: {},
 };
+
+type SettingsTab = "general" | "branding" | "domains" | "roles" | "features";
+
+const colorFields: Array<{
+  key: keyof OrganizationBranding;
+  label: string;
+  fallback: string;
+}> = [
+  { key: "primary_color", label: "Primary", fallback: "#000000" },
+  { key: "secondary_color", label: "Secondary", fallback: "#ffffff" },
+  { key: "accent_color", label: "Accent", fallback: "#f97316" },
+  { key: "background_color", label: "Background", fallback: "#020202" },
+  { key: "card_color", label: "Card", fallback: "#070707" },
+  { key: "sidebar_color", label: "Sidebar", fallback: "#020202" },
+  { key: "topbar_color", label: "Topbar", fallback: "#020202" },
+  { key: "text_color", label: "Text", fallback: "#ffffff" },
+  { key: "muted_text_color", label: "Muted text", fallback: "#a3a3a3" },
+  { key: "border_color", label: "Border", fallback: "#1f1f1f" },
+  { key: "button_color", label: "Button", fallback: "#f97316" },
+  { key: "button_text_color", label: "Button text", fallback: "#ffffff" },
+  { key: "button_hover_color", label: "Button hover", fallback: "#ea580c" },
+  { key: "link_color", label: "Link", fallback: "#fb923c" },
+  { key: "link_hover_color", label: "Link hover", fallback: "#fdba74" },
+  { key: "input_focus_color", label: "Input focus", fallback: "#f97316" },
+];
 
 function canManageOrganization(role?: string | null) {
   return ["admin", "org_admin", "super_admin", "superadmin", "it-superadmin"].includes(
@@ -50,6 +111,57 @@ function getErrorMessage(error: unknown, fallback: string) {
   return fallback;
 }
 
+function DnsRecord({
+  label,
+  name,
+  fqdn,
+  value,
+}: {
+  label: string;
+  name: string;
+  fqdn?: string | null;
+  value: string;
+}) {
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-orange-300">
+        {label}
+      </p>
+      <div className="mt-3 space-y-2 text-xs">
+        <div>
+          <p className="text-white/35">Name / Host</p>
+          <button
+            type="button"
+            onClick={() => void navigator.clipboard.writeText(name)}
+            className="mt-1 w-full rounded-lg bg-black px-3 py-2 text-left text-white/80 hover:bg-white/5"
+          >
+            {name}
+          </button>
+          {fqdn && fqdn !== name ? (
+            <button
+              type="button"
+              onClick={() => void navigator.clipboard.writeText(fqdn)}
+              className="mt-2 w-full break-all rounded-lg bg-black/60 px-3 py-2 text-left text-white/55 hover:bg-white/5"
+            >
+              FQDN: {fqdn}
+            </button>
+          ) : null}
+        </div>
+        <div>
+          <p className="text-white/35">Target / Value</p>
+          <button
+            type="button"
+            onClick={() => void navigator.clipboard.writeText(value)}
+            className="mt-1 w-full break-all rounded-lg bg-black px-3 py-2 text-left text-white/80 hover:bg-white/5"
+          >
+            {value}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function OrganizationSettingsPage() {
   const auth = useAuth();
   const { refreshBranding } = useOrganizationBranding();
@@ -65,12 +177,18 @@ export default function OrganizationSettingsPage() {
   const [features, setFeatures] = useState<OrganizationFeature[]>([]);
   const [roles, setRoles] = useState<OrganizationRole[]>([]);
   const [invitations, setInvitations] = useState<OrganizationInvitation[]>([]);
+  const [domains, setDomains] = useState<OrganizationDomain[]>([]);
+  const [activeTab, setActiveTab] = useState<SettingsTab>("branding");
+  const [newDomain, setNewDomain] = useState("");
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState("user");
   const [loading, setLoading] = useState(true);
   const [savingBranding, setSavingBranding] = useState(false);
   const [savingRole, setSavingRole] = useState(false);
   const [inviting, setInviting] = useState(false);
+  const [domainBusyId, setDomainBusyId] = useState<string | null>(null);
+  const [addingDomain, setAddingDomain] = useState(false);
+  const [uploadingAsset, setUploadingAsset] = useState<"logo" | "favicon" | null>(null);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
@@ -81,17 +199,22 @@ export default function OrganizationSettingsPage() {
       setLoading(true);
       setError("");
 
-      const [brandingData, featureData, roleData, inviteData] = await Promise.all([
+      const [brandingData, featureData, roleData, inviteData, domainData] = await Promise.all([
         getOrganizationBranding(organizationId),
         getOrganizationFeatures(organizationId),
         getOrganizationRoles(organizationId),
         getOrganizationInvitations(organizationId),
+        getOrganizationDomains(organizationId).catch((domainError) => {
+          console.warn("ORGANIZATION DOMAINS LOAD ERROR:", domainError);
+          return [] as OrganizationDomain[];
+        }),
       ]);
 
       setBranding({ ...defaultBranding, ...(brandingData ?? {}) });
       setFeatures(featureData);
       setRoles(roleData);
       setInvitations(inviteData);
+      setDomains(domainData);
     } catch (err) {
       console.error("LOAD ORGANIZATION SETTINGS ERROR:", err);
       setError(err instanceof Error ? err.message : "Failed to load organization settings.");
@@ -115,13 +238,20 @@ export default function OrganizationSettingsPage() {
     const currentRoleExists = activeRoles.some(
       (role) => role.role_key === inviteRole,
     );
+    const adminRole = activeRoles.find((role) => role.role_key === "admin");
+
+    if (invitations.length === 0 && adminRole && inviteRole !== adminRole.role_key) {
+      setInviteRole(adminRole.role_key);
+      return;
+    }
+
     if (!currentRoleExists) {
       const defaultRole =
         activeRoles.find((role) => role.is_default_signup_role) ??
         activeRoles[0];
       setInviteRole(defaultRole.role_key);
     }
-  }, [activeRoles, inviteRole]);
+  }, [activeRoles, invitations.length, inviteRole]);
 
   async function handleSaveBranding() {
     if (!organizationId) return;
@@ -134,10 +264,25 @@ export default function OrganizationSettingsPage() {
       const saved = await updateOrganizationBranding({
         organizationId,
         brandName: branding.brand_name ?? organization?.name ?? null,
+        appName: branding.app_name ?? branding.brand_name ?? organization?.name ?? null,
         logoUrl: branding.logo_url ?? null,
+        faviconUrl: branding.favicon_url ?? null,
         primaryColor: branding.primary_color ?? "#000000",
         secondaryColor: branding.secondary_color ?? "#ffffff",
         accentColor: branding.accent_color ?? "#f97316",
+        backgroundColor: branding.background_color ?? "#020202",
+        cardColor: branding.card_color ?? "#070707",
+        sidebarColor: branding.sidebar_color ?? "#020202",
+        topbarColor: branding.topbar_color ?? "#020202",
+        textColor: branding.text_color ?? "#ffffff",
+        mutedTextColor: branding.muted_text_color ?? "#a3a3a3",
+        borderColor: branding.border_color ?? "#1f1f1f",
+        buttonColor: branding.button_color ?? "#f97316",
+        buttonTextColor: branding.button_text_color ?? "#ffffff",
+        buttonHoverColor: branding.button_hover_color ?? "#ea580c",
+        linkColor: branding.link_color ?? "#fb923c",
+        linkHoverColor: branding.link_hover_color ?? "#fdba74",
+        inputFocusColor: branding.input_focus_color ?? "#f97316",
         companySlogan: branding.company_slogan ?? null,
         companyWelcomeText: branding.company_welcome_text ?? null,
         dashboardGreetingText: branding.dashboard_greeting_text ?? null,
@@ -146,7 +291,7 @@ export default function OrganizationSettingsPage() {
         onboardingWording: branding.onboarding_wording ?? {},
         customDomain: branding.custom_domain ?? null,
         subdomain: branding.subdomain ?? null,
-        dnsTarget: branding.dns_target ?? "cname.itsnomatata.com",
+        dnsTarget: branding.dns_target ?? "cname.vercel-dns.com",
         domainError: branding.domain_error ?? null,
       });
 
@@ -157,6 +302,141 @@ export default function OrganizationSettingsPage() {
       setError(getErrorMessage(err, "Failed to save branding."));
     } finally {
       setSavingBranding(false);
+    }
+  }
+
+  async function handleUploadBrandingAsset(
+    kind: "logo" | "favicon",
+    file: File | null,
+  ) {
+    if (!organizationId || !file) return;
+
+    const allowed =
+      kind === "logo"
+        ? ["image/png", "image/jpeg", "image/webp", "image/svg+xml"]
+        : ["image/png", "image/x-icon", "image/vnd.microsoft.icon", "image/svg+xml"];
+    if (!allowed.includes(file.type)) {
+      setError(kind === "logo" ? "Logo must be png, jpg, webp, or svg." : "Favicon must be ico, png, or svg.");
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      setError("Branding assets must be smaller than 2MB.");
+      return;
+    }
+
+    try {
+      setUploadingAsset(kind);
+      setError("");
+      setSuccess("");
+      const extension = file.name.split(".").pop() || (kind === "favicon" ? "png" : "webp");
+      const path = `${organizationId}/${kind}/${Date.now()}-${crypto.randomUUID()}.${extension}`;
+      const { error: uploadError } = await supabase.storage
+        .from("organization-branding")
+        .upload(path, file, {
+          upsert: false,
+          contentType: file.type,
+          cacheControl: "3600",
+        });
+      if (uploadError) throw uploadError;
+
+      const { data } = supabase.storage
+        .from("organization-branding")
+        .getPublicUrl(path);
+      setBranding((current) => ({
+        ...current,
+        [kind === "logo" ? "logo_url" : "favicon_url"]: data.publicUrl,
+      }));
+      setSuccess(`${kind === "logo" ? "Logo" : "Favicon"} uploaded. Save branding to apply it.`);
+    } catch (err) {
+      setError(getErrorMessage(err, `Failed to upload ${kind}.`));
+    } finally {
+      setUploadingAsset(null);
+    }
+  }
+
+  async function handleAddDomain() {
+    if (!organizationId || !newDomain.trim()) return;
+
+    try {
+      setAddingDomain(true);
+      setError("");
+      setSuccess("");
+      const created = await createOrganizationDomain({
+        organizationId,
+        domain: newDomain,
+      });
+      setDomains((current) => [created, ...current]);
+      setNewDomain("");
+      setSuccess("Domain added. Add the DNS records below, then check verification.");
+    } catch (err) {
+      setError(getErrorMessage(err, "Failed to add domain."));
+    } finally {
+      setAddingDomain(false);
+    }
+  }
+
+  async function handleVerifyDomain(domain: OrganizationDomain) {
+    try {
+      setDomainBusyId(domain.id);
+      setError("");
+      setSuccess("");
+      const result = await verifyOrganizationDomainDns(domain.id);
+      if (!result.ok) throw new Error(result.error || "DNS verification failed.");
+      setDomains(await getOrganizationDomains(organizationId!));
+      setSuccess("DNS verified. You can now connect the provider.");
+    } catch (err) {
+      setDomains(await getOrganizationDomains(organizationId!));
+      setError(getErrorMessage(err, "Failed to verify DNS."));
+    } finally {
+      setDomainBusyId(null);
+    }
+  }
+
+  async function handleConnectDomain(domain: OrganizationDomain) {
+    try {
+      setDomainBusyId(domain.id);
+      setError("");
+      setSuccess("");
+      const result = await connectOrganizationDomainToProvider(domain.id);
+      setDomains(await getOrganizationDomains(organizationId!));
+      if (!result.ok) throw new Error(result.error || "Provider connection failed.");
+      setSuccess("Domain connected to provider.");
+    } catch (err) {
+      setError(getErrorMessage(err, "Failed to connect provider."));
+    } finally {
+      setDomainBusyId(null);
+    }
+  }
+
+  async function handleRefreshProvider(domain: OrganizationDomain) {
+    try {
+      setDomainBusyId(domain.id);
+      setError("");
+      setSuccess("");
+      const result = await refreshOrganizationDomainProvider(domain.id);
+      setDomains(await getOrganizationDomains(organizationId!));
+      if (!result.ok) throw new Error(result.error || "Provider refresh failed.");
+      setSuccess("Provider status refreshed.");
+    } catch (err) {
+      setError(getErrorMessage(err, "Failed to refresh provider."));
+    } finally {
+      setDomainBusyId(null);
+    }
+  }
+
+  async function handleDeleteDomain(domain: OrganizationDomain) {
+    if (!window.confirm(`Remove ${domain.domain}?`)) return;
+    try {
+      setDomainBusyId(domain.id);
+      setError("");
+      setSuccess("");
+      await deleteOrganizationDomain(domain.id);
+      setDomains((current) => current.filter((item) => item.id !== domain.id));
+      setSuccess("Domain removed.");
+    } catch (err) {
+      setError(getErrorMessage(err, "Failed to remove domain."));
+    } finally {
+      setDomainBusyId(null);
     }
   }
 
@@ -326,16 +606,59 @@ export default function OrganizationSettingsPage() {
             </div>
           ) : null}
 
+          <div className="flex flex-wrap gap-2 rounded-2xl border border-white/10 bg-white/5 p-2">
+            {[
+              ["general", "General"],
+              ["branding", "Branding"],
+              ["domains", "Domains"],
+              ["roles", "Roles"],
+              ["features", "Features"],
+            ].map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setActiveTab(key as SettingsTab)}
+                className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
+                  activeTab === key
+                    ? "bg-orange-500 text-black"
+                    : "text-white/55 hover:bg-white/8 hover:text-white"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
           {loading ? (
             <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-white/60">
               Loading organization settings...
             </div>
           ) : (
             <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
+              {activeTab === "general" ? (
+                <section className="rounded-2xl border border-white/10 bg-white/5 p-5 xl:col-span-2">
+                  <h2 className="flex items-center gap-2 text-lg font-semibold">
+                    <ShieldCheck size={18} className="text-orange-500" />
+                    General
+                  </h2>
+                  <div className="mt-4 grid gap-4 md:grid-cols-2">
+                    <div className="rounded-2xl border border-white/10 bg-black p-4">
+                      <p className="text-xs uppercase tracking-[0.2em] text-white/35">Organization</p>
+                      <p className="mt-2 text-xl font-semibold">{organization?.name ?? "Organization"}</p>
+                    </div>
+                    <div className="rounded-2xl border border-white/10 bg-black p-4">
+                      <p className="text-xs uppercase tracking-[0.2em] text-white/35">Slug</p>
+                      <p className="mt-2 text-xl font-semibold">{organization?.slug ?? "Not set"}</p>
+                    </div>
+                  </div>
+                </section>
+              ) : null}
+
+              {activeTab === "branding" ? (
               <section className="rounded-2xl border border-white/10 bg-white/5 p-5">
                 <h2 className="flex items-center gap-2 text-lg font-semibold">
                   <Palette size={18} className="text-orange-500" />
-                  Branding and Domains
+                  Branding
                 </h2>
                 <div className="mt-4 grid gap-4 md:grid-cols-2">
                   <input
@@ -345,35 +668,69 @@ export default function OrganizationSettingsPage() {
                     className="rounded-xl border border-white/10 bg-black px-4 py-3 text-sm text-white outline-none focus:border-orange-500"
                   />
                   <input
+                    value={branding.app_name ?? ""}
+                    onChange={(event) => setBranding((current) => ({ ...current, app_name: event.target.value }))}
+                    placeholder="App name / browser title"
+                    className="rounded-xl border border-white/10 bg-black px-4 py-3 text-sm text-white outline-none focus:border-orange-500"
+                  />
+                  <input
                     value={branding.logo_url ?? ""}
                     onChange={(event) => setBranding((current) => ({ ...current, logo_url: event.target.value }))}
                     placeholder="Logo URL"
                     className="rounded-xl border border-white/10 bg-black px-4 py-3 text-sm text-white outline-none focus:border-orange-500"
                   />
                   <input
-                    value={branding.primary_color ?? ""}
-                    onChange={(event) => setBranding((current) => ({ ...current, primary_color: event.target.value }))}
-                    placeholder="#000000"
+                    value={branding.favicon_url ?? ""}
+                    onChange={(event) => setBranding((current) => ({ ...current, favicon_url: event.target.value }))}
+                    placeholder="Favicon URL"
                     className="rounded-xl border border-white/10 bg-black px-4 py-3 text-sm text-white outline-none focus:border-orange-500"
                   />
-                  <input
-                    value={branding.secondary_color ?? ""}
-                    onChange={(event) => setBranding((current) => ({ ...current, secondary_color: event.target.value }))}
-                    placeholder="#ffffff"
-                    className="rounded-xl border border-white/10 bg-black px-4 py-3 text-sm text-white outline-none focus:border-orange-500"
-                  />
-                  <input
-                    value={branding.subdomain ?? ""}
-                    onChange={(event) => setBranding((current) => ({ ...current, subdomain: event.target.value }))}
-                    placeholder="organization-slug"
-                    className="rounded-xl border border-white/10 bg-black px-4 py-3 text-sm text-white outline-none focus:border-orange-500"
-                  />
-                  <input
-                    value={branding.custom_domain ?? ""}
-                    onChange={(event) => setBranding((current) => ({ ...current, custom_domain: event.target.value }))}
-                    placeholder="app.companydomain.com"
-                    className="rounded-xl border border-white/10 bg-black px-4 py-3 text-sm text-white outline-none focus:border-orange-500"
-                  />
+                  <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-white/10 bg-black px-4 py-3 text-sm text-white/70 transition hover:border-orange-500/40">
+                    <Upload size={16} />
+                    {uploadingAsset === "logo" ? "Uploading logo..." : "Upload logo"}
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                      className="hidden"
+                      onChange={(event) => void handleUploadBrandingAsset("logo", event.target.files?.[0] ?? null)}
+                    />
+                  </label>
+                  <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-white/10 bg-black px-4 py-3 text-sm text-white/70 transition hover:border-orange-500/40">
+                    <Image size={16} />
+                    {uploadingAsset === "favicon" ? "Uploading favicon..." : "Upload favicon"}
+                    <input
+                      type="file"
+                      accept="image/png,image/x-icon,image/vnd.microsoft.icon,image/svg+xml"
+                      className="hidden"
+                      onChange={(event) => void handleUploadBrandingAsset("favicon", event.target.files?.[0] ?? null)}
+                    />
+                  </label>
+                  {colorFields.map((field) => (
+                    <label key={field.key} className="space-y-1">
+                      <span className="text-xs text-white/45">{field.label}</span>
+                      <div className="flex gap-2">
+                        <input
+                          type="color"
+                          value={(branding[field.key] as string | null) ?? field.fallback}
+                          onChange={(event) => setBranding((current) => ({ ...current, [field.key]: event.target.value }))}
+                          className="h-11 w-14 rounded-lg border border-white/10 bg-black p-1"
+                        />
+                        <input
+                          value={(branding[field.key] as string | null) ?? field.fallback}
+                          onChange={(event) => setBranding((current) => ({ ...current, [field.key]: event.target.value }))}
+                          className="min-w-0 flex-1 rounded-xl border border-white/10 bg-black px-3 py-2 text-sm text-white outline-none focus:border-orange-500"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => void navigator.clipboard.writeText(String(branding[field.key] ?? field.fallback))}
+                          className="rounded-xl border border-white/10 px-3 text-white/45 hover:bg-white/5 hover:text-white"
+                          title="Copy color"
+                        >
+                          <Copy size={14} />
+                        </button>
+                      </div>
+                    </label>
+                  ))}
                   <textarea
                     value={branding.company_welcome_text ?? ""}
                     onChange={(event) => setBranding((current) => ({ ...current, company_welcome_text: event.target.value }))}
@@ -393,13 +750,169 @@ export default function OrganizationSettingsPage() {
                   type="button"
                   onClick={() => void handleSaveBranding()}
                   disabled={savingBranding}
-                  className="mt-4 rounded-xl bg-orange-500 px-4 py-3 text-sm font-semibold text-black hover:bg-orange-400 disabled:opacity-50"
+                  className="org-branded-button mt-4 rounded-xl px-4 py-3 text-sm font-semibold disabled:opacity-50"
                 >
                   {savingBranding ? "Saving..." : "Save Branding"}
                 </button>
               </section>
+              ) : null}
 
-              {isEnabled("admin_users") ? (
+              {activeTab === "branding" ? (
+              <section
+                className="rounded-2xl border p-5"
+                style={{
+                  backgroundColor: branding.card_color ?? "#070707",
+                  borderColor: branding.border_color ?? "#1f1f1f",
+                  color: branding.text_color ?? "#ffffff",
+                }}
+              >
+                <h2 className="flex items-center gap-2 text-lg font-semibold">
+                  <Palette size={18} />
+                  Live preview
+                </h2>
+                <div
+                  className="mt-4 rounded-2xl border p-4"
+                  style={{
+                    backgroundColor: branding.background_color ?? "#020202",
+                    borderColor: branding.border_color ?? "#1f1f1f",
+                  }}
+                >
+                  <div
+                    className="rounded-xl p-3"
+                    style={{ backgroundColor: branding.sidebar_color ?? "#020202" }}
+                  >
+                    {branding.logo_url ? (
+                      <img src={branding.logo_url} alt="" className="h-10 w-auto object-contain" />
+                    ) : (
+                      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-white/10">
+                        <Image size={18} />
+                      </div>
+                    )}
+                    <p className="mt-3 font-semibold">{branding.app_name || branding.brand_name || organization?.name}</p>
+                    <p style={{ color: branding.muted_text_color ?? "#a3a3a3" }} className="text-sm">
+                      Sidebar, card, text and button colors update after save.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="mt-4 rounded-xl px-4 py-3 text-sm font-semibold"
+                    style={{
+                      backgroundColor: branding.button_color ?? "#f97316",
+                      color: branding.button_text_color ?? "#ffffff",
+                    }}
+                  >
+                    Button sample
+                  </button>
+                  <input
+                    placeholder="Input sample"
+                    className="mt-4 w-full rounded-xl border bg-transparent px-4 py-3 text-sm"
+                    style={{ borderColor: branding.input_focus_color ?? "#f97316" }}
+                  />
+                </div>
+              </section>
+              ) : null}
+
+              {activeTab === "domains" ? (
+              <section className="rounded-2xl border border-white/10 bg-white/5 p-5 xl:col-span-2">
+                <h2 className="flex items-center gap-2 text-lg font-semibold">
+                  <Globe2 size={18} className="text-orange-500" />
+                  Domains
+                </h2>
+                <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+                  <input
+                    value={newDomain}
+                    onChange={(event) => setNewDomain(event.target.value)}
+                    placeholder="portal.tmctechsolutions.com"
+                    className="min-w-0 flex-1 rounded-xl border border-white/10 bg-black px-4 py-3 text-sm text-white outline-none focus:border-orange-500"
+                  />
+                  <button
+                    type="button"
+                    disabled={addingDomain || !newDomain.trim()}
+                    onClick={() => void handleAddDomain()}
+                    className="rounded-xl bg-orange-500 px-4 py-3 text-sm font-semibold text-black hover:bg-orange-400 disabled:opacity-50"
+                  >
+                    {addingDomain ? "Adding..." : "Add domain"}
+                  </button>
+                </div>
+                <p className="mt-3 text-xs text-white/45">
+                  Add both records at your DNS host. Use the short Host/Name first; if your provider rejects it, use the FQDN shown under the record.
+                </p>
+
+                <div className="mt-5 space-y-4">
+                  {domains.length === 0 ? (
+                    <div className="rounded-2xl border border-dashed border-white/10 p-8 text-center text-white/45">
+                      No custom domains connected yet.
+                    </div>
+                  ) : domains.map((domain) => (
+                    <div key={domain.id} className="rounded-2xl border border-white/10 bg-black p-4">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <p className="flex items-center gap-2 font-semibold">
+                            <Link2 size={16} className="text-orange-400" />
+                            {domain.domain}
+                          </p>
+                          <p className="mt-1 text-xs text-white/45">
+                            Status: {domain.status} / SSL: {domain.ssl_status}
+                            {domain.last_error ? ` / ${domain.last_error}` : ""}
+                          </p>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            disabled={domainBusyId === domain.id}
+                            onClick={() => void handleVerifyDomain(domain)}
+                            className="rounded-xl border border-orange-500/30 px-3 py-2 text-xs font-semibold text-orange-200 hover:bg-orange-500/10 disabled:opacity-50"
+                          >
+                            <RefreshCw size={13} className="mr-1 inline" />
+                            Check verification
+                          </button>
+                          <button
+                            type="button"
+                            disabled={domainBusyId === domain.id || !["verified", "connected"].includes(domain.status)}
+                            onClick={() => void handleConnectDomain(domain)}
+                            className="rounded-xl border border-white/10 px-3 py-2 text-xs font-semibold text-white/70 hover:bg-white/5 disabled:opacity-40"
+                          >
+                            Connect provider
+                          </button>
+                          <button
+                            type="button"
+                            disabled={domainBusyId === domain.id || domain.status !== "connected"}
+                            onClick={() => void handleRefreshProvider(domain)}
+                            className="rounded-xl border border-white/10 px-3 py-2 text-xs font-semibold text-white/70 hover:bg-white/5 disabled:opacity-40"
+                          >
+                            Refresh SSL
+                          </button>
+                          <button
+                            type="button"
+                            disabled={domainBusyId === domain.id}
+                            onClick={() => void handleDeleteDomain(domain)}
+                            className="rounded-xl border border-red-500/20 px-3 py-2 text-xs font-semibold text-red-200 hover:bg-red-500/10 disabled:opacity-40"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                      </div>
+                      <div className="mt-4 grid gap-3 md:grid-cols-2">
+                        <DnsRecord
+                          label="CNAME"
+                          name={domain.cname_host}
+                          fqdn={domain.cname_fqdn ?? domain.domain}
+                          value={domain.cname_target}
+                        />
+                        <DnsRecord
+                          label="TXT"
+                          name={domain.txt_host}
+                          fqdn={domain.txt_fqdn ?? `_itsnomatata-verify.${domain.domain}`}
+                          value={domain.txt_value}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+              ) : null}
+
+              {activeTab === "roles" && isEnabled("admin_users") ? (
               <section className="rounded-2xl border border-white/10 bg-white/5 p-5">
                 <h2 className="flex items-center gap-2 text-lg font-semibold">
                   <MailPlus size={18} className="text-orange-500" />
@@ -452,6 +965,7 @@ export default function OrganizationSettingsPage() {
               </section>
               ) : null}
 
+              {activeTab === "features" ? (
               <section className="rounded-2xl border border-white/10 bg-white/5 p-5">
                 <h2 className="flex items-center gap-2 text-lg font-semibold">
                   <ToggleLeft size={18} className="text-orange-500" />
@@ -479,7 +993,9 @@ export default function OrganizationSettingsPage() {
                   ))}
                 </div>
               </section>
+              ) : null}
 
+              {activeTab === "roles" ? (
               <section className="rounded-2xl border border-white/10 bg-white/5 p-5">
                 <h2 className="flex items-center gap-2 text-lg font-semibold">
                   <Users size={18} className="text-orange-500" />
@@ -497,6 +1013,7 @@ export default function OrganizationSettingsPage() {
                   />
                 </div>
               </section>
+              ) : null}
             </div>
           )}
         </main>

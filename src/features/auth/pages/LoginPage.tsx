@@ -81,7 +81,7 @@ export default function LoginPage() {
     : undefined;
 
   return (
-    <div className="min-h-screen bg-black text-white">
+    <div className="min-h-screen text-white" style={{ backgroundColor: "var(--org-bg)" }}>
       <div className="grid min-h-screen lg:grid-cols-2">
         <div
           className="hidden flex-col items-start justify-between border-r border-orange-500/20 bg-linear-to-br from-black via-black to-orange-950/20 p-10 lg:flex"
@@ -113,7 +113,7 @@ export default function LoginPage() {
         </div>
 
         <div className="flex items-center justify-center p-4 sm:p-6">
-          <div className="w-full max-w-md rounded-3xl border border-orange-500/20 bg-white/5 p-5 shadow-2xl sm:p-8">
+          <div className="w-full max-w-md rounded-3xl border p-5 shadow-2xl sm:p-8" style={{ backgroundColor: "var(--org-card)", borderColor: "var(--org-border)" }}>
             <div className="mb-8">
               <h2 className="text-3xl font-bold text-white">Login</h2>
               <p className="mt-2 text-sm text-white/60">
@@ -139,7 +139,7 @@ export default function LoginPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="Email"
-                className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 text-white outline-none transition focus:border-orange-500"
+                className="org-branded-input w-full rounded-2xl border px-4 py-3 outline-none transition"
                 required
               />
 
@@ -149,7 +149,7 @@ export default function LoginPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Password"
-                  className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 pr-12 text-white outline-none transition focus:border-orange-500"
+                  className="org-branded-input w-full rounded-2xl border px-4 py-3 pr-12 outline-none transition"
                   required
                 />
                 <button
@@ -164,8 +164,7 @@ export default function LoginPage() {
               <div className="flex justify-end">
                 <Link
                   to="/forgot-password"
-                  className="text-sm text-orange-400 hover:text-orange-300"
-                  style={{ color: accentColor }}
+                  className="org-branded-link text-sm"
                 >
                   Forgot password?
                 </Link>
@@ -174,8 +173,7 @@ export default function LoginPage() {
               <button
                 type="submit"
                 disabled={busy}
-                className="w-full rounded-2xl bg-orange-500 px-4 py-3 font-semibold text-black transition hover:bg-orange-400 disabled:opacity-60"
-                style={{ backgroundColor: accentColor }}
+                className="org-branded-button w-full rounded-2xl px-4 py-3 font-semibold transition disabled:opacity-60"
               >
                 {busy ? "Logging in..." : "Login"}
               </button>
@@ -202,8 +200,7 @@ export default function LoginPage() {
               Don’t have an account?{" "}
               <Link
                 to="/signup"
-                className="font-semibold text-orange-400 hover:text-orange-300"
-                style={{ color: accentColor }}
+                className="org-branded-link font-semibold"
               >
                 Create one
               </Link>

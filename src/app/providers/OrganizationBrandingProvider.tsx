@@ -21,6 +21,7 @@ const DEFAULT_BRANDING: OrganizationBranding = {
   id: "default",
   organization_id: "default",
   brand_name: "ITsNomatata",
+  app_name: "ITsNomatata",
   logo_url:
     "https://res.cloudinary.com/dnqjax5ut/image/upload/v1776754504/Itsnomatata-Logo-White-with-tagline-2-768x643_u3n4j0.png",
   favicon_url: null,
@@ -28,17 +29,32 @@ const DEFAULT_BRANDING: OrganizationBranding = {
   primary_color: "#000000",
   secondary_color: "#ffffff",
   accent_color: "#f97316",
+  background_color: "#020202",
+  card_color: "#070707",
+  sidebar_color: "#020202",
+  topbar_color: "#020202",
+  text_color: "#ffffff",
+  muted_text_color: "#a3a3a3",
+  border_color: "#1f1f1f",
+  button_color: "#f97316",
+  button_text_color: "#ffffff",
+  button_hover_color: "#ea580c",
+  link_color: "#fb923c",
+  link_hover_color: "#fdba74",
+  input_focus_color: "#f97316",
   company_slogan: null,
   company_welcome_text: "Welcome to ITsNomatata.",
   dashboard_greeting_text: "Here is what needs attention today.",
   custom_terminology: {},
   invitation_template: null,
   onboarding_wording: {},
+  custom_css: {},
+  is_active: true,
   custom_domain: null,
   subdomain: null,
   domain_status: null,
   domain_verification_token: null,
-  dns_target: "cname.itsnomatata.com",
+  dns_target: "cname.vercel-dns.com",
   domain_error: null,
 };
 
@@ -52,12 +68,36 @@ function mergeBranding(
     ...DEFAULT_BRANDING,
     ...(branding ?? {}),
     brand_name: branding?.brand_name || DEFAULT_BRANDING.brand_name,
+    app_name:
+      branding?.app_name ||
+      branding?.brand_name ||
+      DEFAULT_BRANDING.app_name,
     logo_url: branding?.logo_url || DEFAULT_BRANDING.logo_url,
     primary_color: branding?.primary_color || DEFAULT_BRANDING.primary_color,
     secondary_color: branding?.secondary_color || DEFAULT_BRANDING.secondary_color,
     accent_color: branding?.accent_color || DEFAULT_BRANDING.accent_color,
+    background_color:
+      branding?.background_color || DEFAULT_BRANDING.background_color,
+    card_color: branding?.card_color || DEFAULT_BRANDING.card_color,
+    sidebar_color: branding?.sidebar_color || DEFAULT_BRANDING.sidebar_color,
+    topbar_color: branding?.topbar_color || DEFAULT_BRANDING.topbar_color,
+    text_color: branding?.text_color || DEFAULT_BRANDING.text_color,
+    muted_text_color:
+      branding?.muted_text_color || DEFAULT_BRANDING.muted_text_color,
+    border_color: branding?.border_color || DEFAULT_BRANDING.border_color,
+    button_color: branding?.button_color || DEFAULT_BRANDING.button_color,
+    button_text_color:
+      branding?.button_text_color || DEFAULT_BRANDING.button_text_color,
+    button_hover_color:
+      branding?.button_hover_color || DEFAULT_BRANDING.button_hover_color,
+    link_color: branding?.link_color || DEFAULT_BRANDING.link_color,
+    link_hover_color:
+      branding?.link_hover_color || DEFAULT_BRANDING.link_hover_color,
+    input_focus_color:
+      branding?.input_focus_color || DEFAULT_BRANDING.input_focus_color,
     custom_terminology: branding?.custom_terminology ?? {},
     onboarding_wording: branding?.onboarding_wording ?? {},
+    custom_css: branding?.custom_css ?? {},
   };
 }
 
@@ -69,14 +109,16 @@ function hostLookup() {
     host === "localhost" ||
     host === "127.0.0.1" ||
     host === "::1" ||
-    host.endsWith(".local")
+    host.endsWith(".local") ||
+    host.includes("vercel.app") ||
+    host === "codex.itsnomatata.com"
   ) {
     return null;
   }
 
   if (host.endsWith(".itsnomatata.com")) {
     const subdomain = host.replace(".itsnomatata.com", "");
-    if (subdomain && subdomain !== "www" && subdomain !== "app") {
+    if (subdomain && !["www", "app", "codex"].includes(subdomain)) {
       return { type: "subdomain" as const, value: subdomain };
     }
   }
@@ -167,8 +209,28 @@ export function OrganizationBrandingProvider({
     root.style.setProperty("--org-primary", branding.primary_color ?? "#000000");
     root.style.setProperty("--org-secondary", branding.secondary_color ?? "#ffffff");
     root.style.setProperty("--org-accent", branding.accent_color ?? "#f97316");
-    root.style.setProperty("--org-background", branding.primary_color ?? "#000000");
-    root.style.setProperty("--org-text", branding.secondary_color ?? "#ffffff");
+    root.style.setProperty("--org-bg", branding.background_color ?? "#020202");
+    root.style.setProperty("--org-background", branding.background_color ?? "#020202");
+    root.style.setProperty("--org-card", branding.card_color ?? "#070707");
+    root.style.setProperty("--org-sidebar", branding.sidebar_color ?? "#020202");
+    root.style.setProperty("--org-topbar", branding.topbar_color ?? "#020202");
+    root.style.setProperty("--org-text", branding.text_color ?? "#ffffff");
+    root.style.setProperty("--org-muted", branding.muted_text_color ?? "#a3a3a3");
+    root.style.setProperty("--org-border", branding.border_color ?? "#1f1f1f");
+    root.style.setProperty("--org-button", branding.button_color ?? "#f97316");
+    root.style.setProperty("--org-button-text", branding.button_text_color ?? "#ffffff");
+    root.style.setProperty("--org-button-hover", branding.button_hover_color ?? "#ea580c");
+    root.style.setProperty("--org-link", branding.link_color ?? "#fb923c");
+    root.style.setProperty("--org-link-hover", branding.link_hover_color ?? "#fdba74");
+    root.style.setProperty("--org-input-focus", branding.input_focus_color ?? "#f97316");
+    document.title = branding.app_name || branding.brand_name || "ITsNomatata";
+
+    const faviconUrl = branding.favicon_url;
+    const favicon = document.querySelector<HTMLLinkElement>("link[rel='icon']") ??
+      document.createElement("link");
+    favicon.rel = "icon";
+    if (faviconUrl) favicon.href = faviconUrl;
+    if (!favicon.parentElement) document.head.appendChild(favicon);
   }, [branding]);
 
   const value = useMemo(

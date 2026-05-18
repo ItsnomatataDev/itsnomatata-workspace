@@ -49,6 +49,16 @@ function toProfileCompatibleRole(roleKey: string) {
   return PROFILE_COMPATIBLE_ROLES.has(roleKey) ? roleKey : "user";
 }
 
+async function organizationHasInvitations(organizationId: string) {
+  const { count, error } = await supabase
+    .from("organization_invitations")
+    .select("id", { count: "exact", head: true })
+    .eq("organization_id", organizationId);
+
+  if (error) throw error;
+  return (count ?? 0) > 0;
+}
+
 export type OrganizationSignupRoleOption = {
   organization_id: string;
   organization_name: string;
@@ -430,6 +440,29 @@ function normalizeNullableText(value?: string | null) {
   return normalized || null;
 }
 
+function normalizeHexColor(value: string | null | undefined, fallback: string) {
+  const normalized = value?.trim();
+  if (!normalized) return fallback;
+
+  const candidate = normalized.startsWith("#")
+    ? normalized
+    : `#${normalized}`;
+
+  if (/^#[0-9a-f]{6}$/i.test(candidate)) {
+    return candidate.toLowerCase();
+  }
+
+  if (/^#[0-9a-f]{3}$/i.test(candidate)) {
+    return `#${candidate
+      .slice(1)
+      .split("")
+      .map((char) => `${char}${char}`)
+      .join("")}`.toLowerCase();
+  }
+
+  return fallback;
+}
+
 function shouldRetryBrandingWithoutDomainMetadata(error: unknown) {
   const message = getSupabaseErrorMessage(error, "").toLowerCase();
   return [
@@ -564,9 +597,22 @@ async function createDefaultBranding(
     logo_url: branding.logoUrl ?? null,
     favicon_url: branding.faviconUrl ?? null,
     login_background_url: branding.loginBackgroundUrl ?? null,
-    primary_color: branding.primaryColor ?? "#000000",
-    secondary_color: branding.secondaryColor ?? "#ffffff",
-    accent_color: branding.accentColor ?? "#f97316",
+    primary_color: normalizeHexColor(branding.primaryColor, "#000000"),
+    secondary_color: normalizeHexColor(branding.secondaryColor, "#ffffff"),
+    accent_color: normalizeHexColor(branding.accentColor, "#f97316"),
+    background_color: normalizeHexColor(undefined, "#020202"),
+    card_color: normalizeHexColor(undefined, "#070707"),
+    sidebar_color: normalizeHexColor(undefined, "#020202"),
+    topbar_color: normalizeHexColor(undefined, "#020202"),
+    text_color: normalizeHexColor(undefined, "#ffffff"),
+    muted_text_color: normalizeHexColor(undefined, "#a3a3a3"),
+    border_color: normalizeHexColor(undefined, "#1f1f1f"),
+    button_color: normalizeHexColor(branding.accentColor, "#f97316"),
+    button_text_color: normalizeHexColor(undefined, "#ffffff"),
+    button_hover_color: normalizeHexColor(undefined, "#ea580c"),
+    link_color: normalizeHexColor(undefined, "#fb923c"),
+    link_hover_color: normalizeHexColor(undefined, "#fdba74"),
+    input_focus_color: normalizeHexColor(branding.accentColor, "#f97316"),
     company_slogan:
       branding.companySlogan ?? "Enterprise operations without friction.",
     company_welcome_text:
@@ -581,7 +627,7 @@ async function createDefaultBranding(
     domain_status: normalizedCustomDomain || normalizedSubdomain ? "pending" : null,
     domain_verification_token:
       normalizedCustomDomain || normalizedSubdomain ? crypto.randomUUID() : null,
-    dns_target: branding.dnsTarget ?? "cname.itsnomatata.com",
+    dns_target: branding.dnsTarget ?? "cname.vercel-dns.com",
     domain_error: branding.domainError ?? null,
   });
 }
@@ -825,7 +871,11 @@ export async function getOrganizationFeatures(
   organizationId: string,
 ): Promise<OrganizationFeature[]> {
   if (await checkIsPlatformAdmin()) {
-    await ensureOrganizationFeatures(organizationId);
+    try {
+      await ensureOrganizationFeatures(organizationId);
+    } catch (error) {
+      console.warn("ENSURE ORGANIZATION FEATURES FAILED:", error);
+    }
   }
 
   const { data, error } = await supabase
@@ -1099,12 +1149,26 @@ export async function getOrganizationBranding(
 export async function updateOrganizationBranding(params: {
   organizationId: string;
   brandName?: string | null;
+  appName?: string | null;
   logoUrl?: string | null;
   faviconUrl?: string | null;
   loginBackgroundUrl?: string | null;
   primaryColor?: string | null;
   secondaryColor?: string | null;
   accentColor?: string | null;
+  backgroundColor?: string | null;
+  cardColor?: string | null;
+  sidebarColor?: string | null;
+  topbarColor?: string | null;
+  textColor?: string | null;
+  mutedTextColor?: string | null;
+  borderColor?: string | null;
+  buttonColor?: string | null;
+  buttonTextColor?: string | null;
+  buttonHoverColor?: string | null;
+  linkColor?: string | null;
+  linkHoverColor?: string | null;
+  inputFocusColor?: string | null;
   companySlogan?: string | null;
   companyWelcomeText?: string | null;
   dashboardGreetingText?: string | null;
@@ -1128,12 +1192,26 @@ export async function updateOrganizationBranding(params: {
   const payload = {
     organization_id: params.organizationId,
     brand_name: params.brandName ?? null,
+    app_name: params.appName ?? params.brandName ?? null,
     logo_url: params.logoUrl ?? null,
     favicon_url: params.faviconUrl ?? null,
     login_background_url: params.loginBackgroundUrl ?? null,
-    primary_color: params.primaryColor ?? "#000000",
-    secondary_color: params.secondaryColor ?? "#ffffff",
-    accent_color: params.accentColor ?? "#f97316",
+    primary_color: normalizeHexColor(params.primaryColor, "#000000"),
+    secondary_color: normalizeHexColor(params.secondaryColor, "#ffffff"),
+    accent_color: normalizeHexColor(params.accentColor, "#f97316"),
+    background_color: normalizeHexColor(params.backgroundColor, "#020202"),
+    card_color: normalizeHexColor(params.cardColor, "#070707"),
+    sidebar_color: normalizeHexColor(params.sidebarColor, "#020202"),
+    topbar_color: normalizeHexColor(params.topbarColor, "#020202"),
+    text_color: normalizeHexColor(params.textColor, "#ffffff"),
+    muted_text_color: normalizeHexColor(params.mutedTextColor, "#a3a3a3"),
+    border_color: normalizeHexColor(params.borderColor, "#1f1f1f"),
+    button_color: normalizeHexColor(params.buttonColor, "#f97316"),
+    button_text_color: normalizeHexColor(params.buttonTextColor, "#ffffff"),
+    button_hover_color: normalizeHexColor(params.buttonHoverColor, "#ea580c"),
+    link_color: normalizeHexColor(params.linkColor, "#fb923c"),
+    link_hover_color: normalizeHexColor(params.linkHoverColor, "#fdba74"),
+    input_focus_color: normalizeHexColor(params.inputFocusColor, "#f97316"),
     company_slogan: params.companySlogan ?? null,
     company_welcome_text: params.companyWelcomeText ?? null,
     dashboard_greeting_text: params.dashboardGreetingText ?? null,
@@ -1145,7 +1223,7 @@ export async function updateOrganizationBranding(params: {
     domain_status: normalizedCustomDomain || normalizedSubdomain ? "pending" : null,
     domain_verification_token:
       normalizedCustomDomain || normalizedSubdomain ? crypto.randomUUID() : null,
-    dns_target: params.dnsTarget ?? "cname.itsnomatata.com",
+    dns_target: params.dnsTarget ?? "cname.vercel-dns.com",
     domain_error: params.domainError ?? null,
     updated_at: new Date().toISOString(),
   };
@@ -1189,7 +1267,8 @@ export async function createOrganizationInvitation(params: {
   } = await supabase.auth.getUser();
 
   const normalizedEmail = params.email.trim().toLowerCase();
-  const roleKey = params.roleKey ?? "admin";
+  const hasExistingInvitations = await organizationHasInvitations(params.organizationId);
+  const roleKey = hasExistingInvitations ? (params.roleKey ?? "user") : "admin";
   const profileRole = toProfileCompatibleRole(roleKey);
   const tokenHash = crypto.randomUUID();
 

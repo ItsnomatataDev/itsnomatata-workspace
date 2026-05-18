@@ -1,15 +1,36 @@
 @import "tailwindcss";
 
 @layer base {
+  :root {
+    --org-primary: #000000;
+    --org-secondary: #ffffff;
+    --org-accent: #f97316;
+    --org-bg: #020202;
+    --org-background: #020202;
+    --org-card: #070707;
+    --org-sidebar: #020202;
+    --org-topbar: #020202;
+    --org-text: #ffffff;
+    --org-muted: #a3a3a3;
+    --org-border: #1f1f1f;
+    --org-button: #f97316;
+    --org-button-text: #ffffff;
+    --org-button-hover: #ea580c;
+    --org-link: #fb923c;
+    --org-link-hover: #fdba74;
+    --org-input-focus: #f97316;
+  }
+
   html {
     -webkit-text-size-adjust: 100%;
-    background: #000;
+    background: var(--org-bg);
   }
 
   body {
     min-width: 320px;
     overflow-x: hidden;
-    background: #000;
+    background: var(--org-bg);
+    color: var(--org-text);
   }
 
   #root {
@@ -39,6 +60,46 @@
 }
 
 @layer utilities {
+  .org-branded-surface {
+    background-color: var(--org-bg);
+    color: var(--org-text);
+  }
+
+  .org-branded-card {
+    background-color: var(--org-card);
+    border-color: var(--org-border);
+    color: var(--org-text);
+  }
+
+  .org-branded-button {
+    background-color: var(--org-button);
+    color: var(--org-button-text);
+    transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease;
+  }
+
+  .org-branded-button:hover {
+    background-color: var(--org-button-hover);
+  }
+
+  .org-branded-input {
+    background-color: var(--org-card);
+    border-color: var(--org-border);
+    color: var(--org-text);
+  }
+
+  .org-branded-input:focus {
+    border-color: var(--org-input-focus);
+    outline: none;
+  }
+
+  .org-branded-link {
+    color: var(--org-link);
+  }
+
+  .org-branded-link:hover {
+    color: var(--org-link-hover);
+  }
+
   .touch-scroll {
     -webkit-overflow-scrolling: touch;
     scrollbar-width: thin;

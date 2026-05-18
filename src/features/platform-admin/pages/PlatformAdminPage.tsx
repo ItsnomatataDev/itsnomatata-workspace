@@ -43,6 +43,7 @@ import {
 import type {
   OrganizationAnalytics,
   OrganizationBranding,
+  OrganizationDomain,
   OrganizationFeature,
   OrganizationInvitation,
   OrganizationRole,
@@ -50,8 +51,37 @@ import type {
   OrganizationSubscription,
   PlatformAuditLog,
 } from "../types/platformAdmin";
+import {
+  connectOrganizationDomainToProvider,
+  createOrganizationDomain,
+  deleteOrganizationDomain,
+  getOrganizationDomains,
+  refreshOrganizationDomainProvider,
+  verifyOrganizationDomainDns,
+} from "../../organization/services/organizationDomainService";
 
 type BrandingValues = Partial<OrganizationBranding>;
+
+async function loadSection<T>(label: string, action: () => Promise<T>): Promise<T> {
+  try {
+    return await action();
+  } catch (error) {
+    throw new Error(`${label}: ${getErrorMessage(error, "Failed to load section.")}`);
+  }
+}
+
+async function loadOptionalSection<T>(
+  label: string,
+  fallback: T,
+  action: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await action();
+  } catch (error) {
+    console.warn(`PLATFORM ADMIN OPTIONAL SECTION FAILED (${label}):`, error);
+    return fallback;
+  }
+}
 
 function slugify(value: string) {
   return value
@@ -93,6 +123,49 @@ function MetricCard({
   );
 }
 
+function DomainRecordLine({
+  label,
+  name,
+  fqdn,
+  value,
+}: {
+  label: string;
+  name: string;
+  fqdn?: string | null;
+  value: string;
+}) {
+  return (
+    <div className="rounded-xl border border-white/10 bg-black p-3 text-xs">
+      <p className="font-semibold uppercase tracking-wide text-orange-300">{label}</p>
+      <p className="mt-2 text-white/40">Host</p>
+      <button
+        type="button"
+        onClick={() => void navigator.clipboard.writeText(name)}
+        className="mt-1 block w-full rounded-lg bg-white/5 px-2 py-2 text-left text-white/75"
+      >
+        {name}
+      </button>
+      {fqdn && fqdn !== name ? (
+        <button
+          type="button"
+          onClick={() => void navigator.clipboard.writeText(fqdn)}
+          className="mt-1 block w-full break-all rounded-lg bg-white/5 px-2 py-2 text-left text-white/45"
+        >
+          FQDN: {fqdn}
+        </button>
+      ) : null}
+      <p className="mt-2 text-white/40">Value</p>
+      <button
+        type="button"
+        onClick={() => void navigator.clipboard.writeText(value)}
+        className="mt-1 block w-full break-all rounded-lg bg-white/5 px-2 py-2 text-left text-white/75"
+      >
+        {value}
+      </button>
+    </div>
+  );
+}
+
 const defaultBranding: BrandingValues = {
   primary_color: "#000000",
   secondary_color: "#ffffff",
@@ -115,6 +188,8 @@ export default function PlatformAdminPage() {
   const [features, setFeatures] = useState<OrganizationFeature[]>([]);
   const [roles, setRoles] = useState<OrganizationRole[]>([]);
   const [branding, setBranding] = useState<BrandingValues>(defaultBranding);
+  const [domains, setDomains] = useState<OrganizationDomain[]>([]);
+  const [newDomain, setNewDomain] = useState("");
   const [invitations, setInvitations] = useState<OrganizationInvitation[]>([]);
   const [auditLogs, setAuditLogs] = useState<PlatformAuditLog[]>([]);
   const [analytics, setAnalytics] = useState<OrganizationAnalytics | null>(null);
@@ -144,6 +219,8 @@ export default function PlatformAdminPage() {
   const [featureSavingId, setFeatureSavingId] = useState<string | null>(null);
   const [roleSaving, setRoleSaving] = useState(false);
   const [inviting, setInviting] = useState(false);
+  const [domainBusyId, setDomainBusyId] = useState<string | null>(null);
+  const [addingDomain, setAddingDomain] = useState(false);
   const [error, setError] = useState("");
 
   const isSystemOrg = Boolean(
@@ -174,22 +251,31 @@ export default function PlatformAdminPage() {
         orgRoles,
         orgBranding,
         orgInvitations,
+        orgDomains,
         logs,
         orgAnalytics,
       ] = await Promise.all([
-        getOrganizationSubscription(organizationId),
-        getOrganizationFeatures(organizationId),
-        getOrganizationRoles(organizationId),
-        getOrganizationBranding(organizationId),
-        getOrganizationInvitations(organizationId),
-        getPlatformAuditLogs({ organizationId, limit: 20 }),
-        getOrganizationAnalytics(organizationId),
+        loadSection("organization_subscriptions", () => getOrganizationSubscription(organizationId)),
+        loadSection("organization_features", () => getOrganizationFeatures(organizationId)),
+        loadSection("organization_roles", () => getOrganizationRoles(organizationId)),
+        loadSection("organization_branding", () => getOrganizationBranding(organizationId)),
+        loadSection("organization_invitations", () => getOrganizationInvitations(organizationId)),
+        loadOptionalSection("organization_domains", [] as OrganizationDomain[], () =>
+          getOrganizationDomains(organizationId),
+        ),
+        loadOptionalSection("platform_audit_logs", [] as PlatformAuditLog[], () =>
+          getPlatformAuditLogs({ organizationId, limit: 20 }),
+        ),
+        loadOptionalSection("organization_analytics", null as OrganizationAnalytics | null, () =>
+          getOrganizationAnalytics(organizationId),
+        ),
       ]);
 
       setSubscription(sub);
       setFeatures(orgFeatures);
       setRoles(orgRoles);
       setBranding({ ...defaultBranding, ...(orgBranding ?? {}) });
+      setDomains(orgDomains);
       setInvitations(orgInvitations);
       setAuditLogs(logs);
       setAnalytics(orgAnalytics);
@@ -277,6 +363,13 @@ export default function PlatformAdminPage() {
         },
         enabledFeatureKeys: newOrgFeatures,
       });
+
+      if (newOrgCustomDomain.trim()) {
+        await createOrganizationDomain({
+          organizationId: created.id,
+          domain: newOrgCustomDomain,
+        });
+      }
 
       setNewOrgName("");
       setNewOrgSlug("");
@@ -370,10 +463,6 @@ export default function PlatformAdminPage() {
         customTerminology: branding.custom_terminology ?? {},
         invitationTemplate: branding.invitation_template ?? null,
         onboardingWording: branding.onboarding_wording ?? {},
-        customDomain: branding.custom_domain ?? null,
-        subdomain: branding.subdomain ?? null,
-        dnsTarget: branding.dns_target ?? "cname.itsnomatata.com",
-        domainError: branding.domain_error ?? null,
       });
 
       setBranding(saved);
@@ -383,6 +472,87 @@ export default function PlatformAdminPage() {
       setError(getErrorMessage(err, "Failed to save branding."));
     } finally {
       setBrandingSaving(false);
+    }
+  }
+
+  async function reloadDomains() {
+    if (!selectedOrg) return;
+    setDomains(await getOrganizationDomains(selectedOrg.id));
+  }
+
+  async function handleAddDomain() {
+    if (!selectedOrg || !newDomain.trim()) return;
+
+    try {
+      setAddingDomain(true);
+      setError("");
+      const created = await createOrganizationDomain({
+        organizationId: selectedOrg.id,
+        domain: newDomain,
+      });
+      setDomains((current) => [created, ...current]);
+      setNewDomain("");
+    } catch (err) {
+      setError(getErrorMessage(err, "Failed to add domain."));
+    } finally {
+      setAddingDomain(false);
+    }
+  }
+
+  async function handleVerifyDomain(domain: OrganizationDomain) {
+    try {
+      setDomainBusyId(domain.id);
+      setError("");
+      const result = await verifyOrganizationDomainDns(domain.id);
+      await reloadDomains();
+      if (!result.ok) throw new Error(result.error || "DNS verification failed.");
+    } catch (err) {
+      setError(getErrorMessage(err, "Failed to verify DNS."));
+    } finally {
+      setDomainBusyId(null);
+    }
+  }
+
+  async function handleConnectDomain(domain: OrganizationDomain) {
+    try {
+      setDomainBusyId(domain.id);
+      setError("");
+      const result = await connectOrganizationDomainToProvider(domain.id);
+      await reloadDomains();
+      if (!result.ok) throw new Error(result.error || "Provider connection failed.");
+    } catch (err) {
+      setError(getErrorMessage(err, "Failed to connect provider."));
+    } finally {
+      setDomainBusyId(null);
+    }
+  }
+
+  async function handleRefreshDomain(domain: OrganizationDomain) {
+    try {
+      setDomainBusyId(domain.id);
+      setError("");
+      const result = await refreshOrganizationDomainProvider(domain.id);
+      await reloadDomains();
+      if (!result.ok) throw new Error(result.error || "Provider refresh failed.");
+    } catch (err) {
+      setError(getErrorMessage(err, "Failed to refresh provider."));
+    } finally {
+      setDomainBusyId(null);
+    }
+  }
+
+  async function handleDeleteDomain(domain: OrganizationDomain) {
+    if (!window.confirm(`Remove ${domain.domain}?`)) return;
+
+    try {
+      setDomainBusyId(domain.id);
+      setError("");
+      await deleteOrganizationDomain(domain.id);
+      setDomains((current) => current.filter((item) => item.id !== domain.id));
+    } catch (err) {
+      setError(getErrorMessage(err, "Failed to remove domain."));
+    } finally {
+      setDomainBusyId(null);
     }
   }
 
@@ -925,6 +1095,97 @@ export default function PlatformAdminPage() {
                       onChange={setBranding}
                       onSave={() => void handleSaveBranding()}
                     />
+
+                    <section className="rounded-3xl border border-white/10 bg-[#111111] p-5 shadow-xl shadow-black/30">
+                      <h3 className="text-lg font-semibold text-white">Domain Verification</h3>
+                      <p className="mt-1 text-sm text-white/45">
+                        Add the customer subdomain, publish the CNAME and TXT records, then verify against live DNS.
+                      </p>
+                      <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+                        <input
+                          value={newDomain}
+                          onChange={(event) => setNewDomain(event.target.value)}
+                          placeholder="portal.company.com"
+                          className="min-w-0 flex-1 rounded-xl border border-white/10 bg-black px-4 py-3 text-sm text-white outline-none focus:border-orange-500"
+                        />
+                        <button
+                          type="button"
+                          disabled={addingDomain || !newDomain.trim()}
+                          onClick={() => void handleAddDomain()}
+                          className="rounded-xl bg-orange-500 px-4 py-3 text-sm font-semibold text-black disabled:opacity-50"
+                        >
+                          {addingDomain ? "Adding..." : "Add domain"}
+                        </button>
+                      </div>
+
+                      <div className="mt-4 space-y-4">
+                        {domains.length === 0 ? (
+                          <div className="rounded-2xl border border-dashed border-white/10 p-6 text-center text-sm text-white/45">
+                            No verified domains yet.
+                          </div>
+                        ) : domains.map((domain) => (
+                          <div key={domain.id} className="rounded-2xl border border-white/10 bg-[#181818] p-4">
+                            <div className="flex flex-wrap items-start justify-between gap-3">
+                              <div>
+                                <p className="font-semibold text-white">{domain.domain}</p>
+                                <p className="mt-1 text-xs text-white/45">
+                                  Status: {domain.status} / SSL: {domain.ssl_status}
+                                  {domain.last_error ? ` / ${domain.last_error}` : ""}
+                                </p>
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                <button
+                                  type="button"
+                                  disabled={domainBusyId === domain.id}
+                                  onClick={() => void handleVerifyDomain(domain)}
+                                  className="rounded-xl border border-orange-500/30 px-3 py-2 text-xs font-semibold text-orange-200 disabled:opacity-50"
+                                >
+                                  Verify DNS
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={domainBusyId === domain.id || !["verified", "connected"].includes(domain.status)}
+                                  onClick={() => void handleConnectDomain(domain)}
+                                  className="rounded-xl border border-white/10 px-3 py-2 text-xs font-semibold text-white/70 disabled:opacity-40"
+                                >
+                                  Connect
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={domainBusyId === domain.id || domain.status !== "connected"}
+                                  onClick={() => void handleRefreshDomain(domain)}
+                                  className="rounded-xl border border-white/10 px-3 py-2 text-xs font-semibold text-white/70 disabled:opacity-40"
+                                >
+                                  Refresh SSL
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={domainBusyId === domain.id}
+                                  onClick={() => void handleDeleteDomain(domain)}
+                                  className="rounded-xl border border-red-500/20 px-3 py-2 text-xs font-semibold text-red-200 disabled:opacity-40"
+                                >
+                                  <Trash2 size={13} />
+                                </button>
+                              </div>
+                            </div>
+                            <div className="mt-4 grid gap-3 md:grid-cols-2">
+                              <DomainRecordLine
+                                label="CNAME"
+                                name={domain.cname_host}
+                                fqdn={domain.cname_fqdn ?? domain.domain}
+                                value={domain.cname_target}
+                              />
+                              <DomainRecordLine
+                                label="TXT"
+                                name={domain.txt_host}
+                                fqdn={domain.txt_fqdn ?? `_itsnomatata-verify.${domain.domain}`}
+                                value={domain.txt_value}
+                              />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </section>
 
                     <section>
                       <h3 className="mb-3 font-semibold text-white">

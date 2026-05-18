@@ -12,12 +12,6 @@ type BrandingValues = {
   company_welcome_text?: string | null;
   dashboard_greeting_text?: string | null;
   invitation_template?: string | null;
-  custom_domain?: string | null;
-  subdomain?: string | null;
-  domain_status?: "pending" | "verified" | "active" | "failed" | null;
-  domain_verification_token?: string | null;
-  dns_target?: string | null;
-  domain_error?: string | null;
 };
 
 export default function BrandingForm({
@@ -52,8 +46,7 @@ export default function BrandingForm({
       <div className="mb-5">
         <h3 className="text-lg font-semibold text-white">Branding</h3>
         <p className="mt-1 text-sm text-white/45">
-          Configure logo, colors, domain and login branding for this
-          organization.
+          Configure logo, colors and login branding for this organization.
         </p>
       </div>
 
@@ -150,69 +143,6 @@ export default function BrandingForm({
           />
         </label>
 
-        <label className="space-y-2">
-          <span className="text-xs font-semibold uppercase text-white/45">
-            Custom Domain
-          </span>
-          <input
-            value={values.custom_domain ?? ""}
-            onChange={(event) =>
-              updateField("custom_domain", event.target.value)
-            }
-            className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 text-sm text-white outline-none focus:border-orange-500"
-            placeholder="workspace.company.com"
-          />
-        </label>
-
-        <label className="space-y-2">
-          <span className="text-xs font-semibold uppercase text-white/45">
-            Subdomain
-          </span>
-          <input
-            value={values.subdomain ?? ""}
-            onChange={(event) => updateField("subdomain", event.target.value)}
-            className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 text-sm text-white outline-none focus:border-orange-500"
-            placeholder="company"
-          />
-        </label>
-      </div>
-
-      <div className="mt-4 rounded-2xl border border-orange-500/20 bg-orange-500/10 p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-sm font-semibold text-orange-100">
-              Domain setup
-            </p>
-            <p className="mt-1 text-xs text-orange-100/70">
-              DNS is not automated. Point the configured host to the target
-              below, then verify it outside this form.
-            </p>
-          </div>
-          <span className="rounded-full bg-black/40 px-3 py-1 text-xs font-semibold text-orange-100">
-            {values.domain_status ?? "pending"}
-          </span>
-        </div>
-
-        <div className="mt-3 grid gap-3 text-xs text-orange-50/80 md:grid-cols-2">
-          <div className="rounded-xl bg-black/30 p-3">
-            <p className="font-semibold text-orange-100">CNAME target</p>
-            <p className="mt-1 break-all">
-              {values.dns_target || "cname.itsnomatata.com"}
-            </p>
-          </div>
-          <div className="rounded-xl bg-black/30 p-3">
-            <p className="font-semibold text-orange-100">Verification token</p>
-            <p className="mt-1 break-all">
-              {values.domain_verification_token || "Generated after saving a domain"}
-            </p>
-          </div>
-        </div>
-
-        {values.domain_error ? (
-          <p className="mt-3 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-200">
-            {values.domain_error}
-          </p>
-        ) : null}
       </div>
 
       <div className="mt-4 grid gap-4 md:grid-cols-2">
