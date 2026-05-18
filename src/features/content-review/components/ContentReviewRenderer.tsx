@@ -21,17 +21,28 @@ function resolveLayout(draft: ContentReviewDraft, assets: ContentReviewAsset[]):
   return draft.layout_type;
 }
 
+function cropStyle(asset: ContentReviewAsset) {
+  return {
+    objectPosition: `${asset.crop_x ?? 50}% ${asset.crop_y ?? 50}%`,
+    transform: `scale(${asset.crop_zoom ?? 1})`,
+    transformOrigin: `${asset.crop_x ?? 50}% ${asset.crop_y ?? 50}%`,
+  };
+}
+
 function MediaFrame({
   asset,
   theme,
   onViewLarger,
+  showText = true,
 }: {
   asset: ContentReviewAsset;
   theme: PreviewTheme;
   onViewLarger?: () => void;
+  showText?: boolean;
 }) {
   const border = theme === "internal" ? "border-white/10" : "border-neutral-200";
   const captionColor = theme === "internal" ? "text-white/55" : "text-neutral-600";
+  const displayHeading = asset.heading?.trim();
 
   if (isVideo(asset)) {
     return (
@@ -45,8 +56,11 @@ function MediaFrame({
           />
         </div>
         <div className="flex flex-wrap items-center justify-between gap-3">
-          {asset.caption ? (
-            <figcaption className={`text-sm ${captionColor}`}>{asset.caption}</figcaption>
+          {showText && (displayHeading || asset.caption) ? (
+            <figcaption className={`space-y-1 text-sm ${captionColor}`}>
+              {displayHeading ? <strong className="block text-current">{displayHeading}</strong> : null}
+              {asset.caption ? <span className="block">{asset.caption}</span> : null}
+            </figcaption>
           ) : (
             <span />
           )}
@@ -71,13 +85,19 @@ function MediaFrame({
 
   return (
     <figure className="space-y-3">
-      <img
-        src={asset.file_url}
-        alt={asset.caption ?? asset.file_name}
-        className={`max-h-[70vh] w-full rounded-2xl border ${border} object-cover`}
-      />
-      {asset.caption ? (
-        <figcaption className={`text-sm ${captionColor}`}>{asset.caption}</figcaption>
+      <div className={`max-h-[70vh] overflow-hidden rounded-2xl border ${border}`}>
+        <img
+          src={asset.file_url}
+          alt={asset.heading ?? asset.caption ?? "Content review media"}
+          className="max-h-[70vh] w-full object-cover"
+          style={cropStyle(asset)}
+        />
+      </div>
+      {showText && (displayHeading || asset.caption) ? (
+        <figcaption className={`space-y-1 text-sm ${captionColor}`}>
+          {displayHeading ? <strong className="block text-current">{displayHeading}</strong> : null}
+          {asset.caption ? <span className="block">{asset.caption}</span> : null}
+        </figcaption>
       ) : null}
     </figure>
   );
@@ -93,9 +113,13 @@ export function ContentReviewRenderer({
   theme?: PreviewTheme;
 }) {
   const [expandedVideo, setExpandedVideo] = useState<ContentReviewAsset | null>(null);
-  const layout = useMemo(() => resolveLayout(draft, assets), [draft, assets]);
-  const primaryAsset = assets[0] ?? null;
-  const extraAssets = layout === "split_media_text" ? assets.slice(1) : assets.slice(1);
+  const selectedAssets = useMemo(
+    () => assets.filter((asset) => asset.is_selected !== false),
+    [assets],
+  );
+  const layout = useMemo(() => resolveLayout(draft, selectedAssets), [draft, selectedAssets]);
+  const primaryAsset = selectedAssets[0] ?? null;
+  const extraAssets = selectedAssets.slice(1);
 
   const shell =
     theme === "internal"
@@ -113,29 +137,39 @@ export function ContentReviewRenderer({
       ? "bg-orange-500 text-black"
       : "bg-orange-500 text-black";
   const galleryGrid =
-    assets.length <= 2 ? "md:grid-cols-2" : assets.length <= 5 ? "md:grid-cols-2 xl:grid-cols-3" : "md:grid-cols-2 xl:grid-cols-4";
+    selectedAssets.length <= 2 ? "md:grid-cols-2" : selectedAssets.length <= 5 ? "md:grid-cols-2 xl:grid-cols-3" : "md:grid-cols-2 xl:grid-cols-4";
 
-  const textBlock = (
+  const textBlock = (asset?: ContentReviewAsset, index = 0) => (
     <div className="flex min-w-0 flex-col justify-center p-6 sm:p-8">
       <p className={`text-xs uppercase tracking-[0.28em] ${eyebrow}`}>
         {formatStatus(layout)}
       </p>
-      <h2 className="mt-3 text-3xl font-bold sm:text-4xl">{draft.title}</h2>
-      {draft.subtitle ? <p className={`mt-3 text-lg ${muted}`}>{draft.subtitle}</p> : null}
-      <div className="mt-5 flex flex-wrap gap-2 text-sm">
-        <span className={`rounded-full px-3 py-1 font-semibold capitalize ${status}`}>
-          {formatStatus(draft.status)}
-        </span>
-        {draft.scheduled_at ? (
-          <span className={`rounded-full border px-3 py-1 ${theme === "internal" ? "border-white/10 text-white/65" : "border-neutral-200 text-neutral-600"}`}>
-            Scheduled {new Date(draft.scheduled_at).toLocaleString()}
+      {(asset?.heading?.trim() || index === 0) ? (
+        <h2 className="mt-3 text-3xl font-bold sm:text-4xl">
+          {asset?.heading?.trim() || draft.title}
+        </h2>
+      ) : null}
+      {index === 0 && draft.subtitle ? <p className={`mt-3 text-lg ${muted}`}>{draft.subtitle}</p> : null}
+      {index === 0 ? (
+        <div className="mt-5 flex flex-wrap gap-2 text-sm">
+          <span className={`rounded-full px-3 py-1 font-semibold capitalize ${status}`}>
+            {formatStatus(draft.status)}
           </span>
-        ) : null}
-      </div>
-      {draft.summary ? <p className={`mt-6 text-lg font-medium leading-8 ${body}`}>{draft.summary}</p> : null}
-      {draft.body ? <p className={`mt-5 whitespace-pre-wrap leading-8 ${body}`}>{draft.body}</p> : null}
-      {draft.notes ? <div className={`mt-6 rounded-2xl border p-4 text-sm ${note}`}>{draft.notes}</div> : null}
-      {draft.cta_label && draft.cta_url ? (
+          {draft.scheduled_at ? (
+            <span className={`rounded-full border px-3 py-1 ${theme === "internal" ? "border-white/10 text-white/65" : "border-neutral-200 text-neutral-600"}`}>
+              Scheduled {new Date(draft.scheduled_at).toLocaleString()}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+      {index === 0 && draft.summary ? <p className={`mt-6 text-lg font-medium leading-8 ${body}`}>{draft.summary}</p> : null}
+      {asset?.caption ? (
+        <p className={`mt-5 whitespace-pre-wrap leading-8 ${body}`}>{asset.caption}</p>
+      ) : index === 0 && draft.body ? (
+        <p className={`mt-5 whitespace-pre-wrap leading-8 ${body}`}>{draft.body}</p>
+      ) : null}
+      {index === 0 && draft.notes ? <div className={`mt-6 rounded-2xl border p-4 text-sm ${note}`}>{draft.notes}</div> : null}
+      {index === 0 && draft.cta_label && draft.cta_url ? (
         <a
           href={draft.cta_url}
           target="_blank"
@@ -148,20 +182,28 @@ export function ContentReviewRenderer({
     </div>
   );
 
+  const splitBlock = (asset: ContentReviewAsset, index = 0) => (
+    <div
+      key={asset.id}
+      className={`grid gap-0 lg:grid-cols-[minmax(0,1.05fr)_minmax(320px,0.95fr)] ${index > 0 ? "border-t border-inherit" : ""}`}
+    >
+      <div className={theme === "internal" ? "p-4 sm:p-5" : "p-4 sm:p-6"}>
+        <MediaFrame
+          asset={asset}
+          theme={theme}
+          showText={false}
+          onViewLarger={isVideo(asset) ? () => setExpandedVideo(asset) : undefined}
+        />
+      </div>
+      {textBlock(asset, index)}
+    </div>
+  );
+
   return (
     <>
       <article className={shell}>
         {layout === "split_media_text" && primaryAsset ? (
-          <div className="grid gap-0 lg:grid-cols-[minmax(0,1.05fr)_minmax(320px,0.95fr)]">
-            <div className={theme === "internal" ? "p-4 sm:p-5" : "p-4 sm:p-6"}>
-              <MediaFrame
-                asset={primaryAsset}
-                theme={theme}
-                onViewLarger={isVideo(primaryAsset) ? () => setExpandedVideo(primaryAsset) : undefined}
-              />
-            </div>
-            {textBlock}
-          </div>
+          selectedAssets.map((asset, index) => splitBlock(asset, index))
         ) : (
           <>
             {primaryAsset ? (
@@ -173,12 +215,12 @@ export function ContentReviewRenderer({
                 />
               </div>
             ) : null}
-            {textBlock}
+            {textBlock(primaryAsset ?? undefined)}
           </>
         )}
       </article>
 
-      {extraAssets.length > 0 ? (
+      {layout !== "split_media_text" && extraAssets.length > 0 ? (
         <section className={`mt-6 grid gap-4 ${galleryGrid}`}>
           {extraAssets.map((asset) => (
             <MediaFrame
@@ -200,7 +242,7 @@ export function ContentReviewRenderer({
                   Video preview
                 </p>
                 <h3 className="mt-1 text-xl font-semibold">
-                  {expandedVideo.caption || expandedVideo.file_name}
+                  {expandedVideo.heading || expandedVideo.caption || draft.title}
                 </h3>
               </div>
               <button

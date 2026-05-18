@@ -257,7 +257,7 @@ export default function CreateLeaveRequestModal({
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid gap-3 sm:grid-cols-3">
-            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+            <div className="rounded-2xl border border-white/10 bg-white/3 p-4">
               <p className="text-xs uppercase tracking-[0.2em] text-white/40">
                 Total Leave
               </p>
@@ -265,7 +265,7 @@ export default function CreateLeaveRequestModal({
                 {totalLeaveDays}
               </p>
             </div>
-            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+            <div className="rounded-2xl border border-white/10 bg-white/3 p-4">
               <p className="text-xs uppercase tracking-[0.2em] text-white/40">
                 Remaining
               </p>
@@ -273,7 +273,7 @@ export default function CreateLeaveRequestModal({
                 {remainingLeaveDays}
               </p>
             </div>
-            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+            <div className="rounded-2xl border border-white/10 bg-white/3 p-4">
               <p className="text-xs uppercase tracking-[0.2em] text-white/40">
                 This Request
               </p>
@@ -358,7 +358,7 @@ export default function CreateLeaveRequestModal({
           ) : null}
 
           {requestedDays > 0 ? (
-            <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-white/65">
+            <div className="rounded-2xl border border-white/10 bg-white/3 px-4 py-3 text-sm text-white/65">
               This request will use {formatLeaveDaysLabel(requestedDays)}.
             </div>
           ) : null}

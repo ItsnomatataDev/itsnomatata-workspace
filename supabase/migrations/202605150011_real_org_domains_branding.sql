@@ -178,7 +178,7 @@ for select
 to authenticated
 using (
   lower(email) = lower(coalesce(auth.email(), ''))
-  and status = 'pending'
+  and status in ('pending', 'accepted')
 );
 
 do $$

@@ -43,7 +43,7 @@ export default function LoginPage() {
         );
       }
 
-      navigate("/dashboard", { replace: true });
+      navigate(result.defaultPath ?? "/dashboard", { replace: true });
     } catch (err) {
       console.error("LOGIN ERROR:", err);
       setError(err instanceof Error ? err.message : "Failed to login");

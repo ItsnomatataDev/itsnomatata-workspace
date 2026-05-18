@@ -1,4 +1,4 @@
-import { ArrowLeft, Eye, Loader2, Save, Send, Trash2 } from "lucide-react";
+import { ArrowLeft, Eye, GripVertical, Loader2, Save, Send, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../../../app/providers/AuthProvider";
@@ -10,6 +10,7 @@ import {
   listContentClients,
   inferLayoutType,
   notifyContentReviewTeam,
+  updateContentReviewAsset,
   updateContentReviewDraft,
   type ContentReviewAsset,
   type ContentClient,
@@ -102,9 +103,10 @@ export default function ContentStudioEditorPage() {
 
   const draftPreview = useMemo(() => {
     if (!detail || !form) return null;
+    const selectedAssets = detail.assets.filter((asset) => asset.is_selected !== false);
     const layoutType =
-      detail.assets.length === 1 && form.body.trim()
-        ? inferLayoutType({ assets: detail.assets, body: form.body })
+      selectedAssets.length === 1 && form.body.trim()
+        ? inferLayoutType({ assets: selectedAssets, body: form.body })
         : form.layout_type;
     return {
       ...detail.draft,
@@ -116,6 +118,57 @@ export default function ContentStudioEditorPage() {
 
   function updateForm<K extends keyof NonNullable<typeof form>>(key: K, value: NonNullable<typeof form>[K]) {
     setForm((current) => (current ? { ...current, [key]: value } : current));
+  }
+
+  async function updateAsset(
+    asset: ContentReviewAsset,
+    updates: Pick<
+      Partial<ContentReviewAsset>,
+      "heading" | "caption" | "is_selected" | "sort_order" | "crop_x" | "crop_y" | "crop_zoom"
+    >,
+  ) {
+    if (!detail) return;
+    try {
+      setSaving(true);
+      const updated = await updateContentReviewAsset(asset.id, updates);
+      setDetail({
+        ...detail,
+        assets: detail.assets.map((item) => (item.id === updated.id ? updated : item)),
+      });
+      setMessage("Media updated.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update media.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function reorderAssets(draggedId: string, targetId: string) {
+    if (!detail || draggedId === targetId) return;
+    const fromIndex = detail.assets.findIndex((asset) => asset.id === draggedId);
+    const toIndex = detail.assets.findIndex((asset) => asset.id === targetId);
+    if (fromIndex < 0 || toIndex < 0) return;
+
+    const reordered = [...detail.assets];
+    const [dragged] = reordered.splice(fromIndex, 1);
+    reordered.splice(toIndex, 0, dragged);
+    const orderedAssets = reordered.map((asset, index) => ({ ...asset, sort_order: index }));
+    setDetail({ ...detail, assets: orderedAssets });
+
+    try {
+      setSaving(true);
+      await Promise.all(
+        orderedAssets.map((asset) =>
+          updateContentReviewAsset(asset.id, { sort_order: asset.sort_order }),
+        ),
+      );
+      setMessage("Media order updated.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to reorder media.");
+      await load();
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function saveDraft(nextStatus?: ContentReviewDraft["status"]) {
@@ -294,7 +347,30 @@ export default function ContentStudioEditorPage() {
               </select>
             </label>
             <TextArea label="Body text" value={form.body} onChange={(value) => updateForm("body", value)} rows={8} />
-            <TextArea label="Caption" value={form.captions} onChange={(value) => updateForm("captions", value)} rows={3} />
+            <TextArea label="Main caption" value={form.captions} onChange={(value) => updateForm("captions", value)} rows={3} />
+            <div className="space-y-3 rounded-xl border border-white/10 bg-white/[0.03] p-3">
+              <div>
+                <h2 className="text-sm font-semibold">Media text</h2>
+                <p className="mt-1 text-xs text-white/45">
+                  Choose which uploaded items appear in the review and add text per item.
+                </p>
+              </div>
+              {detail.assets.length === 0 ? (
+                <p className="rounded-lg border border-white/10 bg-black/30 p-3 text-xs text-white/45">
+                  No media uploaded yet.
+                </p>
+              ) : (
+                detail.assets.map((asset) => (
+                  <AssetTextEditor
+                    key={asset.id}
+                    asset={asset}
+                    saving={saving}
+                    onUpdate={updateAsset}
+                    onReorder={reorderAssets}
+                  />
+                ))
+              )}
+            </div>
             <Field label="Schedule date" type="datetime-local" value={form.scheduled_at} onChange={(value) => updateForm("scheduled_at", value)} />
             <Field label="CTA label" value={form.cta_label} onChange={(value) => updateForm("cta_label", value)} />
             <Field label="CTA URL" value={form.cta_url} onChange={(value) => updateForm("cta_url", value)} />
@@ -318,6 +394,180 @@ export default function ContentStudioEditorPage() {
         </section>
       </div>
     </main>
+  );
+}
+
+function AssetTextEditor({
+  asset,
+  saving,
+  onUpdate,
+  onReorder,
+}: {
+  asset: ContentReviewAsset;
+  saving: boolean;
+  onUpdate: (
+    asset: ContentReviewAsset,
+    updates: Pick<
+      Partial<ContentReviewAsset>,
+      "heading" | "caption" | "is_selected" | "sort_order" | "crop_x" | "crop_y" | "crop_zoom"
+    >,
+  ) => void;
+  onReorder: (draggedId: string, targetId: string) => void;
+}) {
+  const [heading, setHeading] = useState(asset.heading ?? "");
+  const [caption, setCaption] = useState(asset.caption ?? "");
+  const [crop, setCrop] = useState({
+    crop_x: asset.crop_x ?? 50,
+    crop_y: asset.crop_y ?? 50,
+    crop_zoom: asset.crop_zoom ?? 1,
+  });
+  const selected = asset.is_selected !== false;
+  const isImage = asset.asset_type !== "video" && !asset.mime_type?.startsWith("video/");
+
+  useEffect(() => {
+    setHeading(asset.heading ?? "");
+    setCaption(asset.caption ?? "");
+  }, [asset.heading, asset.caption]);
+
+  useEffect(() => {
+    setCrop({
+      crop_x: asset.crop_x ?? 50,
+      crop_y: asset.crop_y ?? 50,
+      crop_zoom: asset.crop_zoom ?? 1,
+    });
+  }, [asset.crop_x, asset.crop_y, asset.crop_zoom]);
+
+  return (
+    <div
+      draggable
+      onDragStart={(event) => event.dataTransfer.setData("text/plain", asset.id)}
+      onDragOver={(event) => {
+        if (event.dataTransfer.types.includes("text/plain")) event.preventDefault();
+      }}
+      onDrop={(event) => {
+        const draggedId = event.dataTransfer.getData("text/plain");
+        if (!draggedId) return;
+        event.preventDefault();
+        onReorder(draggedId, asset.id);
+      }}
+      className={`rounded-lg border p-3 ${selected ? "border-white/10 bg-black/30" : "border-white/10 bg-black/20 opacity-70"}`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 gap-2">
+          <GripVertical className="mt-0.5 shrink-0 text-white/30" size={16} />
+          <div className="min-w-0">
+            <p className="truncate text-xs font-semibold text-white/75">{asset.file_name}</p>
+            <p className="mt-1 text-[11px] capitalize text-white/35">{asset.asset_type}</p>
+          </div>
+        </div>
+        <label className="inline-flex shrink-0 items-center gap-2 text-xs font-semibold text-white/70">
+          <input
+            type="checkbox"
+            checked={selected}
+            disabled={saving}
+            onChange={(event) => onUpdate(asset, { is_selected: event.target.checked })}
+            className="h-4 w-4 rounded border-white/20 bg-black accent-orange-500"
+          />
+          Use
+        </label>
+      </div>
+      <input
+        value={heading}
+        onChange={(event) => setHeading(event.target.value)}
+        placeholder="Heading for this media item"
+        className={`${inputClassName()} mt-3`}
+      />
+      <textarea
+        value={caption}
+        onChange={(event) => setCaption(event.target.value)}
+        rows={3}
+        placeholder="Paragraph for this media item"
+        className={`${inputClassName()} mt-3`}
+      />
+      <button
+        type="button"
+        disabled={saving || (heading === (asset.heading ?? "") && caption === (asset.caption ?? ""))}
+        onClick={() => onUpdate(asset, { heading, caption })}
+        className="mt-3 rounded-lg border border-orange-500/20 px-3 py-2 text-xs font-semibold text-orange-200 hover:bg-orange-500/10 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        Save heading and paragraph
+      </button>
+      {isImage ? (
+        <div className="mt-4 space-y-3 rounded-lg border border-white/10 bg-black/20 p-3">
+          <RangeControl
+            label="Crop X"
+            min={0}
+            max={100}
+            step={1}
+            value={crop.crop_x}
+            onChange={(value) => setCrop((current) => ({ ...current, crop_x: value }))}
+          />
+          <RangeControl
+            label="Crop Y"
+            min={0}
+            max={100}
+            step={1}
+            value={crop.crop_y}
+            onChange={(value) => setCrop((current) => ({ ...current, crop_y: value }))}
+          />
+          <RangeControl
+            label="Zoom"
+            min={1}
+            max={2}
+            step={0.05}
+            value={crop.crop_zoom}
+            onChange={(value) => setCrop((current) => ({ ...current, crop_zoom: value }))}
+          />
+          <button
+            type="button"
+            disabled={
+              saving ||
+              (crop.crop_x === (asset.crop_x ?? 50) &&
+                crop.crop_y === (asset.crop_y ?? 50) &&
+                crop.crop_zoom === (asset.crop_zoom ?? 1))
+            }
+            onClick={() => onUpdate(asset, crop)}
+            className="rounded-lg border border-orange-500/20 px-3 py-2 text-xs font-semibold text-orange-200 hover:bg-orange-500/10 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Save crop
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function RangeControl({
+  label,
+  min,
+  max,
+  step,
+  value,
+  onChange,
+}: {
+  label: string;
+  min: number;
+  max: number;
+  step: number;
+  value: number;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-1 flex items-center justify-between text-xs text-white/45">
+        <span>{label}</span>
+        <span>{value}</span>
+      </span>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(event) => onChange(Number(event.target.value))}
+        className="w-full accent-orange-500"
+      />
+    </label>
   );
 }
 

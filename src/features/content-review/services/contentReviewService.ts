@@ -64,7 +64,12 @@ export type ContentReviewAsset = {
   storage_path: string | null;
   mime_type: string | null;
   asset_type: string;
+  heading?: string | null;
   caption: string | null;
+  is_selected?: boolean | null;
+  crop_x?: number | null;
+  crop_y?: number | null;
+  crop_zoom?: number | null;
   sort_order: number;
   expires_at?: string | null;
   original_size_bytes?: number | null;
@@ -437,6 +442,24 @@ export async function updateContentReviewDraft(
   return data as ContentReviewDraft;
 }
 
+export async function updateContentReviewAsset(
+  assetId: string,
+  updates: Pick<
+    Partial<ContentReviewAsset>,
+    "heading" | "caption" | "is_selected" | "sort_order" | "crop_x" | "crop_y" | "crop_zoom"
+  >,
+) {
+  const { data, error } = await supabase
+    .from("content_review_assets")
+    .update(updates)
+    .eq("id", assetId)
+    .select("*")
+    .single();
+
+  if (error) throw error;
+  return data as ContentReviewAsset;
+}
+
 function fileExtension(file: File) {
   const namePart = file.name.split(".").pop();
   return namePart ? `.${namePart.toLowerCase()}` : "";
@@ -566,6 +589,10 @@ export async function uploadContentReviewAsset(params: {
       storage_path: path,
       mime_type: uploadFile.file.type || null,
       asset_type: uploadFile.file.type.startsWith("video/") ? "video" : "image",
+      is_selected: true,
+      crop_x: 50,
+      crop_y: 50,
+      crop_zoom: 1,
       sort_order: params.sortOrder,
       expires_at: new Date(Date.now() + ASSET_RETENTION_DAYS * 86400000).toISOString(),
       original_size_bytes: uploadFile.originalSize,

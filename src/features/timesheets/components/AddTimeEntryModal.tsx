@@ -38,7 +38,6 @@ export function AddTimeEntryModal({
   const [loadingProjects, setLoadingProjects] = useState(false);
   const [loadingTasks, setLoadingTasks] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
   const [date, setDate] = useState(getZimbabweDateKey(new Date()));
   const [startTime, setStartTime] = useState("09:00");
   const [endTime, setEndTime] = useState("17:00");
@@ -46,7 +45,6 @@ export function AddTimeEntryModal({
   const [taskId, setTaskId] = useState("");
   const [description, setDescription] = useState("");
   const [isBillable, setIsBillable] = useState(false);
-
   const [projects, setProjects] = useState<ProjectRow[]>([]);
   const [tasks, setTasks] = useState<TaskOption[]>([]);
 

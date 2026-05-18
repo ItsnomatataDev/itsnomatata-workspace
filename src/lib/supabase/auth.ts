@@ -38,6 +38,14 @@ type OrganizationRow = {
   slug: string;
 };
 
+const ADMIN_PORTAL_ROLES = new Set([
+  "admin",
+  "org_admin",
+  "super_admin",
+  "superadmin",
+  "it-superadmin",
+]);
+
 const SUPER_ADMIN_ALLOWLIST = [
   "ben@itsnomatata.com",
   "thando@itsnomatata.com",
@@ -107,6 +115,53 @@ async function getOrganizationBySlug(
   return (data ?? null) as OrganizationRow | null;
 }
 
+export function getDefaultAuthenticatedPath(role?: string | null) {
+  return role && ADMIN_PORTAL_ROLES.has(role) ? "/admin/dashboard" : "/dashboard";
+}
+
+async function getInviteRoleForEmail(email: string) {
+  const { data, error } = await supabase
+    .from("organization_invitations")
+    .select("role_key, status")
+    .ilike("email", normalizeEmail(email))
+    .in("status", ["pending", "accepted"])
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.warn("POST LOGIN INVITATION ROLE LOOKUP FAILED:", error);
+    return null;
+  }
+
+  return typeof data?.role_key === "string" ? data.role_key : null;
+}
+
+async function getProfileRoleForUser(userId: string) {
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("primary_role, organization_role_key")
+    .eq("id", userId)
+    .maybeSingle();
+
+  if (error) {
+    console.warn("POST LOGIN PROFILE ROLE LOOKUP FAILED:", error);
+    return null;
+  }
+
+  return (
+    (typeof data?.primary_role === "string" && data.primary_role) ||
+    (typeof data?.organization_role_key === "string" && data.organization_role_key) ||
+    null
+  );
+}
+
+async function getDefaultPathForUser(userId: string, email?: string | null) {
+  const inviteRole = email ? await getInviteRoleForEmail(email) : null;
+  const profileRole = await getProfileRoleForUser(userId);
+  return getDefaultAuthenticatedPath(inviteRole ?? profileRole);
+}
+
 export async function signUpUser(params: SignUpUserParams) {
   if (authRequestInFlight) {
     throw new Error("An authentication request is already in progress.");
@@ -166,6 +221,9 @@ export async function signUpUser(params: SignUpUserParams) {
 
     return {
       ...data,
+      defaultPath: data.user
+        ? getDefaultAuthenticatedPath(params.role ?? resolvedRole)
+        : "/dashboard",
       workspace: {
         organizationFound: Boolean(organization),
         organization,
@@ -202,6 +260,7 @@ export async function signInUser(params: SignInUserParams) {
 
     return {
       ...data,
+      defaultPath: await getDefaultPathForUser(data.user.id, data.user.email),
       workspace: {
         organizationFound: Boolean(organization),
         organization,

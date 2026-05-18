@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "../../../lib/supabase/client";
 import { useAuth } from "../../../app/providers/AuthProvider";
+import { getDefaultAuthenticatedPath } from "../../../lib/supabase/auth";
 
 type InvitationRow = {
   id: string;
@@ -134,7 +135,7 @@ export default function AcceptOrganizationInvitePage() {
       if (inviteUpdateError) throw inviteUpdateError;
 
       await auth?.refreshProfile();
-      navigate("/dashboard", { replace: true });
+      navigate(getDefaultAuthenticatedPath(profileRole), { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to accept invitation.");
     } finally {

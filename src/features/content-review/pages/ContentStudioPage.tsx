@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
-import { CalendarDays, CheckCircle2, Copy, Image, Loader2, MessageSquare, Plus, Trash2, Upload } from "lucide-react";
+import { CalendarDays, CheckCircle2, Copy, GripVertical, Image, Loader2, MessageSquare, Plus, Trash2, Upload } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import Sidebar from "../../../components/dashboard/components/Sidebar";
 import { useAuth } from "../../../app/providers/AuthProvider";
@@ -14,6 +14,7 @@ import {
   inferLayoutType,
   listContentReviewDrafts,
   notifyContentReviewTeam,
+  updateContentReviewAsset,
   updateContentReviewDraft,
   uploadContentReviewAsset,
   type ContentReviewAsset,
@@ -66,6 +67,12 @@ function statusClass(status: string) {
 }
 
 function MediaPreview({ asset }: { asset: ContentReviewAsset }) {
+  const cropStyle = {
+    objectPosition: `${asset.crop_x ?? 50}% ${asset.crop_y ?? 50}%`,
+    transform: `scale(${asset.crop_zoom ?? 1})`,
+    transformOrigin: `${asset.crop_x ?? 50}% ${asset.crop_y ?? 50}%`,
+  };
+
   if (asset.asset_type === "video" || asset.mime_type?.startsWith("video/")) {
     return (
       <video
@@ -77,11 +84,14 @@ function MediaPreview({ asset }: { asset: ContentReviewAsset }) {
   }
 
   return (
-    <img
-      src={asset.file_url}
-      alt={asset.caption ?? asset.file_name}
-      className="aspect-video w-full rounded-xl border border-white/10 object-cover"
-    />
+    <div className="aspect-video w-full overflow-hidden rounded-xl border border-white/10">
+      <img
+        src={asset.file_url}
+        alt={asset.caption ?? asset.file_name}
+        className="h-full w-full object-cover"
+        style={cropStyle}
+      />
+    </div>
   );
 }
 
@@ -193,9 +203,10 @@ export default function ContentStudioPage() {
     const form = new FormData(event.currentTarget);
     const bodyText = String(form.get("body") || "");
     const requestedLayout = String(form.get("layout_type") || selectedDraft.layout_type) as ContentReviewLayout;
+    const selectedAssets = detail.assets.filter((asset) => asset.is_selected !== false);
     const layoutType =
-      detail.assets.length === 1 && bodyText.trim()
-        ? inferLayoutType({ assets: detail.assets, body: bodyText })
+      selectedAssets.length === 1 && bodyText.trim()
+        ? inferLayoutType({ assets: selectedAssets, body: bodyText })
         : requestedLayout;
     try {
       setSaving(true);
@@ -245,6 +256,57 @@ export default function ContentStudioPage() {
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to upload media.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleUpdateAsset(
+    asset: ContentReviewAsset,
+    updates: Pick<
+      Partial<ContentReviewAsset>,
+      "heading" | "caption" | "is_selected" | "sort_order" | "crop_x" | "crop_y" | "crop_zoom"
+    >,
+  ) {
+    if (!detail) return;
+    try {
+      setSaving(true);
+      const updated = await updateContentReviewAsset(asset.id, updates);
+      setDetail({
+        ...detail,
+        assets: detail.assets.map((item) => (item.id === updated.id ? updated : item)),
+      });
+      setMessage("Media updated.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update media.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleReorderAssets(draggedId: string, targetId: string) {
+    if (!detail || draggedId === targetId) return;
+    const fromIndex = detail.assets.findIndex((asset) => asset.id === draggedId);
+    const toIndex = detail.assets.findIndex((asset) => asset.id === targetId);
+    if (fromIndex < 0 || toIndex < 0) return;
+
+    const reordered = [...detail.assets];
+    const [dragged] = reordered.splice(fromIndex, 1);
+    reordered.splice(toIndex, 0, dragged);
+    const orderedAssets = reordered.map((asset, index) => ({ ...asset, sort_order: index }));
+    setDetail({ ...detail, assets: orderedAssets });
+
+    try {
+      setSaving(true);
+      await Promise.all(
+        orderedAssets.map((asset) =>
+          updateContentReviewAsset(asset.id, { sort_order: asset.sort_order }),
+        ),
+      );
+      setMessage("Media order updated.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to reorder media.");
+      await load();
     } finally {
       setSaving(false);
     }
@@ -420,6 +482,8 @@ export default function ContentStudioPage() {
               saving={saving}
               onSelect={setSelectedDraftId}
               onUpload={handleUpload}
+              onUpdateAsset={handleUpdateAsset}
+              onReorderAssets={handleReorderAssets}
             />
           ) : section === "reviews" ? (
             <ReviewsTab drafts={drafts} detail={detail} onSelect={setSelectedDraftId} />
@@ -571,7 +635,13 @@ export default function ContentStudioPage() {
                   ) : (
                     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                       {assets.map((asset) => (
-                        <MediaPreview key={asset.id} asset={asset} />
+                        <AssetReviewCard
+                          key={asset.id}
+                          asset={asset}
+                          saving={saving}
+                          onUpdate={handleUpdateAsset}
+                          onReorder={handleReorderAssets}
+                        />
                       ))}
                     </div>
                   )}
@@ -655,6 +725,8 @@ function UploadsTab({
   saving,
   onSelect,
   onUpload,
+  onUpdateAsset,
+  onReorderAssets,
 }: {
   drafts: ContentReviewDraft[];
   selectedDraft: ContentReviewDraft | null;
@@ -662,10 +734,28 @@ function UploadsTab({
   saving: boolean;
   onSelect: (draftId: string) => void;
   onUpload: (files: FileList | null) => void;
+  onUpdateAsset: (
+    asset: ContentReviewAsset,
+    updates: Pick<
+      Partial<ContentReviewAsset>,
+      "heading" | "caption" | "is_selected" | "sort_order" | "crop_x" | "crop_y" | "crop_zoom"
+    >,
+  ) => void;
+  onReorderAssets: (draggedId: string, targetId: string) => void;
 }) {
   return (
     <section className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
-      <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+      <div
+        className="rounded-2xl border border-white/10 bg-white/5 p-5"
+        onDragOver={(event) => {
+          if (event.dataTransfer.types.includes("Files")) event.preventDefault();
+        }}
+        onDrop={(event) => {
+          if (!event.dataTransfer.files.length) return;
+          event.preventDefault();
+          onUpload(event.dataTransfer.files);
+        }}
+      >
         <h2 className="text-xl font-semibold">Select draft</h2>
         <div className="mt-4 space-y-2">
           {drafts.map((draft) => (
@@ -719,10 +809,13 @@ function UploadsTab({
         ) : (
           <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {assets.map((asset) => (
-              <div key={asset.id} className="rounded-xl border border-white/10 bg-black/30 p-3">
-                <MediaPreview asset={asset} />
-                <p className="mt-2 truncate text-xs text-white/45">{asset.file_name}</p>
-              </div>
+              <AssetReviewCard
+                key={asset.id}
+                asset={asset}
+                saving={saving}
+                onUpdate={onUpdateAsset}
+                onReorder={onReorderAssets}
+              />
             ))}
           </div>
         )}
@@ -791,6 +884,178 @@ function ReviewsTab({
         )}
       </div>
     </section>
+  );
+}
+
+function AssetReviewCard({
+  asset,
+  saving,
+  onUpdate,
+  onReorder,
+}: {
+  asset: ContentReviewAsset;
+  saving: boolean;
+  onUpdate: (
+    asset: ContentReviewAsset,
+    updates: Pick<
+      Partial<ContentReviewAsset>,
+      "heading" | "caption" | "is_selected" | "sort_order" | "crop_x" | "crop_y" | "crop_zoom"
+    >,
+  ) => void;
+  onReorder: (draggedId: string, targetId: string) => void;
+}) {
+  const [heading, setHeading] = useState(asset.heading ?? "");
+  const [caption, setCaption] = useState(asset.caption ?? "");
+  const [crop, setCrop] = useState({
+    crop_x: asset.crop_x ?? 50,
+    crop_y: asset.crop_y ?? 50,
+    crop_zoom: asset.crop_zoom ?? 1,
+  });
+  const selected = asset.is_selected !== false;
+  const isImage = asset.asset_type !== "video" && !asset.mime_type?.startsWith("video/");
+
+  useEffect(() => {
+    setHeading(asset.heading ?? "");
+    setCaption(asset.caption ?? "");
+  }, [asset.heading, asset.caption]);
+
+  useEffect(() => {
+    setCrop({
+      crop_x: asset.crop_x ?? 50,
+      crop_y: asset.crop_y ?? 50,
+      crop_zoom: asset.crop_zoom ?? 1,
+    });
+  }, [asset.crop_x, asset.crop_y, asset.crop_zoom]);
+
+  return (
+    <div
+      draggable
+      onDragStart={(event) => event.dataTransfer.setData("text/plain", asset.id)}
+      onDragOver={(event) => {
+        if (event.dataTransfer.types.includes("text/plain")) event.preventDefault();
+      }}
+      onDrop={(event) => {
+        const draggedId = event.dataTransfer.getData("text/plain");
+        if (!draggedId) return;
+        event.preventDefault();
+        onReorder(draggedId, asset.id);
+      }}
+      className={`rounded-xl border p-3 ${selected ? "border-white/10 bg-black/30" : "border-white/10 bg-black/20 opacity-70"}`}
+    >
+      <MediaPreview asset={asset} />
+      <div className="mt-3 flex items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <GripVertical className="shrink-0 text-white/30" size={16} />
+          <p className="min-w-0 truncate text-xs text-white/45">{asset.file_name}</p>
+        </div>
+        <label className="inline-flex shrink-0 items-center gap-2 text-xs font-semibold text-white/70">
+          <input
+            type="checkbox"
+            checked={selected}
+            disabled={saving}
+            onChange={(event) => onUpdate(asset, { is_selected: event.target.checked })}
+            className="h-4 w-4 rounded border-white/20 bg-black accent-orange-500"
+          />
+          Use
+        </label>
+      </div>
+      <input
+        value={heading}
+        onChange={(event) => setHeading(event.target.value)}
+        placeholder="Heading for this media item"
+        className={`${inputClassName()} mt-3`}
+      />
+      <textarea
+        value={caption}
+        onChange={(event) => setCaption(event.target.value)}
+        rows={3}
+        placeholder="Paragraph for this media item"
+        className={`${inputClassName()} mt-3`}
+      />
+      <button
+        type="button"
+        disabled={saving || (heading === (asset.heading ?? "") && caption === (asset.caption ?? ""))}
+        onClick={() => onUpdate(asset, { heading, caption })}
+        className="mt-3 rounded-lg border border-orange-500/20 px-3 py-2 text-xs font-semibold text-orange-200 hover:bg-orange-500/10 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        Save heading and paragraph
+      </button>
+      {isImage ? (
+        <div className="mt-4 space-y-3 rounded-lg border border-white/10 bg-black/20 p-3">
+          <RangeControl
+            label="Crop X"
+            min={0}
+            max={100}
+            step={1}
+            value={crop.crop_x}
+            onChange={(value) => setCrop((current) => ({ ...current, crop_x: value }))}
+          />
+          <RangeControl
+            label="Crop Y"
+            min={0}
+            max={100}
+            step={1}
+            value={crop.crop_y}
+            onChange={(value) => setCrop((current) => ({ ...current, crop_y: value }))}
+          />
+          <RangeControl
+            label="Zoom"
+            min={1}
+            max={2}
+            step={0.05}
+            value={crop.crop_zoom}
+            onChange={(value) => setCrop((current) => ({ ...current, crop_zoom: value }))}
+          />
+          <button
+            type="button"
+            disabled={
+              saving ||
+              (crop.crop_x === (asset.crop_x ?? 50) &&
+                crop.crop_y === (asset.crop_y ?? 50) &&
+                crop.crop_zoom === (asset.crop_zoom ?? 1))
+            }
+            onClick={() => onUpdate(asset, crop)}
+            className="rounded-lg border border-orange-500/20 px-3 py-2 text-xs font-semibold text-orange-200 hover:bg-orange-500/10 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Save crop
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function RangeControl({
+  label,
+  min,
+  max,
+  step,
+  value,
+  onChange,
+}: {
+  label: string;
+  min: number;
+  max: number;
+  step: number;
+  value: number;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-1 flex items-center justify-between text-xs text-white/45">
+        <span>{label}</span>
+        <span>{value}</span>
+      </span>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(event) => onChange(Number(event.target.value))}
+        className="w-full accent-orange-500"
+      />
+    </label>
   );
 }
 

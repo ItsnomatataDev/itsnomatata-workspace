@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Eye, EyeOff } from "lucide-react";
-import { signUpUser } from "../../../lib/supabase/auth";
+import { getDefaultAuthenticatedPath, signUpUser } from "../../../lib/supabase/auth";
 import type { PublicSignupRole } from "../../../lib/supabase/auth";
 import { OFFICE_OPTIONS, OFFICE_SLUGS, type OfficeSlug } from "../../../lib/offices";
 import { supabase } from "../../../lib/supabase/client";
@@ -204,7 +204,7 @@ export default function SignupPage() {
         email: email.trim(),
         password,
         fullName: fullName.trim(),
-        role: isInviteSignup ? undefined : role,
+        role: isInviteSignup ? invitePreview?.role_key : role,
         officeSlug: isInternalEmail ? officeSlug : undefined,
         inviteToken,
         organizationId: !isInviteSignup ? selectedOrganizationId || null : null,
@@ -217,7 +217,10 @@ export default function SignupPage() {
 
       setSuccess(true);
       if (inviteToken && result.session) {
-        navigate("/dashboard", { replace: true });
+        navigate(
+          result.defaultPath ?? getDefaultAuthenticatedPath(invitePreview?.role_key),
+          { replace: true },
+        );
         return;
       }
       setFullName("");
@@ -421,7 +424,14 @@ export default function SignupPage() {
             ) : (
               <button
                 type="button"
-                onClick={() => navigate(inviteToken ? "/dashboard" : "/login", { replace: true })}
+                onClick={() =>
+                  navigate(
+                    inviteToken
+                      ? getDefaultAuthenticatedPath(invitePreview?.role_key)
+                      : "/login",
+                    { replace: true },
+                  )
+                }
                 className="w-full rounded-2xl bg-orange-500 px-4 py-3 font-semibold text-black transition hover:bg-orange-400"
                 style={{ backgroundColor: accentColor }}
               >

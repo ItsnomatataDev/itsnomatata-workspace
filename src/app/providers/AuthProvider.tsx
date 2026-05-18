@@ -15,10 +15,8 @@ import { resolveCompanyOfficeId } from "../../lib/supabase/queries/offices";
 type AppRole =
   | "super_admin"
   | "org_admin"
-  | "user"
   | "admin"
   | "superadmin"
-  | "it-superadmin"
   | "manager"
   | "hr"
   | "it"
@@ -156,7 +154,7 @@ async function getOrganization() {
   return data;
 }
 
-async function getPendingOrganizationInvitation(
+async function getOrganizationInvitation(
   email?: string | null,
 ): Promise<PendingOrganizationInvitation | null> {
   if (!email) return null;
@@ -165,7 +163,7 @@ async function getPendingOrganizationInvitation(
     .from("organization_invitations")
     .select("id, organization_id, email, full_name, role_key, status, expires_at")
     .ilike("email", email.trim().toLowerCase())
-    .eq("status", "pending")
+    .in("status", ["pending", "accepted"])
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -205,14 +203,14 @@ async function ensureProfile(user: User): Promise<AuthProfile | null> {
   if (selectError) throw selectError;
 
   const existingProfile = (existing as AuthProfile | null) ?? null;
-  const pendingInvitation = await getPendingOrganizationInvitation(user.email);
-  const invitedRole = toProfileCompatibleRole(pendingInvitation?.role_key);
+  const organizationInvitation = await getOrganizationInvitation(user.email);
+  const invitedRole = toProfileCompatibleRole(organizationInvitation?.role_key);
 
   const resolvedRole = invitedRole && isValidRole(invitedRole)
     ? invitedRole
     : resolveUserRole(user, existingProfile);
 
-  const resolvedStatus = pendingInvitation
+  const resolvedStatus = organizationInvitation
     ? "active"
     : resolveAccountStatus(user, existingProfile);
 
@@ -225,7 +223,7 @@ async function ensureProfile(user: User): Promise<AuthProfile | null> {
       ? user.user_metadata.requested_role_key
       : null;
   let organizationId =
-    pendingInvitation?.organization_id ??
+    organizationInvitation?.organization_id ??
     existing?.organization_id ??
     metadataOrganizationId ??
     null;
@@ -242,7 +240,7 @@ async function ensureProfile(user: User): Promise<AuthProfile | null> {
   const shouldResolveOffice =
     Boolean(existingProfile?.office_id) ||
     Boolean(requestedOfficeSlug) ||
-    (isCompanyEmail(user.email) && organizationId && !pendingInvitation);
+    (isCompanyEmail(user.email) && organizationId && !organizationInvitation);
 
   const officeId = organizationId && shouldResolveOffice
     ? await getOfficeId({
@@ -256,14 +254,14 @@ async function ensureProfile(user: User): Promise<AuthProfile | null> {
     id: user.id,
     email: user.email ?? existing?.email ?? null,
     full_name:
-      pendingInvitation?.full_name ??
+      organizationInvitation?.full_name ??
       user.user_metadata?.full_name ??
       existing?.full_name ??
       null,
     organization_id: organizationId,
     office_id: officeId,
     primary_role: resolvedRole,
-    organization_role_key: pendingInvitation?.role_key ?? requestedRoleKey ?? resolvedRole,
+    organization_role_key: organizationInvitation?.role_key ?? requestedRoleKey ?? resolvedRole,
     account_status: resolvedStatus,
     is_active: resolvedStatus === "active",
     is_suspended: resolvedStatus === "suspended",
@@ -278,12 +276,12 @@ async function ensureProfile(user: User): Promise<AuthProfile | null> {
 
   if (upsertError) throw upsertError;
 
-  if (pendingInvitation && organizationId) {
+  if (organizationInvitation && organizationId) {
     const { error: memberError } = await supabase.from("organization_members").upsert(
       {
         organization_id: organizationId,
         user_id: user.id,
-        role: pendingInvitation.role_key,
+        role: organizationInvitation.role_key,
         status: "active",
         joined_at: new Date().toISOString(),
       },
@@ -294,15 +292,17 @@ async function ensureProfile(user: User): Promise<AuthProfile | null> {
 
     if (memberError) throw memberError;
 
-    const { error: inviteError } = await supabase
-      .from("organization_invitations")
-      .update({
-        status: "accepted",
-        accepted_by: user.id,
-        accepted_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", pendingInvitation.id);
+    const { error: inviteError } = organizationInvitation.status === "pending"
+      ? await supabase
+          .from("organization_invitations")
+          .update({
+            status: "accepted",
+            accepted_by: user.id,
+            accepted_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", organizationInvitation.id)
+      : { error: null };
 
     if (inviteError) throw inviteError;
 
@@ -313,7 +313,7 @@ async function ensureProfile(user: User): Promise<AuthProfile | null> {
       action: "organization_invitation_accepted",
       metadata: {
         email: user.email,
-        roleKey: pendingInvitation.role_key,
+        roleKey: organizationInvitation.role_key,
         profileRole: resolvedRole,
       },
     });
