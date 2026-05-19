@@ -1,5 +1,5 @@
 import { Maximize2, X } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type CSSProperties } from "react";
 import {
   type ContentReviewAsset,
   type ContentReviewDraft,
@@ -23,10 +23,29 @@ function resolveLayout(draft: ContentReviewDraft, assets: ContentReviewAsset[]):
 
 function cropStyle(asset: ContentReviewAsset) {
   return {
-    objectPosition: `${asset.crop_x ?? 50}% ${asset.crop_y ?? 50}%`,
-    transform: `scale(${asset.crop_zoom ?? 1})`,
-    transformOrigin: `${asset.crop_x ?? 50}% ${asset.crop_y ?? 50}%`,
-  };
+    "--crop-position": `${asset.crop_x ?? 50}% ${asset.crop_y ?? 50}%`,
+    "--crop-transform": `scale(${asset.crop_zoom ?? 1})`,
+    "--crop-origin": `${asset.crop_x ?? 50}% ${asset.crop_y ?? 50}%`,
+  } as CSSProperties;
+}
+
+function imageFrameClass(theme: PreviewTheme) {
+  return theme === "internal" ? "bg-black" : "bg-neutral-100";
+}
+
+function mediaImageClass() {
+  return [
+    "h-auto max-h-[70vh] w-full object-contain",
+    "[object-position:var(--crop-position)] [transform-origin:var(--crop-origin)]",
+    "sm:object-cover sm:[transform:var(--crop-transform)]",
+  ].join(" ");
+}
+
+function previewImageSizes(theme: PreviewTheme) {
+  if (theme === "internal") {
+    return "(max-width: 640px) 100vw, (max-width: 1280px) 70vw, 900px";
+  }
+  return "(max-width: 640px) 100vw, (max-width: 1280px) 80vw, 1100px";
 }
 
 function MediaFrame({
@@ -85,11 +104,14 @@ function MediaFrame({
 
   return (
     <figure className="space-y-3">
-      <div className={`max-h-[70vh] overflow-hidden rounded-2xl border ${border}`}>
+      <div className={`max-h-[70vh] overflow-hidden rounded-2xl border ${border} ${imageFrameClass(theme)}`}>
         <img
           src={asset.file_url}
           alt={asset.heading ?? asset.caption ?? "Content review media"}
-          className="max-h-[70vh] w-full object-cover"
+          sizes={previewImageSizes(theme)}
+          loading="lazy"
+          decoding="async"
+          className={mediaImageClass()}
           style={cropStyle(asset)}
         />
       </div>

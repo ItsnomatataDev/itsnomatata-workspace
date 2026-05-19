@@ -53,17 +53,18 @@ async function createNotification(params: {
     body: JSON.stringify({
       organizationId: params.organizationId,
       userIds: [params.userId],
-      type: "timesheet_reminder",
-      title: "Clock-in reminder",
-      message: "It is 8:00 AM. Please clock in for today.",
-      actionUrl: "/attendance",
+      type: "time_tracking_not_started",
+      title: "Start your workday",
+      message: "It is 8:00 AM in Harare. Please clock in and start tracking your time.",
+      actionUrl: "/time-tracking",
       priority: "medium",
-      category: "attendance",
+      category: "time_tracking",
       channels: ["in_app", "push"],
       sendEmail: false,
-      dedupeKey: `clock-in-reminder:${params.userId}:${params.dateKey}`,
+      dedupeKey: `workday-start-reminder:${params.userId}:${params.dateKey}`,
       metadata: {
         attendance_date: params.dateKey,
+        reminder_time: "08:00",
         timezone: TIME_ZONE,
         source: "attendance-clockin-reminder",
       },
@@ -116,7 +117,11 @@ Deno.serve(async (req) => {
     const userIds = (users ?? []).map((user) => user.id);
     if (userIds.length === 0) return jsonResponse({ date: dateKey, notified: 0 });
 
-    const [{ data: sessions, error: sessionsError }, { data: leaves, error: leavesError }] =
+    const [
+      { data: sessions, error: sessionsError },
+      { data: timeEntries, error: timeEntriesError },
+      { data: leaves, error: leavesError },
+    ] =
       await Promise.all([
         supabase
           .from("attendance_sessions")
@@ -125,6 +130,13 @@ Deno.serve(async (req) => {
           .gte("clock_in_at", dayStart)
           .lte("clock_in_at", dayEnd),
         supabase
+          .from("time_entries")
+          .select("user_id")
+          .in("user_id", userIds)
+          .is("deleted_at", null)
+          .gte("started_at", dayStart)
+          .lte("started_at", dayEnd),
+        supabase
           .from("leave_requests")
           .select("user_id")
           .eq("status", "approved")
@@ -132,11 +144,16 @@ Deno.serve(async (req) => {
           .gte("end_date", dateKey),
       ]);
     if (sessionsError) throw sessionsError;
+    if (timeEntriesError) throw timeEntriesError;
     if (leavesError) throw leavesError;
 
     const clockedIn = new Set((sessions ?? []).map((row) => row.user_id));
+    const startedTracking = new Set((timeEntries ?? []).map((row) => row.user_id));
     const onLeave = new Set((leaves ?? []).map((row) => row.user_id));
-    const recipients = (users ?? []).filter((user) => !clockedIn.has(user.id) && !onLeave.has(user.id));
+    const recipients = (users ?? []).filter((user) =>
+      (!clockedIn.has(user.id) || !startedTracking.has(user.id)) &&
+      !onLeave.has(user.id)
+    );
 
     await Promise.allSettled(
       recipients.map((user) =>
@@ -157,6 +174,7 @@ Deno.serve(async (req) => {
         attendance_date: dateKey,
         notified_count: recipients.length,
         excluded_clocked_in: clockedIn.size,
+        excluded_started_tracking: startedTracking.size,
         excluded_on_leave: onLeave.size,
         timezone: TIME_ZONE,
       },
@@ -167,6 +185,7 @@ Deno.serve(async (req) => {
       timezone: TIME_ZONE,
       notified: recipients.length,
       excluded_clocked_in: clockedIn.size,
+      excluded_started_tracking: startedTracking.size,
       excluded_on_leave: onLeave.size,
     });
   } catch (error) {

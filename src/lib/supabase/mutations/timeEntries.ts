@@ -1,11 +1,9 @@
 import { supabase } from "../client";
 import { logTaskTimeTracked } from "./taskUpdates";
 import {
-  clampToZimbabweCutoff,
   clampToZimbabwePause,
   getZimbabweCutoffIso,
   getZimbabwePauseIso,
-  isAtOrAfterZimbabweCutoff,
   isAtOrAfterZimbabwePause,
 } from "../../utils/zimbabweCalendar";
 
@@ -238,7 +236,7 @@ function calculateDurationSeconds(startedAt: string, endedAt: string) {
 }
 
 function getCutoffEndForRunningEntry(startedAt: string, endedAt = new Date()) {
-  return clampToZimbabweCutoff(startedAt, endedAt);
+  return clampToZimbabwePause(startedAt, endedAt);
 }
 
 function hasZimbabweCutoffPassedForStart(startedAt: string, now = new Date()) {
@@ -266,8 +264,9 @@ async function closeRunningEntryAtCutoff(row: {
       duration_seconds: durationSeconds,
       metadata: {
         auto_stopped: true,
-        auto_stop_reason: "harare_7pm_cutoff",
+        auto_stop_reason: "harare_6pm_end_of_day",
         auto_stopped_at: new Date().toISOString(),
+        timezone: "Africa/Harare",
       },
     })
     .eq("id", row.id)
@@ -527,7 +526,7 @@ export const getActiveTimeEntry = async ({
 
   const active = (data as TimeEntryItem | null) ?? null;
   if (active) {
-    // Check for 7 PM cutoff (hard stop)
+    // Check for 6 PM end-of-day stop
     if (hasZimbabweCutoffPassedForStart(active.started_at)) {
       await closeRunningEntryAtCutoff({
         id: active.id,
@@ -605,8 +604,8 @@ export const startTimeEntry = async (
     userId: payload.userId,
   });
 
-  if (isAtOrAfterZimbabweCutoff()) {
-    throw new Error("Timers stop at 7:00 PM Harare time. Add manual time for today if needed.");
+  if (isAtOrAfterZimbabwePause()) {
+    throw new Error("Time tracking stops at 6:00 PM Harare time. Add manual time for today if needed.");
   }
 
   let projectId = payload.projectId ?? null;
@@ -782,8 +781,8 @@ export const resumeTimeEntry = async ({
     userId,
   });
 
-  if (isAtOrAfterZimbabweCutoff()) {
-    throw new Error("Timers stop at 7:00 PM Harare time. Add manual time for today if needed.");
+  if (isAtOrAfterZimbabwePause()) {
+    throw new Error("Time tracking stops at 6:00 PM Harare time. Add manual time for today if needed.");
   }
 
   const { data: existing, error: existingError } = await supabase

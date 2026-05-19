@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties, type FormEvent } from "react";
 import { CalendarDays, CheckCircle2, Copy, GripVertical, Image, Loader2, MessageSquare, Plus, Trash2, Upload } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import Sidebar from "../../../components/dashboard/components/Sidebar";
@@ -68,17 +68,17 @@ function statusClass(status: string) {
 
 function MediaPreview({ asset }: { asset: ContentReviewAsset }) {
   const cropStyle = {
-    objectPosition: `${asset.crop_x ?? 50}% ${asset.crop_y ?? 50}%`,
-    transform: `scale(${asset.crop_zoom ?? 1})`,
-    transformOrigin: `${asset.crop_x ?? 50}% ${asset.crop_y ?? 50}%`,
-  };
+    "--crop-position": `${asset.crop_x ?? 50}% ${asset.crop_y ?? 50}%`,
+    "--crop-transform": `scale(${asset.crop_zoom ?? 1})`,
+    "--crop-origin": `${asset.crop_x ?? 50}% ${asset.crop_y ?? 50}%`,
+  } as CSSProperties;
 
   if (asset.asset_type === "video" || asset.mime_type?.startsWith("video/")) {
     return (
       <video
         src={asset.file_url}
         controls
-        className="aspect-video w-full rounded-xl border border-white/10 object-cover"
+        className="aspect-video w-full rounded-xl border border-white/10 object-contain sm:object-cover"
       />
     );
   }
@@ -88,7 +88,9 @@ function MediaPreview({ asset }: { asset: ContentReviewAsset }) {
       <img
         src={asset.file_url}
         alt={asset.caption ?? asset.file_name}
-        className="h-full w-full object-cover"
+        loading="lazy"
+        decoding="async"
+        className="h-full w-full object-contain [object-position:var(--crop-position)] [transform-origin:var(--crop-origin)] sm:object-cover sm:[transform:var(--crop-transform)]"
         style={cropStyle}
       />
     </div>

@@ -70,6 +70,12 @@ export interface TaskItem {
   metadata?: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
+  assignees?: TaskAssigneeItem[];
+  watchers?: TaskWatcherItem[];
+  comments_count?: number;
+  watchers_count?: number;
+  has_running_timer?: boolean;
+  tracked_seconds?: number;
 }
 
 interface ProfileShort {
@@ -464,10 +470,22 @@ export const getTaskComments = async (
 
 export const getTaskCommentCounts = async (
   organizationId: string,
-  projectId: string,
+  projectId?: string,
 ): Promise<TaskCommentCountItem[]> => {
-  const tasks = await getProjectTasks(organizationId, projectId);
-  const taskIds = tasks.map((task) => task.id);
+  let taskIds: string[] = [];
+
+  if (projectId) {
+    const tasks = await getProjectTasks(organizationId, projectId);
+    taskIds = tasks.map((task) => task.id);
+  } else {
+    const { data: tasksData, error: tasksError } = await supabase
+      .from("tasks")
+      .select("id")
+      .eq("organization_id", organizationId);
+
+    if (tasksError) throw tasksError;
+    taskIds = (tasksData ?? []).map((item) => item.id);
+  }
 
   if (taskIds.length === 0) return [];
 
@@ -798,7 +816,7 @@ export const getProjectBoardData = async (
    INTERNAL BULK HELPERS
 ---------------------------------------- */
 
-async function getBulkTaskWatchers(
+export async function getBulkTaskWatchers(
   taskIds: string[],
 ): Promise<TaskWatcherItem[]> {
   if (taskIds.length === 0) return [];
@@ -838,7 +856,7 @@ async function getBulkTaskWatchers(
   });
 }
 
-async function getBulkTaskAssignees(
+export async function getBulkTaskAssignees(
   taskIds: string[],
 ): Promise<TaskAssigneeItem[]> {
   if (taskIds.length === 0) return [];

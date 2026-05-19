@@ -8,6 +8,17 @@ type AttendanceSession = {
   notes: string | null;
 };
 
+type RunningTimeEntry = {
+  id: string;
+  organization_id: string;
+  user_id: string;
+  task_id: string | null;
+  started_at: string;
+  metadata: Record<string, unknown> | null;
+};
+
+type SupabaseAdminClient = any;
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
@@ -61,7 +72,7 @@ function appendAutoNote(notes: string | null, clockOutAt: Date) {
 }
 
 async function createNotification(
-  supabase: ReturnType<typeof createClient>,
+  supabase: SupabaseAdminClient,
   session: AttendanceSession,
   clockOutAt: Date,
 ) {
@@ -84,8 +95,33 @@ async function createNotification(
   });
 }
 
+async function createTimerNotification(
+  supabase: SupabaseAdminClient,
+  entry: RunningTimeEntry,
+  stoppedAt: Date,
+) {
+  await supabase.from("notifications").insert({
+    organization_id: entry.organization_id,
+    user_id: entry.user_id,
+    type: "time_tracking_timer_left_running",
+    title: "Timer stopped for end of day",
+    message: "Your running time tracker was automatically stopped at 6:00 PM Harare time.",
+    entity_type: "time_entry",
+    entity_id: entry.id,
+    priority: "medium",
+    metadata: {
+      time_entry_id: entry.id,
+      task_id: entry.task_id,
+      stopped_at: stoppedAt.toISOString(),
+      timezone: "Africa/Harare",
+    },
+    category: "time_tracking",
+    dedupe_key: `time-entry-auto-stop-${entry.id}`,
+  });
+}
+
 async function writeAuditLog(
-  supabase: ReturnType<typeof createClient>,
+  supabase: SupabaseAdminClient,
   session: AttendanceSession,
   clockOutAt: Date,
   workSeconds: number,
@@ -103,6 +139,63 @@ async function writeAuditLog(
       source: "auto-clock-out-edge-function",
     },
   });
+}
+
+async function writeTimerAuditLog(
+  supabase: SupabaseAdminClient,
+  entry: RunningTimeEntry,
+  stoppedAt: Date,
+  durationSeconds: number,
+) {
+  await supabase.from("time_entry_audit_logs").insert({
+    organization_id: entry.organization_id,
+    time_entry_id: entry.id,
+    task_id: entry.task_id,
+    actor_user_id: null,
+    target_user_id: entry.user_id,
+    action: "updated",
+    previous_data: null,
+    new_data: {
+      ended_at: stoppedAt.toISOString(),
+      is_running: false,
+      duration_seconds: durationSeconds,
+    },
+    reason: "Daily 18:00 Africa/Harare automatic timer stop",
+  });
+}
+
+async function syncTaskTrackedSecondsCache(
+  supabase: SupabaseAdminClient,
+  organizationId: string,
+  taskId: string | null,
+) {
+  if (!taskId) return;
+
+  const { data: rows, error: timeError } = await supabase
+    .from("time_entries")
+    .select("duration_seconds")
+    .eq("organization_id", organizationId)
+    .eq("task_id", taskId)
+    .is("deleted_at", null)
+    .not("duration_seconds", "is", null);
+
+  if (timeError) throw timeError;
+
+  const totalSeconds = ((rows ?? []) as Array<{ duration_seconds?: number | null }>).reduce(
+    (sum, row) => sum + Number(row.duration_seconds ?? 0),
+    0,
+  );
+
+  const { error: taskError } = await supabase
+    .from("tasks")
+    .update({
+      tracked_seconds_cache: totalSeconds,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("organization_id", organizationId)
+    .eq("id", taskId);
+
+  if (taskError) throw taskError;
 }
 
 Deno.serve(async (req) => {
@@ -193,10 +286,70 @@ Deno.serve(async (req) => {
       completed.push(session.id);
     }
 
+    const { data: timeEntryData, error: timeEntryError } = await supabase
+      .from("time_entries")
+      .select("id, organization_id, user_id, task_id, started_at, metadata")
+      .eq("is_running", true)
+      .is("ended_at", null)
+      .is("deleted_at", null)
+      .lte("started_at", todayCutoff.toISOString())
+      .order("started_at", { ascending: true });
+
+    if (timeEntryError) throw timeEntryError;
+
+    const timeEntries = (timeEntryData ?? []) as RunningTimeEntry[];
+    const stoppedTimers: string[] = [];
+    const skippedTimers: Array<{ id: string; reason: string }> = [];
+
+    for (const entry of timeEntries) {
+      const stoppedAt = harareSixPmUtcForDate(new Date(entry.started_at));
+      const durationSeconds = secondsBetween(entry.started_at, stoppedAt);
+
+      if (durationSeconds <= 0) {
+        skippedTimers.push({ id: entry.id, reason: "started_at is after 18:00 local time" });
+        continue;
+      }
+
+      const { error: updateError } = await supabase
+        .from("time_entries")
+        .update({
+          ended_at: stoppedAt.toISOString(),
+          is_running: false,
+          duration_seconds: durationSeconds,
+          metadata: {
+            ...(entry.metadata ?? {}),
+            auto_stopped: true,
+            auto_stop_reason: "harare_6pm_end_of_day",
+            auto_stopped_at: new Date().toISOString(),
+            timezone: "Africa/Harare",
+          },
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", entry.id)
+        .eq("is_running", true)
+        .is("ended_at", null);
+
+      if (updateError) {
+        skippedTimers.push({ id: entry.id, reason: updateError.message });
+        continue;
+      }
+
+      await Promise.allSettled([
+        writeTimerAuditLog(supabase, entry, stoppedAt, durationSeconds),
+        createTimerNotification(supabase, entry, stoppedAt),
+        syncTaskTrackedSecondsCache(supabase, entry.organization_id, entry.task_id),
+      ]);
+
+      stoppedTimers.push(entry.id);
+    }
+
     return jsonResponse({
       completed_count: completed.length,
       completed,
       skipped,
+      stopped_timer_count: stoppedTimers.length,
+      stopped_timers: stoppedTimers,
+      skipped_timers: skippedTimers,
       cutoff: todayCutoff.toISOString(),
       timezone: "Africa/Harare",
     });

@@ -94,7 +94,16 @@ export default function ClientPortalPage() {
           {drafts.map((draft) => (
             <article key={draft.id} className="overflow-hidden rounded-3xl border border-neutral-200 bg-white shadow-lg">
               {draft.thumbnail_url ? (
-                <img src={draft.thumbnail_url} alt="" className="aspect-video w-full object-cover" />
+                <div className="aspect-video w-full bg-neutral-100">
+                  <img
+                    src={draft.thumbnail_url}
+                    alt=""
+                    loading="lazy"
+                    decoding="async"
+                    sizes="(max-width: 768px) 100vw, (max-width: 1280px) 50vw, 33vw"
+                    className="h-full w-full object-contain sm:object-cover"
+                  />
+                </div>
               ) : (
                 <div className="aspect-video bg-neutral-200" />
               )}

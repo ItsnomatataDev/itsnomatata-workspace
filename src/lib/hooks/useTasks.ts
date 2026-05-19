@@ -12,8 +12,11 @@ import type {
 } from "../supabase/queries/tasks";
 import {
   getProjectBoardData,
+  getBulkTaskAssignees,
+  getBulkTaskWatchers,
   getTaskById,
   getTaskComments,
+  getTaskCommentCounts,
   getTaskRuntimeInfo,
   getTasks,
   getTaskWatcherCounts,
@@ -164,15 +167,14 @@ export function useTasks(params: UseTasksParams) {
         return flatTasks;
       }
 
-      const [items, runtimeInfo, watcherCounts, trackedTime] = await Promise
-        .all(
-          [
-            getTasks({ assignedTo, organizationId, archiveMode }),
-            getTaskRuntimeInfo(organizationId),
-            getTaskWatcherCounts(organizationId),
-            getTrackedTimeByTask(organizationId),
-          ],
-        );
+      const [items, runtimeInfo, watcherCounts, trackedTime, commentCounts] =
+        await Promise.all([
+          getTasks({ assignedTo, organizationId, archiveMode }),
+          getTaskRuntimeInfo(organizationId),
+          getTaskWatcherCounts(organizationId),
+          getTrackedTimeByTask(organizationId),
+          getTaskCommentCounts(organizationId),
+        ]);
 
       const runtimeMap = new Map<string, boolean>();
       runtimeInfo.forEach((item) => {
@@ -191,9 +193,41 @@ export function useTasks(params: UseTasksParams) {
         trackedMap.set(item.task_id, item.tracked_seconds);
       });
 
+      const commentCountMap = new Map<string, number>();
+      commentCounts.forEach((item) => {
+        commentCountMap.set(item.task_id, item.comment_count);
+      });
+
+      const taskIds = items.map((task) => task.id);
+      const [allAssignees, allWatchers] = await Promise.all([
+        getBulkTaskAssignees(taskIds),
+        getBulkTaskWatchers(taskIds),
+      ]);
+
+      const assigneesMap = new Map<string, typeof allAssignees>();
+      for (const item of allAssignees) {
+        const list = assigneesMap.get(item.task_id) ?? [];
+        list.push(item);
+        assigneesMap.set(item.task_id, list);
+      }
+
+      const watchersMap = new Map<string, typeof allWatchers>();
+      for (const item of allWatchers) {
+        const list = watchersMap.get(item.task_id) ?? [];
+        list.push(item);
+        watchersMap.set(item.task_id, list);
+      }
+
       const enrichedTasks: TaskItem[] = items.map((task) => ({
         ...task,
+        assignees: assigneesMap.get(task.id) ?? [],
+        watchers: watchersMap.get(task.id) ?? [],
+        comments_count: commentCountMap.get(task.id) ?? 0,
+        watchers_count: invitedMap.get(task.id) ?? 0,
+        has_running_timer: runtimeMap.get(task.id) ?? false,
         tracked_seconds_cache: trackedMap.get(task.id) ??
+          Number(task.tracked_seconds_cache ?? 0),
+        tracked_seconds: trackedMap.get(task.id) ??
           Number(task.tracked_seconds_cache ?? 0),
       }));
 
