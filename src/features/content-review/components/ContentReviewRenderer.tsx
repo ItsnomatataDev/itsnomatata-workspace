@@ -7,6 +7,7 @@ import {
 } from "../services/contentReviewService";
 
 type PreviewTheme = "public" | "internal";
+type PreviewViewport = "responsive" | "mobile";
 
 function isVideo(asset?: ContentReviewAsset | null) {
   return Boolean(asset?.asset_type === "video" || asset?.mime_type?.startsWith("video/"));
@@ -33,7 +34,11 @@ function imageFrameClass(theme: PreviewTheme) {
   return theme === "internal" ? "bg-black" : "bg-neutral-100";
 }
 
-function mediaImageClass() {
+function mediaImageClass(viewport: PreviewViewport) {
+  if (viewport === "mobile") {
+    return "h-full max-h-[70vh] w-full object-contain";
+  }
+
   return [
     "h-auto max-h-[70vh] w-full object-contain",
     "[object-position:var(--crop-position)] [transform-origin:var(--crop-origin)]",
@@ -51,11 +56,13 @@ function previewImageSizes(theme: PreviewTheme) {
 function MediaFrame({
   asset,
   theme,
+  viewport = "responsive",
   onViewLarger,
   showText = true,
 }: {
   asset: ContentReviewAsset;
   theme: PreviewTheme;
+  viewport?: PreviewViewport;
   onViewLarger?: () => void;
   showText?: boolean;
 }) {
@@ -104,14 +111,14 @@ function MediaFrame({
 
   return (
     <figure className="space-y-3">
-      <div className={`max-h-[70vh] overflow-hidden rounded-2xl border ${border} ${imageFrameClass(theme)}`}>
+      <div className={`overflow-hidden rounded-2xl border ${border} ${imageFrameClass(theme)} ${viewport === "mobile" ? "aspect-[4/5] max-h-[70vh]" : "max-h-[70vh]"}`}>
         <img
           src={asset.file_url}
           alt={asset.heading ?? asset.caption ?? "Content review media"}
           sizes={previewImageSizes(theme)}
           loading="lazy"
           decoding="async"
-          className={mediaImageClass()}
+          className={mediaImageClass(viewport)}
           style={cropStyle(asset)}
         />
       </div>
@@ -129,10 +136,12 @@ export function ContentReviewRenderer({
   draft,
   assets,
   theme = "public",
+  viewport = "responsive",
 }: {
   draft: ContentReviewDraft;
   assets: ContentReviewAsset[];
   theme?: PreviewTheme;
+  viewport?: PreviewViewport;
 }) {
   const [expandedVideo, setExpandedVideo] = useState<ContentReviewAsset | null>(null);
   const selectedAssets = useMemo(
@@ -147,7 +156,6 @@ export function ContentReviewRenderer({
     theme === "internal"
       ? "overflow-hidden rounded-2xl border border-white/10 bg-black text-white"
       : "overflow-hidden rounded-3xl border border-neutral-200 bg-white text-neutral-950 shadow-xl";
-  const eyebrow = theme === "internal" ? "text-orange-400" : "text-orange-600";
   const muted = theme === "internal" ? "text-white/65" : "text-neutral-600";
   const body = theme === "internal" ? "text-white/75" : "text-neutral-700";
   const note =
@@ -162,16 +170,13 @@ export function ContentReviewRenderer({
     selectedAssets.length <= 2 ? "md:grid-cols-2" : selectedAssets.length <= 5 ? "md:grid-cols-2 xl:grid-cols-3" : "md:grid-cols-2 xl:grid-cols-4";
 
   const textBlock = (asset?: ContentReviewAsset, index = 0) => (
-    <div className="flex min-w-0 flex-col justify-center p-6 sm:p-8">
-      <p className={`text-xs uppercase tracking-[0.28em] ${eyebrow}`}>
-        {formatStatus(layout)}
-      </p>
+    <div className={`flex min-w-0 flex-col justify-center ${viewport === "mobile" ? "p-6" : "p-6 sm:p-8"}`}>
       {(asset?.heading?.trim() || index === 0) ? (
-        <h2 className="mt-3 text-3xl font-bold sm:text-4xl">
+        <h2 className={`font-bold ${viewport === "mobile" ? "text-3xl" : "text-3xl sm:text-4xl"}`}>
           {asset?.heading?.trim() || draft.title}
         </h2>
       ) : null}
-      {index === 0 && draft.subtitle ? <p className={`mt-3 text-lg ${muted}`}>{draft.subtitle}</p> : null}
+      {index === 0 && draft.subtitle ? <p className={`mt-3 ${viewport === "mobile" ? "text-base" : "text-lg"} ${muted}`}>{draft.subtitle}</p> : null}
       {index === 0 ? (
         <div className="mt-5 flex flex-wrap gap-2 text-sm">
           <span className={`rounded-full px-3 py-1 font-semibold capitalize ${status}`}>
@@ -184,11 +189,11 @@ export function ContentReviewRenderer({
           ) : null}
         </div>
       ) : null}
-      {index === 0 && draft.summary ? <p className={`mt-6 text-lg font-medium leading-8 ${body}`}>{draft.summary}</p> : null}
+      {index === 0 && draft.summary ? <p className={`mt-6 font-medium ${viewport === "mobile" ? "text-base leading-7" : "text-lg leading-8"} ${body}`}>{draft.summary}</p> : null}
       {asset?.caption ? (
-        <p className={`mt-5 whitespace-pre-wrap leading-8 ${body}`}>{asset.caption}</p>
+        <p className={`mt-5 whitespace-pre-wrap ${viewport === "mobile" ? "leading-7" : "leading-8"} ${body}`}>{asset.caption}</p>
       ) : index === 0 && draft.body ? (
-        <p className={`mt-5 whitespace-pre-wrap leading-8 ${body}`}>{draft.body}</p>
+        <p className={`mt-5 whitespace-pre-wrap ${viewport === "mobile" ? "leading-7" : "leading-8"} ${body}`}>{draft.body}</p>
       ) : null}
       {index === 0 && draft.notes ? <div className={`mt-6 rounded-2xl border p-4 text-sm ${note}`}>{draft.notes}</div> : null}
       {index === 0 && draft.cta_label && draft.cta_url ? (
@@ -207,12 +212,13 @@ export function ContentReviewRenderer({
   const splitBlock = (asset: ContentReviewAsset, index = 0) => (
     <div
       key={asset.id}
-      className={`grid gap-0 lg:grid-cols-[minmax(0,1.05fr)_minmax(320px,0.95fr)] ${index > 0 ? "border-t border-inherit" : ""}`}
+      className={`grid gap-0 ${viewport === "mobile" ? "" : "lg:grid-cols-[minmax(0,1.05fr)_minmax(320px,0.95fr)]"} ${index > 0 ? "border-t border-inherit" : ""}`}
     >
       <div className={theme === "internal" ? "p-4 sm:p-5" : "p-4 sm:p-6"}>
         <MediaFrame
           asset={asset}
           theme={theme}
+          viewport={viewport}
           showText={false}
           onViewLarger={isVideo(asset) ? () => setExpandedVideo(asset) : undefined}
         />
@@ -233,6 +239,7 @@ export function ContentReviewRenderer({
                 <MediaFrame
                   asset={primaryAsset}
                   theme={theme}
+                  viewport={viewport}
                   onViewLarger={isVideo(primaryAsset) ? () => setExpandedVideo(primaryAsset) : undefined}
                 />
               </div>
@@ -249,6 +256,7 @@ export function ContentReviewRenderer({
               key={asset.id}
               asset={asset}
               theme={theme}
+              viewport={viewport}
               onViewLarger={isVideo(asset) ? () => setExpandedVideo(asset) : undefined}
             />
           ))}

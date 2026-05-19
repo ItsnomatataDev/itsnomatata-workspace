@@ -8,12 +8,14 @@ import {
   addInternalContentReviewComment,
   assertCanUseContentStudio,
   createContentReviewDraft,
+  deleteContentReviewAsset,
   deleteContentReviewDraft,
   getContentReviewDetail,
   getItsNoMatataOffice,
   inferLayoutType,
   listContentReviewDrafts,
   notifyContentReviewTeam,
+  setContentReviewAssetsSelected,
   updateContentReviewAsset,
   updateContentReviewDraft,
   uploadContentReviewAsset,
@@ -286,6 +288,44 @@ export default function ContentStudioPage() {
     }
   }
 
+  async function handleSetAllAssetSelection(isSelected: boolean) {
+    if (!detail || detail.assets.length === 0) return;
+    try {
+      setSaving(true);
+      const assetIds = detail.assets.map((asset) => asset.id);
+      await setContentReviewAssetsSelected(assetIds, isSelected);
+      setDetail({
+        ...detail,
+        assets: detail.assets.map((asset) => ({ ...asset, is_selected: isSelected })),
+      });
+      setMessage(isSelected ? "All media selected." : "All media unselected.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update media selection.");
+      await load();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDeleteAsset(asset: ContentReviewAsset) {
+    const confirmed = window.confirm(`Delete "${asset.file_name}" from this draft?`);
+    if (!confirmed || !detail) return;
+    try {
+      setSaving(true);
+      await deleteContentReviewAsset(asset);
+      setDetail({
+        ...detail,
+        assets: detail.assets.filter((item) => item.id !== asset.id),
+      });
+      setMessage("Media deleted.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete media.");
+      await load();
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function handleReorderAssets(draggedId: string, targetId: string) {
     if (!detail || draggedId === targetId) return;
     const fromIndex = detail.assets.findIndex((asset) => asset.id === draggedId);
@@ -486,6 +526,8 @@ export default function ContentStudioPage() {
               onUpload={handleUpload}
               onUpdateAsset={handleUpdateAsset}
               onReorderAssets={handleReorderAssets}
+              onSetAllSelected={handleSetAllAssetSelection}
+              onDeleteAsset={handleDeleteAsset}
             />
           ) : section === "reviews" ? (
             <ReviewsTab drafts={drafts} detail={detail} onSelect={setSelectedDraftId} />
@@ -635,17 +677,25 @@ export default function ContentStudioPage() {
                       No media uploaded yet.
                     </p>
                   ) : (
-                    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                      {assets.map((asset) => (
-                        <AssetReviewCard
-                          key={asset.id}
-                          asset={asset}
-                          saving={saving}
-                          onUpdate={handleUpdateAsset}
-                          onReorder={handleReorderAssets}
-                        />
-                      ))}
-                    </div>
+                    <>
+                      <AssetSelectionToolbar
+                        assets={assets}
+                        saving={saving}
+                        onSetAllSelected={handleSetAllAssetSelection}
+                      />
+                      <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                        {assets.map((asset) => (
+                          <AssetReviewCard
+                            key={asset.id}
+                            asset={asset}
+                            saving={saving}
+                            onUpdate={handleUpdateAsset}
+                            onReorder={handleReorderAssets}
+                            onDelete={handleDeleteAsset}
+                          />
+                        ))}
+                      </div>
+                    </>
                   )}
                 </section>
 
@@ -729,6 +779,8 @@ function UploadsTab({
   onUpload,
   onUpdateAsset,
   onReorderAssets,
+  onSetAllSelected,
+  onDeleteAsset,
 }: {
   drafts: ContentReviewDraft[];
   selectedDraft: ContentReviewDraft | null;
@@ -744,6 +796,8 @@ function UploadsTab({
     >,
   ) => void;
   onReorderAssets: (draggedId: string, targetId: string) => void;
+  onSetAllSelected: (isSelected: boolean) => void;
+  onDeleteAsset: (asset: ContentReviewAsset) => void;
 }) {
   return (
     <section className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
@@ -809,20 +863,67 @@ function UploadsTab({
             No media uploaded for this draft yet.
           </p>
         ) : (
-          <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {assets.map((asset) => (
-              <AssetReviewCard
-                key={asset.id}
-                asset={asset}
-                saving={saving}
-                onUpdate={onUpdateAsset}
-                onReorder={onReorderAssets}
-              />
-            ))}
-          </div>
+          <>
+            <AssetSelectionToolbar
+              assets={assets}
+              saving={saving}
+              onSetAllSelected={onSetAllSelected}
+            />
+            <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {assets.map((asset) => (
+                <AssetReviewCard
+                  key={asset.id}
+                  asset={asset}
+                  saving={saving}
+                  onUpdate={onUpdateAsset}
+                  onReorder={onReorderAssets}
+                  onDelete={onDeleteAsset}
+                />
+              ))}
+            </div>
+          </>
         )}
       </div>
     </section>
+  );
+}
+
+function AssetSelectionToolbar({
+  assets,
+  saving,
+  onSetAllSelected,
+}: {
+  assets: ContentReviewAsset[];
+  saving: boolean;
+  onSetAllSelected: (isSelected: boolean) => void;
+}) {
+  const selectedCount = assets.filter((asset) => asset.is_selected !== false).length;
+  const allSelected = selectedCount === assets.length;
+
+  return (
+    <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/25 p-3">
+      <p className="text-sm text-white/55">
+        {selectedCount} of {assets.length} selected
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          disabled={saving || allSelected}
+          onClick={() => onSetAllSelected(true)}
+          className="rounded-lg border border-orange-500/20 px-3 py-2 text-xs font-semibold text-orange-200 hover:bg-orange-500/10 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Select all
+        </button>
+        <button
+          type="button"
+          disabled={saving || selectedCount === 0}
+          onClick={() => onSetAllSelected(false)}
+          className="rounded-lg border border-white/10 px-3 py-2 text-xs font-semibold text-white/70 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Unselect all
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -894,6 +995,7 @@ function AssetReviewCard({
   saving,
   onUpdate,
   onReorder,
+  onDelete,
 }: {
   asset: ContentReviewAsset;
   saving: boolean;
@@ -905,6 +1007,7 @@ function AssetReviewCard({
     >,
   ) => void;
   onReorder: (draggedId: string, targetId: string) => void;
+  onDelete: (asset: ContentReviewAsset) => void;
 }) {
   const [heading, setHeading] = useState(asset.heading ?? "");
   const [caption, setCaption] = useState(asset.caption ?? "");
@@ -942,9 +1045,21 @@ function AssetReviewCard({
         event.preventDefault();
         onReorder(draggedId, asset.id);
       }}
-      className={`rounded-xl border p-3 ${selected ? "border-white/10 bg-black/30" : "border-white/10 bg-black/20 opacity-70"}`}
+      className={`group rounded-xl border p-3 ${selected ? "border-white/10 bg-black/30" : "border-white/10 bg-black/20 opacity-70"}`}
     >
-      <MediaPreview asset={asset} />
+      <div className="relative">
+        <MediaPreview asset={asset} />
+        <button
+          type="button"
+          disabled={saving}
+          onClick={() => onDelete(asset)}
+          className="absolute right-2 top-2 inline-flex h-9 w-9 items-center justify-center rounded-full border border-red-400/30 bg-black/80 text-red-100 opacity-100 shadow-lg transition hover:bg-red-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-40 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
+          aria-label={`Delete ${asset.file_name}`}
+          title="Delete media"
+        >
+          <Trash2 size={15} />
+        </button>
+      </div>
       <div className="mt-3 flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2">
           <GripVertical className="shrink-0 text-white/30" size={16} />

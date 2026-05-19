@@ -460,6 +460,34 @@ export async function updateContentReviewAsset(
   return data as ContentReviewAsset;
 }
 
+export async function setContentReviewAssetsSelected(assetIds: string[], isSelected: boolean) {
+  if (assetIds.length === 0) return [];
+
+  const { data, error } = await supabase
+    .from("content_review_assets")
+    .update({ is_selected: isSelected })
+    .in("id", assetIds)
+    .select("*");
+
+  if (error) throw error;
+  return (data ?? []) as ContentReviewAsset[];
+}
+
+export async function deleteContentReviewAsset(asset: ContentReviewAsset) {
+  if (asset.storage_path) {
+    await removeStoragePaths([asset.storage_path]);
+  }
+
+  const { error } = await supabase
+    .from("content_review_assets")
+    .delete()
+    .eq("id", asset.id);
+
+  if (error) {
+    throw new Error(error.message || "Failed to delete media.");
+  }
+}
+
 function fileExtension(file: File) {
   const namePart = file.name.split(".").pop();
   return namePart ? `.${namePart.toLowerCase()}` : "";

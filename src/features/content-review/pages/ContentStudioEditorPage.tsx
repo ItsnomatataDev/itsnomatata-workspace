@@ -389,6 +389,7 @@ export default function ContentStudioEditorPage() {
               draft={draftPreview}
               assets={detail.assets as ContentReviewAsset[]}
               theme="public"
+              viewport={previewMode === "mobile" ? "mobile" : "responsive"}
             />
           </div>
         </section>
