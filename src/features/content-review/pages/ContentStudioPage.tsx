@@ -7,9 +7,11 @@ import { ContentReviewRenderer } from "../components/ContentReviewRenderer";
 import {
   addInternalContentReviewComment,
   assertCanUseContentStudio,
+  CONTENT_REVIEW_UPLOAD_LIMIT_BYTES,
   createContentReviewDraft,
   deleteContentReviewAsset,
   deleteContentReviewDraft,
+  formatContentReviewFileSize,
   getContentReviewDetail,
   getItsNoMatataOffice,
   inferLayoutType,
@@ -241,6 +243,8 @@ export default function ContentStudioPage() {
     if (!files || !selectedDraft || !userId) return;
     try {
       setSaving(true);
+      setError("");
+      setMessage("Preparing media. Large videos may take a few minutes to compress.");
       let order = assets.length;
       for (const file of Array.from(files)) {
         await uploadContentReviewAsset({
@@ -258,6 +262,7 @@ export default function ContentStudioPage() {
         dedupeKey: `content-media:${selectedDraft.id}:${Date.now()}`,
       });
       await load();
+      setMessage(`${Array.from(files).length} asset(s) uploaded. Videos are compressed when the browser supports it.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to upload media.");
     } finally {
@@ -838,7 +843,7 @@ function UploadsTab({
           <div>
             <h2 className="text-xl font-semibold">Uploads</h2>
             <p className="mt-1 text-sm text-white/45">
-              Images are compressed before upload. Media expires after 60 days.
+              Images and supported videos are compressed before upload. Limit {formatContentReviewFileSize(CONTENT_REVIEW_UPLOAD_LIMIT_BYTES)} per file. Media is permanently deleted after 60 days.
             </p>
           </div>
           <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-orange-500 px-4 py-3 text-sm font-semibold text-black hover:bg-orange-400">

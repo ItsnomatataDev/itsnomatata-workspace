@@ -148,6 +148,19 @@ export type ContentReviewDetail = {
 
 const BUCKET = "content-review-assets";
 const ASSET_RETENTION_DAYS = 60;
+export const CONTENT_REVIEW_UPLOAD_LIMIT_BYTES = 1024 * 1024 * 1024;
+const VIDEO_TARGET_BITS_PER_SECOND = 2_500_000;
+const AUDIO_TARGET_BITS_PER_SECOND = 128_000;
+
+type CapturableVideoElement = HTMLVideoElement & {
+  captureStream?: () => MediaStream;
+  mozCaptureStream?: () => MediaStream;
+};
+
+export function formatContentReviewFileSize(bytes: number) {
+  if (bytes >= 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+  return `${Math.ceil(bytes / (1024 * 1024))} MB`;
+}
 
 export function generateReviewToken() {
   const bytes = new Uint8Array(24);
@@ -209,6 +222,7 @@ export async function listContentReviewDrafts(params: {
   status?: ContentReviewStatus | "all";
   clientId?: string;
 }) {
+  await cleanupExpiredContentReviewAssets();
   let query = supabase
     .from("content_review_drafts")
     .select("*")
@@ -233,6 +247,7 @@ export async function getContentReviewDetail(params: {
   officeId: string;
   draftId: string;
 }): Promise<ContentReviewDetail> {
+  await cleanupExpiredContentReviewAssets();
   const [draftResult, assetsResult, commentsResult, activityResult] =
     await Promise.all([
       supabase
@@ -246,6 +261,7 @@ export async function getContentReviewDetail(params: {
         .from("content_review_assets")
         .select("*")
         .eq("draft_id", params.draftId)
+        .gte("expires_at", new Date().toISOString())
         .order("sort_order", { ascending: true })
         .order("created_at", { ascending: true }),
       supabase
@@ -557,6 +573,122 @@ async function compressImageFile(file: File) {
   };
 }
 
+async function compressVideoFile(file: File) {
+  if (!file.type.startsWith("video/")) {
+    return {
+      file,
+      compressionStatus: "not_applicable" as const,
+      originalSize: file.size,
+      storedSize: file.size,
+    };
+  }
+
+  if (!("MediaRecorder" in window) || !MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus")) {
+    return {
+      file,
+      compressionStatus: "stored_original" as const,
+      originalSize: file.size,
+      storedSize: file.size,
+    };
+  }
+
+  const url = URL.createObjectURL(file);
+  const video = document.createElement("video") as CapturableVideoElement;
+  video.src = url;
+  video.preload = "metadata";
+  video.playsInline = true;
+  video.volume = 0;
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      video.onloadedmetadata = () => resolve();
+      video.onerror = () => reject(new Error("Video could not be prepared for compression."));
+    });
+
+    const captureStream = (video.captureStream ?? video.mozCaptureStream)?.bind(video);
+    if (!captureStream) {
+      return {
+        file,
+        compressionStatus: "stored_original" as const,
+        originalSize: file.size,
+        storedSize: file.size,
+      };
+    }
+
+    const stream = captureStream();
+    const chunks: Blob[] = [];
+    const recorder = new MediaRecorder(stream, {
+      mimeType: "video/webm;codecs=vp9,opus",
+      videoBitsPerSecond: VIDEO_TARGET_BITS_PER_SECOND,
+      audioBitsPerSecond: AUDIO_TARGET_BITS_PER_SECOND,
+    });
+
+    const blob = await new Promise<Blob>((resolve, reject) => {
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) chunks.push(event.data);
+      };
+      recorder.onerror = () => reject(new Error("Video compression failed."));
+      recorder.onstop = () => resolve(new Blob(chunks, { type: "video/webm" }));
+      video.onended = () => {
+        if (recorder.state !== "inactive") recorder.stop();
+        stream.getTracks().forEach((track) => track.stop());
+      };
+
+      recorder.start(1000);
+      void video.play().catch((error) => {
+        if (recorder.state !== "inactive") recorder.stop();
+        stream.getTracks().forEach((track) => track.stop());
+        reject(error instanceof Error ? error : new Error("Video compression could not start."));
+      });
+    });
+
+    if (!blob || blob.size === 0 || blob.size >= file.size) {
+      return {
+        file,
+        compressionStatus: "stored_original" as const,
+        originalSize: file.size,
+        storedSize: file.size,
+      };
+    }
+
+    const compressed = new File(
+      [blob],
+      `${file.name.replace(/\.[^.]+$/, "")}.webm`,
+      { type: "video/webm" },
+    );
+
+    return {
+      file: compressed,
+      compressionStatus: "compressed" as const,
+      originalSize: file.size,
+      storedSize: compressed.size,
+    };
+  } catch (error) {
+    console.warn("Video compression skipped.", error);
+    return {
+      file,
+      compressionStatus: "stored_original" as const,
+      originalSize: file.size,
+      storedSize: file.size,
+    };
+  } finally {
+    URL.revokeObjectURL(url);
+    video.removeAttribute("src");
+    video.load();
+  }
+}
+
+async function compressMediaFile(file: File) {
+  if (file.type.startsWith("image/")) return compressImageFile(file);
+  if (file.type.startsWith("video/")) return compressVideoFile(file);
+  return {
+    file,
+    compressionStatus: "not_applicable" as const,
+    originalSize: file.size,
+    storedSize: file.size,
+  };
+}
+
 async function cleanupExpiredContentReviewAssets() {
   const { data: expiredAssets, error: loadError } = await supabase
     .from("content_review_assets")
@@ -592,7 +724,12 @@ export async function uploadContentReviewAsset(params: {
   sortOrder: number;
 }) {
   await cleanupExpiredContentReviewAssets();
-  const uploadFile = await compressImageFile(params.file);
+  const uploadFile = await compressMediaFile(params.file);
+  if (uploadFile.file.size > CONTENT_REVIEW_UPLOAD_LIMIT_BYTES) {
+    throw new Error(
+      `Media is still too large after compression. Please keep uploads under ${formatContentReviewFileSize(CONTENT_REVIEW_UPLOAD_LIMIT_BYTES)}.`,
+    );
+  }
   const safeName = uploadFile.file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
   const path = `${params.draft.organization_id}/${params.draft.id}/${Date.now()}-${safeName || `asset${fileExtension(uploadFile.file)}`}`;
   const { error: uploadError } = await supabase.storage
