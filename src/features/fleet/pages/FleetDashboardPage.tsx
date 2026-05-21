@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import {
   AlertTriangle,
-  CalendarDays,
   CheckCircle2,
   Fuel,
   Gauge,
@@ -285,6 +284,28 @@ export default function FleetDashboardPage() {
     };
   }, [data]);
 
+  const vehicleRows = useMemo(
+    () =>
+      data.vehicles
+        .map((vehicle) => ({
+          vehicle,
+          resolved: resolveVehicleStatus(vehicle, data),
+        }))
+        .sort((a, b) => {
+          const statusRank: Record<string, number> = {
+            service_overdue: 0,
+            service_soon: 1,
+            service_ok: 2,
+          };
+          return (
+            (statusRank[a.resolved.status] ?? 3) -
+              (statusRank[b.resolved.status] ?? 3) ||
+            vehicleName(a.vehicle).localeCompare(vehicleName(b.vehicle))
+          );
+        }),
+    [data],
+  );
+
   function openServiceModal(vehicleId?: string) {
     setServiceForm({
       vehicleId: vehicleId ?? data.vehicles[0]?.id ?? "",
@@ -448,41 +469,91 @@ export default function FleetDashboardPage() {
             <MetricCard label="Active Vehicles" value={String(metrics.active)} helper="Operational vehicles" icon={<Gauge size={18} />} />
           </section>
 
-          <section className="grid gap-4 xl:grid-cols-3">
-            {data.vehicles.map((vehicle) => {
-              const resolved = resolveVehicleStatus(vehicle, data);
-              return (
-                <article key={vehicle.id} className={`rounded-2xl border p-5 ${cardClassName(resolved.status)}`}>
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <h2 className="text-lg font-semibold text-white">{vehicleName(vehicle)}</h2>
-                      <p className="mt-1 text-sm text-white/50">{vehicle.registration_number}</p>
-                    </div>
-                    <span className={`rounded-full border px-3 py-1 text-xs font-bold ${serviceStatusClass(resolved.status)}`}>
-                      {statusLabel(resolved.status)}
-                    </span>
-                  </div>
-                  <div className="mt-5 grid grid-cols-2 gap-3 text-sm">
-                    <Info label="Current EziTrack odometer" value={`${formatNumber(resolved.currentOdo)} km`} />
-                    <Info label="Next service odometer" value={`${formatNumber(vehicle.next_service_odometer_km)} km`} />
-                    <Info label="Remaining km" value={resolved.remainingKm === null ? "-" : `${formatNumber(resolved.remainingKm)} km`} />
-                    <Info label="Estimated days left" value={vehicle.estimated_days_to_service === null || vehicle.estimated_days_to_service === undefined ? "-" : `${formatNumber(vehicle.estimated_days_to_service, 1)} days`} />
-                    <Info label="Next service date" value={formatDate(vehicle.next_service_date)} />
-                    <Info label="Latest odometer date" value={formatDate(resolved.latestOdometerDate)} />
-                  </div>
-                  <div className="mt-5 flex flex-wrap gap-2">
-                    <button type="button" onClick={() => openServiceModal(vehicle.id)} className={buttonClassName()}>
-                      <Plus size={15} />
-                      Add service
-                    </button>
-                    <button type="button" onClick={() => openFuelModal(vehicle.id)} className={buttonClassName("ghost")}>
-                      <Fuel size={15} />
-                      Fuel
-                    </button>
-                  </div>
-                </article>
-              );
-            })}
+          <section className="overflow-hidden rounded-2xl border border-white/10 bg-white/5">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
+              <div>
+                <h2 className="font-semibold text-white">Vehicle Register</h2>
+                <p className="mt-1 text-xs text-white/45">
+                  Fleet status, odometer, service window and quick actions in one table.
+                </p>
+              </div>
+              <button type="button" onClick={() => openServiceModal()} className={buttonClassName()}>
+                <Plus size={15} />
+                Add service
+              </button>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-left text-sm">
+                <thead className="bg-black/40 text-xs uppercase tracking-wide text-white/40">
+                  <tr>
+                    <th className="px-4 py-3 font-semibold">Vehicle</th>
+                    <th className="px-4 py-3 font-semibold">Registration</th>
+                    <th className="px-4 py-3 font-semibold">Status</th>
+                    <th className="px-4 py-3 font-semibold">Current km</th>
+                    <th className="px-4 py-3 font-semibold">Next service km</th>
+                    <th className="px-4 py-3 font-semibold">Remaining</th>
+                    <th className="px-4 py-3 font-semibold">Next service</th>
+                    <th className="px-4 py-3 font-semibold">Latest odo</th>
+                    <th className="px-4 py-3 font-semibold">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {vehicleRows.map(({ vehicle, resolved }) => (
+                    <tr
+                      key={vehicle.id}
+                      className={`border-t border-white/10 ${cardClassName(resolved.status)}`}
+                    >
+                      <td className="px-4 py-3 font-semibold text-white">
+                        {vehicleName(vehicle)}
+                      </td>
+                      <td className="px-4 py-3 text-white/65">
+                        {vehicle.registration_number || "-"}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`rounded-full border px-3 py-1 text-xs font-bold ${serviceStatusClass(resolved.status)}`}>
+                          {statusLabel(resolved.status)}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-white/65">
+                        {formatNumber(resolved.currentOdo)} km
+                      </td>
+                      <td className="px-4 py-3 text-white/65">
+                        {formatNumber(vehicle.next_service_odometer_km)} km
+                      </td>
+                      <td className="px-4 py-3 text-white/65">
+                        {resolved.remainingKm === null
+                          ? "-"
+                          : `${formatNumber(resolved.remainingKm)} km`}
+                      </td>
+                      <td className="px-4 py-3 text-white/65">
+                        {formatDate(vehicle.next_service_date)}
+                      </td>
+                      <td className="px-4 py-3 text-white/65">
+                        {formatDate(resolved.latestOdometerDate)}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() => openServiceModal(vehicle.id)}
+                            className="rounded-xl bg-orange-500 px-3 py-2 text-xs font-semibold text-black hover:bg-orange-400"
+                          >
+                            Service
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openFuelModal(vehicle.id)}
+                            className="rounded-xl border border-white/10 bg-black px-3 py-2 text-xs font-semibold text-white/70 hover:bg-white/5"
+                          >
+                            Fuel
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </section>
 
           {data.vehicles.length === 0 ? (
@@ -575,15 +646,6 @@ export default function FleetDashboardPage() {
           onSubmit={handleFuelSubmit}
         />
       ) : null}
-    </div>
-  );
-}
-
-function Info({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-xl border border-white/10 bg-black/30 p-3">
-      <p className="text-xs text-white/40">{label}</p>
-      <p className="mt-1 font-semibold text-white">{value}</p>
     </div>
   );
 }

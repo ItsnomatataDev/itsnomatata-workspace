@@ -354,7 +354,7 @@ export default function AssetForm({
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/80 px-4 py-8">
-      <div className="max-h-[90dvh] w-full max-w-5xl overflow-y-auto border border-white/10 bg-black p-6">
+      <div className="max-h-[90dvh] w-full max-w-5xl overflow-y-auto rounded-3xl border border-white/10 bg-black p-6">
         <div className="mb-6 flex items-start justify-between gap-4">
           <div>
             <h2 className="text-xl font-semibold text-white">

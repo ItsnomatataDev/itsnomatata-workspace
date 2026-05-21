@@ -147,6 +147,7 @@ export default function EmployeeTable({
               <th className="px-4 py-3 font-medium">Today</th>
               <th className="px-4 py-3 font-medium">Week</th>
               <th className="px-4 py-3 font-medium">Tracking</th>
+              <th className="px-4 py-3 font-medium">Office</th>
               <th className="px-4 py-3 font-medium">Department</th>
               <th className="px-4 py-3 font-medium">Actions</th>
             </tr>
@@ -225,6 +226,10 @@ export default function EmployeeTable({
                   </td>
 
                   <td className="px-4 py-3 text-white/65">
+                    {employee.office?.name || "Not set"}
+                  </td>
+
+                  <td className="px-4 py-3 text-white/65">
                     {employee.department || "Not set"}
                   </td>
 
@@ -262,7 +267,7 @@ export default function EmployeeTable({
                             className="inline-flex items-center gap-2 rounded-xl border border-white/10 px-3 py-2 text-xs font-medium text-white/80 hover:bg-white/5 disabled:opacity-50"
                           >
                             <Pencil size={14} />
-                            Role
+                            Access
                           </button>
 
                           <button

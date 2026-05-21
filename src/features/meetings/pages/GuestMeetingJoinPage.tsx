@@ -13,6 +13,7 @@ import {
   leaveGuestMeeting,
   type GuestLivekitTokenResponse,
 } from "../services/meetingGuestService";
+import { getLiveKitConnectionErrorMessage } from "../utils/livekitErrors";
 
 export default function GuestMeetingJoinPage() {
   const navigate = useNavigate();
@@ -205,7 +206,7 @@ export default function GuestMeetingJoinPage() {
                 video={session.meetingType === "video"}
                 className="space-y-4"
                 onError={(err) => {
-                  setError(err.message || "Failed to connect to meeting.");
+                  setError(getLiveKitConnectionErrorMessage(err, session.url));
                 }}
               >
                 <RoomAudioRenderer />

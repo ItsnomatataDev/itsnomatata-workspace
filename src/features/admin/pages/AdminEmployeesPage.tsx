@@ -120,10 +120,11 @@ export default function AdminEmployeesPage() {
 
     return byStatus.filter((employee) => {
       return (
-        (employee.full_name || "").toLowerCase().includes(term) ||
-        (employee.email || "").toLowerCase().includes(term) ||
-        (employee.primary_role || "").toLowerCase().includes(term) ||
-        (employee.department || "").toLowerCase().includes(term)
+                (employee.full_name || "").toLowerCase().includes(term) ||
+                (employee.email || "").toLowerCase().includes(term) ||
+                (employee.primary_role || "").toLowerCase().includes(term) ||
+                (employee.department || "").toLowerCase().includes(term) ||
+                (employee.office?.name || "").toLowerCase().includes(term)
       );
     });
   }, [employees, search, statusFilter]);
@@ -273,7 +274,7 @@ export default function AdminEmployeesPage() {
               </p>
               <h1 className="mt-2 text-3xl font-bold">Employees</h1>
               <p className="mt-2 text-sm text-white/50">
-                Manage users, roles, access, and timesheets.
+                Manage users, roles, offices, access, and timesheets.
               </p>
             </div>
 
@@ -330,7 +331,7 @@ export default function AdminEmployeesPage() {
                   type="text"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search by name, email, role, or department..."
+                  placeholder="Search by name, email, role, office, or department..."
                   className="w-full rounded-xl border border-white/10 bg-black px-4 py-3 text-white outline-none focus:border-orange-500"
                 />
               </div>

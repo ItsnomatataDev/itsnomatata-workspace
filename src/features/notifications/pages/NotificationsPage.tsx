@@ -21,11 +21,6 @@ import Sidebar from "../../../components/dashboard/components/Sidebar";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import { useNotifications } from "../../../lib/hooks/useNotifications";
 import { sendNotification } from "../services/notificationService";
-import {
-  getPushConfigurationError,
-  getPushSupportError,
-  registerPushNotifications,
-} from "../services/pushService";
 import type { NotificationItem } from "../services/notificationService";
 
 type NotificationCategory =
@@ -286,6 +281,11 @@ export default function NotificationsPage() {
     unreadCount,
     loading,
     error,
+    pushSupported,
+    pushEnabled,
+    pushLoading,
+    pushError,
+    enablePushNotifications,
     reload,
     markOneAsRead,
     markEverythingAsRead,
@@ -295,15 +295,11 @@ export default function NotificationsPage() {
     useState<NotificationCategory>("all");
   const [showUnreadOnly, setShowUnreadOnly] = useState(false);
   const [testingNotification, setTestingNotification] = useState(false);
-  const [enablingPush, setEnablingPush] = useState(false);
-  const [pushEnabled, setPushEnabled] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [testMessage, setTestMessage] = useState("");
   const [testError, setTestError] = useState("");
 
-  if (!currentUser || !currentProfile) return null;
-
-  const organizationId = currentProfile.organization_id ?? null;
+  const organizationId = currentProfile?.organization_id ?? null;
   const visibleCategories: NotificationCategory[] =
     ROLE_CATEGORY_VISIBILITY[role] ?? ROLE_CATEGORY_VISIBILITY.social_media;
 
@@ -359,38 +355,13 @@ export default function NotificationsPage() {
       return;
     }
 
-    const supportError = getPushSupportError();
-    if (supportError) {
-      setTestError(supportError);
-      return;
-    }
-
-    const configurationError = getPushConfigurationError();
-    if (configurationError) {
-      setTestError(configurationError);
-      return;
-    }
-
-    try {
-      setEnablingPush(true);
-      setTestError("");
-      setTestMessage("");
-
-      await registerPushNotifications({
-        userId,
-        organizationId,
-      });
-
-      setPushEnabled(true);
+    setTestError("");
+    setTestMessage("");
+    const enabled = await enablePushNotifications();
+    if (enabled) {
       setTestMessage("Push notifications are enabled for this device.");
-    } catch (err: unknown) {
-      setTestError(
-        err instanceof Error
-          ? err.message
-          : "Failed to enable push notifications.",
-      );
-    } finally {
-      setEnablingPush(false);
+    } else {
+      setTestError(pushError || "Failed to enable push notifications.");
     }
   }
 
@@ -486,6 +457,8 @@ export default function NotificationsPage() {
       setTestingNotification(false);
     }
   }
+
+  if (!currentUser || !currentProfile) return null;
 
   return (
     <div className="min-h-screen bg-black text-white">
@@ -708,7 +681,7 @@ export default function NotificationsPage() {
                   <button
                     type="button"
                     onClick={() => void handleEnablePush()}
-                    disabled={enablingPush || pushEnabled}
+                    disabled={!pushSupported || pushLoading || pushEnabled}
                     className={[
                       "inline-flex items-center gap-2 rounded-2xl border px-5 py-2.5 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-70",
                       pushEnabled
@@ -721,7 +694,7 @@ export default function NotificationsPage() {
                     ) : (
                       <Smartphone size={15} />
                     )}
-                    {enablingPush
+                    {pushLoading
                       ? "Enabling..."
                       : pushEnabled
                         ? "Push enabled"

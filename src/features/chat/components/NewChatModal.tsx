@@ -126,7 +126,7 @@ export default function NewChatModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-      <div className="w-full max-w-2xl border border-white/10 bg-neutral-950 shadow-2xl">
+      <div className="w-full max-w-2xl overflow-hidden rounded-3xl border border-white/10 bg-neutral-950 shadow-2xl">
         <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
           <div>
             <h2 className="text-lg font-semibold text-white">

@@ -1,16 +1,10 @@
 import { runDailyTimerPauseJob } from "./dailyTimerPause";
 
-/**
- * Initialize the daily timer pause scheduler
- * This function sets up an interval to check every minute if it's 6 PM Harare time
- * and runs the pause job if needed.
- * 
- * Call this function when your app starts (e.g., in your main app initialization)
- */
+
 export function initializeDailyTimerPauseScheduler() {
   console.log("Initializing daily timer pause scheduler...");
   
-  // Check every minute
+
   const intervalId = setInterval(async () => {
     try {
       const result = await runDailyTimerPauseJob();

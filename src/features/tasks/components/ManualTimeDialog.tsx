@@ -65,7 +65,7 @@ export function ManualTimeDialog(props: Props) {
       </button>
       {open && (
         <div className="fixed inset-0 z-9999 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm animate-in fade-in-200">
-          <div className="w-full max-w-md overflow-hidden rounded-2xl border border-white/10 bg-[#0b0b0b] shadow-2xl shadow-black/60">
+          <div className="w-full max-w-md overflow-hidden rounded-3xl border border-white/10 bg-[#0b0b0b] shadow-2xl shadow-black/60">
             <div className="h-1 bg-linear-to-r from-orange-500 via-amber-400 to-emerald-400" />
             <div className="flex items-center justify-between border-b border-white/10 px-6 py-5">
               <div className="flex items-center gap-3">

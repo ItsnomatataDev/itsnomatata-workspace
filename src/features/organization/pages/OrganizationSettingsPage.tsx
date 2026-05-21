@@ -93,6 +93,97 @@ const colorFields: Array<{
   { key: "input_focus_color", label: "Input focus", fallback: "#f97316" },
 ];
 
+const brandPresets: Array<{
+  label: string;
+  description: string;
+  values: Pick<
+    BrandingValues,
+    | "primary_color"
+    | "secondary_color"
+    | "accent_color"
+    | "background_color"
+    | "card_color"
+    | "sidebar_color"
+    | "topbar_color"
+    | "text_color"
+    | "muted_text_color"
+    | "border_color"
+    | "button_color"
+    | "button_text_color"
+    | "button_hover_color"
+    | "link_color"
+    | "link_hover_color"
+    | "input_focus_color"
+  >;
+}> = [
+  {
+    label: "Tech",
+    description: "Crisp dark workspace for software, IT and support teams.",
+    values: {
+      primary_color: "#020617",
+      secondary_color: "#f8fafc",
+      accent_color: "#38bdf8",
+      background_color: "#020617",
+      card_color: "#0f172a",
+      sidebar_color: "#020617",
+      topbar_color: "#0f172a",
+      text_color: "#f8fafc",
+      muted_text_color: "#94a3b8",
+      border_color: "#1e293b",
+      button_color: "#38bdf8",
+      button_text_color: "#020617",
+      button_hover_color: "#0ea5e9",
+      link_color: "#7dd3fc",
+      link_hover_color: "#bae6fd",
+      input_focus_color: "#38bdf8",
+    },
+  },
+  {
+    label: "Tourism",
+    description: "Warm operational palette for tours, lodges and hospitality.",
+    values: {
+      primary_color: "#052e2b",
+      secondary_color: "#fff7ed",
+      accent_color: "#14b8a6",
+      background_color: "#071f1d",
+      card_color: "#0f2f2c",
+      sidebar_color: "#052e2b",
+      topbar_color: "#0f2f2c",
+      text_color: "#f8fafc",
+      muted_text_color: "#a7f3d0",
+      border_color: "#134e4a",
+      button_color: "#14b8a6",
+      button_text_color: "#042f2e",
+      button_hover_color: "#0d9488",
+      link_color: "#5eead4",
+      link_hover_color: "#99f6e4",
+      input_focus_color: "#14b8a6",
+    },
+  },
+  {
+    label: "Creative",
+    description: "Studio palette for media, campaigns and review workflows.",
+    values: {
+      primary_color: "#18111f",
+      secondary_color: "#faf5ff",
+      accent_color: "#ec4899",
+      background_color: "#111016",
+      card_color: "#1f1726",
+      sidebar_color: "#18111f",
+      topbar_color: "#1f1726",
+      text_color: "#faf5ff",
+      muted_text_color: "#c4b5fd",
+      border_color: "#3b2748",
+      button_color: "#ec4899",
+      button_text_color: "#ffffff",
+      button_hover_color: "#db2777",
+      link_color: "#f9a8d4",
+      link_hover_color: "#fbcfe8",
+      input_focus_color: "#ec4899",
+    },
+  },
+];
+
 function canManageOrganization(role?: string | null) {
   return ["admin", "org_admin", "super_admin", "superadmin", "it-superadmin"].includes(
     String(role ?? ""),
@@ -660,6 +751,42 @@ export default function OrganizationSettingsPage() {
                   <Palette size={18} className="text-orange-500" />
                   Branding
                 </h2>
+                <div className="mt-4 grid gap-3 md:grid-cols-3">
+                  {brandPresets.map((preset) => (
+                    <button
+                      key={preset.label}
+                      type="button"
+                      onClick={() =>
+                        setBranding((current) => ({
+                          ...current,
+                          ...preset.values,
+                        }))
+                      }
+                      className="rounded-2xl border border-white/10 bg-black p-4 text-left transition hover:border-orange-500/40 hover:bg-white/5"
+                    >
+                      <span className="font-semibold text-white">
+                        {preset.label}
+                      </span>
+                      <span className="mt-1 block text-xs leading-5 text-white/45">
+                        {preset.description}
+                      </span>
+                      <span className="mt-3 flex gap-1">
+                        <span
+                          className="h-4 w-8 rounded-full"
+                          style={{ backgroundColor: preset.values.primary_color ?? "#000" }}
+                        />
+                        <span
+                          className="h-4 w-8 rounded-full"
+                          style={{ backgroundColor: preset.values.accent_color ?? "#f97316" }}
+                        />
+                        <span
+                          className="h-4 w-8 rounded-full"
+                          style={{ backgroundColor: preset.values.card_color ?? "#070707" }}
+                        />
+                      </span>
+                    </button>
+                  ))}
+                </div>
                 <div className="mt-4 grid gap-4 md:grid-cols-2">
                   <input
                     value={branding.brand_name ?? ""}

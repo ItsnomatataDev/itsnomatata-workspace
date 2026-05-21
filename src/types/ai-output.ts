@@ -1,13 +1,10 @@
-// src/types/ai-output.ts
-// Shared AI output / response types used across features.
-
 import type {
     AssistantQuickAction,
     AssistantResponseType,
     AssistantSourceReference,
 } from "../lib/api/n8n";
 
-/** A single AI output that can be displayed in the workspace or assistant UI. */
+
 export interface AIOutput {
     id: string;
     title: string;

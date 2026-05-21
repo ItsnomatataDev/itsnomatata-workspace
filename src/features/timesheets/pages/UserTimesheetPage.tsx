@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import { formatDuration } from "../../../lib/utils/formatTime";
 import { getZimbabweDateKey } from "../../../lib/utils/zimbabweCalendar";
+import { canUseDetailedTimeTracking } from "../../../lib/offices";
 
 type TimeForm = {
   date: string;
@@ -105,6 +106,8 @@ const UserTimesheetPage = () => {
     authUser?.id ||
     profile?.id ||
     "";
+  const detailedTimeTrackingDisabled =
+    profile && !canUseDetailedTimeTracking(profile);
 
   const { data, loading, error, refetch } = useUserTimesheet({
     organizationId,
@@ -729,6 +732,25 @@ const handleBoardChange = async (boardId: string) => {
       </div>
     </div>
   );
+
+  if (detailedTimeTrackingDisabled) {
+    return (
+      <div className="min-h-screen bg-black text-white">
+        <div className="flex min-h-screen flex-col lg:flex-row">
+          <Sidebar role={profile.primary_role} />
+          <main className="min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-8">
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-6">
+              <h1 className="text-2xl font-bold">Time tracking disabled</h1>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-white/55">
+                Three Little Birds employees clock in and clock out for attendance only.
+                Detailed task time tracking is disabled for this office.
+              </p>
+            </div>
+          </main>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-black text-white">

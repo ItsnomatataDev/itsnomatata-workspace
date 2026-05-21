@@ -32,7 +32,7 @@ export default function DeleteBoardModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-      <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[#0f0f0f] shadow-2xl">
+      <div className="w-full max-w-md rounded-3xl border border-white/10 bg-[#0f0f0f] shadow-2xl">
         <div className="flex items-center justify-between p-6 border-b border-white/10">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-red-500/10 rounded-xl flex items-center justify-center">

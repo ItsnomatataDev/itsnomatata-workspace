@@ -81,6 +81,24 @@ const NOTIFICATION_SELECT = `
       created_at
       `;
 
+function shouldDispatchPush(deliveryState?: string | null) {
+  return !deliveryState || deliveryState === "pending";
+}
+
+function dispatchBrowserPush(notificationIds: string[]) {
+  for (const notificationId of notificationIds.filter(Boolean)) {
+    void supabase.functions
+      .invoke("send-push-notification", {
+        body: { notificationId },
+      })
+      .then(({ error }) => {
+        if (error) {
+          console.warn("Browser push dispatch failed.", error);
+        }
+      });
+  }
+}
+
 export async function markNotificationAsRead(notificationId: string) {
   const { data, error } = await supabase
     .from("notifications")
@@ -177,6 +195,10 @@ export async function createNotification(params: {
     throw error;
   }
 
+  if (shouldDispatchPush(params.deliveryState)) {
+    dispatchBrowserPush([data.id]);
+  }
+
   return data as NotificationRow;
 }
 
@@ -228,6 +250,9 @@ export async function createBulkNotifications(params: {
     .select(NOTIFICATION_SELECT);
 
   if (error) throw error;
+  if (shouldDispatchPush(params.deliveryState)) {
+    dispatchBrowserPush((data ?? []).map((row) => row.id));
+  }
   return (data ?? []) as NotificationRow[];
 }
 

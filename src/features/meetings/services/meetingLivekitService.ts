@@ -8,6 +8,10 @@ export type MeetingLivekitTokenResponse = {
   name: string;
 };
 
+type SupabaseFunctionError = Error & {
+  context?: Response;
+};
+
 function isMeetingLivekitTokenResponse(
   value: unknown,
 ): value is MeetingLivekitTokenResponse {
@@ -58,14 +62,11 @@ export async function getMeetingLivekitToken(
     },
   });
 
-if (error) {
-  console.error("LIVEKIT EDGE FUNCTION ERROR:", error);
+  if (error) {
+    console.error("LIVEKIT EDGE FUNCTION ERROR:", error);
 
-  throw new Error(
-    error.message ||
-      "LiveKit token function failed. Check Supabase Edge Function logs.",
-  );
-}
+    throw new Error(await getFunctionErrorMessage(error));
+  }
 
   if (!isMeetingLivekitTokenResponse(data)) {
     throw new Error("LiveKit token response was incomplete.");
@@ -76,4 +77,33 @@ if (error) {
   }
 
   return data;
+}
+
+async function getFunctionErrorMessage(error: SupabaseFunctionError) {
+  const fallback =
+    error.message ||
+    "LiveKit token function failed. Check Supabase Edge Function logs.";
+
+  try {
+    const payload = (await error.context?.clone().json()) as {
+      error?: unknown;
+      missing?: Record<string, boolean>;
+    };
+
+    if (typeof payload?.error === "string" && payload.error.length > 0) {
+      const missing = Object.entries(payload.missing ?? {})
+        .filter(([, isMissing]) => isMissing)
+        .map(([key]) => key);
+
+      if (missing.length > 0) {
+        return `${payload.error}: ${missing.join(", ")}`;
+      }
+
+      return payload.error;
+    }
+  } catch {
+    // Keep the SDK error message when the function did not return JSON.
+  }
+
+  return fallback;
 }

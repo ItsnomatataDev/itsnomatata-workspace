@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Play, Square, Clock3, CircleDot } from "lucide-react";
 import { startTimeEntry, stopTimeEntry, getActiveTimeEntry } from "../../../lib/supabase/mutations/timeEntries";
 import { useAuth } from "../../../app/providers/AuthProvider";
+import { canUseDetailedTimeTracking } from "../../../lib/offices";
 
 interface BoardTimerWidgetProps {
   taskId?: string;
@@ -25,10 +26,11 @@ export default function BoardTimerWidget({
 
   const organizationId = auth?.profile?.organization_id;
   const userId = auth?.user?.id;
+  const canTrackTime = canUseDetailedTimeTracking(auth?.profile);
 
   // Load active timer on mount
   useEffect(() => {
-    if (!organizationId || !userId) return;
+    if (!organizationId || !userId || !canTrackTime) return;
 
     const loadActiveTimer = async () => {
       try {
@@ -55,7 +57,7 @@ export default function BoardTimerWidget({
     };
 
     loadActiveTimer();
-  }, [organizationId, userId, taskId, boardId]);
+  }, [organizationId, userId, taskId, boardId, canTrackTime]);
 
   // Live timer update
   useEffect(() => {
@@ -85,7 +87,7 @@ export default function BoardTimerWidget({
   };
 
   const handleToggleTimer = async () => {
-    if (!organizationId || !userId) return;
+    if (!organizationId || !userId || !canTrackTime) return;
 
     setLoading(true);
     try {
@@ -116,6 +118,10 @@ export default function BoardTimerWidget({
       setLoading(false);
     }
   };
+
+  if (!canTrackTime) {
+    return null;
+  }
 
   if (isTracking) {
     return (

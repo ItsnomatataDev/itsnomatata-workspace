@@ -14,8 +14,6 @@ self.addEventListener("push", function (event) {
 
   const options = {
     body: data.message || "",
-    icon: "/icon-192.png",
-    badge: "/icon-192.png",
     tag: data.notificationId || undefined,
     renotify: Boolean(data.notificationId),
     data: {

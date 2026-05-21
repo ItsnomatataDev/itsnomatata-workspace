@@ -179,6 +179,154 @@ const createFeatureOptions = DEFAULT_FEATURES.map((feature) => ({
   label: feature.label,
 }));
 
+type IndustryPresetKey =
+  | "technology"
+  | "tourism"
+  | "logistics"
+  | "creative"
+  | "hr_ops";
+
+type IndustryPreset = {
+  key: IndustryPresetKey;
+  label: string;
+  description: string;
+  primaryColor: string;
+  secondaryColor: string;
+  accentColor: string;
+  welcomeText: string;
+  greetingText: string;
+  features: string[];
+};
+
+const INDUSTRY_PRESETS: IndustryPreset[] = [
+  {
+    key: "technology",
+    label: "Technology company",
+    description: "Boards, IT operations, meetings, automation, AI, attendance and reporting.",
+    primaryColor: "#020617",
+    secondaryColor: "#f8fafc",
+    accentColor: "#38bdf8",
+    welcomeText: "Welcome to your technology operations workspace.",
+    greetingText: "Track delivery, support, automations, meetings and team operations from one control center.",
+    features: [
+      "admin_dashboard",
+      "admin_users",
+      "attendance",
+      "leave_requests",
+      "boards",
+      "tasks",
+      "timesheets",
+      "meetings",
+      "chat",
+      "ai_workspace",
+      "automation",
+      "reports",
+      "notifications",
+      "knowledge_base",
+    ],
+  },
+  {
+    key: "tourism",
+    label: "Tourism and hospitality",
+    description: "Guest-service operations, fleet, assets, attendance, rosters, leave and daily reporting.",
+    primaryColor: "#052e2b",
+    secondaryColor: "#fff7ed",
+    accentColor: "#14b8a6",
+    welcomeText: "Welcome to your tourism operations hub.",
+    greetingText: "Coordinate staff, vehicles, assets, guest operations and daily work from one calm dashboard.",
+    features: [
+      "admin_dashboard",
+      "admin_users",
+      "attendance",
+      "leave_requests",
+      "duty_roster",
+      "fleet",
+      "stock",
+      "assets",
+      "boards",
+      "tasks",
+      "chat",
+      "meetings",
+      "reports",
+      "notifications",
+      "knowledge_base",
+    ],
+  },
+  {
+    key: "logistics",
+    label: "Logistics and fleet",
+    description: "Fleet, fuel, service history, stock, attendance, boards and operational reports.",
+    primaryColor: "#111827",
+    secondaryColor: "#f9fafb",
+    accentColor: "#f59e0b",
+    welcomeText: "Welcome to your fleet and logistics workspace.",
+    greetingText: "Monitor vehicles, service risk, fuel, assets and field operations in one place.",
+    features: [
+      "admin_dashboard",
+      "admin_users",
+      "attendance",
+      "leave_requests",
+      "fleet",
+      "stock",
+      "assets",
+      "boards",
+      "tasks",
+      "reports",
+      "notifications",
+      "chat",
+    ],
+  },
+  {
+    key: "creative",
+    label: "Creative agency",
+    description: "Content review, social media, media production, assets, meetings and client workflows.",
+    primaryColor: "#18111f",
+    secondaryColor: "#faf5ff",
+    accentColor: "#ec4899",
+    welcomeText: "Welcome to your creative operations studio.",
+    greetingText: "Review content, coordinate campaigns, manage assets, meetings and delivery workflows.",
+    features: [
+      "admin_dashboard",
+      "admin_users",
+      "attendance",
+      "leave_requests",
+      "media_dashboard",
+      "social_media",
+      "assets",
+      "clients",
+      "boards",
+      "tasks",
+      "meetings",
+      "chat",
+      "reports",
+      "notifications",
+      "knowledge_base",
+    ],
+  },
+  {
+    key: "hr_ops",
+    label: "People operations",
+    description: "Employees, attendance, leave, documents, rosters, notifications and reporting.",
+    primaryColor: "#101010",
+    secondaryColor: "#f5f5f5",
+    accentColor: "#22c55e",
+    welcomeText: "Welcome to your people operations workspace.",
+    greetingText: "Run attendance, leave, documents, rosters and employee operations with clarity.",
+    features: [
+      "admin_dashboard",
+      "admin_users",
+      "attendance",
+      "leave_requests",
+      "duty_roster",
+      "finance",
+      "knowledge_base",
+      "reports",
+      "notifications",
+      "chat",
+    ],
+  },
+];
+
 export default function PlatformAdminPage() {
   const [allowed, setAllowed] = useState<boolean | null>(null);
   const [organizations, setOrganizations] = useState<OrganizationRow[]>([]);
@@ -209,6 +357,8 @@ export default function PlatformAdminPage() {
   const [newOrgFeatures, setNewOrgFeatures] = useState<string[]>(
     createFeatureOptions.map((feature) => feature.key),
   );
+  const [newOrgIndustryPreset, setNewOrgIndustryPreset] =
+    useState<IndustryPresetKey>("technology");
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteName, setInviteName] = useState("");
   const [creatingOrg, setCreatingOrg] = useState(false);
@@ -333,6 +483,53 @@ export default function PlatformAdminPage() {
     if (!newOrgSlug.trim()) setNewOrgSlug(slugify(value));
   }
 
+  function applyIndustryPreset(presetKey: IndustryPresetKey) {
+    const preset =
+      INDUSTRY_PRESETS.find((item) => item.key === presetKey) ??
+      INDUSTRY_PRESETS[0];
+
+    setNewOrgIndustryPreset(preset.key);
+    setNewOrgPrimaryColor(preset.primaryColor);
+    setNewOrgSecondaryColor(preset.secondaryColor);
+    setNewOrgAccentColor(preset.accentColor);
+    setNewOrgWelcomeText(preset.welcomeText);
+    setNewOrgGreetingText(preset.greetingText);
+    setNewOrgFeatures(preset.features);
+  }
+
+  async function applyFeatureBundleToSelectedOrg(preset: IndustryPreset) {
+    if (!selectedOrg || isSystemOrg) return;
+
+    const confirmed = window.confirm(
+      `Apply the ${preset.label} feature bundle to ${selectedOrg.name}? This will turn selected modules on and unrelated modules off.`,
+    );
+
+    if (!confirmed) return;
+
+    try {
+      setError("");
+      setFeatureSavingId("bundle");
+      const enabled = new Set(preset.features);
+
+      const updatedFeatures = await Promise.all(
+        features.map((feature) =>
+          updateOrganizationFeature({
+            featureId: feature.id,
+            enabled: enabled.has(feature.feature_key),
+          }),
+        ),
+      );
+
+      setFeatures(updatedFeatures);
+      setAuditLogs(await getPlatformAuditLogs({ organizationId: selectedOrg.id, limit: 20 }));
+    } catch (err) {
+      console.error("APPLY FEATURE BUNDLE ERROR:", err);
+      setError(getErrorMessage(err, "Failed to apply feature bundle."));
+    } finally {
+      setFeatureSavingId(null);
+    }
+  }
+
   async function handleCreateOrganization() {
     const name = newOrgName.trim();
     const slug = slugify(newOrgSlug || newOrgName);
@@ -385,6 +582,7 @@ export default function PlatformAdminPage() {
       setNewOrgWelcomeText("");
       setNewOrgGreetingText("");
       setNewOrgFeatures(createFeatureOptions.map((feature) => feature.key));
+      setNewOrgIndustryPreset("technology");
 
       const data = await getOrganizations();
       setOrganizations(data);
@@ -803,6 +1001,31 @@ export default function PlatformAdminPage() {
                 Create Organization
               </h2>
               <div className="mt-4 space-y-3">
+                <div className="rounded-2xl border border-white/10 bg-black p-3">
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-white/45">
+                    Industry template
+                  </p>
+                  <select
+                    value={newOrgIndustryPreset}
+                    onChange={(event) =>
+                      applyIndustryPreset(event.target.value as IndustryPresetKey)
+                    }
+                    className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none focus:border-orange-500"
+                  >
+                    {INDUSTRY_PRESETS.map((preset) => (
+                      <option key={preset.key} value={preset.key}>
+                        {preset.label}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-2 text-xs leading-5 text-white/45">
+                    {
+                      INDUSTRY_PRESETS.find(
+                        (preset) => preset.key === newOrgIndustryPreset,
+                      )?.description
+                    }
+                  </p>
+                </div>
                 <input
                   value={newOrgName}
                   onChange={(event) => handleNameChange(event.target.value)}
@@ -1188,9 +1411,29 @@ export default function PlatformAdminPage() {
                     </section>
 
                     <section>
-                      <h3 className="mb-3 font-semibold text-white">
-                        Feature Modules
-                      </h3>
+                      <div className="mb-3 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+                        <div>
+                          <h3 className="font-semibold text-white">
+                            Feature Modules
+                          </h3>
+                          <p className="mt-1 text-sm text-white/45">
+                            Grant or remove product modules per organization, or apply an industry bundle.
+                          </p>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {INDUSTRY_PRESETS.map((preset) => (
+                            <button
+                              key={preset.key}
+                              type="button"
+                              disabled={isSystemOrg || featureSavingId === "bundle"}
+                              onClick={() => void applyFeatureBundleToSelectedOrg(preset)}
+                              className="rounded-xl border border-white/10 bg-black px-3 py-2 text-xs font-semibold text-white/65 transition hover:border-orange-500/30 hover:text-orange-200 disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                              {preset.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
                       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                         {features.map((feature) => (
                           <FeatureToggleCard

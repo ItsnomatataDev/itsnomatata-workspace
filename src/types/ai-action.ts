@@ -1,9 +1,6 @@
-// src/types/ai-action.ts
-// Shared AI action types used across features.
-
 import type { AssistantResponseType } from "../lib/api/n8n";
 
-/** Every action ID in the workspace catalog. */
+
 export type AIActionId =
     | "ask_codex"
     | "summarize_my_tasks"

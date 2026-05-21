@@ -1782,7 +1782,7 @@ export default function CardDetailModal({
   // ── Render ────────────────────────────────────────────────────────────────────
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/70 backdrop-blur-sm p-4 pt-12">
-      <div className="relative w-full max-w-5xl rounded-2xl border border-white/10 bg-[#0f0f0f] shadow-2xl">
+      <div className="relative w-full max-w-5xl rounded-3xl border border-white/10 bg-[#0f0f0f] shadow-2xl">
         {/* Orange top bar */}
         <div
           className="h-2 w-full rounded-t-2xl"

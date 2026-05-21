@@ -133,7 +133,7 @@ export default function TimeEntryFormModal({
 
   return (
     <div className="fixed inset-0 z-50 bg-black/80 p-4">
-      <div className="mx-auto w-full max-w-3xl border border-white/10 bg-zinc-950">
+      <div className="mx-auto w-full max-w-3xl overflow-hidden rounded-3xl border border-white/10 bg-zinc-950">
         <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
           <div>
             <h3 className="text-lg font-semibold text-white">{title}</h3>
@@ -145,7 +145,7 @@ export default function TimeEntryFormModal({
           <button
             type="button"
             onClick={onClose}
-            className="border border-white/10 bg-black p-2 text-white/70"
+            className="rounded-xl border border-white/10 bg-black p-2 text-white/70"
           >
             <X size={16} />
           </button>
@@ -160,7 +160,7 @@ export default function TimeEntryFormModal({
               value={draft.description}
               onChange={(e) => updateField("description", e.target.value)}
               placeholder="Worked on timesheet review, landing page updates..."
-              className="w-full border border-white/10 bg-black px-4 py-3 text-white outline-none"
+              className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 text-white outline-none"
             />
           </div>
 
@@ -173,7 +173,7 @@ export default function TimeEntryFormModal({
                 type="datetime-local"
                 value={draft.startedAt}
                 onChange={(e) => updateField("startedAt", e.target.value)}
-                className="w-full border border-white/10 bg-black px-4 py-3 text-white outline-none"
+                className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 text-white outline-none"
                 required
               />
             </div>
@@ -186,7 +186,7 @@ export default function TimeEntryFormModal({
                 type="datetime-local"
                 value={draft.endedAt}
                 onChange={(e) => updateField("endedAt", e.target.value)}
-                className="w-full border border-white/10 bg-black px-4 py-3 text-white outline-none"
+                className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 text-white outline-none"
                 required
               />
             </div>
@@ -201,7 +201,7 @@ export default function TimeEntryFormModal({
                 <select
                   value={draft.taskId}
                   onChange={(e) => updateField("taskId", e.target.value)}
-                  className="w-full border border-white/10 bg-black px-4 py-3 text-white outline-none appearance-none pr-10"
+                  className="w-full appearance-none rounded-2xl border border-white/10 bg-black px-4 py-3 pr-10 text-white outline-none"
                 >
                   <option value="">Select a task (optional)</option>
                   {tasksLoading ? (
@@ -226,7 +226,7 @@ export default function TimeEntryFormModal({
                 <select
                   value={draft.projectId}
                   onChange={(e) => updateField("projectId", e.target.value)}
-                  className="w-full border border-white/10 bg-black px-4 py-3 text-white outline-none appearance-none pr-10"
+                  className="w-full appearance-none rounded-2xl border border-white/10 bg-black px-4 py-3 pr-10 text-white outline-none"
                 >
                   <option value="">Select a project (optional)</option>
                   {projectsLoading ? (
@@ -251,7 +251,7 @@ export default function TimeEntryFormModal({
                 <select
                   value={draft.clientId}
                   onChange={(e) => updateField("clientId", e.target.value)}
-                  className="w-full border border-white/10 bg-black px-4 py-3 text-white outline-none appearance-none pr-10"
+                  className="w-full appearance-none rounded-2xl border border-white/10 bg-black px-4 py-3 pr-10 text-white outline-none"
                 >
                   <option value="">Select a client (optional)</option>
                   {clientsLoading ? (
@@ -275,13 +275,13 @@ export default function TimeEntryFormModal({
               <input
                 value={draft.campaignId}
                 onChange={(e) => updateField("campaignId", e.target.value)}
-                className="w-full border border-white/10 bg-black px-4 py-3 text-white outline-none"
+                className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 text-white outline-none"
                 placeholder="Optional"
               />
             </div>
           </div>
 
-          <label className="flex items-center gap-3 border border-white/10 bg-black px-4 py-3 text-sm text-white">
+          <label className="flex items-center gap-3 rounded-2xl border border-white/10 bg-black px-4 py-3 text-sm text-white">
             <input
               type="checkbox"
               checked={draft.isBillable}
@@ -295,7 +295,7 @@ export default function TimeEntryFormModal({
             <button
               type="button"
               onClick={onClose}
-              className="border border-white/10 bg-black px-4 py-3 text-sm text-white/80"
+              className="rounded-2xl border border-white/10 bg-black px-4 py-3 text-sm text-white/80"
             >
               Cancel
             </button>
@@ -303,7 +303,7 @@ export default function TimeEntryFormModal({
             <button
               type="submit"
               disabled={busy}
-              className="border border-orange-500 bg-orange-500 px-4 py-3 text-sm font-semibold text-black disabled:opacity-60"
+              className="rounded-2xl border border-orange-500 bg-orange-500 px-4 py-3 text-sm font-semibold text-black disabled:opacity-60"
             >
               {busy ? "Saving..." : initialEntry ? "Save changes" : "Add entry"}
             </button>

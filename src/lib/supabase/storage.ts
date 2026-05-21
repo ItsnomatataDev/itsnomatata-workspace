@@ -9,7 +9,6 @@ export async function uploadTaskSubmissionFile(
     taskId: string,
     file: File,
 ): Promise<TaskSubmissionFileResult> {
-    // Upload to task-submissions/{taskId}/{filename}
     const fileName = `${Date.now()}-${file.name}`;
     const filePath = `task-submissions/${taskId}/${fileName}`;
 

@@ -29,7 +29,7 @@ export default function CreateMeetingModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/85 p-3 py-6 backdrop-blur-sm sm:p-4">
-      <div className="w-full max-w-3xl border border-white/10 bg-black shadow-[0_20px_80px_rgba(0,0,0,0.65)]">
+      <div className="w-full max-w-3xl overflow-hidden rounded-3xl border border-white/10 bg-black shadow-[0_20px_80px_rgba(0,0,0,0.65)]">
         <div className="flex items-start justify-between gap-4 border-b border-white/10 px-4 py-5 sm:px-7 sm:py-6">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.3em] text-orange-400/80">

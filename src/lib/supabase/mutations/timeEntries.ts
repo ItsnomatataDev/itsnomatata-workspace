@@ -6,6 +6,7 @@ import {
   getZimbabwePauseIso,
   isAtOrAfterZimbabwePause,
 } from "../../utils/zimbabweCalendar";
+import { OFFICE_SLUGS } from "../../offices";
 
 export type TimeEntryApprovalStatus = "pending" | "approved" | "rejected";
 
@@ -116,6 +117,14 @@ interface TaskContextRow {
   campaign_id: string | null;
   title: string;
 }
+
+type ProfileOfficeRow = {
+  office_id: string | null;
+  office?: { slug?: string | null; name?: string | null } | Array<{
+    slug?: string | null;
+    name?: string | null;
+  }> | null;
+};
 
 export interface ProjectRow {
   id: string;
@@ -267,6 +276,78 @@ async function closeRunningEntryAtCutoff(row: {
         auto_stop_reason: "harare_6pm_end_of_day",
         auto_stopped_at: new Date().toISOString(),
         timezone: "Africa/Harare",
+      },
+    })
+    .eq("id", row.id)
+    .select(TIME_ENTRY_SELECT)
+    .single();
+
+  if (error) throw new Error(error.message);
+
+  if (row.task_id) {
+    await syncTaskTrackedSecondsCache({
+      organizationId: row.organization_id,
+      taskId: row.task_id,
+    }).catch((cacheErr) => {
+      console.warn("Failed to sync task tracked time cache:", cacheErr);
+    });
+  }
+
+  return data as TimeEntryItem;
+}
+
+function getProfileOffice(profile: ProfileOfficeRow | null) {
+  if (!profile?.office) return null;
+  return Array.isArray(profile.office) ? profile.office[0] ?? null : profile.office;
+}
+
+async function getUserOffice(params: {
+  organizationId: string;
+  userId: string;
+}) {
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("office_id, office:company_offices!profiles_office_id_fkey(slug, name)")
+    .eq("id", params.userId)
+    .eq("organization_id", params.organizationId)
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+  return getProfileOffice((data as ProfileOfficeRow | null) ?? null);
+}
+
+async function ensureUserCanTrackDetailedTime(params: {
+  organizationId: string;
+  userId: string;
+}) {
+  const office = await getUserOffice(params);
+
+  if (office?.slug === OFFICE_SLUGS.threeLittleBirds) {
+    throw new Error(
+      "Detailed time tracking is disabled for Three Little Birds. Please use clock in and clock out only.",
+    );
+  }
+}
+
+async function closeRunningEntryForOfficeRule(row: {
+  id: string;
+  started_at: string;
+  task_id: string | null;
+  organization_id: string;
+}) {
+  const endedAt = new Date().toISOString();
+  const durationSeconds = calculateDurationSeconds(row.started_at, endedAt);
+
+  const { data, error } = await supabase
+    .from("time_entries")
+    .update({
+      ended_at: endedAt,
+      is_running: false,
+      duration_seconds: durationSeconds,
+      metadata: {
+        auto_stopped: true,
+        auto_stop_reason: "three_little_birds_time_tracking_disabled",
+        auto_stopped_at: endedAt,
       },
     })
     .eq("id", row.id)
@@ -526,6 +607,18 @@ export const getActiveTimeEntry = async ({
 
   const active = (data as TimeEntryItem | null) ?? null;
   if (active) {
+    const office = await getUserOffice({ organizationId, userId });
+
+    if (office?.slug === OFFICE_SLUGS.threeLittleBirds) {
+      await closeRunningEntryForOfficeRule({
+        id: active.id,
+        started_at: active.started_at,
+        task_id: active.task_id,
+        organization_id: active.organization_id,
+      });
+      return null;
+    }
+
     // Check for 6 PM end-of-day stop
     if (hasZimbabweCutoffPassedForStart(active.started_at)) {
       await closeRunningEntryAtCutoff({
@@ -598,6 +691,11 @@ export const startTimeEntry = async (
   if (!payload.userId) {
     throw new Error("userId is required");
   }
+
+  await ensureUserCanTrackDetailedTime({
+    organizationId: payload.organizationId,
+    userId: payload.userId,
+  });
 
   await ensureNoOtherRunningEntry({
     organizationId: payload.organizationId,
@@ -776,6 +874,11 @@ export const resumeTimeEntry = async ({
     throw new Error("organizationId is required");
   }
 
+  await ensureUserCanTrackDetailedTime({
+    organizationId,
+    userId,
+  });
+
   await ensureNoOtherRunningEntry({
     organizationId,
     userId,
@@ -841,6 +944,11 @@ export const createManualTimeEntry = async (
   if (!payload.userId) {
     throw new Error("userId is required");
   }
+
+  await ensureUserCanTrackDetailedTime({
+    organizationId: payload.organizationId,
+    userId: payload.userId,
+  });
 
   ensureValidRange(payload.startedAt, payload.endedAt);
 
@@ -975,6 +1083,13 @@ export const updateTimeEntry = async ({
   }
 
   const current = existing as TimeEntryItem;
+
+  if (current.user_id && payload.ended_at === null) {
+    await ensureUserCanTrackDetailedTime({
+      organizationId: current.organization_id,
+      userId: current.user_id,
+    });
+  }
 
   const nextStartedAt = payload.started_at ?? current.started_at;
   const nextEndedAt = payload.ended_at === undefined

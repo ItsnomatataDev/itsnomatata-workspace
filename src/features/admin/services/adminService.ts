@@ -402,6 +402,8 @@ export type EmployeeRow = {
   full_name: string | null;
   primary_role: string | null;
   organization_id: string | null;
+  office_id: string | null;
+  office?: CompanyOffice | null;
   department: string | null;
   last_seen_at: string | null;
   is_active: boolean;
@@ -437,6 +439,8 @@ export type EmployeeOverviewRow = {
   full_name: string | null;
   primary_role: string | null;
   organization_id: string | null;
+  office_id: string | null;
+  office?: CompanyOffice | null;
   department: string | null;
   last_seen_at: string | null;
   is_active: boolean;
@@ -964,14 +968,21 @@ export async function getOrganizationEmployees(organizationId: string) {
   const { data, error } = await supabase
     .from("profiles")
     .select(
-      "id, email, full_name, primary_role, organization_id, department, last_seen_at, is_active, is_suspended, account_status, approved_at, approved_by, rejected_at, rejected_by, rejection_reason, suspended_at, suspended_by, suspension_reason, deleted_at, deleted_by, deletion_reason",
+      "id, email, full_name, primary_role, organization_id, office_id, department, last_seen_at, is_active, is_suspended, account_status, approved_at, approved_by, rejected_at, rejected_by, rejection_reason, suspended_at, suspended_by, suspension_reason, deleted_at, deleted_by, deletion_reason, office:company_offices!profiles_office_id_fkey (id, organization_id, name, slug, is_primary, created_at)",
     )
     .eq("organization_id", organizationId)
     .order("full_name", { ascending: true });
 
   if (error) throw error;
 
-  return (data ?? []) as EmployeeRow[];
+  return ((data ?? []) as Array<Omit<EmployeeRow, "office"> & {
+    office?: CompanyOffice | CompanyOffice[] | null;
+  }>).map((employee) => ({
+    ...employee,
+    office: Array.isArray(employee.office)
+      ? employee.office[0] ?? null
+      : employee.office ?? null,
+  }));
 }
 
 export async function getEmployeeOverview(
@@ -1167,6 +1178,64 @@ export async function updateEmployeeRole(params: {
     newRole: normalizedRole,
     reason: params.reason ?? null,
   });
+  return true;
+}
+
+export async function updateEmployeeOffice(params: {
+  organizationId: string;
+  userId: string;
+  officeId: string | null;
+  updatedBy?: string | null;
+  reason?: string;
+}) {
+  await assertCanModifyUser({
+    organizationId: params.organizationId,
+    targetUserId: params.userId,
+    actorUserId: params.updatedBy,
+  });
+
+  if (params.officeId) {
+    const { data: office, error: officeError } = await supabase
+      .from("company_offices")
+      .select("id")
+      .eq("id", params.officeId)
+      .eq("organization_id", params.organizationId)
+      .maybeSingle();
+
+    if (officeError) throw officeError;
+    if (!office) throw new Error("Selected office was not found in this organization.");
+  }
+
+  const { data: current, error: currentError } = await supabase
+    .from("profiles")
+    .select("office_id")
+    .eq("id", params.userId)
+    .eq("organization_id", params.organizationId)
+    .maybeSingle();
+
+  if (currentError) throw currentError;
+  if (!current) throw new Error("User was not found in this organization.");
+
+  const { error } = await supabase
+    .from("profiles")
+    .update({ office_id: params.officeId })
+    .eq("id", params.userId)
+    .eq("organization_id", params.organizationId);
+
+  if (error) throw error;
+
+  await logAdminAudit({
+    organizationId: params.organizationId,
+    actorUserId: params.updatedBy,
+    targetUserId: params.userId,
+    action: "employee_office_updated",
+    reason: params.reason ?? null,
+    metadata: {
+      old_office_id: current.office_id,
+      new_office_id: params.officeId,
+    },
+  });
+
   return true;
 }
 

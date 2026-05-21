@@ -1,5 +1,3 @@
-// src/lib/api/n8n.ts
-
 export type AssistantChannel = "web" | "dashboard" | "automation" | "whatsapp";
 
 export type AssistantAttachmentType =

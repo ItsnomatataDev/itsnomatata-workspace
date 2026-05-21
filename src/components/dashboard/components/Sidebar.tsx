@@ -38,7 +38,7 @@ import { signOutUser } from "../../../lib/supabase/auth";
 import NotificationBell from "../../../features/notifications/components/NotificationBell";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import { useOrganizationBranding } from "../../../app/providers/OrganizationBrandingProvider";
-import { OFFICE_SLUGS } from "../../../lib/offices";
+import { OFFICE_SLUGS, canUseDetailedTimeTracking } from "../../../lib/offices";
 import { checkIsPlatformAdmin } from "../../../features/platform-admin/services/platformAdminService";
 import { useOrganizationFeatures, type FeatureKey } from "../../../lib/hooks/useOrganizationFeatures";
 
@@ -417,6 +417,7 @@ export default function Sidebar({
     auth?.profile?.office && "slug" in auth.profile.office
       ? auth.profile.office.slug === OFFICE_SLUGS.threeLittleBirds
       : false;
+  const canUseTimeTracking = canUseDetailedTimeTracking(auth?.profile);
   const organization = auth?.profile?.organization as
     | {
         slug?: string;
@@ -431,7 +432,9 @@ export default function Sidebar({
       organization?.is_system_owner,
   );
   const baseCommonLinks = isThreeLittleBirds
-    ? commonLinks.filter((link) => !["/ai-workspace", "/meetings"].includes(link.to))
+    ? commonLinks.filter((link) =>
+        !["/ai-workspace", "/meetings", "/timesheet"].includes(link.to),
+      )
     : commonLinks;
   const visibleCommonLinks = filterNavByFeatures(baseCommonLinks, isEnabled) as LinkItem[];
   const canSeeSystemOwnerAdminLinks =
@@ -445,12 +448,17 @@ export default function Sidebar({
     ? rawRoleNav.flatMap<NavItem>((item) => {
         if ("type" in item && item.type === "group") {
           const children = item.children.filter(
-            (child) => !child.to.startsWith("/admin/content-studio"),
+            (child) =>
+              !child.to.startsWith("/admin/content-studio") &&
+              (canUseTimeTracking || !child.to.startsWith("/timesheet")) &&
+              (canUseTimeTracking || child.to !== "/board-management"),
           );
           return children.length > 0 ? [{ ...item, children } as GroupItem] : [];
         }
         const link = item as LinkItem;
-        return link.to.startsWith("/admin/content-studio") ? [] : [link];
+        if (link.to.startsWith("/admin/content-studio")) return [];
+        if (!canUseTimeTracking && link.to.startsWith("/timesheet")) return [];
+        return [link];
       })
     : rawRoleNav;
   const roleNav = filterNavByFeatures(officeScopedRoleNav, isEnabled);

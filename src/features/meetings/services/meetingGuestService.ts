@@ -13,6 +13,10 @@ export type GuestLivekitTokenResponse = {
   meetingType: MeetingType;
 };
 
+type SupabaseFunctionError = Error & {
+  context?: Response;
+};
+
 function isGuestLivekitTokenResponse(
   value: unknown,
 ): value is GuestLivekitTokenResponse {
@@ -70,7 +74,7 @@ export async function getGuestLivekitToken(params: {
   );
 
   if (error) {
-    throw new Error(error.message || "Could not join this meeting.");
+    throw new Error(await getFunctionErrorMessage(error));
   }
 
   if (!isGuestLivekitTokenResponse(data)) {
@@ -78,6 +82,33 @@ export async function getGuestLivekitToken(params: {
   }
 
   return data;
+}
+
+async function getFunctionErrorMessage(error: SupabaseFunctionError) {
+  const fallback = error.message || "Could not join this meeting.";
+
+  try {
+    const payload = (await error.context?.clone().json()) as {
+      error?: unknown;
+      missing?: Record<string, boolean>;
+    };
+
+    if (typeof payload?.error === "string" && payload.error.length > 0) {
+      const missing = Object.entries(payload.missing ?? {})
+        .filter(([, isMissing]) => isMissing)
+        .map(([key]) => key);
+
+      if (missing.length > 0) {
+        return `${payload.error}: ${missing.join(", ")}`;
+      }
+
+      return payload.error;
+    }
+  } catch {
+    // Keep the SDK error message when the function did not return JSON.
+  }
+
+  return fallback;
 }
 
 export async function leaveGuestMeeting(params: {

@@ -6,6 +6,7 @@ import {
   Monitor,
   MonitorOff,
   PhoneOff,
+  Settings2,
   Video,
   VideoOff,
 } from "lucide-react";
@@ -15,6 +16,7 @@ import {
 } from "@livekit/components-react";
 import { Track } from "livekit-client";
 import { updateMeetingMediaState } from "../services/meetingService";
+import MeetingDeviceSettings from "./MeetingDeviceSettings";
 
 type Props = {
   meetingId: string;
@@ -34,6 +36,7 @@ export default function LivekitMeetingControls({
   const { localParticipant } = useLocalParticipant();
   const room = useMaybeRoomContext();
   const [isScreenSharing, setIsScreenSharing] = useState(false);
+  const [deviceSettingsOpen, setDeviceSettingsOpen] = useState(false);
   const [leaving, setLeaving] = useState(false);
 
   const isMuted = localParticipant?.isMicrophoneEnabled === false;
@@ -166,6 +169,24 @@ export default function LivekitMeetingControls({
       >
         {isScreenSharing ? <MonitorOff size={18} /> : <Monitor size={18} />}
       </button>
+
+      <div className="relative">
+        <button
+          type="button"
+          onClick={() => setDeviceSettingsOpen((current) => !current)}
+          title="Choose microphone, camera, or speaker"
+          aria-haspopup="dialog"
+          aria-expanded={deviceSettingsOpen}
+          className="flex h-12 w-12 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/70 transition hover:border-white/20 hover:text-white"
+        >
+          <Settings2 size={18} />
+        </button>
+
+        <MeetingDeviceSettings
+          open={deviceSettingsOpen}
+          onClose={() => setDeviceSettingsOpen(false)}
+        />
+      </div>
 
       {isHost ? (
         <button

@@ -23,7 +23,7 @@ import AttendanceClockCard from "../features/attendance/components/AttendanceClo
 import { useDashboard } from "../lib/hooks/useDashboard";
 import { useOrganizationFeatures } from "../lib/hooks/useOrganizationFeatures";
 import { getAdminTimeSummary } from "../lib/supabase/queries/adminTime";
-import { canManageAllOffices } from "../lib/offices";
+import { canManageAllOffices, canUseDetailedTimeTracking } from "../lib/offices";
 
 function formatDuration(totalSeconds: number) {
   const safe = Math.max(0, totalSeconds || 0);
@@ -140,7 +140,8 @@ export default function DashboardPage() {
     profile?.primary_role === "admin" || profile?.primary_role === "manager";
   const canSeeTasks = isEnabled("tasks");
   const canSeeAttendance = isEnabled("attendance");
-  const canSeeTimesheets = isEnabled("timesheets");
+  const canSeeTimesheets =
+    isEnabled("timesheets") && canUseDetailedTimeTracking(profile);
   const canSeeNotifications = isEnabled("notifications");
   const canSeeAI = isEnabled("ai_workspace");
   const dashboardGreeting =

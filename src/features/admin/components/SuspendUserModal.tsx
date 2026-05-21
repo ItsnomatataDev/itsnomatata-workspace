@@ -116,7 +116,7 @@ export default function SuspendUserModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/80 p-4 py-6">
-      <div className="w-full max-w-lg border border-white/10 bg-zinc-950 shadow-2xl">
+      <div className="w-full max-w-lg overflow-hidden rounded-3xl border border-white/10 bg-zinc-950 shadow-2xl">
         <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
           <div>
             <h2 className="text-lg font-semibold text-white">
@@ -142,18 +142,18 @@ export default function SuspendUserModal({
 
         <div className="p-5">
           {error ? (
-            <div className="mb-4 border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+            <div className="mb-4 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">
               {error}
             </div>
           ) : null}
 
           {successMessage ? (
-            <div className="mb-4 border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
+            <div className="mb-4 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
               {successMessage}
             </div>
           ) : null}
 
-          <div className="mb-6 border border-white/10 bg-black px-4 py-4">
+          <div className="mb-6 rounded-2xl border border-white/10 bg-black px-4 py-4">
             <p className="font-medium text-white">
               {employee.full_name || "Unnamed user"}
             </p>
@@ -162,16 +162,16 @@ export default function SuspendUserModal({
             </p>
 
             <div className="mt-3 flex flex-wrap gap-2 text-xs">
-              <span className="border border-orange-500/20 bg-orange-500/10 px-3 py-1 font-medium text-orange-400">
+              <span className="rounded-full border border-orange-500/20 bg-orange-500/10 px-3 py-1 font-medium text-orange-400">
                 Role: {employee.primary_role || "No role"}
               </span>
 
-              <span className="border border-white/10 bg-white/5 px-3 py-1 font-medium text-white/60">
+              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 font-medium text-white/60">
                 Department: {employee.department || "Not set"}
               </span>
 
               {isSuspended && (
-                <span className="border border-red-500/20 bg-red-500/10 px-3 py-1 font-medium text-red-400">
+                <span className="rounded-full border border-red-500/20 bg-red-500/10 px-3 py-1 font-medium text-red-400">
                   Suspended: {employee.suspended_at ? new Date(employee.suspended_at).toLocaleDateString() : "Unknown"}
                 </span>
               )}
@@ -202,14 +202,14 @@ export default function SuspendUserModal({
                     disabled={busy}
                     placeholder="Enter reason for suspension..."
                     rows={3}
-                    className="w-full border border-white/10 bg-black px-4 py-3 text-white outline-none transition focus:border-orange-500 disabled:opacity-60 resize-none"
+                    className="w-full resize-none rounded-2xl border border-white/10 bg-black px-4 py-3 text-white outline-none transition focus:border-orange-500 disabled:opacity-60"
                   />
                 </div>
 
                 <button
                   type="submit"
                   disabled={busy}
-                  className="w-full bg-red-500 px-4 py-3 font-semibold text-white transition hover:bg-red-400 disabled:opacity-60"
+                  className="w-full rounded-2xl bg-red-500 px-4 py-3 font-semibold text-white transition hover:bg-red-400 disabled:opacity-60"
                 >
                   {busy ? "Suspending..." : "Suspend User"}
                 </button>
@@ -230,7 +230,7 @@ export default function SuspendUserModal({
               <button
                 onClick={handleUnsuspend}
                 disabled={busy}
-                className="w-full bg-emerald-500 px-4 py-3 font-semibold text-white transition hover:bg-emerald-400 disabled:opacity-60"
+                className="w-full rounded-2xl bg-emerald-500 px-4 py-3 font-semibold text-white transition hover:bg-emerald-400 disabled:opacity-60"
               >
                 {busy ? "Unsuspending..." : "Unsuspend User"}
               </button>

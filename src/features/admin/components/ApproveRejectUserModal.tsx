@@ -110,7 +110,7 @@ export default function ApproveRejectUserModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/80 p-4 py-6">
-      <div className="w-full max-w-lg border border-white/10 bg-zinc-950 shadow-2xl">
+      <div className="w-full max-w-lg overflow-hidden rounded-3xl border border-white/10 bg-zinc-950 shadow-2xl">
         <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
           <div>
             <h2 className="text-lg font-semibold text-white">
@@ -133,13 +133,13 @@ export default function ApproveRejectUserModal({
 
         <form onSubmit={handleSubmit} className="space-y-4 p-5">
           {error ? (
-            <div className="border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+            <div className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">
               {error}
             </div>
           ) : null}
 
           {successMessage ? (
-            <div className="border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
+            <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
               {successMessage}
             </div>
           ) : null}
@@ -153,7 +153,7 @@ export default function ApproveRejectUserModal({
                 value={role}
                 onChange={(event) => setRole(event.target.value)}
                 disabled={busy}
-                className="w-full border border-white/10 bg-black px-4 py-3 text-white outline-none transition focus:border-orange-500 disabled:opacity-60"
+                className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 text-white outline-none transition focus:border-orange-500 disabled:opacity-60"
               >
                 {ADMIN_ROLE_ASSIGNMENT_OPTIONS.map((option) => (
                   <option key={option.value} value={option.value}>
@@ -172,7 +172,7 @@ export default function ApproveRejectUserModal({
                 onChange={(event) => setReason(event.target.value)}
                 disabled={busy}
                 rows={3}
-                className="w-full resize-none border border-white/10 bg-black px-4 py-3 text-white outline-none transition focus:border-orange-500 disabled:opacity-60"
+                className="w-full resize-none rounded-2xl border border-white/10 bg-black px-4 py-3 text-white outline-none transition focus:border-orange-500 disabled:opacity-60"
                 placeholder="Why is this signup being rejected?"
               />
             </div>
@@ -181,7 +181,7 @@ export default function ApproveRejectUserModal({
           <button
             type="submit"
             disabled={busy}
-            className={`flex w-full items-center justify-center gap-2 px-4 py-3 font-semibold transition disabled:opacity-60 ${
+            className={`flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-3 font-semibold transition disabled:opacity-60 ${
               approving
                 ? "bg-emerald-500 text-black hover:bg-emerald-400"
                 : "bg-red-500 text-white hover:bg-red-400"

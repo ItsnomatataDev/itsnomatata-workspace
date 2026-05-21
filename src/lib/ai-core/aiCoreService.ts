@@ -1,41 +1,30 @@
-// ============================================================
-// AI Core Service - Main AI Chat Service
-// ============================================================
-
 import type { AIChatRequest, AIChatResponse } from './aiTypes';
 
-// ============================================================
-// AI Core Service Class
-// ============================================================
 
 export class AICoreService {
   private supabaseUrl: string;
   private supabaseAnonKey: string;
 
   constructor(supabaseUrl?: string, supabaseAnonKey?: string) {
-    // Allow passing in environment variables for better testability
+
     this.supabaseUrl = supabaseUrl || this.getEnvVar('NEXT_PUBLIC_SUPABASE_URL');
     this.supabaseAnonKey = supabaseAnonKey || this.getEnvVar('NEXT_PUBLIC_SUPABASE_ANON_KEY');
   }
 
   private getEnvVar(name: string): string {
     try {
-      // Try multiple ways to access environment variables
+
       if (typeof window !== 'undefined') {
-        // Browser environment
+
         return (window as any).__ENV?.[name] || (window as any).process?.env?.[name] || '';
       }
-      
-      // Server environment
+
       return (globalThis as any).process?.env?.[name] || '';
     } catch {
       return '';
     }
   }
 
-  // ============================================================
-  // Main Chat Method
-  // ============================================================
 
   async sendMessage(request: AIChatRequest): Promise<AIChatResponse> {
     try {
@@ -63,12 +52,7 @@ export class AICoreService {
       };
     }
   }
-
-  // ============================================================
-  // Streaming Chat Method (for real-time responses)
-  // ============================================================
-
-  async sendMessageStream(
+ async sendMessageStream(
     request: AIChatRequest,
     onChunk: (chunk: string) => void,
     onComplete: (response: AIChatResponse) => void,
@@ -84,7 +68,7 @@ export class AICoreService {
         },
         body: JSON.stringify({
           ...request,
-          stream: true, // Note: This would require edge function support
+          stream: true, 
         }),
       });
 
@@ -113,7 +97,7 @@ export class AICoreService {
           if (line.startsWith('data: ')) {
             const data = line.slice(6);
             if (data === '[DONE]') {
-              // Stream complete - we'd need to handle final response
+             
               continue;
             }
             
@@ -123,17 +107,14 @@ export class AICoreService {
                 onChunk(chunk.content);
               }
             } catch (e) {
-              // Ignore malformed chunks
             }
           }
         }
       }
 
-      // Note: In a real implementation, we'd get the final response
-      // For now, we'll make a separate call to get the complete response
       const finalResponse = await this.sendMessage({
         ...request,
-        // Don't stream for the final call
+
       });
       
       onComplete(finalResponse);
@@ -143,10 +124,6 @@ export class AICoreService {
       onError(error instanceof Error ? error.message : 'Unknown error occurred');
     }
   }
-
-  // ============================================================
-  // Helper Methods
-  // ============================================================
 
   private async makeRequest(endpoint: string, options: RequestInit = {}): Promise<Response> {
     const url = `${this.supabaseUrl}/functions/v1/${endpoint}`;
@@ -175,10 +152,6 @@ export class AICoreService {
     return response.json();
   }
 
-  // ============================================================
-  // Context Building Helpers
-  // ============================================================
-
   buildContext(params: {
     userId?: string;
     organizationId?: string;
@@ -201,9 +174,6 @@ export class AICoreService {
     };
   }
 
-  // ============================================================
-  // Error Handling
-  // ============================================================
 
   isRetryableError(error: string): boolean {
     const retryableErrors = [
@@ -245,22 +215,15 @@ export class AICoreService {
   }
 }
 
-// ============================================================
-// Singleton Instance
-// ============================================================
-
 export const aiCoreService = new AICoreService();
 
-// ============================================================
-// Utility Functions
-// ============================================================
 
 export const createChatMessage = (
   content: string,
   role: 'user' | 'assistant' = 'user'
 ): AIChatRequest => ({
   message: content,
-  channel: 'internal', // Default channel
+  channel: 'internal',
 });
 
 export const createChatMessageWithContext = (

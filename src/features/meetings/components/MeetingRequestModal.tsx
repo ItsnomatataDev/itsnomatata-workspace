@@ -94,7 +94,7 @@ export default function MeetingRequestModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
-      <div className="mx-4 w-full max-w-md rounded-2xl border border-white/10 bg-neutral-950 p-6 shadow-2xl">
+      <div className="mx-4 w-full max-w-md rounded-3xl border border-white/10 bg-neutral-950 p-6 shadow-2xl">
         {/* Header */}
         <div className="mb-6 flex items-start justify-between">
           <div className="flex items-center gap-3">

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Bell, CheckCheck, Inbox, Zap } from "lucide-react";
+import { Bell, CheckCheck, CheckCircle2, Inbox, Smartphone, Zap } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useNotifications } from "../../../lib/hooks/useNotifications";
 import { useAuth } from "../../../app/providers/AuthProvider";
@@ -34,6 +34,12 @@ export default function NotificationBell() {
     unreadCount,
     loading,
     actionLoading,
+    pushSupported,
+    pushEnabled,
+    pushPermission,
+    pushLoading,
+    pushError,
+    enablePushNotifications,
     markOneAsRead,
     markEverythingAsRead,
     reload,
@@ -185,6 +191,34 @@ export default function NotificationBell() {
           </div>
 
           <div className="space-y-3 border-t border-white/10 px-4 py-3">
+            {pushSupported && pushPermission !== "denied" ? (
+              <button
+                type="button"
+                onClick={() => void enablePushNotifications()}
+                disabled={pushLoading || pushEnabled}
+                className={[
+                  "flex w-full items-center justify-center gap-2 rounded-xl border px-4 py-3 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-70",
+                  pushEnabled
+                    ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
+                    : "border-white/10 bg-white/5 text-white/70 hover:bg-white/10 hover:text-white",
+                ].join(" ")}
+              >
+                {pushEnabled ? <CheckCircle2 size={15} /> : <Smartphone size={15} />}
+                {pushLoading
+                  ? "Enabling browser alerts..."
+                  : pushEnabled
+                    ? "Browser alerts enabled"
+                    : "Enable browser alerts"}
+              </button>
+            ) : null}
+
+            {pushError && pushPermission === "denied" ? (
+              <p className="rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs leading-5 text-red-300">
+                Browser notifications are blocked. Enable them in your browser
+                site settings to receive alerts outside this tab.
+              </p>
+            ) : null}
+
             <Link
               to="/notifications"
               onClick={() => setOpen(false)}

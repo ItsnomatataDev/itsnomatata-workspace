@@ -53,7 +53,7 @@ export default function ModifyLeaveBalanceModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/80 p-4 py-6">
-      <div className="w-full max-w-md rounded-2xl border border-white/10 bg-black px-4 py-6 text-white sm:px-6">
+      <div className="w-full max-w-md rounded-3xl border border-white/10 bg-black px-4 py-6 text-white sm:px-6">
         <div className="mb-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Wallet size={20} className="text-orange-500" />

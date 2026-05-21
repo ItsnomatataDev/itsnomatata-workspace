@@ -38,7 +38,7 @@ export function Dialog({ open, onOpenChange, children }: DialogProps) {
       />
 
       {/* Dialog content */}
-      <div className="relative z-10 max-h-[90vh] w-full max-w-lg overflow-auto rounded-lg bg-gray-900 p-6 shadow-xl">
+      <div className="relative z-10 max-h-[90vh] w-full max-w-lg overflow-auto rounded-3xl bg-gray-900 p-6 shadow-xl">
         {children}
       </div>
     </div>

@@ -49,7 +49,7 @@ import {
   makeZimbabweLocalIso,
 } from "../../../lib/utils/zimbabweCalendar";
 import { getRunningEntryElapsedSeconds } from "../../../lib/utils/timeMath";
-import { canManageAllOffices } from "../../../lib/offices";
+import { canManageAllOffices, canUseDetailedTimeTracking } from "../../../lib/offices";
 
 
 type Task = Card;
@@ -216,6 +216,7 @@ function KanbanCard({
   onPauseTimer,
   hasRunningTimer,
   timerBusy,
+  canTrackTime,
 }: {
   task: Task;
   onOpen: (id: string) => void;
@@ -227,6 +228,7 @@ function KanbanCard({
   onPauseTimer?: () => void;
   hasRunningTimer?: boolean;
   timerBusy?: boolean;
+  canTrackTime?: boolean;
 }) {
   const priority = PRIORITY_COLOR[task.priority] ?? PRIORITY_COLOR.medium;
   const labels = Array.isArray(task.metadata?.labels)
@@ -358,7 +360,7 @@ function KanbanCard({
           )}
         </div>
         <div className="flex items-center gap-2">
-          {isTrackingThisTask ? (
+          {canTrackTime && isTrackingThisTask ? (
             <div className="flex items-center gap-1.5 rounded-lg border border-orange-500/30 bg-orange-500/10 px-2 py-1">
               <div className="h-1 w-1 rounded-full bg-orange-500 animate-pulse" />
               <span className="text-[10px] font-mono font-semibold text-orange-400">
@@ -376,7 +378,7 @@ function KanbanCard({
                 <Pause size={10} />
               </button>
             </div>
-          ) : (
+          ) : canTrackTime ? (
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -388,7 +390,7 @@ function KanbanCard({
             >
               <Play size={10} />
             </button>
-          )}
+          ) : null}
           <CardTimeIndicator
             taskId={task.id}
             className="text-[11px]"
@@ -443,6 +445,7 @@ function KanbanColumn({
   onPauseTimer,
   hasRunningTimer,
   timerBusy,
+  canTrackTime,
 }: {
   status: TaskStatus;
   label: string;
@@ -461,6 +464,7 @@ function KanbanColumn({
   onPauseTimer?: () => void;
   hasRunningTimer?: boolean;
   timerBusy?: boolean;
+  canTrackTime?: boolean;
 }) {
   const [adding, setAdding] = useState(false);
   const [isOver, setIsOver] = useState(false);
@@ -512,6 +516,7 @@ function KanbanColumn({
             onPauseTimer={onPauseTimer}
             hasRunningTimer={hasRunningTimer}
             timerBusy={timerBusy}
+            canTrackTime={canTrackTime}
           />
         ))}
 
@@ -547,6 +552,7 @@ export default function BoardViewPage() {
   const profile = auth?.profile ?? null;
   const organizationId = profile?.organization_id ?? null;
   const canViewAllOffices = canManageAllOffices(profile);
+  const canTrackTime = canUseDetailedTimeTracking(profile);
 
   const [board, setBoard] = useState<Board | null>(null);
   const [columns, setColumns] = useState<BoardColumnView[]>([]);
@@ -603,7 +609,10 @@ export default function BoardViewPage() {
   }, []);
 
   const loadActiveTimer = useCallback(async () => {
-    if (!auth?.user?.id || !organizationId) return;
+    if (!auth?.user?.id || !organizationId || !canTrackTime) {
+      setActiveTimer(null);
+      return;
+    }
 
     const runningEntry = await getActiveTimeEntry({
       organizationId,
@@ -611,7 +620,7 @@ export default function BoardViewPage() {
     });
 
     setActiveTimer(runningEntry);
-  }, [auth?.user?.id, organizationId]);
+  }, [auth?.user?.id, organizationId, canTrackTime]);
 
   useEffect(() => {
     loadActiveTimer();
@@ -1207,7 +1216,7 @@ export default function BoardViewPage() {
   // ── Timer handlers ─────────────────────────────────────────────────────────────
 
   const handleTrack = useCallback(async (taskId: string, title: string) => {
-    if (!auth?.user?.id || !organizationId) return;
+    if (!auth?.user?.id || !organizationId || !canTrackTime) return;
     
     try {
       setTimerBusy(true);
@@ -1240,7 +1249,7 @@ export default function BoardViewPage() {
     } finally {
       setTimerBusy(false);
     }
-  }, [auth?.user?.id, boardId, getWorkflowColumnIdForStatus, loadActiveTimer, loadBoardData, organizationId]);
+  }, [auth?.user?.id, boardId, canTrackTime, getWorkflowColumnIdForStatus, loadActiveTimer, loadBoardData, organizationId]);
 
   const isTrackingThisTask = useCallback((taskId: string) => {
     return activeTimer?.task_id === taskId;
@@ -1450,6 +1459,7 @@ export default function BoardViewPage() {
                     onPauseTimer={handlePauseTimer}
                     hasRunningTimer={!!activeTimer}
                     timerBusy={timerBusy}
+                    canTrackTime={canTrackTime}
                   />
                 ))}
               </div>

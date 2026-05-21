@@ -30,6 +30,7 @@ import {
   estimateConnectionQuality,
   getOptimalRoomOptions,
 } from "../services/meetingMediaService";
+import { getLiveKitConnectionErrorMessage } from "../utils/livekitErrors";
 import { useMeetingChat } from "../hooks/useMeetingChat";
 import { useMeetingModeration } from "../hooks/useMeetingModeration";
 import LivekitParticipantGrid from "../components/LivekitParticipantGrid";
@@ -527,7 +528,12 @@ export default function MeetingRoomPage() {
                     className="space-y-4"
                     onError={(err) => {
                       console.error("LIVEKIT ROOM ERROR:", err);
-                      setError(err.message || "Failed to connect to LiveKit room.");
+                      setError(
+                        getLiveKitConnectionErrorMessage(
+                          err,
+                          livekitSession.url,
+                        ),
+                      );
                     }}
                   >
                     <RoomAudioRenderer />

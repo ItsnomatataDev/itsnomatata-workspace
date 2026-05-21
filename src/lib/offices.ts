@@ -34,3 +34,9 @@ export function canManageAllOffices(profile?: {
   const elevated = ["admin", "super_admin", "superadmin", "it-superadmin"].includes(role);
   return elevated && profile?.office?.is_primary === true;
 }
+
+export function canUseDetailedTimeTracking(profile?: {
+  office?: { slug?: string | null } | null;
+} | null) {
+  return profile?.office?.slug !== OFFICE_SLUGS.threeLittleBirds;
+}

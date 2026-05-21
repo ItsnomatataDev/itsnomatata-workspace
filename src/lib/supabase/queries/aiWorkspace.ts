@@ -1,6 +1,5 @@
 import { supabase } from "../client";
 
-// ── Row types ──────────────────────────────────────────────
 
 export type AIConversationRow = {
     id: string;
@@ -53,7 +52,6 @@ export type AIApprovalRow = {
     created_at: string;
 };
 
-// ── Conversations ──────────────────────────────────────────
 
 export async function getConversations(userId: string, limit = 20) {
     const { data, error } = await supabase
@@ -98,8 +96,7 @@ export async function createConversation(params: {
         .single();
 
     if (error) {
-        // Backward-compatible fallback when the running DB schema does not
-        // include the `metadata` column yet.
+
         if ((error as { code?: string }).code === "PGRST204") {
             const fallback = await supabase
                 .from("ai_conversations")
@@ -133,7 +130,6 @@ export async function updateConversationTitle(
     if (error) throw error;
 }
 
-// ── Messages ───────────────────────────────────────────────
 
 export async function getMessages(conversationId: string, limit = 50) {
     const { data, error } = await supabase
@@ -229,8 +225,6 @@ export async function createMessage(params: {
     throw result.error;
 }
 
-// ── Approvals ──────────────────────────────────────────────
-
 export async function getApproval(approvalId: string) {
     const { data, error } = await supabase
         .from("ai_approvals")
@@ -318,7 +312,6 @@ export async function reviewApproval(params: {
     return data as AIApprovalRow;
 }
 
-// ── History (recent assistant messages across conversations) ──
 
 export async function getRecentOutputs(userId: string, limit = 10) {
     const conversations = await getConversations(userId, 100);

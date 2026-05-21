@@ -1,5 +1,3 @@
-
-
 import type { ClientItem } from "../features/clients/services/clientService";
 import type {
     TaskBoardColumn,

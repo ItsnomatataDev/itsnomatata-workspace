@@ -1,7 +1,3 @@
-// ============================================================
-// AI Core Layer - Frontend Types
-// ============================================================
-
 export interface AIAssistant {
   id: string;
   organization_id: string;
@@ -138,9 +134,6 @@ export interface AIChannelIntegration {
   updated_at: string;
 }
 
-// ============================================================
-// Enums
-// ============================================================
 
 export type AssistantType = 
   | 'internal_workspace'
@@ -197,10 +190,6 @@ export type ActorType =
   | 'ai'
   | 'system';
 
-// ============================================================
-// API Request/Response Types
-// ============================================================
-
 export interface AIChatRequest {
   assistantId?: string;
   message: string;
@@ -255,10 +244,6 @@ export interface AIMessagesResponse {
   page: number;
   pageSize: number;
 }
-
-// ============================================================
-// Service Options
-// ============================================================
 
 export interface ConversationListOptions {
   page?: number;

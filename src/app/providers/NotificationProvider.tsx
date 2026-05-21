@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { toast } from "react-toastify";
@@ -17,6 +18,13 @@ import {
   markAllNotificationsAsRead,
   markNotificationAsRead,
 } from "../../lib/supabase/mutations/notifications";
+import {
+  getPushConfigurationError,
+  getPushSupportError,
+  registerPushNotifications,
+} from "../../features/notifications/services/pushService";
+
+type PushPermissionState = NotificationPermission | "unsupported";
 
 type NotificationContextValue = {
   notifications: NotificationRow[];
@@ -24,6 +32,12 @@ type NotificationContextValue = {
   loading: boolean;
   actionLoading: boolean;
   error: string;
+  pushSupported: boolean;
+  pushEnabled: boolean;
+  pushPermission: PushPermissionState;
+  pushLoading: boolean;
+  pushError: string;
+  enablePushNotifications: () => Promise<boolean>;
   reload: () => Promise<void>;
   markOneAsRead: (notificationId: string) => Promise<void>;
   markEverythingAsRead: () => Promise<void>;
@@ -47,6 +61,13 @@ export function NotificationProvider({
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState("");
+  const [pushSupported, setPushSupported] = useState(false);
+  const [pushEnabled, setPushEnabled] = useState(false);
+  const [pushPermission, setPushPermission] =
+    useState<PushPermissionState>("unsupported");
+  const [pushLoading, setPushLoading] = useState(false);
+  const [pushError, setPushError] = useState("");
+  const autoRegisteredPushFor = useRef<string | null>(null);
 
   const reload = useCallback(async () => {
     if (!userId) {
@@ -81,6 +102,82 @@ export function NotificationProvider({
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  useEffect(() => {
+    const supportError = getPushSupportError();
+    const configurationError = supportError ? "" : getPushConfigurationError();
+    const setupError = supportError || configurationError;
+
+    setPushSupported(!setupError);
+    setPushError(setupError);
+    setPushPermission(
+      typeof Notification === "undefined" ? "unsupported" : Notification.permission,
+    );
+  }, []);
+
+  const enablePushNotifications = useCallback(async () => {
+    if (!userId || !organizationId) {
+      setPushError("You need to be signed in to enable browser notifications.");
+      return false;
+    }
+
+    const supportError = getPushSupportError();
+    if (supportError) {
+      setPushSupported(false);
+      setPushError(supportError);
+      return false;
+    }
+
+    const configurationError = getPushConfigurationError();
+    if (configurationError) {
+      setPushSupported(false);
+      setPushError(configurationError);
+      return false;
+    }
+
+    try {
+      setPushSupported(true);
+      setPushLoading(true);
+      setPushError("");
+
+      await registerPushNotifications({ userId, organizationId });
+
+      setPushPermission(Notification.permission);
+      setPushEnabled(true);
+      autoRegisteredPushFor.current = `${userId}:${organizationId}`;
+      return true;
+    } catch (err) {
+      setPushPermission(
+        typeof Notification === "undefined" ? "unsupported" : Notification.permission,
+      );
+      setPushEnabled(false);
+      setPushError(
+        err instanceof Error
+          ? err.message
+          : "Failed to enable browser notifications.",
+      );
+      return false;
+    } finally {
+      setPushLoading(false);
+    }
+  }, [organizationId, userId]);
+
+  useEffect(() => {
+    if (!userId || !organizationId || !pushSupported || pushEnabled) return;
+    if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+
+    const registrationKey = `${userId}:${organizationId}`;
+    if (autoRegisteredPushFor.current === registrationKey) return;
+    autoRegisteredPushFor.current = registrationKey;
+
+    void enablePushNotifications();
+  }, [
+    enablePushNotifications,
+    organizationId,
+    pushEnabled,
+    pushSupported,
+    userId,
+  ]);
 
   useEffect(() => {
     if (!userId) return;
@@ -251,6 +348,12 @@ export function NotificationProvider({
       loading,
       actionLoading,
       error,
+      pushSupported,
+      pushEnabled,
+      pushPermission,
+      pushLoading,
+      pushError,
+      enablePushNotifications,
       reload,
       markOneAsRead,
       markEverythingAsRead,
@@ -261,6 +364,12 @@ export function NotificationProvider({
       loading,
       actionLoading,
       error,
+      pushSupported,
+      pushEnabled,
+      pushPermission,
+      pushLoading,
+      pushError,
+      enablePushNotifications,
       reload,
       markOneAsRead,
       markEverythingAsRead,
