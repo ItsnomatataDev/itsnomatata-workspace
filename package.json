@@ -27,6 +27,7 @@
     "file-saver": "^2.0.5",
     "jsbarcode": "^3.12.3",
     "livekit-client": "^2.18.1",
+    "livekit-server-sdk": "^2.15.3",
     "lucide-react": "^1.7.0",
     "react": "^19.2.4",
     "react-big-calendar": "^1.19.4",

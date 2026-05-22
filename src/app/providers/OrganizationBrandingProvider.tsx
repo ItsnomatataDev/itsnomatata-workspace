@@ -126,6 +126,27 @@ function hostLookup() {
   return { type: "custom_domain" as const, value: host };
 }
 
+function hexToRgbChannels(value?: string | null, fallback = "0 0 0") {
+  if (!value) return fallback;
+
+  const normalized = value.trim().replace("#", "");
+  const hex =
+    normalized.length === 3
+      ? normalized
+          .split("")
+          .map((character) => `${character}${character}`)
+          .join("")
+      : normalized;
+
+  if (!/^[0-9a-fA-F]{6}$/.test(hex)) return fallback;
+
+  const red = Number.parseInt(hex.slice(0, 2), 16);
+  const green = Number.parseInt(hex.slice(2, 4), 16);
+  const blue = Number.parseInt(hex.slice(4, 6), 16);
+
+  return `${red} ${green} ${blue}`;
+}
+
 async function fetchBrandingByHost() {
   const lookup = hostLookup();
   if (!lookup) return null;
@@ -206,6 +227,7 @@ export function OrganizationBrandingProvider({
 
   useEffect(() => {
     const root = document.documentElement;
+    const body = document.body;
     root.style.setProperty("--org-primary", branding.primary_color ?? "#000000");
     root.style.setProperty("--org-secondary", branding.secondary_color ?? "#ffffff");
     root.style.setProperty("--org-accent", branding.accent_color ?? "#f97316");
@@ -223,7 +245,52 @@ export function OrganizationBrandingProvider({
     root.style.setProperty("--org-link", branding.link_color ?? "#fb923c");
     root.style.setProperty("--org-link-hover", branding.link_hover_color ?? "#fdba74");
     root.style.setProperty("--org-input-focus", branding.input_focus_color ?? "#f97316");
+    root.style.setProperty(
+      "--org-primary-rgb",
+      hexToRgbChannels(branding.primary_color, "0 0 0"),
+    );
+    root.style.setProperty(
+      "--org-secondary-rgb",
+      hexToRgbChannels(branding.secondary_color, "255 255 255"),
+    );
+    root.style.setProperty(
+      "--org-accent-rgb",
+      hexToRgbChannels(branding.accent_color, "249 115 22"),
+    );
+    root.style.setProperty(
+      "--org-bg-rgb",
+      hexToRgbChannels(branding.background_color, "2 2 2"),
+    );
+    root.style.setProperty(
+      "--org-card-rgb",
+      hexToRgbChannels(branding.card_color, "7 7 7"),
+    );
+    root.style.setProperty(
+      "--org-text-rgb",
+      hexToRgbChannels(branding.text_color, "255 255 255"),
+    );
+    root.style.setProperty(
+      "--org-muted-rgb",
+      hexToRgbChannels(branding.muted_text_color, "163 163 163"),
+    );
+    root.style.setProperty(
+      "--org-border-rgb",
+      hexToRgbChannels(branding.border_color, "31 31 31"),
+    );
+    root.style.setProperty(
+      "--org-button-rgb",
+      hexToRgbChannels(branding.button_color, "249 115 22"),
+    );
+    body.classList.add("org-theme-active");
+    root.style.colorScheme = "dark";
     document.title = branding.app_name || branding.brand_name || "ITsNomatata";
+
+    const themeColor =
+      document.querySelector<HTMLMetaElement>("meta[name='theme-color']") ??
+      document.createElement("meta");
+    themeColor.name = "theme-color";
+    themeColor.content = branding.topbar_color || branding.background_color || "#020202";
+    if (!themeColor.parentElement) document.head.appendChild(themeColor);
 
     const faviconUrl = branding.favicon_url;
     const favicon = document.querySelector<HTMLLinkElement>("link[rel='icon']") ??

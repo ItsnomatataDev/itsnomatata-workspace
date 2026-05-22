@@ -6,15 +6,19 @@ import {
   createPayslipBatch,
   createPayslipBatchItem,
   deliverPayslipBatch,
+  getEmployeeDisplayName,
   getEmployeeOptions,
   getPayslipBatchItems,
   makePayslipPath,
   matchPayslipFiles,
+  updatePayslipBatchItemMatch,
   uploadEmployeeDocumentFile,
   type EmployeeOption,
   type PayslipBatch,
   type PayslipBatchItem,
 } from "../services/employeeDocumentService";
+import { getCompanyOffices } from "../../../lib/supabase/queries/offices";
+import type { CompanyOffice } from "../../../lib/offices";
 
 const monthOptions = [
   "January",
@@ -38,10 +42,13 @@ export default function PayslipDeliveryPage() {
   const organizationId = profile?.organization_id ?? null;
   const currentDate = new Date();
   const [employees, setEmployees] = useState<EmployeeOption[]>([]);
+  const [offices, setOffices] = useState<CompanyOffice[]>([]);
   const [batch, setBatch] = useState<PayslipBatch | null>(null);
   const [items, setItems] = useState<PayslipBatchItem[]>([]);
   const [files, setFiles] = useState<File[]>([]);
   const [selectedBatchItemIds, setSelectedBatchItemIds] = useState<string[]>([]);
+  const [officeFilter, setOfficeFilter] = useState("all");
+  const [manualMatches, setManualMatches] = useState<Record<string, string | null>>({});
   const [payrollMonth, setPayrollMonth] = useState(currentDate.getMonth() + 1);
   const [payrollYear, setPayrollYear] = useState(currentDate.getFullYear());
   const [loading, setLoading] = useState(true);
@@ -51,17 +58,28 @@ export default function PayslipDeliveryPage() {
 
   useEffect(() => {
     if (!organizationId) return;
-    void getEmployeeOptions(organizationId)
-      .then(setEmployees)
+    void Promise.all([getEmployeeOptions(organizationId), getCompanyOffices(organizationId)])
+      .then(([employeeRows, officeRows]) => {
+        setEmployees(employeeRows);
+        setOffices(officeRows);
+      })
       .catch((err) =>
         setError(err instanceof Error ? err.message : "Failed to load employees."),
       )
       .finally(() => setLoading(false));
   }, [organizationId]);
 
+  const filteredEmployees = useMemo(
+    () =>
+      officeFilter === "all"
+        ? employees
+        : employees.filter((employee) => employee.office_id === officeFilter),
+    [employees, officeFilter],
+  );
+
   const matches = useMemo(
-    () => matchPayslipFiles(files, employees),
-    [employees, files],
+    () => matchPayslipFiles(files, filteredEmployees, manualMatches),
+    [filteredEmployees, files, manualMatches],
   );
 
   const matchedCount = matches.filter((item) => item.matchStatus === "matched").length;
@@ -69,6 +87,8 @@ export default function PayslipDeliveryPage() {
   const deliveredCount = items.filter((item) => item.match_status === "delivered").length;
   const failedCount = items.filter((item) => item.match_status === "failed").length;
   const matchedItems = items.filter((item) => item.match_status === "matched");
+  const allMatchedChecked =
+    matchedItems.length > 0 && selectedBatchItemIds.length === matchedItems.length;
 
   async function handleCreateAndUpload() {
     if (!organizationId || !user?.id || files.length === 0) return;
@@ -164,9 +184,28 @@ export default function PayslipDeliveryPage() {
 
   function toggleAllMatchedItems() {
     const matchedIds = matchedItems.map((item) => item.id);
-    setSelectedBatchItemIds((current) =>
-      current.length === matchedIds.length ? [] : matchedIds,
-    );
+    setSelectedBatchItemIds(allMatchedChecked ? [] : matchedIds);
+  }
+
+  async function handleCorrectBatchItem(itemId: string, employeeId: string) {
+    const employee = employees.find((row) => row.id === employeeId) ?? null;
+    try {
+      setProcessing(true);
+      setError("");
+      const updated = await updatePayslipBatchItemMatch({ itemId, employee });
+      setItems((current) =>
+        current.map((item) => (item.id === updated.id ? updated : item)),
+      );
+      setSelectedBatchItemIds((current) =>
+        updated.match_status === "matched"
+          ? [...new Set([...current, updated.id])]
+          : current.filter((id) => id !== updated.id),
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update payslip match.");
+    } finally {
+      setProcessing(false);
+    }
   }
 
   if (!auth?.user || !profile) return null;
@@ -207,13 +246,35 @@ export default function PayslipDeliveryPage() {
                 <div>
                   <h2 className="text-lg font-semibold">Create Batch</h2>
                   <p className="text-sm text-white/45">
-                    Match by employee email or full name in filename.
+                    Match by registered employee email or full name in filename.
                   </p>
                 </div>
               </div>
 
               <div className="mt-6 grid gap-4">
                 <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="grid gap-2 sm:col-span-2">
+                    <span className="text-sm text-white/60">Office filter</span>
+                    <select
+                      value={officeFilter}
+                      onChange={(event) => {
+                        setOfficeFilter(event.target.value);
+                        setManualMatches({});
+                        setSelectedBatchItemIds([]);
+                      }}
+                      className="rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-sm outline-none focus:border-orange-500"
+                    >
+                      <option value="all">All offices</option>
+                      {offices.map((office) => (
+                        <option key={office.id} value={office.id}>
+                          {office.name}
+                        </option>
+                      ))}
+                    </select>
+                    <span className="text-xs text-white/40">
+                      Matching only checks employees in this office.
+                    </span>
+                  </label>
                   <label className="grid gap-2">
                     <span className="text-sm text-white/60">Month</span>
                     <select
@@ -245,17 +306,25 @@ export default function PayslipDeliveryPage() {
                     type="file"
                     multiple
                     accept="application/pdf"
-                    onChange={(event) =>
-                      setFiles(Array.from(event.target.files ?? []))
-                    }
+                    onChange={(event) => {
+                      setFiles(Array.from(event.target.files ?? []));
+                      setManualMatches({});
+                      setBatch(null);
+                      setItems([]);
+                      setSelectedBatchItemIds([]);
+                    }}
                     className="rounded-2xl border border-white/10 bg-black/40 px-4 py-2.5 text-sm file:mr-3 file:rounded-xl file:border-0 file:bg-orange-500 file:px-3 file:py-2 file:text-xs file:font-semibold file:text-black"
                   />
                 </label>
 
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                   <div className="rounded-2xl border border-white/10 bg-black/40 p-3 text-center">
                     <p className="text-2xl font-bold">{files.length}</p>
                     <p className="text-[11px] text-white/40">Files</p>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-black/40 p-3 text-center">
+                    <p className="text-2xl font-bold">{filteredEmployees.length}</p>
+                    <p className="text-[11px] text-white/40">Employees</p>
                   </div>
                   <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-3 text-center">
                     <p className="text-2xl font-bold text-emerald-300">
@@ -330,9 +399,39 @@ export default function PayslipDeliveryPage() {
                           </p>
                           <p className="mt-1 text-xs text-white/45">
                             {match.employee
-                              ? `${match.employee.full_name || "Unnamed"} · ${match.employee.email || "No email"}`
+                              ? `${getEmployeeDisplayName(match.employee)} · ${match.employee.email || "No email"} · ${match.employee.office?.name || "No office"}`
                               : match.errorMessage}
                           </p>
+                          {!match.employee ? (
+                            <label className="mt-3 block">
+                              <span className="text-xs text-white/45">
+                                Sender check: choose employee from list
+                              </span>
+                              <select
+                                value={manualMatches[match.file.name] ?? ""}
+                                onChange={(event) =>
+                                  setManualMatches((current) => ({
+                                    ...current,
+                                    [match.file.name]: event.target.value || null,
+                                  }))
+                                }
+                                className="mt-1 w-full rounded-xl border border-white/10 bg-black/60 px-3 py-2 text-xs outline-none focus:border-orange-500"
+                              >
+                                <option value="">Can't match this user</option>
+                                {filteredEmployees.map((employee) => (
+                                  <option key={employee.id} value={employee.id}>
+                                    {getEmployeeDisplayName(employee)} · {employee.email || "No email"} ·{" "}
+                                    {employee.office?.name || "No office"}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                          ) : null}
+                          {match.employee && match.matchSource === "manual" ? (
+                            <p className="mt-2 text-xs text-orange-200/80">
+                              Sender manually matched this user from the employee list.
+                            </p>
+                          ) : null}
                         </div>
                         <span
                           className={[
@@ -370,7 +469,7 @@ export default function PayslipDeliveryPage() {
                         onClick={toggleAllMatchedItems}
                         className="rounded-xl border border-white/10 px-3 py-2 text-xs font-semibold text-white/70 hover:bg-white/5"
                       >
-                        {selectedBatchItemIds.length === matchedItems.length
+                        {allMatchedChecked
                           ? "Uncheck all"
                           : "Check all matched"}
                       </button>
@@ -400,7 +499,7 @@ export default function PayslipDeliveryPage() {
                       const checked = selectedBatchItemIds.includes(item.id);
 
                       return (
-                        <label
+                        <div
                           key={item.id}
                           className={[
                             "flex items-start gap-3 rounded-2xl border p-3",
@@ -430,11 +529,40 @@ export default function PayslipDeliveryPage() {
                                 {item.error_message}
                               </p>
                             ) : null}
+                            {item.match_status !== "delivered" ? (
+                              <label className="mt-3 block">
+                                <span className="text-xs text-white/45">
+                                  Correct recipient
+                                </span>
+                                <select
+                                  disabled={processing}
+                                  value={item.user_id ?? ""}
+                                  onChange={(event) =>
+                                    void handleCorrectBatchItem(item.id, event.target.value)
+                                  }
+                                  className="mt-1 w-full rounded-xl border border-white/10 bg-black/60 px-3 py-2 text-xs outline-none focus:border-orange-500 disabled:opacity-50"
+                                >
+                                  <option value="">Can't match this user</option>
+                                  {employees
+                                    .filter((employee) =>
+                                      officeFilter === "all"
+                                        ? true
+                                        : employee.office_id === officeFilter,
+                                    )
+                                    .map((employee) => (
+                                      <option key={employee.id} value={employee.id}>
+                                        {getEmployeeDisplayName(employee)} · {employee.email || "No email"} ·{" "}
+                                        {employee.office?.name || "No office"}
+                                      </option>
+                                    ))}
+                                </select>
+                              </label>
+                            ) : null}
                           </div>
                           <span className="rounded-full bg-black/40 px-2.5 py-1 text-[10px] capitalize text-white/70">
                             {item.match_status}
                           </span>
-                        </label>
+                        </div>
                       );
                     })}
                   </div>

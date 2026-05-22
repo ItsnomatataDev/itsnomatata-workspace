@@ -133,14 +133,28 @@ Deno.serve(async (req) => {
 
     const { data: recipients, error: recipientError } = await adminClient
       .from("profiles")
-      .select("id")
+      .select("id, full_name, email, account_status, is_suspended")
       .eq("organization_id", organizationId)
       .in("id", recipientUserIds);
 
     if (recipientError) throw recipientError;
-    const validRecipientIds = (recipients ?? []).map((recipient) => recipient.id);
+    const activeRecipients = (recipients ?? []).filter(
+      (recipient) =>
+        (!recipient.account_status || recipient.account_status === "active") &&
+        !recipient.is_suspended,
+    );
+    const validRecipientIds = activeRecipients.map((recipient) => recipient.id);
     if (validRecipientIds.length === 0) {
-      return jsonResponse({ error: "No valid recipients were found." }, 400);
+      return jsonResponse({ error: "Can't match this user. No valid active recipients were found." }, 400);
+    }
+    if (validRecipientIds.length !== recipientUserIds.length) {
+      return jsonResponse(
+        {
+          error:
+            "Can't match this user. One or more selected recipients are missing, inactive, or outside this organization. Ask the sender to check the user from the list.",
+        },
+        400,
+      );
     }
 
     const { error: documentError } = await adminClient

@@ -191,7 +191,12 @@ function json(status: number, payload: unknown) {
 function normalizeLivekitUrl(value: string | undefined) {
   if (!value?.trim()) return null;
 
-  const url = new URL(value.trim());
+  const rawValue = value.trim();
+  const withProtocol = /^[a-z][a-z0-9+.-]*:\/\//i.test(rawValue)
+    ? rawValue
+    : `wss://${rawValue}`;
+
+  const url = new URL(withProtocol);
 
   if (url.protocol === "https:") {
     url.protocol = "wss:";

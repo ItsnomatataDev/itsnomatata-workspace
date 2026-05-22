@@ -62,6 +62,14 @@ export type EmployeeOption = {
   email: string | null;
   primary_role: string | null;
   department: string | null;
+  office_id: string | null;
+  account_status?: string | null;
+  is_suspended?: boolean | null;
+  office?: {
+    id: string;
+    name: string | null;
+    slug: string | null;
+  } | null;
 };
 
 export type AdminDocumentDelivery = EmployeeDocumentRecipientRow & {
@@ -335,16 +343,40 @@ export async function downloadDocument(row: MyEmployeeDocument) {
   window.open(url, "_blank", "noopener,noreferrer");
 }
 
-export async function getEmployeeOptions(organizationId: string) {
-  const { data, error } = await supabase
+export async function getEmployeeOptions(
+  organizationId: string,
+  params?: { officeId?: string | null },
+) {
+  let query = supabase
     .from("profiles")
-    .select("id, full_name, email, primary_role, department")
+    .select(
+      "id, full_name, email, primary_role, department, office_id, account_status, is_suspended, office:company_offices!profiles_office_id_fkey(id, name, slug)",
+    )
     .eq("organization_id", organizationId)
     .neq("account_status", "deleted")
     .order("full_name", { ascending: true });
 
+  if (params?.officeId) query = query.eq("office_id", params.officeId);
+
+  const { data, error } = await query;
   if (error) throw error;
-  return (data ?? []) as EmployeeOption[];
+  return ((data ?? []) as unknown[])
+    .map((row) => {
+      const employee = row as EmployeeOption & {
+        office?: EmployeeOption["office"] | EmployeeOption["office"][];
+      };
+      return {
+        ...employee,
+        office: Array.isArray(employee.office)
+          ? employee.office[0] ?? null
+          : employee.office ?? null,
+      };
+    })
+    .filter(
+      (employee) =>
+        (!employee.account_status || employee.account_status === "active") &&
+        !employee.is_suspended,
+    ) as EmployeeOption[];
 }
 
 export async function sendDocumentToRecipients(params: {
@@ -425,19 +457,37 @@ function normalizeMatchText(value: string | null | undefined) {
     .trim();
 }
 
-export function matchPayslipFiles(files: File[], employees: EmployeeOption[]) {
+export function getEmployeeDisplayName(employee: EmployeeOption) {
+  return employee.full_name || employee.email || "Unnamed employee";
+}
+
+function matchEmployeeFromFile(file: File, employees: EmployeeOption[]) {
+  const name = normalizeMatchText(file.name);
+  const compactFileName = name.replaceAll(" ", "");
+
+  return employees.filter((employee) => {
+    const email = normalizeMatchText(employee.email);
+    const fullName = normalizeMatchText(employee.full_name);
+    const compactName = fullName.replaceAll(" ", "");
+    return (
+      (!!email && name.includes(email)) ||
+      (!!fullName && name.includes(fullName)) ||
+      (!!compactName && compactFileName.includes(compactName))
+    );
+  });
+}
+
+export function matchPayslipFiles(
+  files: File[],
+  employees: EmployeeOption[],
+  manualMatches: Record<string, string | null> = {},
+) {
   return files.map((file) => {
-    const name = normalizeMatchText(file.name);
-    const matches = employees.filter((employee) => {
-      const email = normalizeMatchText(employee.email);
-      const fullName = normalizeMatchText(employee.full_name);
-      const compactName = fullName.replaceAll(" ", "");
-      return (
-        (!!email && name.includes(email)) ||
-        (!!fullName && name.includes(fullName)) ||
-        (!!compactName && name.replaceAll(" ", "").includes(compactName))
-      );
-    });
+    const manualEmployeeId = manualMatches[file.name];
+    const manualEmployee = manualEmployeeId
+      ? employees.find((employee) => employee.id === manualEmployeeId) ?? null
+      : null;
+    const matches = manualEmployee ? [manualEmployee] : matchEmployeeFromFile(file, employees);
 
     const matchStatus: PayslipBatchItem["match_status"] =
       matches.length === 1
@@ -450,12 +500,13 @@ export function matchPayslipFiles(files: File[], employees: EmployeeOption[]) {
       file,
       employee: matches.length === 1 ? matches[0] : null,
       matchStatus,
+      matchSource: manualEmployee ? "manual" : "filename",
       errorMessage:
         matches.length === 1
           ? null
           : matches.length > 1
-            ? "More than one employee matched this filename."
-            : "No employee matched this filename.",
+            ? "Can't match this user safely. More than one employee matched this filename, so ask the sender to choose the right employee from the list."
+            : "Can't match this user. No registered employee email or name matched this filename, so ask the sender to check the employee from the list.",
     };
   });
 }
@@ -500,6 +551,29 @@ export async function getPayslipBatchItems(batchId: string) {
 
   if (error) throw error;
   return (data ?? []) as PayslipBatchItem[];
+}
+
+export async function updatePayslipBatchItemMatch(params: {
+  itemId: string;
+  employee: EmployeeOption | null;
+}) {
+  const { data, error } = await supabase
+    .from("payslip_batch_items")
+    .update({
+      user_id: params.employee?.id ?? null,
+      employee_email: params.employee?.email ?? null,
+      employee_name: params.employee?.full_name ?? null,
+      match_status: params.employee ? "matched" : "unmatched",
+      error_message: params.employee
+        ? null
+        : "Can't match this user. Ask the sender to check the employee from the list.",
+    })
+    .eq("id", params.itemId)
+    .select("*")
+    .single();
+
+  if (error) throw error;
+  return data as PayslipBatchItem;
 }
 
 export async function deliverPayslipBatch(batchId: string, itemIds?: string[]) {

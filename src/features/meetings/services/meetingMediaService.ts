@@ -1,4 +1,9 @@
-import { VideoPresets, type RoomOptions } from "livekit-client";
+import {
+  AudioPresets,
+  ScreenSharePresets,
+  VideoPresets,
+  type RoomOptions,
+} from "livekit-client";
 
 export interface MediaDeviceInfo {
   deviceId: string;
@@ -24,16 +29,17 @@ export interface OptimizedRoomOptions extends RoomOptions {
     videoEncoding: {
       maxBitrate: number;
       maxFramerate: number;
-      maxResolution?: {
-        width: number;
-        height: number;
-      };
+      priority?: RTCPriorityType;
     };
     screenShareEncoding: {
       maxBitrate: number;
       maxFramerate: number;
+      priority?: RTCPriorityType;
     };
+    audioPreset?: { maxBitrate: number };
     audioBitrate?: number;
+    degradationPreference?: RTCDegradationPreference;
+    screenShareSimulcastLayers?: Array<typeof ScreenSharePresets[keyof typeof ScreenSharePresets]>;
   };
   
   // Optimized capture defaults
@@ -51,26 +57,32 @@ export interface OptimizedRoomOptions extends RoomOptions {
   };
 }
 
-// Optimized LiveKit room configuration for performance
+// Optimized LiveKit room configuration for clear meetings.
 export const OPTIMIZED_ROOM_OPTIONS: OptimizedRoomOptions = {
-  // Enable adaptive streaming and dynacast for optimal performance
+  // Keep adaptive receive behavior, but publish a sharp primary stream.
   adaptiveStream: true,
   dynacast: true,
   
-  // Optimized publishing settings
   publishDefaults: {
-    simulcast: true, // Enable simulcast for multiple quality levels
-    videoCodec: "vp8", // Use VP8 for better compatibility
+    simulcast: true,
+    videoCodec: "vp8",
     videoEncoding: {
-      maxBitrate: 1_000_000, // 1 Mbps for better quality
+      ...VideoPresets.h720.encoding,
+      maxBitrate: 1_700_000,
       maxFramerate: 30,
-      maxResolution: { width: 1280, height: 720 }, // Cap at 720p
     },
     screenShareEncoding: {
-      maxBitrate: 2_500_000, // 2.5 Mbps for screen sharing
+      ...ScreenSharePresets.h1080fps30.encoding,
+      maxBitrate: 5_000_000,
       maxFramerate: 30,
     },
-    audioBitrate: 64_000, // 64 kbps for audio
+    screenShareSimulcastLayers: [
+      ScreenSharePresets.h720fps15,
+      ScreenSharePresets.h1080fps30,
+    ],
+    audioPreset: AudioPresets.musicHighQuality,
+    audioBitrate: 96_000,
+    degradationPreference: "maintain-resolution",
   },
   
   // Optimized video capture settings
@@ -95,11 +107,18 @@ export const LOW_BANDWIDTH_OPTIONS: OptimizedRoomOptions = {
   publishDefaults: {
     ...OPTIMIZED_ROOM_OPTIONS.publishDefaults,
     videoEncoding: {
-      maxBitrate: 500_000, // 500 kbps for low bandwidth
+      maxBitrate: 500_000,
       maxFramerate: 24,
-      maxResolution: { width: 640, height: 480 }, // Cap at 480p
     },
-    audioBitrate: 32_000, // 32 kbps for audio
+    screenShareEncoding: {
+      ...ScreenSharePresets.h720fps15.encoding,
+      maxBitrate: 1_500_000,
+      maxFramerate: 15,
+    },
+    screenShareSimulcastLayers: [ScreenSharePresets.h360fps15],
+    audioPreset: AudioPresets.speech,
+    audioBitrate: 32_000,
+    degradationPreference: "balanced",
   },
   videoCaptureDefaults: {
     resolution: VideoPresets.h360.resolution,
@@ -113,15 +132,22 @@ export const HIGH_QUALITY_OPTIONS: OptimizedRoomOptions = {
   publishDefaults: {
     ...OPTIMIZED_ROOM_OPTIONS.publishDefaults,
     videoEncoding: {
-      maxBitrate: 2_500_000, // 2.5 Mbps for high quality
+      ...VideoPresets.h1080.encoding,
+      maxBitrate: 3_000_000,
       maxFramerate: 30,
-      maxResolution: { width: 1920, height: 1080 }, // Allow 1080p
     },
     screenShareEncoding: {
-      maxBitrate: 4_000_000, // 4 Mbps for high quality screen share
+      ...ScreenSharePresets.original.encoding,
+      maxBitrate: 7_000_000,
       maxFramerate: 30,
     },
-    audioBitrate: 128_000, // 128 kbps for high quality audio
+    screenShareSimulcastLayers: [
+      ScreenSharePresets.h720fps15,
+      ScreenSharePresets.h1080fps30,
+    ],
+    audioPreset: AudioPresets.musicHighQualityStereo,
+    audioBitrate: 128_000,
+    degradationPreference: "maintain-resolution",
   },
   videoCaptureDefaults: {
     resolution: VideoPresets.h1080.resolution,

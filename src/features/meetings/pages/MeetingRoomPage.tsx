@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Copy,
   Globe2,
@@ -25,12 +25,13 @@ import {
   updateMeetingGuestAccess,
 } from "../services/meetingService";
 import { subscribeToMeetingRoom } from "../services/meetingRealtime";
-import { getMeetingLivekitToken } from "../services/meetingLivekitService";
 import {
   estimateConnectionQuality,
   getOptimalRoomOptions,
 } from "../services/meetingMediaService";
 import { getLiveKitConnectionErrorMessage } from "../utils/livekitErrors";
+import { useLivekitRoom } from "../hooks/useLivekitRoom";
+import { useLivekitToken } from "../hooks/useLivekitToken";
 import { useMeetingChat } from "../hooks/useMeetingChat";
 import { useMeetingModeration } from "../hooks/useMeetingModeration";
 import LivekitParticipantGrid from "../components/LivekitParticipantGrid";
@@ -41,14 +42,6 @@ import type {
   MeetingParticipant,
   MeetingWithParticipants,
 } from "../types/meeting";
-
-type LivekitSession = {
-  token: string;
-  url: string;
-  roomName: string;
-  identity: string;
-  name: string;
-};
 
 const getLiveKitOptions = (): RoomOptions => {
   const quality = estimateConnectionQuality();
@@ -64,10 +57,10 @@ export default function MeetingRoomPage() {
   const [loading, setLoading] = useState(true);
   const [chatInput, setChatInput] = useState("");
   const [error, setError] = useState("");
-  const [livekitSession, setLivekitSession] = useState<LivekitSession | null>(null);
   const [chatOpen, setChatOpen] = useState(true);
   const [participantsOpen, setParticipantsOpen] = useState(false);
   const [unreadMessages, setUnreadMessages] = useState(0);
+  const roomOptions = useMemo(() => getLiveKitOptions(), []);
 
   const {
     messages,
@@ -132,6 +125,36 @@ export default function MeetingRoomPage() {
     profile?.primary_role === "admin" ||
     profile?.primary_role === "manager";
 
+  const {
+    session: livekitSession,
+    loading: livekitTokenLoading,
+    error: livekitTokenError,
+    clearSession: clearLivekitSession,
+  } = useLivekitToken({
+    meetingId,
+    enabled: Boolean(meeting?.id && user?.id),
+  });
+
+  const handleLivekitError = useCallback(
+    (err: Error) => {
+      console.error("LIVEKIT ROOM ERROR:", err);
+      setError(getLiveKitConnectionErrorMessage(err, livekitSession?.url));
+    },
+    [livekitSession?.url],
+  );
+
+  const livekitRoom = useLivekitRoom({
+    roomName: livekitSession?.roomName,
+    options: roomOptions,
+    onError: handleLivekitError,
+  });
+
+  useEffect(() => {
+    if (livekitTokenError) {
+      setError(livekitTokenError);
+    }
+  }, [livekitTokenError]);
+
   useEffect(() => {
     if (chatOpen) {
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -195,35 +218,9 @@ export default function MeetingRoomPage() {
       realtimeCleanupRef.current?.();
       realtimeCleanupRef.current = null;
       joinedRef.current = false;
-      setLivekitSession(null);
+      clearLivekitSession();
     };
-  }, [meetingId, user?.id]);
-
-  useEffect(() => {
-    if (!meetingId || !meeting?.id || !user?.id || livekitSession) return;
-
-    let cancelled = false;
-
-    void (async () => {
-      try {
-        const sessionResult = await getMeetingLivekitToken(meetingId);
-
-        if (!cancelled) {
-          setLivekitSession(sessionResult);
-        }
-      } catch (err: unknown) {
-        console.error("LIVEKIT SESSION FETCH FAILED:", err);
-
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Failed to connect to meeting media.");
-        }
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [meetingId, meeting?.id, user?.id, livekitSession]);
+  }, [clearLivekitSession, meetingId, user?.id]);
 
   useEffect(() => {
     if (!meetingId) return;
@@ -278,7 +275,7 @@ export default function MeetingRoomPage() {
       realtimeCleanupRef.current?.();
       realtimeCleanupRef.current = null;
       joinedRef.current = false;
-      setLivekitSession(null);
+      clearLivekitSession();
 
       navigate("/meetings");
     } catch (err: unknown) {
@@ -296,7 +293,7 @@ export default function MeetingRoomPage() {
       realtimeCleanupRef.current?.();
       realtimeCleanupRef.current = null;
       joinedRef.current = false;
-      setLivekitSession(null);
+      clearLivekitSession();
 
       navigate("/meetings");
     } catch (err: unknown) {
@@ -513,31 +510,37 @@ export default function MeetingRoomPage() {
             <div className="p-3 sm:p-5">
               {!livekitSession ? (
                 <div className="flex min-h-80 items-center justify-center rounded-3xl border border-white/10 bg-black/60 text-white/40 sm:min-h-130">
-                  Connecting to meeting media...
+                  {livekitTokenLoading
+                    ? "Creating secure media token..."
+                    : "Connecting to meeting media..."}
                 </div>
               ) : (
                 <div data-lk-theme="default" data-meeting-media-root="true" className="min-h-80 sm:min-h-130">
                   <LiveKitRoom
                     key={livekitSession.roomName}
+                    room={livekitRoom.room}
                     token={livekitSession.token}
                     serverUrl={livekitSession.url}
                     connect
                     audio
                     video={meeting.meeting_type === "video"}
-                    options={getLiveKitOptions()}
                     className="space-y-4"
-                    onError={(err) => {
-                      console.error("LIVEKIT ROOM ERROR:", err);
-                      setError(
-                        getLiveKitConnectionErrorMessage(
-                          err,
-                          livekitSession.url,
-                        ),
-                      );
+                    onConnected={() => setError("")}
+                    onError={handleLivekitError}
+                    onDisconnected={() => {
+                      if (meeting.status !== "ended" && meeting.status !== "cancelled") {
+                        console.warn("LIVEKIT ROOM DISCONNECTED");
+                      }
                     }}
                   >
                     <RoomAudioRenderer />
                     <StartAudio label="Enable audio" />
+
+                    {livekitRoom.isReconnecting ? (
+                      <div className="mb-3 rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+                        Reconnecting to meeting media...
+                      </div>
+                    ) : null}
 
                     <LivekitParticipantGrid />
 

@@ -1,9 +1,16 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Eye, EyeOff } from "lucide-react";
-import { getDefaultAuthenticatedPath, signUpUser } from "../../../lib/supabase/auth";
+import {
+  getDefaultAuthenticatedPath,
+  signUpUser,
+} from "../../../lib/supabase/auth";
 import type { PublicSignupRole } from "../../../lib/supabase/auth";
-import { OFFICE_OPTIONS, OFFICE_SLUGS, type OfficeSlug } from "../../../lib/offices";
+import {
+  OFFICE_OPTIONS,
+  OFFICE_SLUGS,
+  type OfficeSlug,
+} from "../../../lib/offices";
 import { supabase } from "../../../lib/supabase/client";
 import { useOrganizationBranding } from "../../../app/providers/OrganizationBrandingProvider";
 import { getOrganizationSignupRoles } from "../../platform-admin/services/platformAdminService";
@@ -40,28 +47,32 @@ export default function SignupPage() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [role, setRole] = useState<PublicSignupRole>("employee");
-  const [organizationRoleOptions, setOrganizationRoleOptions] =
-    useState<SignupRoleOption[]>([{ value: "employee", label: "Employee", isDefault: true }]);
+  const [organizationRoleOptions, setOrganizationRoleOptions] = useState<
+    SignupRoleOption[]
+  >([{ value: "employee", label: "Employee", isDefault: true }]);
   const [organizationSlug, setOrganizationSlug] = useState(requestedOrgSlug);
-  const [selectedOrganizationId, setSelectedOrganizationId] = useState(requestedOrgId);
+  const [selectedOrganizationId, setSelectedOrganizationId] =
+    useState(requestedOrgId);
   const [selectedOrganizationName, setSelectedOrganizationName] = useState("");
   const [rolesLoading, setRolesLoading] = useState(false);
-  const [officeSlug, setOfficeSlug] = useState<OfficeSlug>(OFFICE_SLUGS.itsNoMatata);
+  const [officeSlug, setOfficeSlug] = useState<OfficeSlug>(
+    OFFICE_SLUGS.itsNoMatata,
+  );
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
   const [approvalRequired, setApprovalRequired] = useState(false);
-  const [invitePreview, setInvitePreview] = useState<InvitePreview | null>(null);
+  const [invitePreview, setInvitePreview] = useState<InvitePreview | null>(
+    null,
+  );
   const [inviteLoading, setInviteLoading] = useState(Boolean(inviteToken));
   const normalizedEmail = email.trim().toLowerCase();
   const isInternalEmail = normalizedEmail.endsWith("@itsnomatata.com");
   const isInviteSignup = Boolean(inviteToken);
   const brandName =
-    invitePreview?.organization_name ||
-    branding.brand_name ||
-    "ITsNomatata";
+    invitePreview?.organization_name || branding.brand_name || "ITsNomatata";
   const logoUrl = branding.logo_url;
   const welcomeText =
     branding.company_welcome_text ||
@@ -90,14 +101,17 @@ export default function SignupPage() {
           .maybeSingle();
 
         if (inviteError) throw inviteError;
-        if (!data) throw new Error("This invitation was not found or has expired.");
+        if (!data)
+          throw new Error("This invitation was not found or has expired.");
 
         const invite = data as unknown as InvitePreview;
         setInvitePreview(invite);
         setEmail(invite.email);
         if (invite.full_name) setFullName(invite.full_name);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to load invitation.");
+        setError(
+          err instanceof Error ? err.message : "Failed to load invitation.",
+        );
       } finally {
         setInviteLoading(false);
       }
@@ -112,7 +126,9 @@ export default function SignupPage() {
         return;
       }
 
-      const targetSlug = isInternalEmail ? "its-nomatata" : organizationSlug.trim();
+      const targetSlug = isInternalEmail
+        ? "its-nomatata"
+        : organizationSlug.trim();
       const targetId = selectedOrganizationId.trim();
       if (!targetSlug && !targetId) {
         setOrganizationRoleOptions([
@@ -131,7 +147,9 @@ export default function SignupPage() {
         });
 
         if (data.length === 0) {
-          throw new Error("Organization was not found or does not allow signup.");
+          throw new Error(
+            "Organization was not found or does not allow signup.",
+          );
         }
 
         const nextOptions = data.map((item) => ({
@@ -159,7 +177,12 @@ export default function SignupPage() {
     }
 
     void loadSignupRoles();
-  }, [isInternalEmail, isInviteSignup, organizationSlug, selectedOrganizationId]);
+  }, [
+    isInternalEmail,
+    isInviteSignup,
+    organizationSlug,
+    selectedOrganizationId,
+  ]);
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -195,8 +218,13 @@ export default function SignupPage() {
     try {
       setBusy(true);
 
-      if (invitePreview && normalizedEmail !== invitePreview.email.toLowerCase()) {
-        setError("Use the email address that was invited to this organization.");
+      if (
+        invitePreview &&
+        normalizedEmail !== invitePreview.email.toLowerCase()
+      ) {
+        setError(
+          "Use the email address that was invited to this organization.",
+        );
         return;
       }
 
@@ -218,7 +246,8 @@ export default function SignupPage() {
       setSuccess(true);
       if (inviteToken && result.session) {
         navigate(
-          result.defaultPath ?? getDefaultAuthenticatedPath(invitePreview?.role_key),
+          result.defaultPath ??
+            getDefaultAuthenticatedPath(invitePreview?.role_key),
           { replace: true },
         );
         return;
@@ -252,7 +281,11 @@ export default function SignupPage() {
           <div className="flex flex-col items-start">
             <div className="w-20 h-20">
               {logoUrl ? (
-                <img src={logoUrl} alt={brandName} className="h-full w-full object-contain object-left" />
+                <img
+                  src={logoUrl}
+                  alt={brandName}
+                  className="h-full w-full object-contain object-left"
+                />
               ) : null}
             </div>
 
@@ -325,7 +358,9 @@ export default function SignupPage() {
                 {!isInviteSignup && isInternalEmail ? (
                   <select
                     value={officeSlug}
-                    onChange={(e) => setOfficeSlug(e.target.value as OfficeSlug)}
+                    onChange={(e) =>
+                      setOfficeSlug(e.target.value as OfficeSlug)
+                    }
                     className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 text-white outline-none transition focus:border-orange-500"
                     required
                   >
@@ -360,10 +395,13 @@ export default function SignupPage() {
                   </div>
                 ) : null}
 
-                {!isInviteSignup && (isInternalEmail || selectedOrganizationId) ? (
+                {!isInviteSignup &&
+                (isInternalEmail || selectedOrganizationId) ? (
                   <select
                     value={role}
-                    onChange={(e) => setRole(e.target.value as PublicSignupRole)}
+                    onChange={(e) =>
+                      setRole(e.target.value as PublicSignupRole)
+                    }
                     disabled={rolesLoading}
                     className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 text-white outline-none transition focus:border-orange-500 disabled:opacity-60"
                     required
@@ -408,7 +446,11 @@ export default function SignupPage() {
                     onClick={() => setShowConfirmPassword(!showConfirmPassword)}
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-white/50 hover:text-white"
                   >
-                    {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                    {showConfirmPassword ? (
+                      <EyeOff size={18} />
+                    ) : (
+                      <Eye size={18} />
+                    )}
                   </button>
                 </div>
 

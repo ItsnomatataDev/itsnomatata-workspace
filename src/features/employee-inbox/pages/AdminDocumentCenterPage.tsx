@@ -6,6 +6,7 @@ import {
   DOCUMENT_TYPE_OPTIONS,
   documentTypeLabel,
   getAdminDocumentDeliveries,
+  getEmployeeDisplayName,
   getEmployeeOptions,
   makeEmployeeDocumentPath,
   sendDocumentToRecipients,
@@ -14,6 +15,8 @@ import {
   type EmployeeDocumentType,
   type EmployeeOption,
 } from "../services/employeeDocumentService";
+import { getCompanyOffices } from "../../../lib/supabase/queries/offices";
+import type { CompanyOffice } from "../../../lib/offices";
 
 function formatDate(value: string | null) {
   if (!value) return "-";
@@ -26,8 +29,10 @@ export default function AdminDocumentCenterPage() {
   const user = auth?.user ?? null;
   const organizationId = profile?.organization_id ?? null;
   const [employees, setEmployees] = useState<EmployeeOption[]>([]);
+  const [offices, setOffices] = useState<CompanyOffice[]>([]);
   const [deliveries, setDeliveries] = useState<AdminDocumentDelivery[]>([]);
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
+  const [officeFilter, setOfficeFilter] = useState("all");
   const [recipientMode, setRecipientMode] = useState<"selected" | "all">(
     "selected",
   );
@@ -49,11 +54,13 @@ export default function AdminDocumentCenterPage() {
     try {
       setLoading(true);
       setError("");
-      const [employeeRows, deliveryRows] = await Promise.all([
+      const [employeeRows, officeRows, deliveryRows] = await Promise.all([
         getEmployeeOptions(organizationId),
+        getCompanyOffices(organizationId),
         getAdminDocumentDeliveries(organizationId),
       ]);
       setEmployees(employeeRows);
+      setOffices(officeRows);
       setDeliveries(deliveryRows);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load documents.");
@@ -66,29 +73,54 @@ export default function AdminDocumentCenterPage() {
     void loadPage();
   }, [loadPage]);
 
+  const officeEmployees = useMemo(
+    () =>
+      officeFilter === "all"
+        ? employees
+        : employees.filter((employee) => employee.office_id === officeFilter),
+    [employees, officeFilter],
+  );
+
   const filteredEmployees = useMemo(() => {
     const term = search.trim().toLowerCase();
-    if (!term) return employees;
-    return employees.filter((employee) =>
+    if (!term) return officeEmployees;
+    return officeEmployees.filter((employee) =>
       [
         employee.full_name,
         employee.email,
         employee.department,
         employee.primary_role,
+        employee.office?.name,
       ]
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(term)),
     );
-  }, [employees, search]);
+  }, [officeEmployees, search]);
 
   const recipientUserIds =
-    recipientMode === "all" ? employees.map((employee) => employee.id) : selectedUserIds;
+    recipientMode === "all"
+      ? officeEmployees.map((employee) => employee.id)
+      : selectedUserIds.filter((userId) =>
+          officeEmployees.some((employee) => employee.id === userId),
+        );
+  const allFilteredSelected =
+    filteredEmployees.length > 0 &&
+    filteredEmployees.every((employee) => selectedUserIds.includes(employee.id));
 
   function toggleUser(userId: string) {
     setSelectedUserIds((current) =>
       current.includes(userId)
         ? current.filter((id) => id !== userId)
         : [...current, userId],
+    );
+  }
+
+  function toggleAllFilteredEmployees() {
+    const filteredIds = filteredEmployees.map((employee) => employee.id);
+    setSelectedUserIds((current) =>
+      allFilteredSelected
+        ? current.filter((userId) => !filteredIds.includes(userId))
+        : [...new Set([...current, ...filteredIds])],
     );
   }
 
@@ -281,7 +313,7 @@ export default function AdminDocumentCenterPage() {
                     <div>
                       <h3 className="font-semibold">Recipients</h3>
                       <p className="text-sm text-white/45">
-                        {recipientUserIds.length} selected
+                        {recipientUserIds.length} selected from {officeEmployees.length} employee(s) in scope
                       </p>
                     </div>
                     <div className="flex rounded-2xl border border-white/10 bg-white/5 p-1">
@@ -312,14 +344,46 @@ export default function AdminDocumentCenterPage() {
                     </div>
                   </div>
 
+                  <label className="mt-4 grid gap-2">
+                    <span className="text-sm text-white/60">Office filter</span>
+                    <select
+                      value={officeFilter}
+                      onChange={(event) => {
+                        setOfficeFilter(event.target.value);
+                        setRecipientMode("selected");
+                      }}
+                      className="rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-sm outline-none focus:border-orange-500"
+                    >
+                      <option value="all">All offices</option>
+                      {offices.map((office) => (
+                        <option key={office.id} value={office.id}>
+                          {office.name}
+                        </option>
+                      ))}
+                    </select>
+                    <span className="text-xs text-white/40">
+                      All employees and select-all only apply to the selected office.
+                    </span>
+                  </label>
+
                   {recipientMode === "selected" ? (
                     <>
-                      <input
-                        value={search}
-                        onChange={(event) => setSearch(event.target.value)}
-                        placeholder="Search employees"
-                        className="mt-4 w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-sm outline-none focus:border-orange-500"
-                      />
+                      <div className="mt-4 flex flex-wrap items-center gap-2">
+                        <input
+                          value={search}
+                          onChange={(event) => setSearch(event.target.value)}
+                          placeholder="Search employees"
+                          className="min-w-[220px] flex-1 rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-sm outline-none focus:border-orange-500"
+                        />
+                        <button
+                          type="button"
+                          onClick={toggleAllFilteredEmployees}
+                          disabled={filteredEmployees.length === 0}
+                          className="rounded-2xl border border-white/10 px-4 py-3 text-sm font-semibold text-white/70 hover:bg-white/5 disabled:opacity-50"
+                        >
+                          {allFilteredSelected ? "Unselect visible" : "Select all visible"}
+                        </button>
+                      </div>
                       <div className="mt-3 max-h-72 space-y-2 overflow-y-auto pr-1">
                         {filteredEmployees.map((employee) => (
                           <label
@@ -334,10 +398,11 @@ export default function AdminDocumentCenterPage() {
                             />
                             <div className="min-w-0">
                               <p className="truncate text-sm font-semibold">
-                                {employee.full_name || employee.email || "Unnamed employee"}
+                                {getEmployeeDisplayName(employee)}
                               </p>
                               <p className="truncate text-xs text-white/40">
                                 {employee.email || "No email"} ·{" "}
+                                {employee.office?.name || "No office"} ·{" "}
                                 {employee.department || employee.primary_role || "Employee"}
                               </p>
                             </div>
@@ -347,7 +412,7 @@ export default function AdminDocumentCenterPage() {
                     </>
                   ) : (
                     <div className="mt-4 rounded-2xl border border-orange-500/20 bg-orange-500/10 p-4 text-sm text-orange-100">
-                      This will send to every listed employee in your organization.
+                      This will send to every visible employee in the selected office filter.
                     </div>
                   )}
                 </div>

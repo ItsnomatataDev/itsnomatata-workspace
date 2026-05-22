@@ -1,5 +1,10 @@
 import { supabase } from "../../../lib/supabase/client";
 import type { MeetingType } from "../types/meeting";
+import { normalizeLivekitClientUrl } from "./livekitTokenService";
+
+const CLIENT_LIVEKIT_URL = import.meta.env.VITE_LIVEKIT_URL as
+  | string
+  | undefined;
 
 export type GuestLivekitTokenResponse = {
   token: string;
@@ -81,7 +86,10 @@ export async function getGuestLivekitToken(params: {
     throw new Error("Guest meeting token response was incomplete.");
   }
 
-  return data;
+  return {
+    ...data,
+    url: normalizeLivekitClientUrl(CLIENT_LIVEKIT_URL || data.url),
+  };
 }
 
 async function getFunctionErrorMessage(error: SupabaseFunctionError) {

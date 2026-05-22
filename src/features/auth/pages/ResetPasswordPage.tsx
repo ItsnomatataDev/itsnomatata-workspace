@@ -17,28 +17,32 @@ export default function ResetPasswordPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Check if we have an access token in the URL (from the reset email)
-    // Supabase puts tokens in the hash (#) not query params
     const hash = window.location.hash;
     const accessTokenMatch = hash.match(/access_token=([^&]+)/);
     const refreshTokenMatch = hash.match(/refresh_token=([^&]+)/);
 
-    const accessToken = accessTokenMatch ? accessTokenMatch[1] : searchParams.get("access_token");
-    const refreshToken = refreshTokenMatch ? refreshTokenMatch[1] : searchParams.get("refresh_token");
+    const accessToken = accessTokenMatch
+      ? accessTokenMatch[1]
+      : searchParams.get("access_token");
+    const refreshToken = refreshTokenMatch
+      ? refreshTokenMatch[1]
+      : searchParams.get("refresh_token");
 
     if (accessToken) {
-      // Set the session from the access token
-      supabase.auth.setSession({
-        access_token: accessToken,
-        refresh_token: refreshToken || "",
-      }).then(({ error }) => {
-        if (error) {
-          setError("Invalid or expired reset link. Please request a new password reset.");
-        }
-        setLoading(false);
-      });
+      supabase.auth
+        .setSession({
+          access_token: accessToken,
+          refresh_token: refreshToken || "",
+        })
+        .then(({ error }) => {
+          if (error) {
+            setError(
+              "Invalid or expired reset link. Please request a new password reset.",
+            );
+          }
+          setLoading(false);
+        });
     } else {
-      // Check if user already has a session
       supabase.auth.getSession().then(({ data: { session } }) => {
         if (!session) {
           setError("No active session. Please request a new password reset.");
@@ -72,14 +76,18 @@ export default function ResetPasswordPage() {
 
       if (error) throw error;
 
-      setSuccessMessage("Password updated successfully. Redirecting to login...");
+      setSuccessMessage(
+        "Password updated successfully. Redirecting to login...",
+      );
 
       setTimeout(() => {
         navigate("/login", { replace: true });
       }, 2000);
     } catch (err) {
       console.error("RESET PASSWORD ERROR:", err);
-      setError(err instanceof Error ? err.message : "Failed to update password");
+      setError(
+        err instanceof Error ? err.message : "Failed to update password",
+      );
     } finally {
       setBusy(false);
     }
@@ -134,54 +142,58 @@ export default function ResetPasswordPage() {
 
             {!loading && !error && (
               <form onSubmit={handleResetPassword} className="space-y-4">
-              <div className="relative">
-                <input
-                  type={showPassword ? "text" : "password"}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="New Password"
-                  className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 pr-12 text-white outline-none transition focus:border-orange-500"
-                  required
-                  disabled={busy}
-                  minLength={6}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-white/50 hover:text-white"
-                >
-                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                </button>
-              </div>
+                <div className="relative">
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="New Password"
+                    className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 pr-12 text-white outline-none transition focus:border-orange-500"
+                    required
+                    disabled={busy}
+                    minLength={6}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-white/50 hover:text-white"
+                  >
+                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
 
-              <div className="relative">
-                <input
-                  type={showConfirmPassword ? "text" : "password"}
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  placeholder="Confirm New Password"
-                  className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 pr-12 text-white outline-none transition focus:border-orange-500"
-                  required
-                  disabled={busy}
-                  minLength={6}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-white/50 hover:text-white"
-                >
-                  {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                </button>
-              </div>
+                <div className="relative">
+                  <input
+                    type={showConfirmPassword ? "text" : "password"}
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="Confirm New Password"
+                    className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 pr-12 text-white outline-none transition focus:border-orange-500"
+                    required
+                    disabled={busy}
+                    minLength={6}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-white/50 hover:text-white"
+                  >
+                    {showConfirmPassword ? (
+                      <EyeOff size={18} />
+                    ) : (
+                      <Eye size={18} />
+                    )}
+                  </button>
+                </div>
 
-              <button
-                type="submit"
-                disabled={busy}
-                className="w-full rounded-2xl bg-orange-500 px-4 py-3 font-semibold text-black transition hover:bg-orange-400 disabled:opacity-60"
-              >
-                {busy ? "Updating..." : "Update Password"}
-              </button>
-            </form>
+                <button
+                  type="submit"
+                  disabled={busy}
+                  className="w-full rounded-2xl bg-orange-500 px-4 py-3 font-semibold text-black transition hover:bg-orange-400 disabled:opacity-60"
+                >
+                  {busy ? "Updating..." : "Update Password"}
+                </button>
+              </form>
             )}
 
             <p className="mt-6 text-center text-sm text-white/60">

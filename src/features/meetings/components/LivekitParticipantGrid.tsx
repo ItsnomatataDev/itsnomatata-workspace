@@ -89,7 +89,7 @@ function TrackTile({
           : "border-white/10 hover:border-orange-500/30",
       ].join(" ")}
     >
-      <div className="absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-3 bg-linear-to-brom-black/85 to-transparent p-4">
+      <div className="absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-3 bg-linear-to-b from-black/85 to-transparent p-4">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           <span className="max-w-55 truncate rounded-full bg-black/70 px-3 py-1 text-xs font-medium text-white backdrop-blur">
             {participantName}

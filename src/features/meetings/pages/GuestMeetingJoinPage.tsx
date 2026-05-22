@@ -13,7 +13,9 @@ import {
   leaveGuestMeeting,
   type GuestLivekitTokenResponse,
 } from "../services/meetingGuestService";
+import { getOptimalRoomOptions, estimateConnectionQuality } from "../services/meetingMediaService";
 import { getLiveKitConnectionErrorMessage } from "../utils/livekitErrors";
+import { useLivekitRoom } from "../hooks/useLivekitRoom";
 
 export default function GuestMeetingJoinPage() {
   const navigate = useNavigate();
@@ -34,6 +36,17 @@ export default function GuestMeetingJoinPage() {
     () => meetingCode ?? meetingId ?? "meeting",
     [meetingCode, meetingId],
   );
+  const roomOptions = useMemo(
+    () => getOptimalRoomOptions(estimateConnectionQuality()),
+    [],
+  );
+  const livekitRoom = useLivekitRoom({
+    roomName: session?.roomName,
+    options: roomOptions,
+    onError: (err) => {
+      setError(getLiveKitConnectionErrorMessage(err, session?.url));
+    },
+  });
 
   async function handleJoin(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -199,6 +212,7 @@ export default function GuestMeetingJoinPage() {
             >
               <LiveKitRoom
                 key={session.roomName}
+                room={livekitRoom.room}
                 token={session.token}
                 serverUrl={session.url}
                 connect={true}
@@ -211,6 +225,11 @@ export default function GuestMeetingJoinPage() {
               >
                 <RoomAudioRenderer />
                 <StartAudio label="Enable audio" />
+                {livekitRoom.isReconnecting ? (
+                  <div className="mb-3 rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+                    Reconnecting to meeting media...
+                  </div>
+                ) : null}
                 <LivekitParticipantGrid />
                 <GuestMeetingControls onLeave={handleLeave} />
               </LiveKitRoom>

@@ -358,6 +358,7 @@ export default function OrganizationSettingsPage() {
         appName: branding.app_name ?? branding.brand_name ?? organization?.name ?? null,
         logoUrl: branding.logo_url ?? null,
         faviconUrl: branding.favicon_url ?? null,
+        loginBackgroundUrl: branding.login_background_url ?? null,
         primaryColor: branding.primary_color ?? "#000000",
         secondaryColor: branding.secondary_color ?? "#ffffff",
         accentColor: branding.accent_color ?? "#f97316",
@@ -811,6 +812,17 @@ export default function OrganizationSettingsPage() {
                     onChange={(event) => setBranding((current) => ({ ...current, favicon_url: event.target.value }))}
                     placeholder="Favicon URL"
                     className="rounded-xl border border-white/10 bg-black px-4 py-3 text-sm text-white outline-none focus:border-orange-500"
+                  />
+                  <input
+                    value={branding.login_background_url ?? ""}
+                    onChange={(event) =>
+                      setBranding((current) => ({
+                        ...current,
+                        login_background_url: event.target.value,
+                      }))
+                    }
+                    placeholder="Login background URL"
+                    className="rounded-xl border border-white/10 bg-black px-4 py-3 text-sm text-white outline-none focus:border-orange-500 md:col-span-2"
                   />
                   <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-white/10 bg-black px-4 py-3 text-sm text-white/70 transition hover:border-orange-500/40">
                     <Upload size={16} />

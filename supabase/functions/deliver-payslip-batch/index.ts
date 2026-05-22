@@ -28,6 +28,13 @@ function canDeliverPayslips(role: string | null | undefined) {
   return ["admin", "manager", "hr", "superadmin", "it-superadmin"].includes(role ?? "");
 }
 
+function normalizeIdentity(value: string | null | undefined) {
+  return (value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
 Deno.serve(async (req) => {
   try {
     if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -113,6 +120,34 @@ Deno.serve(async (req) => {
       try {
         if (!item.user_id || !item.file_path) {
           throw new Error("Missing matched user or file path.");
+        }
+
+        const { data: matchedUser, error: matchedUserError } = await adminClient
+          .from("profiles")
+          .select("id, organization_id, full_name, email, account_status, is_suspended")
+          .eq("id", item.user_id)
+          .maybeSingle();
+
+        if (matchedUserError) throw matchedUserError;
+        if (!matchedUser || matchedUser.organization_id !== batch.organization_id) {
+          throw new Error("Can't match this user. Ask the sender to check the employee from the list.");
+        }
+        if ((matchedUser.account_status && matchedUser.account_status !== "active") || matchedUser.is_suspended) {
+          throw new Error("Matched employee account is not active.");
+        }
+
+        const storedEmail = normalizeIdentity(item.employee_email);
+        const storedName = normalizeIdentity(item.employee_name);
+        const registeredEmail = normalizeIdentity(matchedUser.email);
+        const registeredName = normalizeIdentity(matchedUser.full_name);
+        if (!storedEmail && !storedName) {
+          throw new Error("Can't match this user. Ask the sender to check the employee from the list.");
+        }
+        if (storedEmail && storedEmail !== registeredEmail) {
+          throw new Error("Matched email no longer matches the registered employee email.");
+        }
+        if (storedName && storedName !== registeredName) {
+          throw new Error("Matched name no longer matches the registered employee name.");
         }
 
         const documentId = crypto.randomUUID();
