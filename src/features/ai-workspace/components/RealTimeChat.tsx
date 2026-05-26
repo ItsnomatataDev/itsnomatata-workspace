@@ -1,275 +1,450 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  ArrowLeft,
   ArrowUp,
-  Bot,
   Copy,
-  History,
+  FileText,
+  Folder,
+  Image as ImageIcon,
   Loader2,
-  MessageSquare,
+  Menu,
+  Mic,
+  Paperclip,
   Plus,
   Search,
   Sparkles,
   Trash2,
-  User,
+  Video,
   X,
 } from "lucide-react";
-import { ChatHistoryService, type ChatMessage, type ChatConversation } from "../services/chatHistoryService";
 import { useAuth } from "../../../app/providers/AuthProvider";
+import {
+  ChatHistoryService,
+  type ChatAttachment,
+  type ChatConversation,
+  type ChatMessage,
+} from "../services/chatHistoryService";
+import { ImageUploadService } from "../services/imageUploadService";
+import {
+  AIProjectService,
+  type AIWorkspaceProject,
+} from "../services/aiProjectService";
 
 interface RealTimeChatProps {
   busy: boolean;
   userName?: string | null;
   role?: string | null;
-  onAsk: (prompt: string) => Promise<{ content: string }>;
+  onAsk: (
+    prompt: string,
+    attachments?: ChatAttachment[],
+    metadata?: Record<string, unknown>,
+  ) => Promise<{ content: string }>;
   initialConversationId?: string;
+  onBack?: () => void;
 }
 
-// Message Bubble Component
+type PendingAttachment = {
+  id: string;
+  file: File;
+  type: ChatAttachment["type"];
+  previewUrl?: string;
+};
+
+type LocalChatMessage = ChatMessage & {
+  pending?: boolean;
+  error?: boolean;
+};
+
+const CHAT_STARTERS = [
+  {
+    label: "Plan work",
+    prompt: "Help me plan the most important work for today.",
+  },
+  {
+    label: "Summarize",
+    prompt: "Summarize the latest work and decisions in this workspace.",
+  },
+  {
+    label: "Find risks",
+    prompt: "Review my current work and point out risks or blockers.",
+  },
+  {
+    label: "Draft update",
+    prompt: "Draft a clean internal update for the team.",
+  },
+];
+
+function makeId(prefix = "chat") {
+  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function formatTime(iso: string) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+
+  return date.toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function formatConversationDate(iso: string) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+  }).format(date);
+}
+
+function getConversationSection(iso: string) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "Older";
+
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+
+  const startOfYesterday = new Date(startOfToday);
+  startOfYesterday.setDate(startOfToday.getDate() - 1);
+
+  const startOfLastWeek = new Date(startOfToday);
+  startOfLastWeek.setDate(startOfToday.getDate() - 7);
+
+  const startOfLastMonth = new Date(startOfToday);
+  startOfLastMonth.setDate(startOfToday.getDate() - 30);
+
+  if (date >= startOfToday) return "Today";
+  if (date >= startOfYesterday) return "Yesterday";
+  if (date >= startOfLastWeek) return "Previous 7 days";
+  if (date >= startOfLastMonth) return "Previous 30 days";
+  return "Older";
+}
+
+function formatFileSize(bytes: number) {
+  if (!bytes) return "0 KB";
+  const units = ["B", "KB", "MB", "GB"];
+  const index = Math.min(
+    Math.floor(Math.log(bytes) / Math.log(1024)),
+    units.length - 1,
+  );
+
+  return `${(bytes / 1024 ** index).toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
+}
+
+function getAttachmentType(file: File): ChatAttachment["type"] {
+  if (file.type.startsWith("image/")) return "image";
+  if (file.type.startsWith("audio/")) return "audio";
+  if (file.type.startsWith("video/")) return "video";
+  return "document";
+}
+
+function AttachmentIcon({ type }: { type: ChatAttachment["type"] }) {
+  if (type === "image") return <ImageIcon size={14} />;
+  if (type === "audio") return <Mic size={14} />;
+  if (type === "video") return <Video size={14} />;
+  return <FileText size={14} />;
+}
+
+function MessageAttachments({ attachments }: { attachments?: ChatAttachment[] }) {
+  if (!attachments?.length) return null;
+
+  return (
+    <div className="mt-3 grid gap-2">
+      {attachments.map((attachment) => (
+        <a
+          key={attachment.id}
+          href={attachment.url}
+          target="_blank"
+          rel="noreferrer"
+          className="group flex max-w-sm items-center gap-3 rounded-xl border border-white/10 bg-white/[0.04] p-2 text-left transition hover:bg-white/[0.07]"
+        >
+          {attachment.type === "image" ? (
+            <img
+              src={attachment.url}
+              alt={attachment.name}
+              className="h-11 w-11 rounded-md object-cover"
+            />
+          ) : (
+            <span className="flex h-11 w-11 items-center justify-center rounded-md bg-white/8 text-white/60">
+              <AttachmentIcon type={attachment.type} />
+            </span>
+          )}
+          <span className="min-w-0">
+            <span className="block truncate text-xs font-medium text-white">
+              {attachment.name}
+            </span>
+            <span className="text-[11px] text-white/45">
+              {formatFileSize(attachment.size)}
+            </span>
+          </span>
+        </a>
+      ))}
+    </div>
+  );
+}
+
 function MessageBubble({
   message,
-  userName,
   onDelete,
-  isTyping,
 }: {
-  message: ChatMessage;
-  userName?: string | null;
+  message: LocalChatMessage;
   onDelete?: (messageId: string) => void;
-  isTyping?: boolean;
 }) {
   const [copied, setCopied] = useState(false);
-  const [displayedContent, setDisplayedContent] = useState("");
   const isUser = message.role === "user";
-
-  // Typing effect for assistant messages
-  useEffect(() => {
-    if (isUser || isTyping) {
-      setDisplayedContent(message.content);
-      return;
-    }
-
-    let index = 0;
-    const content = message.content;
-    setDisplayedContent("");
-
-    const typeInterval = setInterval(() => {
-      if (index < content.length) {
-        setDisplayedContent((prev) => prev + content[index]);
-        index++;
-      } else {
-        clearInterval(typeInterval);
-      }
-    }, 15); // Adjust typing speed here (lower = faster)
-
-    return () => clearInterval(typeInterval);
-  }, [message.content, isUser, isTyping]);
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(message.content);
     setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+    window.setTimeout(() => setCopied(false), 1400);
   };
 
-  const handleDelete = () => {
-    if (onDelete && message.id) {
-      onDelete(message.id);
-    }
-  };
-
-  if (isUser) {
+  if (message.pending) {
     return (
-      <div className="flex items-end justify-end gap-3 group">
-        <div className="max-w-[75%]">
-          <div className="rounded-2xl rounded-br-sm bg-orange-500 px-4 py-3 text-sm leading-relaxed text-white shadow-lg shadow-orange-500/10">
-            {message.content}
+      <div className="flex justify-start">
+        <div className="rounded-2xl px-1 py-3">
+          <div className="flex items-center gap-2 text-sm text-white/60">
+            <Loader2 size={14} className="animate-spin text-white/50" />
+            Thinking
           </div>
-          <div className="mt-1 flex items-center justify-between text-[10px] text-white/25">
-            <span>{formatTime(message.createdAt)}</span>
-            {onDelete && (
-              <button
-                onClick={handleDelete}
-                className="opacity-0 hover:opacity-100 transition-opacity"
-              >
-                <Trash2 size={10} />
-              </button>
-            )}
-          </div>
-        </div>
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/10 ring-1 ring-white/10">
-          <User size={14} className="text-white/60" />
         </div>
       </div>
     );
   }
 
   return (
-    <div className="flex items-end gap-3 group">
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-linear-to-br from-orange-500/30 to-orange-600/20 ring-1 ring-orange-500/20">
-        <Bot size={14} className="text-orange-400" />
-      </div>
-      <div className="max-w-[80%] space-y-1">
-        <div className="rounded-2xl rounded-bl-sm border border-white/8 bg-white/5 px-4 py-3">
-          <div className="text-sm leading-relaxed text-white/90 whitespace-pre-wrap">
-            {displayedContent}
-            {!isTyping && displayedContent.length < message.content.length && (
-              <span className="inline-block w-2 h-4 ml-1 bg-orange-400 animate-pulse" />
-            )}
+    <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
+      <div className={`group max-w-[min(760px,86%)] ${isUser ? "order-1" : ""}`}>
+        <div
+          className={`px-4 py-3 text-[15px] leading-7 ${
+            isUser
+              ? "rounded-3xl bg-[#303030] text-white"
+              : message.error
+                ? "rounded-2xl border border-red-500/20 bg-red-500/10 text-red-200"
+                : "text-white/88"
+          }`}
+        >
+          <div className="whitespace-pre-wrap">
+            {message.error
+              ? "Something went wrong while getting the response. Please try again."
+              : message.content || "Attached file"}
           </div>
+          <MessageAttachments attachments={message.attachments} />
         </div>
-        <div className="flex items-center gap-2 text-[10px] text-white/25">
+
+        <div
+          className={`mt-1 flex items-center gap-2 px-2 text-[11px] text-white/28 ${
+            isUser ? "justify-end" : "justify-start"
+          }`}
+        >
           <span>{formatTime(message.createdAt)}</span>
-          <button
-            onClick={handleCopy}
-            className="opacity-0 hover:opacity-100 transition-opacity flex items-center gap-1"
-          >
-            <Copy size={10} />
-            {copied && <span>Copied!</span>}
-          </button>
+          {!message.error && (
+            <button
+              type="button"
+              onClick={handleCopy}
+              className="inline-flex items-center gap-1 opacity-0 transition group-hover:opacity-100 hover:text-white/70"
+            >
+              <Copy size={10} />
+              {copied ? "Copied" : "Copy"}
+            </button>
+          )}
+          {isUser && onDelete && (
+            <button
+              type="button"
+              onClick={() => onDelete(message.id)}
+              className="opacity-0 transition group-hover:opacity-100 hover:text-red-300"
+              aria-label="Delete message"
+            >
+              <Trash2 size={10} />
+            </button>
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-// Chat Sidebar Component
 function ChatSidebar({
+  projects,
+  selectedProjectId,
   conversations,
   activeConversationId,
+  searchQuery,
+  onSearch,
+  onSelectProject,
+  onCreateProject,
   onSelectConversation,
   onNewConversation,
   onDeleteConversation,
-  searchQuery,
-  onSearch,
 }: {
+  projects: AIWorkspaceProject[];
+  selectedProjectId: string | null;
   conversations: ChatConversation[];
   activeConversationId?: string;
+  searchQuery: string;
+  onSearch: (query: string) => void;
+  onSelectProject: (projectId: string | null) => void;
+  onCreateProject: () => void;
   onSelectConversation: (id: string) => void;
   onNewConversation: () => void;
   onDeleteConversation: (id: string) => void;
-  searchQuery: string;
-  onSearch: (query: string) => void;
 }) {
-  const filteredConversations = conversations.filter(conv =>
-    conv.title.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredConversations = conversations
+    .filter((conversation) => {
+      const conversationProjectId = conversation.metadata?.projectId ?? null;
+      return selectedProjectId === conversationProjectId;
+    })
+    .filter((conversation) =>
+      conversation.title.toLowerCase().includes(searchQuery.toLowerCase()),
+    );
+  const groupedConversations = filteredConversations.reduce<
+    Array<{ label: string; conversations: ChatConversation[] }>
+  >((groups, conversation) => {
+    const label = getConversationSection(conversation.updatedAt);
+    const existingGroup = groups.find((group) => group.label === label);
+
+    if (existingGroup) {
+      existingGroup.conversations.push(conversation);
+    } else {
+      groups.push({ label, conversations: [conversation] });
+    }
+
+    return groups;
+  }, []);
 
   return (
-    <div className="w-80 border-r border-white/10 bg-black/50 p-4 space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <h3 className="text-lg font-semibold text-white">Chat History</h3>
+    <aside className="flex h-full w-full flex-col border-r border-white/8 bg-[#171717] md:w-[292px]">
+      <div className="border-b border-white/10 p-3">
         <button
+          type="button"
           onClick={onNewConversation}
-          className="p-2 rounded-lg hover:bg-white/10 transition-colors"
+          className="flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-transparent px-3 py-2.5 text-sm font-medium text-white transition hover:bg-white/8"
         >
-          <Plus size={16} className="text-white/60" />
+          <Plus size={16} />
+          New chat
         </button>
-      </div>
 
-      {/* Search */}
-      <div className="relative">
-        <Search size={16} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-white/40" />
-        <input
-          type="text"
-          placeholder="Search conversations..."
-          value={searchQuery}
-          onChange={(e) => onSearch(e.target.value)}
-          className="w-full pl-10 pr-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder-white/40 focus:outline-none focus:border-orange-500/50"
-        />
-      </div>
-
-      {/* Conversations List */}
-      <div className="space-y-2 max-h-[calc(100vh-200px)] overflow-y-auto">
-        {filteredConversations.map((conversation) => (
-          <div
-            key={conversation.id}
-            className={`p-3 rounded-lg cursor-pointer transition-colors group ${
-              activeConversationId === conversation.id
-                ? "bg-orange-500/20 border border-orange-500/30"
-                : "hover:bg-white/5 border border-transparent"
+        <div className="mt-3 space-y-1">
+          <button
+            type="button"
+            onClick={() => onSelectProject(null)}
+            className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition ${
+              selectedProjectId === null
+                ? "bg-white/12 text-white"
+                : "text-white/65 hover:bg-white/8"
             }`}
-            onClick={() => onSelectConversation(conversation.id)}
           >
-            <div className="flex items-center justify-between">
-              <h4 className="text-sm font-medium text-white truncate">
-                {conversation.title}
-              </h4>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDeleteConversation(conversation.id);
-                }}
-                className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-red-500/20 rounded"
-              >
-                <Trash2 size={12} className="text-red-400" />
-              </button>
-            </div>
-            <p className="text-xs text-white/40 mt-1">
-              {new Date(conversation.updatedAt).toLocaleDateString()}
-            </p>
-            {conversation.metadata?.totalMessages && (
-              <p className="text-xs text-white/30 mt-1">
-                {conversation.metadata.totalMessages} messages
-              </p>
-            )}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
+            <Folder size={15} />
+            General
+          </button>
 
-// Typing Indicator Component
-function TypingIndicator() {
-  return (
-    <div className="flex items-end gap-3 group">
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-linear-to-br from-orange-500/30 to-orange-600/20 ring-1 ring-orange-500/20">
-        <Bot size={14} className="text-orange-400" />
-      </div>
-      <div className="rounded-2xl rounded-bl-sm border border-white/8 bg-white/5 px-4 py-3">
-        <div className="flex items-center gap-1.5">
-          <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-orange-400/70 [animation-delay:0ms]" />
-          <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-orange-400/70 [animation-delay:150ms]" />
-          <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-orange-400/70 [animation-delay:300ms]" />
+          {projects.map((project) => (
+            <button
+              key={project.id}
+              type="button"
+              onClick={() => onSelectProject(project.id)}
+              className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition ${
+                selectedProjectId === project.id
+                  ? "bg-white/12 text-white"
+                  : "text-white/65 hover:bg-white/8"
+              }`}
+            >
+              <Folder size={15} />
+              <span className="truncate">{project.title}</span>
+            </button>
+          ))}
+
+          <button
+            type="button"
+            onClick={onCreateProject}
+            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-white/45 transition hover:bg-white/8 hover:text-white/75"
+          >
+            <Plus size={15} />
+            New project
+          </button>
+        </div>
+
+        <div className="relative mt-3">
+          <Search
+            size={15}
+            className="absolute left-3 top-1/2 -translate-y-1/2 text-white/35"
+          />
+          <input
+            type="search"
+            value={searchQuery}
+            onChange={(event) => onSearch(event.target.value)}
+            placeholder="Search chats"
+            className="h-10 w-full rounded-xl border border-transparent bg-white/8 pl-9 pr-3 text-sm text-white outline-none placeholder:text-white/35 focus:border-white/18"
+          />
         </div>
       </div>
-    </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto p-2">
+        {filteredConversations.length === 0 ? (
+          <div className="rounded-lg px-3 py-6 text-center text-sm text-white/40">
+            No chats yet.
+          </div>
+        ) : (
+          groupedConversations.map((section) => (
+            <div key={section.label} className="mb-4">
+              <p className="mb-1 px-3 text-xs font-medium text-white/36">
+                {section.label}
+              </p>
+              <div className="space-y-1">
+                {section.conversations.map((conversation) => {
+                  const active = activeConversationId === conversation.id;
+
+                  return (
+                    <button
+                      key={conversation.id}
+                      type="button"
+                      onClick={() => onSelectConversation(conversation.id)}
+                      className={`group flex w-full items-start gap-2 rounded-lg px-3 py-2.5 text-left transition ${
+                        active
+                          ? "bg-white/12 text-white"
+                          : "text-white/72 hover:bg-white/8"
+                      }`}
+                    >
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-medium">
+                          {conversation.title}
+                        </span>
+                        <span
+                          className={`mt-0.5 block text-xs ${
+                            active ? "text-white/45" : "text-white/35"
+                          }`}
+                        >
+                          {formatConversationDate(conversation.updatedAt)}
+                        </span>
+                      </span>
+                      <span
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onDeleteConversation(conversation.id);
+                        }}
+                        className={`rounded-md p-1 opacity-0 transition group-hover:opacity-100 ${
+                          active ? "hover:bg-white/10" : "hover:bg-red-500/15"
+                        }`}
+                        aria-label="Delete conversation"
+                      >
+                        <Trash2 size={13} />
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </aside>
   );
 }
-
-// Helper functions
-function makeId() {
-  return `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-}
-
-function formatTime(iso: string) {
-  return new Date(iso).toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-const CHAT_STARTERS = [
-  {
-    icon: "Task",
-    label: "Help with tasks",
-    prompt: "Can you help me organize my tasks for today?",
-  },
-  {
-    icon: "Report",
-    label: "Generate report",
-    prompt: "Generate a summary of my recent work and progress",
-  },
-  {
-    icon: "Question",
-    label: "Ask anything",
-    prompt: "I have a question about my work. Can you help?",
-  },
-  {
-    icon: "Plan",
-    label: "Plan my day",
-    prompt: "Help me plan my day based on my current priorities",
-  },
-];
 
 export default function RealTimeChat({
   busy,
@@ -277,78 +452,110 @@ export default function RealTimeChat({
   role,
   onAsk,
   initialConversationId,
+  onBack,
 }: RealTimeChatProps) {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<LocalChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [conversations, setConversations] = useState<ChatConversation[]>([]);
-  const [activeConversationId, setActiveConversationId] = useState<string | undefined>(initialConversationId);
-  const [showSidebar, setShowSidebar] = useState(false);
+  const [projects, setProjects] = useState<AIWorkspaceProject[]>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(
+    null,
+  );
+  const [activeConversationId, setActiveConversationId] = useState<
+    string | undefined
+  >(initialConversationId);
+  const [showMobileHistory, setShowMobileHistory] = useState(false);
   const [loading, setLoading] = useState(false);
   const [showStarters, setShowStarters] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [pendingAttachments, setPendingAttachments] = useState<
+    PendingAttachment[]
+  >([]);
 
-  const messagesEndRef = useRef<HTMLDivElement>(null);
   const auth = useAuth();
   const userId = auth?.user?.id;
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Load conversations on mount
-  useEffect(() => {
-    if (userId) {
-      loadConversations();
+  const activeConversation = useMemo(
+    () =>
+      conversations.find((conversation) => conversation.id === activeConversationId),
+    [activeConversationId, conversations],
+  );
+
+  const selectedProject = useMemo(
+    () => projects.find((project) => project.id === selectedProjectId) ?? null,
+    [projects, selectedProjectId],
+  );
+
+  const loadConversations = useCallback(async () => {
+    if (!userId) return;
+
+    try {
+      const result = await ChatHistoryService.getUserConversations({
+        userId,
+        organizationId: auth?.profile?.organization_id || undefined,
+        limit: 80,
+      });
+      setConversations(result.conversations);
+    } catch (error) {
+      console.error("Error loading conversations:", error);
+      setError("Failed to load conversations.");
     }
-  }, [userId]);
+  }, [auth?.profile?.organization_id, userId]);
 
-  // Load initial conversation if provided
+  const loadProjects = useCallback(async () => {
+    if (!userId) return;
+
+    const nextProjects = await AIProjectService.listProjects({
+      userId,
+      organizationId: auth?.profile?.organization_id ?? null,
+    });
+    setProjects(nextProjects);
+  }, [auth?.profile?.organization_id, userId]);
+
+  const loadConversation = useCallback(
+    async (conversationId: string) => {
+      if (!userId) return;
+
+      setLoading(true);
+      setError(null);
+      try {
+        const session = await ChatHistoryService.getChatSession({
+          conversationId,
+          userId,
+          limit: 100,
+        });
+
+        setMessages(session.messages);
+        setActiveConversationId(conversationId);
+        setShowStarters(false);
+        setShowMobileHistory(false);
+      } catch (error) {
+        console.error("Error loading conversation:", error);
+        setError("Failed to load this chat.");
+      } finally {
+        setLoading(false);
+      }
+    },
+    [userId],
+  );
+
+  useEffect(() => {
+    void loadConversations();
+    void loadProjects();
+  }, [loadConversations, loadProjects]);
+
   useEffect(() => {
     if (initialConversationId && userId) {
-      loadConversation(initialConversationId);
+      void loadConversation(initialConversationId);
     }
-  }, [initialConversationId, userId]);
+  }, [initialConversationId, loadConversation, userId]);
 
-  // Scroll to bottom when new messages arrive
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
-
-  const loadConversations = async () => {
-    if (!userId) return;
-
-    try {
-      const { conversations } = await ChatHistoryService.getUserConversations({
-        userId,
-        organizationId: auth?.profile?.organization_id || undefined,
-        limit: 50,
-      });
-      setConversations(conversations);
-    } catch (error) {
-      console.error("Error loading conversations:", error);
-      setError("Failed to load conversations");
-    }
-  };
-
-  const loadConversation = async (conversationId: string) => {
-    if (!userId) return;
-    
-    setLoading(true);
-    setError(null);
-    try {
-      const session = await ChatHistoryService.getChatSession({
-        conversationId,
-        userId,
-        limit: 100,
-      });
-      
-      setMessages(session.messages);
-      setActiveConversationId(conversationId);
-      setShowStarters(false);
-    } catch (error) {
-      console.error("Error loading conversation:", error);
-      setError("Failed to load conversation");
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const createNewConversation = async () => {
     if (!userId) return;
@@ -359,26 +566,57 @@ export default function RealTimeChat({
         organizationId: auth?.profile?.organization_id || "",
         title: "New Chat",
         role: role || undefined,
+        projectId: selectedProjectId,
+        projectName: selectedProject?.title ?? null,
       });
 
-      setConversations([conversation, ...conversations]);
+      setConversations((prev) => [conversation, ...prev]);
       setActiveConversationId(conversation.id);
       setMessages([]);
+      setInput("");
+      setPendingAttachments([]);
       setShowStarters(true);
+      setShowMobileHistory(false);
       setError(null);
     } catch (error) {
       console.error("Error creating conversation:", error);
-      setError("Failed to create new conversation");
+      setError("Failed to create a new chat.");
+    }
+  };
+
+  const createProject = async () => {
+    if (!userId) return;
+
+    const title = window.prompt("Project name");
+    if (!title?.trim()) return;
+
+    try {
+      const project = await AIProjectService.createProject({
+        userId,
+        organizationId: auth?.profile?.organization_id || "",
+        title: title.trim(),
+      });
+      setProjects((prev) => [project, ...prev]);
+      setSelectedProjectId(project.id);
+      setActiveConversationId(undefined);
+      setMessages([]);
+      setShowStarters(true);
+      setSearchQuery("");
+    } catch (error) {
+      console.error("Error creating AI project:", error);
+      setError("Failed to create the project. Make sure the latest migration is applied.");
     }
   };
 
   const deleteConversation = async (conversationId: string) => {
     if (!userId) return;
-    
+
     try {
       await ChatHistoryService.deleteConversation(conversationId);
-      setConversations(conversations.filter(c => c.id !== conversationId));
-      
+      setConversations((prev) =>
+        prev.filter((conversation) => conversation.id !== conversationId),
+      );
+
       if (activeConversationId === conversationId) {
         setActiveConversationId(undefined);
         setMessages([]);
@@ -386,269 +624,489 @@ export default function RealTimeChat({
       }
     } catch (error) {
       console.error("Error deleting conversation:", error);
-      setError("Failed to delete conversation");
+      setError("Failed to delete the chat.");
     }
   };
 
   const deleteMessage = async (messageId: string) => {
     if (!userId) return;
-    
+
     try {
       await ChatHistoryService.deleteMessage({ messageId, userId });
-      setMessages(messages.filter(m => m.id !== messageId));
+      setMessages((prev) => prev.filter((message) => message.id !== messageId));
     } catch (error) {
       console.error("Error deleting message:", error);
-      setError("Failed to delete message");
+      setError("Failed to delete the message.");
     }
   };
 
+  const handleFilesSelected = (files: FileList | null) => {
+    if (!files?.length) return;
+
+    const nextAttachments = Array.from(files).map((file) => ({
+      id: makeId("file"),
+      file,
+      type: getAttachmentType(file),
+      previewUrl: file.type.startsWith("image/")
+        ? URL.createObjectURL(file)
+        : undefined,
+    }));
+
+    setPendingAttachments((prev) => [...prev, ...nextAttachments]);
+    setShowStarters(false);
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
+  const removePendingAttachment = (id: string) => {
+    setPendingAttachments((prev) => {
+      const target = prev.find((item) => item.id === id);
+      if (target?.previewUrl) URL.revokeObjectURL(target.previewUrl);
+      return prev.filter((item) => item.id !== id);
+    });
+  };
+
+  const buildChatAttachments = async (
+    files: PendingAttachment[],
+    messageId: string,
+  ): Promise<ChatAttachment[]> => {
+    const attachments: ChatAttachment[] = [];
+
+    for (const pending of files) {
+      if (pending.type === "image") {
+        try {
+          const upload = await ImageUploadService.uploadImage(pending.file);
+          attachments.push({
+            id: makeId("attachment"),
+            messageId,
+            type: "image",
+            name: pending.file.name,
+            url: upload.url,
+            size: upload.size,
+            mimeType: upload.mimeType,
+            uploadedAt: nowIso(),
+            metadata: upload.metadata,
+          });
+          continue;
+        } catch (error) {
+          console.warn("Image upload failed, using local preview:", error);
+        }
+      }
+
+      attachments.push({
+        id: makeId("attachment"),
+        messageId,
+        type: pending.type,
+        name: pending.file.name,
+        url: pending.previewUrl || "",
+        size: pending.file.size,
+        mimeType: pending.file.type || "application/octet-stream",
+        uploadedAt: nowIso(),
+      });
+    }
+
+    return attachments;
+  };
+
   const handleSend = useCallback(async () => {
-    if (!input.trim() || busy || !userId) return;
+    if ((!input.trim() && pendingAttachments.length === 0) || busy || !userId) {
+      return;
+    }
 
+    const prompt = input.trim();
+    const outgoingFiles = pendingAttachments;
     setError(null);
-    const userMessage: ChatMessage = {
-      id: makeId(),
-      conversationId: activeConversationId || "",
-      role: "user",
-      content: input.trim(),
-      createdAt: new Date().toISOString(),
-      userId,
-    };
 
-    // Create conversation if none exists
     let conversationId = activeConversationId;
     if (!conversationId) {
       try {
         const conversation = await ChatHistoryService.createConversation({
           userId,
           organizationId: auth?.profile?.organization_id || "",
-          title: input.slice(0, 50) || "New Chat",
+          title: prompt.slice(0, 58) || outgoingFiles[0]?.file.name || "New Chat",
           role: role || undefined,
+          projectId: selectedProjectId,
+          projectName: selectedProject?.title ?? null,
         });
         conversationId = conversation.id;
-        setActiveConversationId(conversationId);
-        setConversations([conversation, ...conversations]);
+        setActiveConversationId(conversation.id);
+        setConversations((prev) => [conversation, ...prev]);
       } catch (error) {
         console.error("Error creating conversation:", error);
-        setError("Failed to create conversation");
+        setError("Failed to create a chat.");
         return;
       }
     }
 
-    // Add user message to UI
-    setMessages(prev => [...prev, userMessage]);
+    const userMessageId = makeId("msg");
+    const attachments = await buildChatAttachments(outgoingFiles, userMessageId);
+    const userMessage: LocalChatMessage = {
+      id: userMessageId,
+      conversationId,
+      role: "user",
+      content: prompt,
+      attachments,
+      createdAt: nowIso(),
+      userId,
+    };
+
+    setMessages((prev) => [...prev, userMessage]);
     setInput("");
+    setPendingAttachments([]);
     setShowStarters(false);
 
-    // Save user message to history
     try {
       await ChatHistoryService.addMessage({
         conversationId,
         role: "user",
-        content: userMessage.content,
+        content: prompt,
         userId,
+        type: attachments.length ? "mixed" : "text",
+        data: {
+          attachments: attachments.map((attachment) => ({
+            type: attachment.type,
+            name: attachment.name,
+            url: attachment.url,
+            size: attachment.size,
+            mimeType: attachment.mimeType,
+            metadata: attachment.metadata,
+          })),
+        },
       });
     } catch (error) {
       console.error("Error saving message:", error);
     }
 
-    // Add typing indicator
-    const typingMessage: ChatMessage = {
-      id: makeId(),
+    const typingMessage: LocalChatMessage = {
+      id: makeId("typing"),
       conversationId,
       role: "assistant",
       content: "",
-      createdAt: new Date().toISOString(),
+      createdAt: nowIso(),
       userId,
+      pending: true,
     };
-    setMessages(prev => [...prev, typingMessage]);
+
+    setMessages((prev) => [...prev, typingMessage]);
 
     try {
-      const response = await onAsk(input.trim());
-      
-      if (response) {
-        // Remove typing indicator
-        setMessages(prev => prev.filter(m => m.id !== typingMessage.id));
-        
-        // Add assistant response
-        const assistantMessage: ChatMessage = {
-          id: makeId(),
-          conversationId,
-          role: "assistant",
-          content: response.content,
-          createdAt: new Date().toISOString(),
-          userId,
-        };
-        
-        setMessages(prev => [...prev, assistantMessage]);
+      const response = await onAsk(prompt, attachments, {
+        projectId: selectedProjectId,
+        projectName: selectedProject?.title ?? "General",
+        projectMemoryScope: selectedProjectId ? "project" : "general",
+      });
+      const assistantMessage: LocalChatMessage = {
+        id: makeId("msg"),
+        conversationId,
+        role: "assistant",
+        content: response.content,
+        createdAt: nowIso(),
+        userId,
+      };
 
-        // Save assistant response to history
-        try {
-          await ChatHistoryService.addMessage({
-            conversationId,
-            role: "assistant",
-            content: response.content,
-            userId,
-            type: "text",
-            data: {
-              model: "gpt-4",
-              tokens: response.content.length,
-            },
-          });
-        } catch (error) {
-          console.error("Error saving assistant message:", error);
-        }
-      }
+      setMessages((prev) => [
+        ...prev.filter((message) => message.id !== typingMessage.id),
+        assistantMessage,
+      ]);
+
+      await ChatHistoryService.addMessage({
+        conversationId,
+        role: "assistant",
+        content: response.content,
+        userId,
+        type: "text",
+        data: {
+          model: "workspace-ai",
+          tokens: response.content.length,
+        },
+      });
+
+      await loadConversations();
     } catch (error) {
-      // Remove typing indicator and show error
-      setMessages(prev => prev.filter(m => m.id !== typingMessage.id));
-      setError("Failed to get response. Please try again.");
+      console.error("Chat AI service error:", error);
+      setMessages((prev) =>
+        prev.map((message) =>
+          message.id === typingMessage.id
+            ? { ...message, pending: false, error: true }
+            : message,
+        ),
+      );
     }
-  }, [input, busy, userId, activeConversationId, role, onAsk, conversations]);
+  }, [
+    activeConversationId,
+    auth?.profile?.organization_id,
+    busy,
+    input,
+    loadConversations,
+    onAsk,
+    pendingAttachments,
+    role,
+    selectedProject?.title,
+    selectedProjectId,
+    userId,
+  ]);
 
-  const handleStarterClick = (starter: typeof CHAT_STARTERS[0]) => {
-    setInput(starter.prompt);
-    setShowStarters(false);
-  };
+  const activeTitle = activeConversation?.title || "New chat";
 
   return (
-    <div className="flex h-full bg-black">
-      {/* Sidebar */}
-      {showSidebar && (
+    <div className="flex h-screen overflow-hidden bg-[#212121] text-white">
+      <div className="hidden md:block">
         <ChatSidebar
+          projects={projects}
+          selectedProjectId={selectedProjectId}
           conversations={conversations}
           activeConversationId={activeConversationId}
+          searchQuery={searchQuery}
+          onSearch={setSearchQuery}
+          onSelectProject={(projectId) => {
+            setSelectedProjectId(projectId);
+            setActiveConversationId(undefined);
+            setMessages([]);
+            setShowStarters(true);
+          }}
+          onCreateProject={createProject}
           onSelectConversation={loadConversation}
           onNewConversation={createNewConversation}
           onDeleteConversation={deleteConversation}
-          searchQuery={searchQuery}
-          onSearch={setSearchQuery}
         />
+      </div>
+
+      {showMobileHistory && (
+        <div className="fixed inset-0 z-40 bg-black/70 md:hidden">
+          <div className="h-full w-[86vw] max-w-sm">
+            <ChatSidebar
+              projects={projects}
+              selectedProjectId={selectedProjectId}
+              conversations={conversations}
+              activeConversationId={activeConversationId}
+              searchQuery={searchQuery}
+              onSearch={setSearchQuery}
+              onSelectProject={(projectId) => {
+                setSelectedProjectId(projectId);
+                setActiveConversationId(undefined);
+                setMessages([]);
+                setShowStarters(true);
+                setShowMobileHistory(false);
+              }}
+              onCreateProject={createProject}
+              onSelectConversation={loadConversation}
+              onNewConversation={createNewConversation}
+              onDeleteConversation={deleteConversation}
+            />
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowMobileHistory(false)}
+            className="absolute right-4 top-4 rounded-full bg-white/10 p-2 text-white"
+            aria-label="Close history"
+          >
+            <X size={18} />
+          </button>
+        </div>
       )}
 
-      {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col">
-        {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-white/10">
-          <div className="flex items-center gap-3">
+      <section className="flex min-w-0 flex-1 flex-col">
+        <header className="flex h-14 items-center justify-between px-4">
+          <div className="flex min-w-0 items-center gap-3">
             <button
-              onClick={() => setShowSidebar(!showSidebar)}
-              className="p-2 rounded-lg hover:bg-white/10 transition-colors"
+              type="button"
+              onClick={() => setShowMobileHistory(true)}
+              className="rounded-lg p-2 text-white/60 transition hover:bg-white/10 hover:text-white md:hidden"
+              aria-label="Open chat history"
             >
-              <History size={16} className="text-white/60" />
+              <Menu size={18} />
             </button>
-            <div>
-              <h2 className="text-lg font-semibold text-white">AI Assistant</h2>
-              <p className="text-xs text-white/40">
-                {role && `Role: ${role}`} {userName && `· ${userName}`}
+            <div className="min-w-0">
+              <h2 className="truncate text-sm font-medium text-white/88">
+                {selectedProject?.title ?? "AI Workspace"}
+              </h2>
+              <p className="truncate text-xs text-white/38 md:hidden">
+                {activeTitle}
               </p>
             </div>
           </div>
-          <button
-            onClick={createNewConversation}
-            className="px-3 py-1.5 bg-orange-500 hover:bg-orange-600 rounded-lg text-sm text-white transition-colors"
-          >
-            New Chat
-          </button>
-        </div>
 
-        {/* Error Display */}
-        {error && (
-          <div className="mx-4 mt-4 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
-            {error}
+          <div className="flex items-center gap-2">
+            {onBack && (
+              <button
+                type="button"
+                onClick={onBack}
+                className="inline-flex items-center gap-2 rounded-xl bg-white/10 px-3 py-2 text-sm font-medium text-white transition hover:bg-white/15"
+              >
+                <ArrowLeft size={15} />
+                Back
+              </button>
+            )}
             <button
-              onClick={() => setError(null)}
-              className="ml-2 text-red-300 hover:text-red-200"
+              type="button"
+              onClick={createNewConversation}
+              className="hidden items-center gap-2 rounded-xl bg-white/10 px-3 py-2 text-sm font-medium text-white transition hover:bg-white/15 sm:inline-flex"
             >
+              <Plus size={15} />
+              New
+            </button>
+          </div>
+        </header>
+
+        {error && (
+          <div className="mx-4 mt-4 flex items-center justify-between rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm text-red-200">
+            {error}
+            <button type="button" onClick={() => setError(null)}>
               <X size={14} />
             </button>
           </div>
         )}
 
-        {/* Messages Area */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          {loading ? (
-            <div className="flex items-center justify-center h-full">
-              <Loader2 size={24} className="animate-spin text-orange-400" />
-            </div>
-          ) : showStarters && messages.length === 0 ? (
-            <div className="space-y-4">
-              <div className="text-center">
-                <Sparkles size={48} className="text-orange-400 mx-auto mb-4" />
-                <h3 className="text-xl font-semibold text-white mb-2">
-                  How can I help you today?
-                </h3>
-                <p className="text-white/60 mb-6">
-                  Ask me anything about your work, tasks, or get help with planning
-                </p>
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col px-4 py-6">
+            {loading ? (
+              <div className="flex flex-1 items-center justify-center">
+                <Loader2 size={24} className="animate-spin text-orange-300" />
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-                {CHAT_STARTERS.map((starter, index) => (
-                  <button
-                    key={index}
-                    onClick={() => handleStarterClick(starter)}
-                    className="p-3 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 transition-colors text-left"
-                  >
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className="text-lg">{starter.icon}</span>
+            ) : showStarters && messages.length === 0 ? (
+              <div className="flex flex-1 flex-col justify-center">
+                <div className="mx-auto max-w-2xl text-center">
+                  <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-white/10 text-white/80">
+                    <Sparkles size={22} />
+                  </div>
+                  <h3 className="mt-5 text-3xl font-semibold text-white">
+                    What can I help with?
+                  </h3>
+                  <p className="mt-2 text-sm text-white/48">
+                    Ask a question, attach a file, or continue from your saved chats.
+                  </p>
+                </div>
+
+                <div className="mx-auto mt-8 grid w-full max-w-2xl gap-3 sm:grid-cols-2">
+                  {CHAT_STARTERS.map((starter) => (
+                    <button
+                      key={starter.label}
+                      type="button"
+                      onClick={() => {
+                        setInput(starter.prompt);
+                        setShowStarters(false);
+                      }}
+                      className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-left transition hover:bg-white/[0.08]"
+                    >
                       <span className="text-sm font-medium text-white">
                         {starter.label}
                       </span>
-                    </div>
-                    <p className="text-xs text-white/60">
-                      {starter.prompt}
-                    </p>
-                  </button>
-                ))}
+                      <span className="mt-2 block text-sm leading-5 text-white/48">
+                        {starter.prompt}
+                      </span>
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
-          ) : (
-            messages.map((message) => (
-              <MessageBubble
-                key={message.id}
-                message={message}
-                userName={userName}
-                onDelete={message.role === "user" ? deleteMessage : undefined}
-                isTyping={message.role === "assistant" && message.content === ""}
-              />
-            ))
-          )}
-          <div ref={messagesEndRef} />
+            ) : (
+              <div className="space-y-6">
+                {messages.map((message) => (
+                  <MessageBubble
+                    key={message.id}
+                    message={message}
+                    onDelete={message.role === "user" ? deleteMessage : undefined}
+                  />
+                ))}
+                <div ref={messagesEndRef} />
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* Input Area */}
-        <div className="border-t border-white/10 p-4">
-          <div className="flex items-end gap-3">
-            <div className="flex-1">
+        <footer className="bg-[#212121] px-4 pb-5 pt-3">
+          <div className="mx-auto max-w-3xl">
+            {pendingAttachments.length > 0 && (
+              <div className="mb-3 flex flex-wrap gap-2">
+                {pendingAttachments.map((attachment) => (
+                  <div
+                    key={attachment.id}
+                    className="flex max-w-[260px] items-center gap-2 rounded-xl border border-white/10 bg-white/[0.06] p-2"
+                  >
+                    {attachment.previewUrl ? (
+                      <img
+                        src={attachment.previewUrl}
+                        alt={attachment.file.name}
+                        className="h-9 w-9 rounded-md object-cover"
+                      />
+                    ) : (
+                      <span className="flex h-9 w-9 items-center justify-center rounded-md bg-white/10 text-white/55">
+                        <AttachmentIcon type={attachment.type} />
+                      </span>
+                    )}
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-xs font-medium text-white">
+                        {attachment.file.name}
+                      </span>
+                      <span className="text-[11px] text-white/40">
+                        {formatFileSize(attachment.file.size)}
+                      </span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => removePendingAttachment(attachment.id)}
+                      className="rounded-md p-1 text-white/45 transition hover:bg-white/10 hover:text-white"
+                      aria-label="Remove attachment"
+                    >
+                      <X size={13} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="flex items-end gap-2 rounded-[28px] border border-white/12 bg-[#2f2f2f] p-2 shadow-[0_12px_40px_rgba(0,0,0,0.22)] focus-within:border-white/22">
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                className="hidden"
+                onChange={(event) => handleFilesSelected(event.target.files)}
+                accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.md,audio/*,video/*"
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="mb-1 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-white/60 transition hover:bg-white/10 hover:text-white"
+                aria-label="Attach files"
+              >
+                <Paperclip size={18} />
+              </button>
+
               <textarea
                 value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder="Ask me anything..."
-                className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-lg text-white placeholder-white/40 resize-none focus:outline-none focus:border-orange-500/50"
+                onChange={(event) => setInput(event.target.value)}
+                placeholder="Ask anything"
                 rows={1}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    handleSend();
+                className="max-h-36 min-h-10 flex-1 resize-none bg-transparent px-1 py-2 text-[15px] leading-6 text-white outline-none placeholder:text-white/38"
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && !event.shiftKey) {
+                    event.preventDefault();
+                    void handleSend();
                   }
                 }}
               />
+
+              <button
+                type="button"
+                onClick={() => void handleSend()}
+                disabled={
+                  busy || (!input.trim() && pendingAttachments.length === 0)
+                }
+                className="mb-1 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white text-black transition hover:bg-white/85 disabled:bg-white/10 disabled:text-white/35"
+                aria-label="Send message"
+              >
+                {busy ? (
+                  <Loader2 size={17} className="animate-spin" />
+                ) : (
+                  <ArrowUp size={17} />
+                )}
+              </button>
             </div>
-            
-            <button
-              onClick={handleSend}
-              disabled={!input.trim() || busy}
-              className="p-3 rounded-lg bg-orange-500 hover:bg-orange-600 disabled:bg-white/10 disabled:opacity-50 transition-colors"
-            >
-              {busy ? (
-                <Loader2 size={16} className="animate-spin text-white" />
-              ) : (
-                <ArrowUp size={16} className="text-white" />
-              )}
-            </button>
           </div>
-        </div>
-      </div>
+        </footer>
+      </section>
     </div>
   );
 }

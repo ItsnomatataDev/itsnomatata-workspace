@@ -14,6 +14,11 @@ import {
 import { supabase } from "../../../lib/supabase/client";
 import { useOrganizationBranding } from "../../../app/providers/OrganizationBrandingProvider";
 import { getOrganizationSignupRoles } from "../../platform-admin/services/platformAdminService";
+import {
+  isLocalDevelopmentHostname,
+  resolveOrganizationByHost,
+  type ResolvedHostOrganization,
+} from "../../../lib/organization/organizationResolution";
 
 type SignupRoleOption = {
   value: PublicSignupRole;
@@ -67,10 +72,12 @@ export default function SignupPage() {
   const [invitePreview, setInvitePreview] = useState<InvitePreview | null>(
     null,
   );
+  const [hostOrganization, setHostOrganization] =
+    useState<ResolvedHostOrganization | null>(null);
   const [inviteLoading, setInviteLoading] = useState(Boolean(inviteToken));
   const normalizedEmail = email.trim().toLowerCase();
-  const isInternalEmail = normalizedEmail.endsWith("@itsnomatata.com");
   const isInviteSignup = Boolean(inviteToken);
+  const hasConnectedHostOrganization = Boolean(hostOrganization);
   const brandName =
     invitePreview?.organization_name || branding.brand_name || "ITsNomatata";
   const logoUrl = branding.logo_url;
@@ -85,6 +92,21 @@ export default function SignupPage() {
         backgroundPosition: "center",
       }
     : undefined;
+
+  useEffect(() => {
+    async function loadHostOrganization() {
+      if (isInviteSignup) return;
+      const resolved = await resolveOrganizationByHost();
+      setHostOrganization(resolved);
+      if (resolved) {
+        setSelectedOrganizationId(resolved.id);
+        setSelectedOrganizationName(resolved.name);
+        setOrganizationSlug(resolved.slug);
+      }
+    }
+
+    void loadHostOrganization();
+  }, [isInviteSignup]);
 
   useEffect(() => {
     async function loadInvite() {
@@ -126,9 +148,7 @@ export default function SignupPage() {
         return;
       }
 
-      const targetSlug = isInternalEmail
-        ? "its-nomatata"
-        : organizationSlug.trim();
+      const targetSlug = organizationSlug.trim();
       const targetId = selectedOrganizationId.trim();
       if (!targetSlug && !targetId) {
         setOrganizationRoleOptions([
@@ -178,7 +198,6 @@ export default function SignupPage() {
 
     void loadSignupRoles();
   }, [
-    isInternalEmail,
     isInviteSignup,
     organizationSlug,
     selectedOrganizationId,
@@ -210,8 +229,12 @@ export default function SignupPage() {
       return;
     }
 
-    if (!isInviteSignup && !isInternalEmail && !selectedOrganizationId) {
-      setError("Choose your organization before creating an account.");
+    if (!isInviteSignup && !selectedOrganizationId) {
+      setError(
+        isLocalDevelopmentHostname(window.location.hostname)
+          ? "Choose your organization before creating an account."
+          : "This domain is not connected to an active organization.",
+      );
       return;
     }
 
@@ -233,7 +256,7 @@ export default function SignupPage() {
         password,
         fullName: fullName.trim(),
         role: isInviteSignup ? invitePreview?.role_key : role,
-        officeSlug: isInternalEmail ? officeSlug : undefined,
+        officeSlug,
         inviteToken,
         organizationId: !isInviteSignup ? selectedOrganizationId || null : null,
         organizationSlug: !isInviteSignup ? organizationSlug || null : null,
@@ -355,7 +378,7 @@ export default function SignupPage() {
                   required
                 />
 
-                {!isInviteSignup && isInternalEmail ? (
+                {!isInviteSignup && selectedOrganizationId ? (
                   <select
                     value={officeSlug}
                     onChange={(e) =>
@@ -372,7 +395,7 @@ export default function SignupPage() {
                   </select>
                 ) : null}
 
-                {!isInviteSignup && !isInternalEmail ? (
+                {!isInviteSignup && !hasConnectedHostOrganization ? (
                   <div>
                     <input
                       type="text"
@@ -396,7 +419,7 @@ export default function SignupPage() {
                 ) : null}
 
                 {!isInviteSignup &&
-                (isInternalEmail || selectedOrganizationId) ? (
+                selectedOrganizationId ? (
                   <select
                     value={role}
                     onChange={(e) =>

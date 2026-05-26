@@ -28,7 +28,11 @@ export default function RoleRoute({
     );
   }
 
-  const role = auth.profile?.primary_role ?? null;
+  const role =
+    auth.currentOrganization?.role ??
+    auth.profile?.organization_role_key ??
+    auth.profile?.primary_role ??
+    null;
 
   if (!auth.user) {
     return <Navigate to="/login" replace />;

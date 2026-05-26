@@ -30,7 +30,7 @@ export default function UpdateUserRoleModal({
   currentUserId,
   onUpdated,
 }: UpdateUserRoleModalProps) {
-  const defaultRole = "social_media";
+  const defaultRole = "user";
   const [role, setRole] = useState(defaultRole);
   const [officeId, setOfficeId] = useState("");
   const [offices, setOffices] = useState<CompanyOffice[]>([]);

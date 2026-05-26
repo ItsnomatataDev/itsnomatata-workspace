@@ -37,12 +37,6 @@ export default function LoginPage() {
         password,
       });
 
-      if (result?.workspace?.organizationFound === false) {
-        setWarning(
-          'Login succeeded, but the organization with slug "its-nomatata" was not found. Ask an administrator to create it in Supabase.',
-        );
-      }
-
       navigate(result.defaultPath ?? "/dashboard", { replace: true });
     } catch (err) {
       console.error("LOGIN ERROR:", err);

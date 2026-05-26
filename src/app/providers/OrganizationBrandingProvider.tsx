@@ -173,8 +173,12 @@ export function OrganizationBrandingProvider({
   children: ReactNode;
 }) {
   const auth = useAuth();
-  const organizationId = auth?.profile?.organization_id ?? null;
+  const organizationId =
+    auth?.currentOrganization?.organization_id ??
+    auth?.profile?.organization_id ??
+    null;
   const organizationName =
+    auth?.currentOrganization?.organization_name ??
     (auth?.profile?.organization as { name?: string } | null | undefined)?.name ??
     null;
   const [branding, setBranding] = useState<OrganizationBranding>(

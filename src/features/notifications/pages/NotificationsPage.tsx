@@ -274,7 +274,7 @@ export default function NotificationsPage() {
   const currentUser = auth?.user ?? null;
   const currentProfile = auth?.profile ?? null;
   const userId = currentProfile?.id ?? null;
-  const role = currentProfile?.primary_role ?? "social_media";
+  const role = currentProfile?.primary_role ?? "user";
 
   const {
     notifications,

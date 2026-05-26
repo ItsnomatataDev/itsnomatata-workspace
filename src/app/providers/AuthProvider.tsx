@@ -9,20 +9,25 @@ import {
 import type { ReactNode } from "react";
 import type { User } from "@supabase/supabase-js";
 import { supabase } from "../../lib/supabase/client";
-import { OFFICE_SLUGS } from "../../lib/offices";
-import { resolveCompanyOfficeId } from "../../lib/supabase/queries/offices";
+import {
+  getCurrentHostname,
+  resolveOrganizationByHost,
+  type ResolvedHostOrganization,
+} from "../../lib/organization/organizationResolution";
 
 type AppRole =
   | "super_admin"
   | "org_admin"
   | "admin"
+  | "user"
   | "superadmin"
   | "manager"
   | "hr"
   | "it"
   | "social_media"
   | "media_team"
-  | "seo_specialist";
+  | "seo_specialist"
+  | "finance";
 
 export type AccountStatus =
   | "pending"
@@ -45,6 +50,7 @@ type AuthProfile = {
   is_suspended?: boolean | null;
   last_seen_at?: string | null;
   organization?: Record<string, unknown> | null;
+  active_membership?: ActiveMembership | null;
   office?: {
     id: string;
     name: string;
@@ -57,6 +63,10 @@ type AuthProfile = {
 export type AuthContextType = {
   user: User | null;
   profile: AuthProfile | null;
+  memberships: ActiveMembership[];
+  currentOrganization: CurrentOrganization | null;
+  resolvedHostOrganization: ResolvedHostOrganization | null;
+  accessIssue: AccessIssue | null;
   loading: boolean;
   refreshProfile: () => Promise<void>;
 };
@@ -65,273 +75,223 @@ export const AuthContext = createContext<AuthContextType | undefined>(
   undefined,
 );
 
-const ORGANIZATION_SLUG = "its-nomatata";
-
-type PendingOrganizationInvitation = {
-  id: string;
+type ActiveMembership = {
+  membership_id: string;
   organization_id: string;
-  email: string;
-  full_name: string | null;
-  role_key: string;
+  organization_name: string;
+  organization_slug: string;
+  role: string;
   status: string;
-  expires_at: string | null;
+  joined_at: string | null;
+  access_status: string | null;
+  organization_is_active: boolean | null;
+  is_system_organization: boolean | null;
 };
 
-function isValidRole(value: unknown): value is AppRole {
-  return [
-    "admin",
-    "super_admin",
-    "org_admin",
-    "user",
-    "superadmin",
-    "it-superadmin",
-    "manager",
-    "hr",
-    "it",
-    "social_media",
-    "media_team",
-    "seo_specialist",
-    "finance",
-  ].includes(String(value));
+type CurrentOrganization = {
+  organization_id: string;
+  organization_name: string;
+  organization_slug: string;
+  role: string;
+  membership_status: string;
+  access_status: string | null;
+  organization_is_active: boolean | null;
+  is_system_organization: boolean | null;
+};
+
+type AccessIssue =
+  | "no_membership"
+  | "wrong_organization"
+  | "pending_approval"
+  | "suspended_account"
+  | "suspended_organization";
+
+let hasEnsureProfileRpc = true;
+let hasMembershipRpc = true;
+
+function isMissingRpcError(error: unknown) {
+  if (!error || typeof error !== "object") return false;
+  const record = error as Record<string, unknown>;
+  return (
+    record.code === "PGRST202" ||
+    String(record.message ?? "").includes("Could not find the function")
+  );
 }
 
-function toProfileCompatibleRole(roleKey?: string | null): AppRole | null {
-  if (!roleKey) return null;
-  return isValidRole(roleKey) ? (roleKey as AppRole) : ("user" as AppRole);
-}
-
-function isCompanyEmail(email?: string | null) {
-  return Boolean(email?.trim().toLowerCase().endsWith("@itsnomatata.com"));
-}
-
-function resolveUserRole(
-  user: User | null,
-  profile?: AuthProfile | null,
-): AppRole {
-  const profileRole = profile?.primary_role;
-  const appMetadataRole =
-    user?.app_metadata?.primary_role ?? user?.app_metadata?.role;
-  const userMetadataRole = user?.user_metadata?.role;
-
-  if (isValidRole(profileRole)) return profileRole;
-  if (isValidRole(appMetadataRole)) return appMetadataRole;
-  if (isValidRole(userMetadataRole)) return userMetadataRole;
-
-  return "social_media";
-}
-
-function resolveAccountStatus(user: User, profile?: AuthProfile | null) {
+function toProfileCompatibleRole(roleKey?: string | null): AppRole {
+  const role = roleKey?.trim();
   if (
-    isCompanyEmail(user.email) &&
-    (profile?.account_status === "pending" ||
-      profile?.account_status === "pending_approval")
+    role &&
+    [
+      "admin",
+      "super_admin",
+      "org_admin",
+      "superadmin",
+      "manager",
+      "hr",
+      "it",
+      "social_media",
+      "media_team",
+      "seo_specialist",
+    ].includes(role)
   ) {
-    return "active";
+    return role as AppRole;
   }
-
-  if (profile?.account_status) return profile.account_status;
-  if (profile?.is_suspended) return "suspended";
-  if (profile?.is_active) return "active";
-
-  return isCompanyEmail(user.email) ? "active" : "pending_approval";
+  return "user" as AppRole;
 }
 
-async function getOrganization() {
+async function loadActiveMemberships() {
+  if (!hasMembershipRpc) return loadActiveMembershipsFallback();
+
+  const { data, error } = await supabase.rpc("get_my_active_memberships");
+  if (error) {
+    if (isMissingRpcError(error)) {
+      hasMembershipRpc = false;
+      return loadActiveMembershipsFallback();
+    }
+    throw error;
+  }
+  return (data ?? []) as ActiveMembership[];
+}
+
+async function loadActiveMembershipsFallback() {
   const { data, error } = await supabase
-    .from("organizations")
-    .select("id, name, slug")
-    .eq("slug", ORGANIZATION_SLUG)
-    .maybeSingle();
+    .from("organization_members")
+    .select(
+      `
+      id,
+      organization_id,
+      role,
+      status,
+      joined_at,
+      organizations(
+        name,
+        slug,
+        access_status,
+        is_active,
+        is_system_organization
+      )
+    `,
+    )
+    .eq("status", "active")
+    .order("joined_at", { ascending: true });
 
   if (error) throw error;
 
-  if (!data) {
-    throw new Error(
-      `Organization with slug "${ORGANIZATION_SLUG}" was not found.`,
-    );
-  }
+  return ((data ?? []) as Array<Record<string, unknown>>).map((row) => {
+    const organization = Array.isArray(row.organizations)
+      ? row.organizations[0]
+      : row.organizations;
+    const org = (organization ?? {}) as Record<string, unknown>;
 
-  return data;
-}
-
-async function getOrganizationInvitation(
-  email?: string | null,
-): Promise<PendingOrganizationInvitation | null> {
-  if (!email) return null;
-
-  const { data, error } = await supabase
-    .from("organization_invitations")
-    .select("id, organization_id, email, full_name, role_key, status, expires_at")
-    .ilike("email", email.trim().toLowerCase())
-    .in("status", ["pending", "accepted"])
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (error) throw error;
-  if (!data) return null;
-
-  if (data.expires_at && new Date(data.expires_at).getTime() < Date.now()) {
-    return null;
-  }
-
-  return data as PendingOrganizationInvitation;
-}
-
-async function getOfficeId(params: {
-  organizationId: string;
-  requestedSlug?: string | null;
-  fallbackOfficeId?: string | null;
-}) {
-  if (params.fallbackOfficeId) return params.fallbackOfficeId;
-
-  const slug = params.requestedSlug || OFFICE_SLUGS.itsNoMatata;
-
-  return resolveCompanyOfficeId({
-    organizationId: params.organizationId,
-    slug,
+    return {
+      membership_id: String(row.id),
+      organization_id: String(row.organization_id),
+      organization_name: String(org.name ?? "Organization"),
+      organization_slug: String(org.slug ?? ""),
+      role: String(row.role ?? "user"),
+      status: String(row.status ?? "active"),
+      joined_at: typeof row.joined_at === "string" ? row.joined_at : null,
+      access_status:
+        typeof org.access_status === "string" ? org.access_status : null,
+      organization_is_active:
+        typeof org.is_active === "boolean" ? org.is_active : null,
+      is_system_organization:
+        typeof org.is_system_organization === "boolean"
+          ? org.is_system_organization
+          : null,
+    };
   });
 }
 
-async function ensureProfile(user: User): Promise<AuthProfile | null> {
-  const { data: existing, error: selectError } = await supabase
-    .from("profiles")
-    .select("*")
-    .eq("id", user.id)
-    .maybeSingle();
-
-  if (selectError) throw selectError;
-
-  const existingProfile = (existing as AuthProfile | null) ?? null;
-  const organizationInvitation = await getOrganizationInvitation(user.email);
-  const invitedRole = toProfileCompatibleRole(organizationInvitation?.role_key);
-
-  const resolvedRole = invitedRole && isValidRole(invitedRole)
-    ? invitedRole
-    : resolveUserRole(user, existingProfile);
-
-  const resolvedStatus = organizationInvitation
-    ? "active"
-    : resolveAccountStatus(user, existingProfile);
-
-  const metadataOrganizationId =
-    typeof user.user_metadata?.organization_id === "string"
-      ? user.user_metadata.organization_id
-      : null;
-  const requestedRoleKey =
-    typeof user.user_metadata?.requested_role_key === "string"
-      ? user.user_metadata.requested_role_key
-      : null;
-  let organizationId =
-    organizationInvitation?.organization_id ??
-    existing?.organization_id ??
-    metadataOrganizationId ??
-    null;
-
-  if (!organizationId && isCompanyEmail(user.email)) {
-    const organization = await getOrganization();
-    organizationId = organization.id;
+async function loadCurrentOrganization(memberships?: ActiveMembership[]) {
+  if (!hasMembershipRpc) {
+    return activeMembershipToCurrentOrganization(memberships?.[0] ?? null);
   }
 
-  const requestedOfficeSlug =
-    typeof user.user_metadata?.office_slug === "string"
-      ? user.user_metadata.office_slug
-      : "";
-  const shouldResolveOffice =
-    Boolean(existingProfile?.office_id) ||
-    Boolean(requestedOfficeSlug) ||
-    (isCompanyEmail(user.email) && organizationId && !organizationInvitation);
+  const { data, error } = await supabase
+    .rpc("get_my_current_organization")
+    .maybeSingle();
+  if (error) {
+    if (isMissingRpcError(error)) {
+      hasMembershipRpc = false;
+      return activeMembershipToCurrentOrganization(memberships?.[0] ?? null);
+    }
+    throw error;
+  }
+  return (data ?? null) as CurrentOrganization | null;
+}
 
-  const officeId = organizationId && shouldResolveOffice
-    ? await getOfficeId({
-        organizationId,
-        requestedSlug: requestedOfficeSlug,
-        fallbackOfficeId: existingProfile?.office_id ?? null,
-      })
-    : existingProfile?.office_id ?? null;
-
-  const payload = {
-    id: user.id,
-    email: user.email ?? existing?.email ?? null,
-    full_name:
-      organizationInvitation?.full_name ??
-      user.user_metadata?.full_name ??
-      existing?.full_name ??
-      null,
-    organization_id: organizationId,
-    office_id: officeId,
-    primary_role: resolvedRole,
-    organization_role_key: organizationInvitation?.role_key ?? requestedRoleKey ?? resolvedRole,
-    account_status: resolvedStatus,
-    is_active: resolvedStatus === "active",
-    is_suspended: resolvedStatus === "suspended",
-    last_seen_at: new Date().toISOString(),
+function activeMembershipToCurrentOrganization(
+  membership?: ActiveMembership | null,
+): CurrentOrganization | null {
+  if (!membership) return null;
+  return {
+    organization_id: membership.organization_id,
+    organization_name: membership.organization_name,
+    organization_slug: membership.organization_slug,
+    role: membership.role,
+    membership_status: membership.status,
+    access_status: membership.access_status,
+    organization_is_active: membership.organization_is_active,
+    is_system_organization: membership.is_system_organization,
   };
+}
 
-  const { error: upsertError } = await supabase
-    .from("profiles")
-    .upsert(payload, {
-      onConflict: "id",
-    });
+function resolveAccessIssue(params: {
+  profile: AuthProfile | null;
+  currentOrganization: CurrentOrganization | null;
+  hostOrganization: ResolvedHostOrganization | null;
+}): AccessIssue | null {
+  const { profile, currentOrganization, hostOrganization } = params;
+  const accountStatus =
+    profile?.account_status ?? (profile?.is_suspended ? "suspended" : null);
 
-  if (upsertError) throw upsertError;
+  if (accountStatus === "suspended" || profile?.is_suspended) {
+    return "suspended_account";
+  }
 
-  if (organizationInvitation && organizationId) {
-    const { error: memberError } = await supabase.from("organization_members").upsert(
+  if (accountStatus === "pending" || accountStatus === "pending_approval") {
+    return "pending_approval";
+  }
+
+  if (!currentOrganization) return "no_membership";
+
+  if (
+    currentOrganization.organization_is_active === false ||
+    ["suspended", "cancelled"].includes(
+      currentOrganization.access_status ?? "",
+    )
+  ) {
+    return "suspended_organization";
+  }
+
+  if (
+    hostOrganization &&
+    currentOrganization.organization_id !== hostOrganization.id
+  ) {
+    return "wrong_organization";
+  }
+
+  return null;
+}
+
+async function ensureProfile(user: User): Promise<AuthProfile | null> {
+  if (hasEnsureProfileRpc) {
+    const { error: ensureError } = await supabase.rpc(
+      "ensure_current_user_profile",
       {
-        organization_id: organizationId,
-        user_id: user.id,
-        role: organizationInvitation.role_key,
-        status: "active",
-        joined_at: new Date().toISOString(),
-      },
-      {
-        onConflict: "organization_id,user_id",
+        host_name: getCurrentHostname(),
       },
     );
 
-    if (memberError) throw memberError;
-
-    const { error: inviteError } = organizationInvitation.status === "pending"
-      ? await supabase
-          .from("organization_invitations")
-          .update({
-            status: "accepted",
-            accepted_by: user.id,
-            accepted_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", organizationInvitation.id)
-      : { error: null };
-
-    if (inviteError) throw inviteError;
-
-    await supabase.from("platform_audit_logs").insert({
-      actor_user_id: user.id,
-      target_organization_id: organizationId,
-      target_user_id: user.id,
-      action: "organization_invitation_accepted",
-      metadata: {
-        email: user.email,
-        roleKey: organizationInvitation.role_key,
-        profileRole: resolvedRole,
-      },
-    });
-  } else if (organizationId && requestedRoleKey) {
-    const { error: memberError } = await supabase.from("organization_members").upsert(
-      {
-        organization_id: organizationId,
-        user_id: user.id,
-        role: requestedRoleKey,
-        status: resolvedStatus === "active" ? "active" : "pending_approval",
-        joined_at: resolvedStatus === "active" ? new Date().toISOString() : null,
-      },
-      {
-        onConflict: "organization_id,user_id",
-      },
-    );
-
-    if (memberError) throw memberError;
+    if (ensureError) {
+      if (isMissingRpcError(ensureError)) {
+        hasEnsureProfileRpc = false;
+      } else {
+        throw ensureError;
+      }
+    }
   }
 
   // FIXED RELATIONSHIP QUERY
@@ -368,40 +328,35 @@ async function ensureProfile(user: User): Promise<AuthProfile | null> {
 
   if (refreshedError) throw refreshedError;
 
+  if (!refreshed && !hasEnsureProfileRpc) {
+    const { error: insertError } = await supabase.from("profiles").insert({
+      id: user.id,
+      email: user.email ?? null,
+      full_name:
+        typeof user.user_metadata?.full_name === "string"
+          ? user.user_metadata.full_name
+          : null,
+      organization_id: null,
+      primary_role: "user",
+      organization_role_key: "user",
+      account_status: "pending_approval",
+      is_active: false,
+      is_suspended: false,
+      last_seen_at: new Date().toISOString(),
+    });
+
+    if (insertError) throw insertError;
+    return ensureProfile(user);
+  }
+
   return (refreshed as AuthProfile | null) ?? null;
 }
 
 async function ensureOrganizationMembership(
-  user: User,
+  _user: User,
   profile: AuthProfile | null,
 ) {
   if (!profile?.organization_id) return;
-
-  if (
-    profile.account_status !== "active" ||
-    profile.is_suspended
-  ) {
-    return;
-  }
-
-  const role = resolveUserRole(user, profile);
-
-  const { error } = await supabase
-    .from("organization_members")
-    .upsert(
-      {
-        organization_id: profile.organization_id,
-        user_id: user.id,
-        role,
-        status: "active",
-        joined_at: new Date().toISOString(),
-      },
-      {
-        onConflict: "organization_id,user_id",
-      },
-    );
-
-  if (error) throw error;
 }
 
 function getDisabledAccountMessage(profile: AuthProfile | null) {
@@ -449,6 +404,12 @@ export function AuthProvider({
   const [profile, setProfile] = useState<AuthProfile | null>(
     null,
   );
+  const [memberships, setMemberships] = useState<ActiveMembership[]>([]);
+  const [currentOrganization, setCurrentOrganization] =
+    useState<CurrentOrganization | null>(null);
+  const [resolvedHostOrganization, setResolvedHostOrganization] =
+    useState<ResolvedHostOrganization | null>(null);
+  const [accessIssue, setAccessIssue] = useState<AccessIssue | null>(null);
 
   const [loading, setLoading] = useState(true);
 
@@ -468,6 +429,10 @@ export function AuthProvider({
       if (!sessionUser) {
         setUser(null);
         setProfile(null);
+        setMemberships([]);
+        setCurrentOrganization(null);
+        setResolvedHostOrganization(null);
+        setAccessIssue(null);
         return;
       }
 
@@ -493,15 +458,69 @@ export function AuthProvider({
         return;
       }
 
-      await ensureOrganizationMembership(
-        sessionUser,
-        nextProfile,
+      await ensureOrganizationMembership(sessionUser, nextProfile);
+
+      const [nextMemberships, hostOrganization] = await Promise.all([
+        loadActiveMemberships(),
+        resolveOrganizationByHost(),
+      ]);
+      const nextCurrentOrganization =
+        await loadCurrentOrganization(nextMemberships);
+      const hostMembership = hostOrganization
+        ? nextMemberships.find(
+            (membership) => membership.organization_id === hostOrganization.id,
+          )
+        : null;
+      const effectiveCurrentOrganization = hostMembership
+        ? {
+            organization_id: hostMembership.organization_id,
+            organization_name: hostMembership.organization_name,
+            organization_slug: hostMembership.organization_slug,
+            role: hostMembership.role,
+            membership_status: hostMembership.status,
+            access_status: hostMembership.access_status,
+            organization_is_active: hostMembership.organization_is_active,
+            is_system_organization: hostMembership.is_system_organization,
+          }
+        : nextCurrentOrganization;
+
+      const safeRole = toProfileCompatibleRole(effectiveCurrentOrganization?.role);
+      const safeProfile = nextProfile
+        ? {
+            ...nextProfile,
+            organization_id:
+              effectiveCurrentOrganization?.organization_id ??
+              nextProfile.organization_id ??
+              null,
+            primary_role: safeRole,
+            organization_role_key:
+              effectiveCurrentOrganization?.role ??
+              nextProfile.organization_role_key ??
+              safeRole,
+            active_membership:
+              nextMemberships.find(
+                (membership) =>
+                  membership.organization_id ===
+                  effectiveCurrentOrganization?.organization_id,
+              ) ?? null,
+          }
+        : null;
+
+      setMemberships(nextMemberships);
+      setCurrentOrganization(effectiveCurrentOrganization);
+      setResolvedHostOrganization(hostOrganization);
+      setAccessIssue(
+        resolveAccessIssue({
+          profile: safeProfile,
+          currentOrganization: effectiveCurrentOrganization,
+          hostOrganization,
+        }),
       );
 
       await touchUserPresence(sessionUser);
 
       const nextStatus =
-        nextProfile?.account_status ?? null;
+        safeProfile?.account_status ?? null;
 
       const previousStatus =
         previousStatusRef.current;
@@ -523,11 +542,15 @@ export function AuthProvider({
         return;
       }
 
-      setProfile(nextProfile);
+      setProfile(safeProfile);
     } catch (err) {
       console.error("LOAD USER PROFILE ERROR:", err);
 
       setProfile(null);
+      setMemberships([]);
+      setCurrentOrganization(null);
+      setResolvedHostOrganization(null);
+      setAccessIssue(null);
     } finally {
       loadingProfileRef.current = false;
     }
@@ -582,6 +605,10 @@ export function AuthProvider({
         if (mounted) {
           setUser(null);
           setProfile(null);
+          setMemberships([]);
+          setCurrentOrganization(null);
+          setResolvedHostOrganization(null);
+          setAccessIssue(null);
         }
       } finally {
         if (mounted) {
@@ -601,6 +628,10 @@ export function AuthProvider({
         if (event === "SIGNED_OUT") {
           setUser(null);
           setProfile(null);
+          setMemberships([]);
+          setCurrentOrganization(null);
+          setResolvedHostOrganization(null);
+          setAccessIssue(null);
 
           if (presenceInterval) {
             clearInterval(presenceInterval);
@@ -674,10 +705,22 @@ export function AuthProvider({
     () => ({
       user,
       profile,
+      memberships,
+      currentOrganization,
+      resolvedHostOrganization,
+      accessIssue,
       loading,
       refreshProfile,
     }),
-    [user, profile, loading],
+    [
+      user,
+      profile,
+      memberships,
+      currentOrganization,
+      resolvedHostOrganization,
+      accessIssue,
+      loading,
+    ],
   );
 
   return (

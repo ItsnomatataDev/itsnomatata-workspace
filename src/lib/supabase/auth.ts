@@ -1,7 +1,6 @@
 import { supabase } from "./client";
 import { OFFICE_SLUGS, type OfficeSlug } from "../offices";
-
-const ORGANIZATION_SLUG = "its-nomatata";
+import { getCurrentHostname, resolveOrganizationByHost } from "../organization/organizationResolution";
 
 export type AppRole =
   | "admin"
@@ -46,60 +45,10 @@ const ADMIN_PORTAL_ROLES = new Set([
   "it-superadmin",
 ]);
 
-const SUPER_ADMIN_ALLOWLIST = [
-  "ben@itsnomatata.com",
-  "thando@itsnomatata.com",
-  "tammie@itsnomatata.com",
-] as const;
-
 let authRequestInFlight = false;
 
 function normalizeEmail(email: string) {
   return email.trim().toLowerCase();
-}
-
-function isAppRole(value: unknown): value is AppRole {
-  return (
-    typeof value === "string" &&
-    [
-      "admin",
-      "org_admin",
-      "user",
-      "manager",
-      "it",
-      "social_media",
-      "media_team",
-      "seo_specialist",
-      "finance",
-    ].includes(value)
-  );
-}
-
-function isPublicSignupRole(value: unknown): value is PublicSignupRole {
-  return (
-    typeof value === "string" &&
-    value.trim().length > 0
-  );
-}
-
-function isSuperAdminAllowedEmail(email: string) {
-  const normalizedEmail = normalizeEmail(email);
-  return SUPER_ADMIN_ALLOWLIST.includes(
-    normalizedEmail as (typeof SUPER_ADMIN_ALLOWLIST)[number],
-  );
-}
-
-function resolveSignupRole(
-  email: string,
-  requestedRole?: PublicSignupRole,
-): AppRole {
-  const normalizedEmail = normalizeEmail(email);
-
-  if (isSuperAdminAllowedEmail(normalizedEmail)) {
-    return "admin";
-  }
-
-  return requestedRole && isAppRole(requestedRole) ? requestedRole : "user";
 }
 
 async function getOrganizationBySlug(
@@ -171,34 +120,32 @@ export async function signUpUser(params: SignUpUserParams) {
 
   try {
     const email = normalizeEmail(params.email);
-    const isCompanyEmail = email.endsWith("@itsnomatata.com");
-    const organization = isCompanyEmail
-      ? await getOrganizationBySlug(ORGANIZATION_SLUG)
-      : params.organizationSlug
-        ? await getOrganizationBySlug(params.organizationSlug)
-      : null;
-    const resolvedRole = resolveSignupRole(email, params.role);
+    const hostOrganization = await resolveOrganizationByHost();
+    const organization = params.organizationSlug
+      ? await getOrganizationBySlug(params.organizationSlug)
+      : hostOrganization
+        ? {
+            id: hostOrganization.id,
+            name: hostOrganization.name,
+            slug: hostOrganization.slug,
+          }
+        : null;
     const officeSlug = params.officeSlug ?? OFFICE_SLUGS.itsNoMatata;
-
-    const initialStatus = isCompanyEmail ? "active" : "pending_approval";
     const metadata: Record<string, unknown> = {
       full_name: params.fullName.trim(),
-      role: resolvedRole,
-      requested_role_key: params.role ?? resolvedRole,
-      account_status: initialStatus,
+      account_status: "pending_approval",
     };
 
     if (params.inviteToken) {
       metadata.invite_token = params.inviteToken;
     }
 
-    if (isCompanyEmail) {
-      metadata.organization_slug = ORGANIZATION_SLUG;
-      metadata.organization_id = organization?.id ?? null;
+    if (officeSlug) {
       metadata.office_slug = officeSlug;
-    } else if (params.organizationId || organization?.id) {
-      metadata.organization_id = params.organizationId ?? organization?.id ?? null;
-      metadata.organization_slug = params.organizationSlug ?? organization?.slug ?? null;
+    }
+
+    if (organization?.slug) {
+      metadata.organization_slug_hint = organization.slug;
     }
 
     const { data, error } = await supabase.auth.signUp({
@@ -219,16 +166,19 @@ export async function signUpUser(params: SignUpUserParams) {
       throw error;
     }
 
+    const isTrustedCompanyAccount =
+      email.endsWith("@itsnomatata.com") && organization?.slug === "its-nomatata";
+
     return {
       ...data,
       defaultPath: data.user
-        ? getDefaultAuthenticatedPath(params.role ?? resolvedRole)
+        ? getDefaultAuthenticatedPath("user")
         : "/dashboard",
       workspace: {
         organizationFound: Boolean(organization),
         organization,
       },
-      approvalRequired: !isCompanyEmail && !params.inviteToken,
+      approvalRequired: !params.inviteToken && !isTrustedCompanyAccount,
     };
   } finally {
     authRequestInFlight = false;
@@ -256,7 +206,7 @@ export async function signInUser(params: SignInUserParams) {
       throw new Error("Login failed. No user was returned.");
     }
 
-    const organization = await getOrganizationBySlug(ORGANIZATION_SLUG);
+    const organization = await resolveOrganizationByHost(getCurrentHostname());
 
     return {
       ...data,
@@ -279,7 +229,7 @@ export async function signInWithGoogle() {
   authRequestInFlight = true;
 
   try {
-    const organization = await getOrganizationBySlug(ORGANIZATION_SLUG);
+    const organization = await resolveOrganizationByHost(getCurrentHostname());
 
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider: "google",
@@ -331,7 +281,7 @@ export async function getCurrentUser() {
 }
 
 export async function getWorkspaceOrganization() {
-  return getOrganizationBySlug(ORGANIZATION_SLUG);
+  return resolveOrganizationByHost(getCurrentHostname());
 }
 
 export async function resetPassword(email: string) {

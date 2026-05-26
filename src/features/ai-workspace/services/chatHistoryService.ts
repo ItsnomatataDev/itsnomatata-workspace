@@ -53,6 +53,8 @@ export interface ChatConversation {
     tags?: string[];
     isPinned?: boolean;
     isArchived?: boolean;
+    projectId?: string | null;
+    projectName?: string | null;
   };
   createdAt: string;
   updatedAt: string;
@@ -73,6 +75,8 @@ export class ChatHistoryService {
     role?: string;
     context?: ChatConversation["context"];
     toolId?: string;
+    projectId?: string | null;
+    projectName?: string | null;
   }): Promise<ChatConversation> {
     try {
       const { data, error } = await supabase
@@ -90,6 +94,8 @@ export class ChatHistoryService {
             tags: [],
             isPinned: false,
             isArchived: false,
+            projectId: params.projectId ?? null,
+            projectName: params.projectName ?? null,
           },
         })
         .select()
@@ -427,11 +433,26 @@ export class ChatHistoryService {
   }
 
   private static mapMessageRow(row: any): ChatMessage {
+    const rawAttachments = Array.isArray(row.data?.attachments)
+      ? row.data.attachments
+      : [];
+
     return {
       id: row.id,
       conversationId: row.conversation_id,
       role: row.role,
       content: row.content,
+      attachments: rawAttachments.map((attachment: any, index: number) => ({
+        id: attachment.id || `${row.id}_attachment_${index}`,
+        messageId: row.id,
+        type: attachment.type || "document",
+        name: attachment.name || "Attachment",
+        url: attachment.url || "",
+        size: attachment.size || 0,
+        mimeType: attachment.mimeType || attachment.mime_type || "",
+        uploadedAt: attachment.uploadedAt || row.created_at,
+        metadata: attachment.metadata,
+      })),
       metadata: {
         ...row.data,
         model: row.data?.model,

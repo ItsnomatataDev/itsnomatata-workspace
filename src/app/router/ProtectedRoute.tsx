@@ -71,7 +71,15 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
     );
   }
 
-  const { user, profile, loading, refreshProfile } = auth;
+  const {
+    user,
+    profile,
+    loading,
+    refreshProfile,
+    currentOrganization,
+    resolvedHostOrganization,
+    accessIssue,
+  } = auth;
 
   if (loading) {
     return (
@@ -99,6 +107,31 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
         title="Waiting for admin approval"
         message="Your account has been created, but an administrator needs to approve it before you can access the workspace."
         onCheck={() => void refreshProfile()}
+      />
+    );
+  }
+
+  if (accessIssue === "no_membership") {
+    return (
+      <AccountGateMessage
+        title="No organization access"
+        message="Your account is signed in, but it is not connected to an active organization. Ask your organization admin for an invitation or approval."
+        tone="amber"
+        onCheck={() => void refreshProfile()}
+      />
+    );
+  }
+
+  if (accessIssue === "wrong_organization") {
+    return (
+      <AccountGateMessage
+        title="You do not have access to this organization"
+        message={`This domain belongs to ${
+          resolvedHostOrganization?.name ?? "another organization"
+        }, but your active membership is for ${
+          currentOrganization?.organization_name ?? "a different organization"
+        }.`}
+        tone="red"
       />
     );
   }
@@ -137,7 +170,8 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
 
   if (
     !organizationAccess.isSystemOrganization &&
-    (organizationAccess.accessStatus === "suspended" ||
+    (accessIssue === "suspended_organization" ||
+      organizationAccess.accessStatus === "suspended" ||
       organizationAccess.accessStatus === "cancelled" ||
       !organizationAccess.isActive)
   ) {

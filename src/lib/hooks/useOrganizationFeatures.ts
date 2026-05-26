@@ -41,7 +41,10 @@ type FeatureRow = {
 
 export function useOrganizationFeatures() {
   const auth = useAuth();
-  const organizationId = auth?.profile?.organization_id ?? null;
+  const organizationId =
+    auth?.currentOrganization?.organization_id ??
+    auth?.profile?.organization_id ??
+    null;
   const [features, setFeatures] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
   const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
@@ -54,7 +57,8 @@ export function useOrganizationFeatures() {
     | null
     | undefined;
   const isSystemOrganization = Boolean(
-    organization?.slug === "its-nomatata" ||
+    auth?.currentOrganization?.is_system_organization ||
+      organization?.slug === "its-nomatata" ||
       organization?.is_system_organization ||
       organization?.is_system_owner,
   );

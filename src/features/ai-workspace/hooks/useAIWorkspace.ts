@@ -158,7 +158,11 @@ export function useAIWorkspace({ context, role }: UseAIWorkspaceParams) {
   );
 
   const askAssistant = useCallback(
-    async (prompt: string, attachments?: AssistantAttachmentInput[]) => {
+    async (
+      prompt: string,
+      attachments?: AssistantAttachmentInput[],
+      metadata?: Record<string, unknown>,
+    ) => {
       setState((prev) => ({ ...prev, running: true, error: null }));
 
       try {
@@ -169,6 +173,7 @@ export function useAIWorkspace({ context, role }: UseAIWorkspaceParams) {
           conversationId,
           metadata: {
             currentModule: context.currentModule,
+            ...(metadata ?? {}),
           },
         });
 

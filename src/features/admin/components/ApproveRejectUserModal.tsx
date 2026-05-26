@@ -26,14 +26,14 @@ export default function ApproveRejectUserModal({
   currentUserId,
   onUpdated,
 }: ApproveRejectUserModalProps) {
-  const [role, setRole] = useState("social_media");
+  const [role, setRole] = useState("user");
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
 
   useEffect(() => {
-    setRole(employee?.primary_role || "social_media");
+    setRole(employee?.primary_role || "user");
     setReason("");
     setError("");
     setSuccessMessage("");

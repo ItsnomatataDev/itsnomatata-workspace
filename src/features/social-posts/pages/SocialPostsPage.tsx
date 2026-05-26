@@ -67,9 +67,11 @@ export default function SocialPostsPage() {
   if (!auth?.user || !auth.profile) return null;
 
   const { user, profile } = auth;
+  const organizationId =
+    auth.currentOrganization?.organization_id ?? profile.organization_id ?? null;
 
   const social = useSocialPosts({
-    organizationId: profile.organization_id,
+    organizationId,
     userId: user.id,
     fullName: profile.full_name,
   });
@@ -79,12 +81,12 @@ export default function SocialPostsPage() {
       userId: user.id,
       fullName: profile.full_name ?? "Workspace User",
       email: user.email ?? null,
-      role: profile.primary_role ?? "social_media",
+      role: profile.organization_role_key ?? profile.primary_role ?? "user",
       department:
         typeof profile.department === "string"
           ? profile.department
           : "Social media",
-      organizationId: profile.organization_id ?? null,
+      organizationId,
       currentRoute: "/social-posts",
       currentModule: "social-posts",
       selectedEntityId: social.campaigns[0]?.id ?? null,
@@ -95,7 +97,7 @@ export default function SocialPostsPage() {
     [
       profile.department,
       profile.full_name,
-      profile.organization_id,
+      organizationId,
       profile.primary_role,
       social.campaigns,
       user.email,

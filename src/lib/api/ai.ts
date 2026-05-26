@@ -362,6 +362,7 @@ function buildChatInput(
   message: string,
   context?: AssistantContextInput,
   extra?: Record<string, unknown>,
+  attachments?: AssistantAttachmentInput[],
 ): string {
   const parts: string[] = [message];
 
@@ -395,6 +396,25 @@ function buildChatInput(
     }
   }
 
+  if (attachments?.length) {
+    parts.push(
+      `\n[Attachments]\n${
+        attachments.map((attachment) =>
+          [
+            `Name: ${attachment.name}`,
+            `Type: ${attachment.type}`,
+            attachment.mimeType ? `MIME: ${attachment.mimeType}` : null,
+            attachment.size ? `Size: ${attachment.size}` : null,
+            attachment.url ? `URL: ${attachment.url}` : null,
+            attachment.textContent
+              ? `Text: ${attachment.textContent.slice(0, 4000)}`
+              : null,
+          ].filter(Boolean).join("\n")
+        ).join("\n---\n")
+      }`,
+    );
+  }
+
   return parts.join("\n");
 }
 
@@ -403,12 +423,25 @@ export async function askAssistant(
 ): Promise<AssistantResponse> {
   const context = buildAssistantContext(payload.context);
 
-  const chatInput = buildChatInput(payload.message, context);
-  const sessionId = payload.conversationId ?? context.userId ?? undefined;
+  const chatInput = buildChatInput(
+    payload.message,
+    context,
+    payload.metadata,
+    payload.attachments,
+  );
+  const projectSessionId = typeof payload.metadata?.projectId === "string"
+    ? `project:${payload.metadata.projectId}`
+    : null;
+  const sessionId = projectSessionId ?? payload.conversationId ??
+    context.userId ?? undefined;
 
   const data = await postToAI({
     chatInput,
     sessionId,
+    context,
+    attachments: payload.attachments ?? [],
+    conversationId: payload.conversationId ?? null,
+    metadata: payload.metadata ?? {},
   });
 
   return normalizeAssistantResponse(data);
@@ -427,15 +460,30 @@ export async function runAIAction(
     ? `[Action: ${actionLabel}]\n${prompt}`
     : `Run action: ${actionLabel}`;
 
-  const chatInput = buildChatInput(message, context, {
-    actionId: payload.action.actionId,
-    category: payload.action.payload?.category,
-  });
-  const sessionId = payload.conversationId ?? context.userId ?? undefined;
+  const chatInput = buildChatInput(
+    message,
+    context,
+    {
+      actionId: payload.action.actionId,
+      category: payload.action.payload?.category,
+      ...(payload.metadata ?? {}),
+    },
+    payload.attachments,
+  );
+  const projectSessionId = typeof payload.metadata?.projectId === "string"
+    ? `project:${payload.metadata.projectId}`
+    : null;
+  const sessionId = projectSessionId ?? payload.conversationId ??
+    context.userId ?? undefined;
 
   const data = await postToAI({
     chatInput,
     sessionId,
+    context,
+    action: payload.action,
+    attachments: payload.attachments ?? [],
+    conversationId: payload.conversationId ?? null,
+    metadata: payload.metadata ?? {},
   });
 
   return normalizeAssistantResponse(data);
@@ -550,4 +598,3 @@ export async function generateDashboardSummary(
     suggestions: getSuggestionsFromResponse(response),
   };
 }
-

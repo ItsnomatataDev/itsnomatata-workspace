@@ -15,24 +15,6 @@ type InvitationRow = {
   organizations?: { name: string; slug: string } | null;
 };
 
-const PROFILE_COMPATIBLE_ROLES = new Set([
-  "admin",
-  "org_admin",
-  "user",
-  "manager",
-  "it",
-  "social_media",
-  "media_team",
-  "seo_specialist",
-  "superadmin",
-  "it-superadmin",
-  "super_admin",
-]);
-
-function toProfileCompatibleRole(roleKey: string) {
-  return PROFILE_COMPATIBLE_ROLES.has(roleKey) ? roleKey : "user";
-}
-
 export default function AcceptOrganizationInvitePage() {
   const { token } = useParams();
   const navigate = useNavigate();
@@ -91,51 +73,23 @@ export default function AcceptOrganizationInvitePage() {
       setAccepting(true);
       setError("");
 
-      const role = invitation.role_key || "user";
-      const profileRole = toProfileCompatibleRole(role);
-
-      const { error: profileError } = await supabase
-        .from("profiles")
-        .update({
-          organization_id: invitation.organization_id,
-          primary_role: profileRole,
-          organization_role_key: role,
-          account_status: "active",
-          is_active: true,
-          is_suspended: false,
+      const { data, error: acceptError } = await supabase
+        .rpc("maybe_accept_invitation_for_current_user", {
+          invitation_id: invitation.id,
+          invitation_token: token ?? null,
         })
-        .eq("id", user.id);
+        .maybeSingle();
 
-      if (profileError) throw profileError;
-
-      const { error: memberError } = await supabase
-        .from("organization_members")
-        .upsert(
-          {
-            organization_id: invitation.organization_id,
-            user_id: user.id,
-            role,
-            status: "active",
-            joined_at: new Date().toISOString(),
-          },
-          { onConflict: "organization_id,user_id" },
-        );
-
-      if (memberError) throw memberError;
-
-      const { error: inviteUpdateError } = await supabase
-        .from("organization_invitations")
-        .update({
-          status: "accepted",
-          accepted_by: user.id,
-          accepted_at: new Date().toISOString(),
-        })
-        .eq("id", invitation.id);
-
-      if (inviteUpdateError) throw inviteUpdateError;
+      if (acceptError) throw acceptError;
+      const acceptance = data as
+        | { accepted?: boolean; role?: string | null }
+        | null;
+      if (!acceptance?.accepted) {
+        throw new Error("This invitation could not be accepted for your account.");
+      }
 
       await auth?.refreshProfile();
-      navigate(getDefaultAuthenticatedPath(profileRole), { replace: true });
+      navigate(getDefaultAuthenticatedPath(acceptance.role), { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to accept invitation.");
     } finally {

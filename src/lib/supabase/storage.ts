@@ -60,7 +60,7 @@ export async function uploadAssetImage(
     organizationId: string,
     assetId: string,
     file: File,
-    type: 'asset' | 'site',
+    type: "asset" | "site",
 ): Promise<AssetImageUploadResult> {
     // Upload to asset-images/{organizationId}/{assetId}/{type}/{filename}
     const fileName = `${Date.now()}-${file.name}`;
