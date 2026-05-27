@@ -29,6 +29,7 @@ import {
   AIProjectService,
   type AIWorkspaceProject,
 } from "../services/aiProjectService";
+import { uploadAIDocument } from "../../../lib/api/ai";
 
 interface RealTimeChatProps {
   busy: boolean;
@@ -729,6 +730,47 @@ export default function RealTimeChat({
         }
       }
 
+      if (pending.type === "document") {
+        try {
+          const upload = await uploadAIDocument({
+            file: pending.file,
+            context: {
+              userId: userId ?? "anonymous",
+              organizationId: organizationId ?? "workspace-default",
+              role: role ?? "employee",
+              currentModule: "ai-workspace",
+              currentRoute: "/ai-workspace",
+              channel: "web",
+              timezone: "Africa/Harare",
+            },
+            metadata: {
+              projectId: selectedProjectId,
+              projectName: selectedProject?.title ?? "General",
+              source: "ai-workspace-chat",
+            },
+          });
+
+          attachments.push({
+            id: makeId("attachment"),
+            messageId,
+            type: "document",
+            name: pending.file.name,
+            url: upload.sourceUrl || "",
+            size: pending.file.size,
+            mimeType: pending.file.type || "application/octet-stream",
+            uploadedAt: nowIso(),
+            metadata: {
+              documentId: upload.documentId,
+              trained: upload.success,
+              message: upload.message,
+            },
+          });
+          continue;
+        } catch (error) {
+          console.warn("Document training upload failed:", error);
+        }
+      }
+
       attachments.push({
         id: makeId("attachment"),
         messageId,
@@ -738,6 +780,9 @@ export default function RealTimeChat({
         size: pending.file.size,
         mimeType: pending.file.type || "application/octet-stream",
         uploadedAt: nowIso(),
+        metadata: pending.type === "document"
+          ? { trained: false, uploadError: "Document training upload failed." }
+          : undefined,
       });
     }
 
@@ -1185,7 +1230,7 @@ export default function RealTimeChat({
                   onChange={(event) => setNewProjectTitle(event.target.value)}
                   placeholder="Website redesign, SEO campaign, IT support..."
                   autoFocus
-                  className="mt-2 h-11 w-full rounded-2xl border border-white/10 bg-white/[0.06] px-4 text-sm text-white outline-none placeholder:text-white/32 focus:border-white/24"
+                  className="mt-2 h-11 w-full rounded-2xl border border-white/10 bg-white/6 px-4 text-sm text-white outline-none placeholder:text-white/32 focus:border-white/24"
                   onKeyDown={(event) => {
                     if (event.key === "Enter" && newProjectTitle.trim()) {
                       event.preventDefault();
@@ -1206,7 +1251,7 @@ export default function RealTimeChat({
                   }
                   placeholder="Optional context the assistant should remember for this project."
                   rows={3}
-                  className="mt-2 w-full resize-none rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 text-sm leading-6 text-white outline-none placeholder:text-white/32 focus:border-white/24"
+                  className="mt-2 w-full resize-none rounded-2xl border border-white/10 bg-white/6 px-4 py-3 text-sm leading-6 text-white outline-none placeholder:text-white/32 focus:border-white/24"
                 />
               </label>
             </div>

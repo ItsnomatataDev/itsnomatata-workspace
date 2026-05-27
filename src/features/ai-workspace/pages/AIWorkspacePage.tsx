@@ -322,6 +322,11 @@ export default function AIWorkspacePage() {
   const auth = useAuth();
   const profile = auth?.profile ?? null;
   const user = auth?.user ?? null;
+  const organizationId =
+    auth?.currentOrganization?.organization_id ??
+    profile?.organization_id ??
+    auth?.memberships?.[0]?.organization_id ??
+    null;
 
   const context = useMemo(
     () =>
@@ -332,7 +337,7 @@ export default function AIWorkspacePage() {
         role: profile?.primary_role ?? "employee",
         department:
           typeof profile?.department === "string" ? profile.department : null,
-        organizationId: profile?.organization_id ?? null,
+        organizationId,
         currentRoute: "/ai-workspace",
         currentModule: "ai-workspace",
         timezone: "Africa/Harare",
@@ -341,8 +346,8 @@ export default function AIWorkspacePage() {
     [
       profile?.department,
       profile?.full_name,
-      profile?.organization_id,
       profile?.primary_role,
+      organizationId,
       user?.email,
       user?.id,
     ],

@@ -35,6 +35,10 @@ export interface ChatAttachment {
     height?: number;
     duration?: number;
     thumbnail?: string;
+    documentId?: string | null;
+    trained?: boolean;
+    message?: string;
+    uploadError?: string;
   };
 }
 

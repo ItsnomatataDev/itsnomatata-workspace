@@ -84,8 +84,15 @@ The workflow now preserves `chatInput` through:
 - `04 Merge Request + User Context`
 - `05 Permission + Tool Router`
 
+The exported workflow now sets the `06 Codex Main Agent` prompt explicitly:
+
+```text
+Prompt Type: Define
+Text: {{ $json.chatInput || $json.message }}
+```
+
 If you manually test a node inside n8n, make sure the incoming item contains
-`chatInput`, or set the AI Agent `Prompt` field to:
+`chatInput`, or use the same AI Agent prompt expression:
 
 ```js
 {{ $json.chatInput || $json.message }}

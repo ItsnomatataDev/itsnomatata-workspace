@@ -218,6 +218,8 @@
         0
       ],
       "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.chatInput || $json.message }}",
         "options": {
           "systemMessage": "Paste the full prompt from n8n/itsnomatata-ai-workspace-brain.system-prompt.md here. OpenAI is the primary model. Use tools only when needed. Respect role, department, organization, and project memory scope. If verified internal knowledge is missing, say so clearly."
         }

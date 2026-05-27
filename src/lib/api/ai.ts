@@ -86,6 +86,20 @@ export type GenerateImagePayload = {
   metadata?: Record<string, unknown>;
 };
 
+export type UploadAIDocumentPayload = {
+  file: File;
+  context: AssistantContextInput;
+  metadata?: Record<string, unknown>;
+};
+
+export type UploadAIDocumentResult = {
+  success: boolean;
+  message?: string;
+  documentId?: string | null;
+  sourceUrl?: string | null;
+  data?: unknown;
+};
+
 export interface GenerateDashboardSummaryInput {
   organizationId: string;
   userId: string;
@@ -97,6 +111,8 @@ export interface GenerateDashboardSummaryInput {
 const AI_WEBHOOK_URL = import.meta.env.VITE_N8N_AI_WEBHOOK_URL as
   | string
   | undefined;
+const AI_DOCUMENT_UPLOAD_WEBHOOK_URL = import.meta.env
+  .VITE_N8N_AI_DOCUMENT_UPLOAD_WEBHOOK_URL as string | undefined;
 
 function getAIWebhookUrl() {
   if (!AI_WEBHOOK_URL) {
@@ -116,6 +132,20 @@ function getAIRequestUrl() {
   }
 
   return webhookUrl;
+}
+
+function getAIDocumentUploadRequestUrl() {
+  if (!AI_DOCUMENT_UPLOAD_WEBHOOK_URL) {
+    throw new Error(
+      "Missing VITE_N8N_AI_DOCUMENT_UPLOAD_WEBHOOK_URL in your environment variables.",
+    );
+  }
+
+  if (import.meta.env.DEV) {
+    return "/api/ai/upload-document";
+  }
+
+  return AI_DOCUMENT_UPLOAD_WEBHOOK_URL;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -286,8 +316,9 @@ async function postToAI<TPayload extends Record<string, unknown>>(
 
     if (response.status >= 500) {
       throw new Error(
-        normalizedErrorText ||
-          "The AI service returned an internal server error. Check your n8n workflow execution logs and webhook URL.",
+        normalizedErrorText
+          ? `n8n returned ${response.status}: ${normalizedErrorText}`
+          : "The AI service returned an internal server error. Check your n8n workflow execution logs and webhook URL.",
       );
     }
 
@@ -298,6 +329,56 @@ async function postToAI<TPayload extends Record<string, unknown>>(
   }
 
   return response.json();
+}
+
+export async function uploadAIDocument(
+  payload: UploadAIDocumentPayload,
+): Promise<UploadAIDocumentResult> {
+  const context = buildAssistantContext(payload.context);
+  const formData = new FormData();
+
+  formData.append("file", payload.file);
+  formData.append("file_name", payload.file.name);
+  formData.append("file_type", payload.file.type || "application/octet-stream");
+  formData.append("file_size", String(payload.file.size));
+  formData.append("context", JSON.stringify(context));
+  formData.append("metadata", JSON.stringify(payload.metadata ?? {}));
+  formData.append("organization_id", context.organizationId ?? "");
+  formData.append("uploaded_by", context.userId ?? "");
+  formData.append("department", String(context.department ?? ""));
+  formData.append("module", context.currentModule ?? "ai-workspace");
+  formData.append("access_level", "internal");
+
+  const response = await fetch(getAIDocumentUploadRequestUrl(), {
+    method: "POST",
+    body: formData,
+  });
+
+  const responseText = await response.text();
+  const data = responseText
+    ? (() => {
+      try {
+        return JSON.parse(responseText) as Record<string, unknown>;
+      } catch {
+        return { message: responseText };
+      }
+    })()
+    : {};
+
+  if (!response.ok) {
+    const message = typeof data.message === "string"
+      ? data.message
+      : `Document upload failed with status ${response.status}.`;
+    throw new Error(message);
+  }
+
+  return {
+    success: data.success !== false,
+    message: typeof data.message === "string" ? data.message : undefined,
+    documentId: typeof data.documentId === "string" ? data.documentId : null,
+    sourceUrl: typeof data.sourceUrl === "string" ? data.sourceUrl : null,
+    data,
+  };
 }
 
 export function buildAssistantContext(

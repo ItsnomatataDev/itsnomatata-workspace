@@ -48,6 +48,14 @@ function getErrorMessage(error: unknown) {
     : "Unable to reach the AI service.";
 }
 
+function isUuid(value: string | null | undefined): value is string {
+  return (
+    typeof value === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+      .test(value)
+  );
+}
+
 async function logAIWorkspaceRun(params: {
   context: AssistantContextInput;
   prompt: string;
@@ -278,9 +286,10 @@ export async function getAIWorkspaceHistory(
 export async function getPendingAIWorkspaceApprovals(
   organizationId?: string | null,
 ): Promise<AIWorkspaceApprovalItem[]> {
-  if (!organizationId) return [];
+  if (!isUuid(organizationId)) return [];
+  const safeOrganizationId = organizationId;
   try {
-    const rows = await getPendingApprovals(organizationId, 20);
+    const rows = await getPendingApprovals(safeOrganizationId, 20);
     return rows.map(approvalRowToItem);
   } catch (err) {
     console.warn("AI approvals load failed, returning empty:", err);
@@ -490,36 +499,7 @@ export async function askAIWorkspaceAssistant(params: {
   conversationId?: string | null;
   metadata?: Record<string, unknown>;
 }): Promise<AIWorkspaceOutput> {
-  // Ensure a conversation exists
-  let conversationId = params.conversationId;
-  if (
-    !conversationId && params.context.userId && params.context.organizationId
-  ) {
-    try {
-      const conv = await createConversation({
-        organizationId: params.context.organizationId,
-        userId: params.context.userId,
-        title: params.prompt.slice(0, 80),
-      });
-      conversationId = conv.id;
-    } catch (err) {
-      console.warn("Failed to create AI conversation:", err);
-    }
-  }
-
-  // Persist user message
-  if (conversationId) {
-    try {
-      await createMessage({
-        conversationId,
-        role: "user",
-        content: params.prompt,
-        type: "text",
-      });
-    } catch (err) {
-      console.warn("Failed to persist user message:", err);
-    }
-  }
+  const conversationId = params.conversationId ?? null;
 
   try {
     const response = await askAssistant({
@@ -536,25 +516,6 @@ export async function askAIWorkspaceAssistant(params: {
     const output = toWorkspaceOutput(response, null);
     output.conversationId = conversationId;
 
-    // Persist assistant response
-    if (conversationId) {
-      try {
-        await createMessage({
-          conversationId,
-          role: "assistant",
-          content: response.message,
-          type: response.type,
-          data: (response.data as Record<string, unknown>) ?? {},
-          sources: (response.sources ?? []) as Array<Record<string, unknown>>,
-          actions: (response.actions ?? []) as unknown as Array<
-            Record<string, unknown>
-          >,
-        });
-      } catch (err) {
-        console.warn("Failed to persist assistant response:", err);
-      }
-    }
-
     await logAIWorkspaceRun({
       context: params.context,
       prompt: params.prompt,
@@ -566,18 +527,6 @@ export async function askAIWorkspaceAssistant(params: {
 
     return output;
   } catch (error) {
-    if (conversationId) {
-      try {
-        await createMessage({
-          conversationId,
-          role: "assistant",
-          content: getErrorMessage(error),
-          type: "error",
-          error: true,
-        });
-      } catch (_) { /* ignore */ }
-    }
-
     if (!isServiceUnavailableError(error)) {
       throw error;
     }
