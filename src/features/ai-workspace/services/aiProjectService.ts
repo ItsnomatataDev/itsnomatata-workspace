@@ -24,6 +24,42 @@ function mapProjectRow(row: any): AIWorkspaceProject {
   };
 }
 
+function getLocalStorageKey(userId: string, organizationId?: string | null) {
+  return `ai_workspace_projects:${organizationId ?? "default"}:${userId}`;
+}
+
+function readLocalProjects(
+  userId: string,
+  organizationId?: string | null,
+): AIWorkspaceProject[] {
+  if (typeof window === "undefined") return [];
+
+  try {
+    const value = window.localStorage.getItem(
+      getLocalStorageKey(userId, organizationId),
+    );
+    if (!value) return [];
+
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeLocalProjects(
+  userId: string,
+  organizationId: string,
+  projects: AIWorkspaceProject[],
+) {
+  if (typeof window === "undefined") return;
+
+  window.localStorage.setItem(
+    getLocalStorageKey(userId, organizationId),
+    JSON.stringify(projects),
+  );
+}
+
 export class AIProjectService {
   static async listProjects(params: {
     userId: string;
@@ -46,7 +82,7 @@ export class AIProjectService {
       return (data ?? []).map(mapProjectRow);
     } catch (error) {
       console.warn("AI projects are unavailable:", error);
-      return [];
+      return readLocalProjects(params.userId, params.organizationId);
     }
   }
 
@@ -56,19 +92,40 @@ export class AIProjectService {
     title: string;
     description?: string | null;
   }): Promise<AIWorkspaceProject> {
-    const { data, error } = await supabase
-      .from("ai_workspace_projects")
-      .insert({
-        user_id: params.userId,
-        organization_id: params.organizationId,
+    try {
+      const { data, error } = await supabase
+        .from("ai_workspace_projects")
+        .insert({
+          user_id: params.userId,
+          organization_id: params.organizationId,
+          title: params.title,
+          description: params.description ?? null,
+          metadata: {},
+        })
+        .select("*")
+        .single();
+
+      if (error) throw error;
+      return mapProjectRow(data);
+    } catch (error) {
+      console.warn("Falling back to local AI project storage:", error);
+      const now = new Date().toISOString();
+      const project: AIWorkspaceProject = {
+        id: `local_${crypto.randomUUID()}`,
+        organizationId: params.organizationId,
+        userId: params.userId,
         title: params.title,
         description: params.description ?? null,
-        metadata: {},
-      })
-      .select("*")
-      .single();
-
-    if (error) throw error;
-    return mapProjectRow(data);
+        metadata: { localOnly: true },
+        createdAt: now,
+        updatedAt: now,
+      };
+      const projects = [
+        project,
+        ...readLocalProjects(params.userId, params.organizationId),
+      ];
+      writeLocalProjects(params.userId, params.organizationId, projects);
+      return project;
+    }
   }
 }

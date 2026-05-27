@@ -161,7 +161,7 @@ function MessageAttachments({ attachments }: { attachments?: ChatAttachment[] })
           href={attachment.url}
           target="_blank"
           rel="noreferrer"
-          className="group flex max-w-sm items-center gap-3 rounded-xl border border-white/10 bg-white/[0.04] p-2 text-left transition hover:bg-white/[0.07]"
+          className="group flex max-w-sm items-center gap-3 rounded-xl border border-white/10 bg-white/4 p-2 text-left transition hover:bg-white/[0.07]"
         >
           {attachment.type === "image" ? (
             <img
@@ -318,7 +318,7 @@ function ChatSidebar({
   }, []);
 
   return (
-    <aside className="flex h-full w-full flex-col border-r border-white/8 bg-[#171717] md:w-[292px]">
+    <aside className="flex h-full w-full flex-col border-r border-white/8 bg-[#171717] md:w-73">
       <div className="border-b border-white/10 p-3">
         <button
           type="button"
@@ -469,13 +469,23 @@ export default function RealTimeChat({
   const [showStarters, setShowStarters] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [showProjectModal, setShowProjectModal] = useState(false);
+  const [newProjectTitle, setNewProjectTitle] = useState("");
+  const [newProjectDescription, setNewProjectDescription] = useState("");
+  const [creatingProject, setCreatingProject] = useState(false);
   const [pendingAttachments, setPendingAttachments] = useState<
     PendingAttachment[]
   >([]);
 
   const auth = useAuth();
   const userId = auth?.user?.id;
+  const organizationId =
+    auth?.currentOrganization?.organization_id ??
+    auth?.profile?.organization_id ??
+    auth?.memberships?.[0]?.organization_id ??
+    null;
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const activeConversation = useMemo(
@@ -495,7 +505,7 @@ export default function RealTimeChat({
     try {
       const result = await ChatHistoryService.getUserConversations({
         userId,
-        organizationId: auth?.profile?.organization_id || undefined,
+        organizationId: organizationId || undefined,
         limit: 80,
       });
       setConversations(result.conversations);
@@ -503,17 +513,17 @@ export default function RealTimeChat({
       console.error("Error loading conversations:", error);
       setError("Failed to load conversations.");
     }
-  }, [auth?.profile?.organization_id, userId]);
+  }, [organizationId, userId]);
 
   const loadProjects = useCallback(async () => {
     if (!userId) return;
 
     const nextProjects = await AIProjectService.listProjects({
       userId,
-      organizationId: auth?.profile?.organization_id ?? null,
+      organizationId,
     });
     setProjects(nextProjects);
-  }, [auth?.profile?.organization_id, userId]);
+  }, [organizationId, userId]);
 
   const loadConversation = useCallback(
     async (conversationId: string) => {
@@ -557,13 +567,26 @@ export default function RealTimeChat({
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    textarea.style.height = "auto";
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 160)}px`;
+    textarea.style.overflowY = textarea.scrollHeight > 160 ? "auto" : "hidden";
+  }, [input]);
+
   const createNewConversation = async () => {
     if (!userId) return;
+    if (!organizationId) {
+      setError("Your organization is still loading. Please try again in a moment.");
+      return;
+    }
 
     try {
       const conversation = await ChatHistoryService.createConversation({
         userId,
-        organizationId: auth?.profile?.organization_id || "",
+        organizationId,
         title: "New Chat",
         role: role || undefined,
         projectId: selectedProjectId,
@@ -586,15 +609,21 @@ export default function RealTimeChat({
 
   const createProject = async () => {
     if (!userId) return;
+    if (!organizationId) {
+      setError("Your organization is still loading. Please try again in a moment.");
+      return;
+    }
 
-    const title = window.prompt("Project name");
-    if (!title?.trim()) return;
+    const title = newProjectTitle.trim();
+    if (!title) return;
 
+    setCreatingProject(true);
     try {
       const project = await AIProjectService.createProject({
         userId,
-        organizationId: auth?.profile?.organization_id || "",
-        title: title.trim(),
+        organizationId,
+        title,
+        description: newProjectDescription.trim() || null,
       });
       setProjects((prev) => [project, ...prev]);
       setSelectedProjectId(project.id);
@@ -602,9 +631,14 @@ export default function RealTimeChat({
       setMessages([]);
       setShowStarters(true);
       setSearchQuery("");
+      setShowProjectModal(false);
+      setNewProjectTitle("");
+      setNewProjectDescription("");
     } catch (error) {
       console.error("Error creating AI project:", error);
       setError("Failed to create the project. Make sure the latest migration is applied.");
+    } finally {
+      setCreatingProject(false);
     }
   };
 
@@ -714,6 +748,10 @@ export default function RealTimeChat({
     if ((!input.trim() && pendingAttachments.length === 0) || busy || !userId) {
       return;
     }
+    if (!organizationId) {
+      setError("Your organization is still loading. Please try again in a moment.");
+      return;
+    }
 
     const prompt = input.trim();
     const outgoingFiles = pendingAttachments;
@@ -724,7 +762,7 @@ export default function RealTimeChat({
       try {
         const conversation = await ChatHistoryService.createConversation({
           userId,
-          organizationId: auth?.profile?.organization_id || "",
+          organizationId,
           title: prompt.slice(0, 58) || outgoingFiles[0]?.file.name || "New Chat",
           role: role || undefined,
           projectId: selectedProjectId,
@@ -763,6 +801,7 @@ export default function RealTimeChat({
         role: "user",
         content: prompt,
         userId,
+        organizationId,
         type: attachments.length ? "mixed" : "text",
         data: {
           attachments: attachments.map((attachment) => ({
@@ -811,17 +850,22 @@ export default function RealTimeChat({
         assistantMessage,
       ]);
 
-      await ChatHistoryService.addMessage({
-        conversationId,
-        role: "assistant",
-        content: response.content,
-        userId,
-        type: "text",
-        data: {
-          model: "workspace-ai",
-          tokens: response.content.length,
-        },
-      });
+      try {
+        await ChatHistoryService.addMessage({
+          conversationId,
+          role: "assistant",
+          content: response.content,
+          userId,
+          organizationId,
+          type: "text",
+          data: {
+            model: "workspace-ai",
+            tokens: response.content.length,
+          },
+        });
+      } catch (error) {
+        console.warn("Assistant response was shown but not saved:", error);
+      }
 
       await loadConversations();
     } catch (error) {
@@ -836,11 +880,11 @@ export default function RealTimeChat({
     }
   }, [
     activeConversationId,
-    auth?.profile?.organization_id,
     busy,
     input,
     loadConversations,
     onAsk,
+    organizationId,
     pendingAttachments,
     role,
     selectedProject?.title,
@@ -866,7 +910,7 @@ export default function RealTimeChat({
             setMessages([]);
             setShowStarters(true);
           }}
-          onCreateProject={createProject}
+          onCreateProject={() => setShowProjectModal(true)}
           onSelectConversation={loadConversation}
           onNewConversation={createNewConversation}
           onDeleteConversation={deleteConversation}
@@ -890,7 +934,7 @@ export default function RealTimeChat({
                 setShowStarters(true);
                 setShowMobileHistory(false);
               }}
-              onCreateProject={createProject}
+              onCreateProject={() => setShowProjectModal(true)}
               onSelectConversation={loadConversation}
               onNewConversation={createNewConversation}
               onDeleteConversation={deleteConversation}
@@ -988,7 +1032,7 @@ export default function RealTimeChat({
                         setInput(starter.prompt);
                         setShowStarters(false);
                       }}
-                      className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-left transition hover:bg-white/[0.08]"
+                      className="rounded-2xl border border-white/10 bg-white/4 p-4 text-left transition hover:bg-white/8"
                     >
                       <span className="text-sm font-medium text-white">
                         {starter.label}
@@ -1022,7 +1066,7 @@ export default function RealTimeChat({
                 {pendingAttachments.map((attachment) => (
                   <div
                     key={attachment.id}
-                    className="flex max-w-[260px] items-center gap-2 rounded-xl border border-white/10 bg-white/[0.06] p-2"
+                    className="flex max-w-65 items-center gap-2 rounded-xl border border-white/10 bg-white/6 p-2"
                   >
                     {attachment.previewUrl ? (
                       <img
@@ -1075,11 +1119,12 @@ export default function RealTimeChat({
               </button>
 
               <textarea
+                ref={textareaRef}
                 value={input}
                 onChange={(event) => setInput(event.target.value)}
                 placeholder="Ask anything"
                 rows={1}
-                className="max-h-36 min-h-10 flex-1 resize-none bg-transparent px-1 py-2 text-[15px] leading-6 text-white outline-none placeholder:text-white/38"
+                className="min-h-10 flex-1 resize-none bg-transparent px-1 py-2 text-[15px] leading-6 text-white outline-none placeholder:text-white/38"
                 onKeyDown={(event) => {
                   if (event.key === "Enter" && !event.shiftKey) {
                     event.preventDefault();
@@ -1107,6 +1152,88 @@ export default function RealTimeChat({
           </div>
         </footer>
       </section>
+
+      {showProjectModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 px-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-3xl border border-white/10 bg-[#202020] p-5 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-semibold text-white">
+                  New project
+                </h3>
+                <p className="mt-1 text-sm leading-5 text-white/45">
+                  Create a focused AI space with its own chats, files, and memory.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowProjectModal(false)}
+                className="rounded-full p-2 text-white/45 transition hover:bg-white/10 hover:text-white"
+                aria-label="Close project modal"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="mt-5 space-y-4">
+              <label className="block">
+                <span className="text-sm font-medium text-white/78">
+                  Project name
+                </span>
+                <input
+                  value={newProjectTitle}
+                  onChange={(event) => setNewProjectTitle(event.target.value)}
+                  placeholder="Website redesign, SEO campaign, IT support..."
+                  autoFocus
+                  className="mt-2 h-11 w-full rounded-2xl border border-white/10 bg-white/[0.06] px-4 text-sm text-white outline-none placeholder:text-white/32 focus:border-white/24"
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && newProjectTitle.trim()) {
+                      event.preventDefault();
+                      void createProject();
+                    }
+                  }}
+                />
+              </label>
+
+              <label className="block">
+                <span className="text-sm font-medium text-white/78">
+                  Memory note
+                </span>
+                <textarea
+                  value={newProjectDescription}
+                  onChange={(event) =>
+                    setNewProjectDescription(event.target.value)
+                  }
+                  placeholder="Optional context the assistant should remember for this project."
+                  rows={3}
+                  className="mt-2 w-full resize-none rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 text-sm leading-6 text-white outline-none placeholder:text-white/32 focus:border-white/24"
+                />
+              </label>
+            </div>
+
+            <div className="mt-6 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowProjectModal(false)}
+                className="rounded-xl px-4 py-2 text-sm font-medium text-white/62 transition hover:bg-white/8 hover:text-white"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void createProject()}
+                disabled={!newProjectTitle.trim() || creatingProject}
+                className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-sm font-medium text-black transition hover:bg-white/85 disabled:bg-white/10 disabled:text-white/35"
+              >
+                {creatingProject && (
+                  <Loader2 size={15} className="animate-spin" />
+                )}
+                Create
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

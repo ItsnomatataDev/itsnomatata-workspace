@@ -1,5 +1,7 @@
 import { supabase } from "../../../lib/supabase/client";
 
+const USE_REMOTE_AI_CHAT_HISTORY = false;
+
 export interface ChatMessage {
   id: string;
   conversationId: string;
@@ -55,6 +57,7 @@ export interface ChatConversation {
     isArchived?: boolean;
     projectId?: string | null;
     projectName?: string | null;
+    localOnly?: boolean;
   };
   createdAt: string;
   updatedAt: string;
@@ -65,6 +68,101 @@ export interface ChatSession {
   messages: ChatMessage[];
   hasMore: boolean;
   nextCursor?: string;
+}
+
+function getLocalConversationKey(userId: string, organizationId?: string | null) {
+  return `ai_workspace_local_conversations:${organizationId ?? "default"}:${userId}`;
+}
+
+function getLocalMessageKey(conversationId: string) {
+  return `ai_workspace_local_messages:${conversationId}`;
+}
+
+function readLocalConversations(
+  userId: string,
+  organizationId?: string | null,
+): ChatConversation[] {
+  if (typeof window === "undefined") return [];
+
+  try {
+    const value = window.localStorage.getItem(
+      getLocalConversationKey(userId, organizationId),
+    );
+    if (!value) return [];
+
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeLocalConversations(
+  userId: string,
+  organizationId: string | null | undefined,
+  conversations: ChatConversation[],
+) {
+  if (typeof window === "undefined") return;
+
+  window.localStorage.setItem(
+    getLocalConversationKey(userId, organizationId),
+    JSON.stringify(conversations),
+  );
+}
+
+function readLocalMessages(conversationId: string): ChatMessage[] {
+  if (typeof window === "undefined") return [];
+
+  try {
+    const value = window.localStorage.getItem(getLocalMessageKey(conversationId));
+    if (!value) return [];
+
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeLocalMessages(conversationId: string, messages: ChatMessage[]) {
+  if (typeof window === "undefined") return;
+
+  window.localStorage.setItem(
+    getLocalMessageKey(conversationId),
+    JSON.stringify(messages),
+  );
+}
+
+function makeLocalConversation(params: {
+  userId: string;
+  organizationId: string;
+  title?: string;
+  role?: string;
+  context?: ChatConversation["context"];
+  projectId?: string | null;
+  projectName?: string | null;
+}): ChatConversation {
+  const now = new Date().toISOString();
+
+  return {
+    id: `local_${crypto.randomUUID()}`,
+    title: params.title || "New Chat",
+    userId: params.userId,
+    role: params.role,
+    context: params.context,
+    metadata: {
+      totalMessages: 0,
+      lastActivity: now,
+      tags: [],
+      isPinned: false,
+      isArchived: false,
+      projectId: params.projectId ?? null,
+      projectName: params.projectName ?? null,
+      localOnly: true,
+    },
+    createdAt: now,
+    updatedAt: now,
+  };
 }
 
 export class ChatHistoryService {
@@ -78,6 +176,20 @@ export class ChatHistoryService {
     projectId?: string | null;
     projectName?: string | null;
   }): Promise<ChatConversation> {
+    if (!USE_REMOTE_AI_CHAT_HISTORY) {
+      const conversation = makeLocalConversation(params);
+      const conversations = [
+        conversation,
+        ...readLocalConversations(params.userId, params.organizationId),
+      ];
+      writeLocalConversations(
+        params.userId,
+        params.organizationId,
+        conversations,
+      );
+      return conversation;
+    }
+
     try {
       const { data, error } = await supabase
         .from("ai_conversations")
@@ -104,12 +216,25 @@ export class ChatHistoryService {
       if (error) throw error;
       return this.mapConversationRow(data);
     } catch (error) {
-      console.error("Error creating conversation:", error);
-      throw new Error("Failed to create chat conversation");
+      const conversation = makeLocalConversation(params);
+      const conversations = [
+        conversation,
+        ...readLocalConversations(params.userId, params.organizationId),
+      ];
+      writeLocalConversations(
+        params.userId,
+        params.organizationId,
+        conversations,
+      );
+      return conversation;
     }
   }
 
   static async getConversation(conversationId: string): Promise<ChatConversation | null> {
+    if (!USE_REMOTE_AI_CHAT_HISTORY) {
+      return null;
+    }
+
     try {
       const { data, error } = await supabase
         .from("ai_conversations")
@@ -136,6 +261,14 @@ export class ChatHistoryService {
     total: number;
     hasMore: boolean;
   }> {
+    if (!USE_REMOTE_AI_CHAT_HISTORY) {
+      const conversations = readLocalConversations(
+        params.userId,
+        params.organizationId,
+      );
+      return { conversations, total: conversations.length, hasMore: false };
+    }
+
     try {
       let query = supabase
         .from("ai_conversations")
@@ -156,13 +289,29 @@ export class ChatHistoryService {
       if (error) throw error;
 
       const conversations = data?.map(this.mapConversationRow) || [];
+      const localConversations = readLocalConversations(
+        params.userId,
+        params.organizationId,
+      );
+      const mergedConversations = [...localConversations, ...conversations]
+        .sort(
+          (a, b) =>
+            new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+        );
       const total = count || 0;
       const hasMore = params.offset ? params.offset + conversations.length < total : false;
 
-      return { conversations, total, hasMore };
+      return {
+        conversations: mergedConversations,
+        total: total + localConversations.length,
+        hasMore,
+      };
     } catch (error) {
-      console.error("Error getting user conversations:", error);
-      return { conversations: [], total: 0, hasMore: false };
+      const conversations = readLocalConversations(
+        params.userId,
+        params.organizationId,
+      );
+      return { conversations, total: conversations.length, hasMore: false };
     }
   }
 
@@ -173,6 +322,26 @@ export class ChatHistoryService {
     cursor?: string;
   }): Promise<ChatSession> {
     try {
+      if (params.conversationId.startsWith("local_")) {
+        const messages = readLocalMessages(params.conversationId);
+        const conversations = readLocalConversations(params.userId);
+        const conversation = conversations.find(
+          (item) => item.id === params.conversationId,
+        ) ?? {
+          id: params.conversationId,
+          title: "Local Chat",
+          userId: params.userId,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+
+        return {
+          conversation,
+          messages,
+          hasMore: false,
+        };
+      }
+
       // Get conversation
       const conversation = await this.getConversation(params.conversationId);
       if (!conversation) throw new Error("Conversation not found");
@@ -214,6 +383,7 @@ export class ChatHistoryService {
     role: "user" | "assistant" | "system";
     content: string;
     userId: string;
+    organizationId?: string | null;
     type?: string;
     toolId?: string;
     data?: Record<string, any>;
@@ -223,11 +393,45 @@ export class ChatHistoryService {
     error?: boolean;
   }): Promise<ChatMessage> {
     try {
+      if (params.conversationId.startsWith("local_")) {
+        const now = new Date().toISOString();
+        const message: ChatMessage = {
+          id: `local_msg_${crypto.randomUUID()}`,
+          conversationId: params.conversationId,
+          role: params.role,
+          content: params.content,
+          attachments: Array.isArray(params.data?.attachments)
+            ? (params.data.attachments as any[]).map((attachment, index) => ({
+              id: attachment.id || `local_attachment_${index}`,
+              messageId: `local_msg_${index}`,
+              type: attachment.type || "document",
+              name: attachment.name || "Attachment",
+              url: attachment.url || "",
+              size: attachment.size || 0,
+              mimeType: attachment.mimeType || "",
+              uploadedAt: now,
+              metadata: attachment.metadata,
+            }))
+            : [],
+          metadata: params.data,
+          createdAt: now,
+          userId: params.userId,
+        };
+
+        const messages = [...readLocalMessages(params.conversationId), message];
+        writeLocalMessages(params.conversationId, messages);
+        return message;
+      }
+
       // Add message
       const { data: message, error: messageError } = await supabase
         .from("ai_messages")
         .insert({
           conversation_id: params.conversationId,
+          user_id: params.userId,
+          organization_id: params.organizationId,
+          sender_id: params.userId,
+          sender_type: params.role === "assistant" ? "ai" : "employee",
           role: params.role,
           content: params.content,
           type: params.type || "text",
@@ -245,7 +449,7 @@ export class ChatHistoryService {
 
       return this.mapMessageRow(message);
     } catch (error) {
-      console.error("Error adding message:", error);
+      console.warn("Supabase message save failed:", error);
       throw new Error("Failed to add message");
     }
   }
@@ -294,6 +498,37 @@ export class ChatHistoryService {
 
   static async deleteConversation(conversationId: string): Promise<void> {
     try {
+      if (conversationId.startsWith("local_")) {
+        if (typeof window !== "undefined") {
+          window.localStorage.removeItem(getLocalMessageKey(conversationId));
+          const keys = Object.keys(window.localStorage).filter((key) =>
+            key.startsWith("ai_workspace_local_conversations:"),
+          );
+          keys.forEach((key) => {
+            const value = window.localStorage.getItem(key);
+            if (!value) return;
+            try {
+              const conversations = JSON.parse(value);
+              if (!Array.isArray(conversations)) return;
+              window.localStorage.setItem(
+                key,
+                JSON.stringify(
+                  conversations.filter(
+                    (conversation: ChatConversation) =>
+                      conversation.id !== conversationId,
+                  ),
+                ),
+              );
+            } catch {
+              // Ignore malformed local cache entries.
+            }
+          });
+        }
+        return;
+      }
+
+      if (!USE_REMOTE_AI_CHAT_HISTORY) return;
+
       await supabase
         .from("ai_conversations")
         .delete()

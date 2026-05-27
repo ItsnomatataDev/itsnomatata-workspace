@@ -22,6 +22,7 @@ type AIConversationSummary = {
 export type AIMessageRow = {
     id: string;
     conversation_id: string;
+    user_id?: string | null;
     role: "user" | "assistant" | "system";
     content: string;
     type: string;
@@ -314,7 +315,26 @@ export async function reviewApproval(params: {
 
 
 export async function getRecentOutputs(userId: string, limit = 10) {
-    const conversations = await getConversations(userId, 100);
+    void userId;
+    void limit;
+    return [];
+
+    const direct = await supabase
+        .from("ai_messages")
+        .select("*, conversation:ai_conversations(id,title,tool_id,user_id)")
+        .eq("user_id", userId)
+        .eq("role", "assistant")
+        .eq("error", false)
+        .order("created_at", { ascending: false })
+        .limit(limit);
+
+    if (!direct.error) {
+        return ((direct.data ?? []) as Array<AIMessageRow & {
+            conversation?: AIConversationSummary | null;
+        }>).filter((msg) => msg.conversation?.user_id === userId);
+    }
+
+    const conversations = await getConversations(userId, 25);
     const conversationMap = new Map<string, AIConversationSummary>(
         conversations.map((conv) => [
             conv.id,
@@ -350,7 +370,25 @@ export async function getRecentOutputs(userId: string, limit = 10) {
 }
 
 export async function getHistoryItems(userId: string, limit = 20) {
-    const conversations = await getConversations(userId, 100);
+    void userId;
+    void limit;
+    return [];
+
+    const direct = await supabase
+        .from("ai_messages")
+        .select("*, conversation:ai_conversations(id,title,tool_id,user_id)")
+        .eq("user_id", userId)
+        .in("role", ["assistant", "system"])
+        .order("created_at", { ascending: false })
+        .limit(limit);
+
+    if (!direct.error) {
+        return ((direct.data ?? []) as Array<AIMessageRow & {
+            conversation?: AIConversationSummary | null;
+        }>).filter((msg) => msg.conversation?.user_id === userId);
+    }
+
+    const conversations = await getConversations(userId, 25);
     const conversationMap = new Map<string, AIConversationSummary>(
         conversations.map((conv) => [
             conv.id,

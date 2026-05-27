@@ -1,0 +1,899 @@
+{
+  "name": "ITsNomatata Codex Internal AI - Production Blueprint",
+  "meta": {
+    "description": "Production-ready n8n blueprint for Codex: chat agent, document training, document Q&A, people directory, web research, image fetch, code assistant, OpenAI primary model, Gemini backup model.",
+    "openAiPrimary": true,
+    "geminiBackup": true,
+    "doNotUseClaude": true
+  },
+  "nodes": [
+    {
+      "id": "chat-trigger",
+      "name": "01 Chat Trigger - Frontend or n8n Chat",
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -1800,
+        0
+      ],
+      "parameters": {
+        "public": true,
+        "mode": "webhook",
+        "options": {}
+      }
+    },
+    {
+      "id": "normalize-chat-payload",
+      "name": "02 Normalize Chat Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1560,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const body = $json;\nconst chatInput = body.chatInput || body.message || body.text || body.output || '';\nreturn [{ json: {\n  ...body,\n  chatInput,\n  message: chatInput,\n  sessionId: body.sessionId || body.conversationId || body.context?.userId || 'anonymous',\n  conversationId: body.conversationId || null,\n  context: body.context || {},\n  metadata: body.metadata || {},\n  attachments: body.attachments || [],\n  action: body.action || 'sendMessage'\n}}];"
+      }
+    },
+    {
+      "id": "load-user-context",
+      "name": "03 Prepare User Context (Supabase Optional)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1320,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const request = $('02 Normalize Chat Payload').first().json;\nconst context = request.context || {};\n\n// This node is intentionally local-first. n8n on this server blocks $env,\n// and $vars may be empty during manual tests. The frontend already sends\n// user context, so do not crash the workflow when Supabase enrichment is\n// not configured yet.\nreturn [{ json: {\n  ...request,\n  profile: {\n    id: context.userId || null,\n    full_name: context.fullName || null,\n    email: context.email || null,\n    primary_role: context.role || 'employee',\n    department: context.department || null,\n    organization_id: context.organizationId || null\n  },\n  supabaseContextStatus: context.userId ? 'frontend_context' : 'anonymous_or_manual_test'\n}}];"
+      }
+    },
+    {
+      "id": "merge-context",
+      "name": "04 Merge Request + User Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1080,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const request = $('03 Prepare User Context (Supabase Optional)').first().json;\nconst profile = request.profile || {};\nconst chatInput = request.chatInput || request.message || '';\nreturn [{ json: {\n  ...request,\n  chatInput,\n  message: chatInput,\n  context: {\n    ...request.context,\n    userId: request.context.userId || profile.id || 'anonymous',\n    fullName: request.context.fullName || profile.full_name || 'Workspace User',\n    email: request.context.email || profile.email || null,\n    role: request.context.role || profile.primary_role || 'employee',\n    department: request.context.department || profile.department || null,\n    organizationId: request.context.organizationId || profile.organization_id || 'workspace-default',\n    currentModule: request.context.currentModule || 'ai-workspace',\n    timezone: request.context.timezone || 'Africa/Harare',\n    channel: request.context.channel || 'web'\n  }\n}}];"
+      }
+    },
+    {
+      "id": "permission-router",
+      "name": "05 Permission + Tool Router",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -840,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const chatInput = $json.chatInput || $json.message || '';\nconst message = chatInput.toLowerCase();\nconst attachments = $json.attachments || [];\nlet route = 'main_agent';\nif (attachments.length || /document|file|pdf|policy|summarize this|action items|deadline/.test(message)) route = 'document_qa';\nif (/who|team|department|responsible|maintain|built codex|developer/.test(message)) route = 'people_directory';\nif (/website|external company|research|find online|official site/.test(message)) route = 'web_research';\nif (/logo|image|hero image|gallery|open graph|og:image|favicon/.test(message)) route = 'image_fetch';\nif (/code|typescript|react|next|tailwind|supabase|node|expo|bug|error/.test(message)) route = 'code_assistant';\nreturn [{ json: { ...$json, chatInput, message: chatInput, route, allowed: true } }];"
+      }
+    },
+    {
+      "id": "openai-main-model",
+      "name": "OpenAI Main Reasoning Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        -560,
+        360
+      ],
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o",
+          "mode": "list",
+          "cachedResultName": "gpt-4o"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "project-memory",
+      "name": "Project Memory",
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        -760,
+        360
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "document-knowledge-tool",
+      "name": "Document Knowledge Tool",
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        -360,
+        420
+      ],
+      "parameters": {
+        "toolDescription": "Search approved ITsNomatata internal documents, policies, uploaded files, project summaries, and GraphRAG knowledge. Check role/department scope before using the content.",
+        "method": "POST",
+        "url": "https://infranodus.com/api/v1/graphAndStatements?doNotSave=false&includeGraph=false&includeGraphSummary=true",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "name",
+              "value": "ai_topic_marketing-guidance"
+            },
+            {
+              "name": "requestMode",
+              "value": "response"
+            },
+            {
+              "name": "prompt",
+              "value": "={{ $fromAI('document_query', '', 'string') }}"
+            },
+            {
+              "name": "includeOnlySummaries",
+              "value": "true"
+            },
+            {
+              "name": "maxResults",
+              "value": "8"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "people-directory-tool",
+      "name": "People Directory Tool",
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        -120,
+        420
+      ],
+      "parameters": {
+        "toolDescription": "Look up approved team members, departments, roles, responsibilities, managers, and active status from Supabase. Never invent people.",
+        "method": "GET",
+        "url": "={{ $vars.SUPABASE_URL }}/rest/v1/team_members?organization_id=eq.{{ $json.context.organizationId }}&active_status=eq.active&select=*",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "web-research-tool",
+      "name": "Web Research Tool",
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        120,
+        420
+      ],
+      "parameters": {
+        "toolDescription": "Research external companies from official websites first. Extract description, services, contact details, social links, logos, and source URLs. Use only when the user allows or asks for web research.",
+        "method": "GET",
+        "url": "={{ 'https://www.google.com/search?q=' + encodeURIComponent($fromAI('web_query', '', 'string') + ' official website') }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "image-fetch-tool",
+      "name": "Image Fetch Tool",
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        360,
+        420
+      ],
+      "parameters": {
+        "toolDescription": "Fetch company-related images from official websites: og:image, logo, favicon, hero images, gallery images, product images. Return source URLs and avoid random unsourced images.",
+        "method": "GET",
+        "url": "={{ $fromAI('source_page_url', '', 'string') }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "codex-main-agent",
+      "name": "06 Codex Main Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.9,
+      "position": [
+        -520,
+        0
+      ],
+      "parameters": {
+        "options": {
+          "systemMessage": "Paste the full prompt from n8n/itsnomatata-ai-workspace-brain.system-prompt.md here. OpenAI is the primary model. Use tools only when needed. Respect role, department, organization, and project memory scope. If verified internal knowledge is missing, say so clearly."
+        }
+      }
+    },
+    {
+      "id": "gemini-backup",
+      "name": "Gemini Backup Summarizer / Classifier",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -520,
+        680
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=' + $vars.GEMINI_API_KEY }}",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "contents",
+              "value": "={{ [{ parts: [{ text: $json.geminiPrompt || $json.message || '' }] }] }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "safe-response",
+      "name": "07 Safe Response Contract",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -240,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const output = $json.output || $json.message || $json.text || 'I could not produce a verified response.';\nreturn [{ json: {\n  success: true,\n  type: 'text',\n  message: output,\n  output,\n  conversationId: $('04 Merge Request + User Context').first().json.conversationId || null,\n  data: {},\n  sources: $json.sources || []\n}}];"
+      }
+    },
+    {
+      "id": "document-upload-trigger",
+      "name": "Document Training Trigger - Upload / Manual / Drive",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -1800,
+        980
+      ],
+      "parameters": {
+        "path": "codex/upload-document",
+        "httpMethod": "POST",
+        "responseMode": "lastNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "google-drive-search",
+      "name": "Google Drive Search - Approved Folder",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        -1560,
+        1160
+      ],
+      "parameters": {
+        "resource": "fileFolder",
+        "queryString": "*",
+        "returnAll": true,
+        "filter": {
+          "folderId": {
+            "__rl": true,
+            "value": "11ZgoEBFLJyF7rzFJ6QuRYZekJocq-W_T",
+            "mode": "id"
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "download-file",
+      "name": "Download File",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        -1320,
+        1160
+      ],
+      "parameters": {
+        "operation": "download",
+        "fileId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.id }}"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "detect-file-type",
+      "name": "Detect File Type",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        -1080,
+        1160
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "renameOutput": true,
+              "outputKey": "pdf",
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $binary.data.mimeType }}",
+                    "rightValue": "application/pdf",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and",
+                "options": {
+                  "caseSensitive": true,
+                  "typeValidation": "strict",
+                  "version": 2
+                }
+              }
+            },
+            {
+              "renameOutput": true,
+              "outputKey": "text",
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $binary.data.mimeType }}",
+                    "rightValue": "text/plain",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and",
+                "options": {
+                  "caseSensitive": true,
+                  "typeValidation": "strict",
+                  "version": 2
+                }
+              }
+            },
+            {
+              "renameOutput": true,
+              "outputKey": "markdown",
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $binary.data.mimeType }}",
+                    "rightValue": "text/markdown",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and",
+                "options": {
+                  "caseSensitive": true,
+                  "typeValidation": "strict",
+                  "version": 2
+                }
+              }
+            },
+            {
+              "renameOutput": true,
+              "outputKey": "csv",
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $binary.data.mimeType }}",
+                    "rightValue": "text/csv",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and",
+                "options": {
+                  "caseSensitive": true,
+                  "typeValidation": "strict",
+                  "version": 2
+                }
+              }
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      }
+    },
+    {
+      "id": "extract-text",
+      "name": "Extract Text from File",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        -840,
+        1160
+      ],
+      "parameters": {
+        "operation": "text",
+        "options": {}
+      }
+    },
+    {
+      "id": "clean-and-chunk",
+      "name": "Clean and Chunk Text",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -600,
+        1160
+      ],
+      "parameters": {
+        "jsCode": "const raw = $json.text || $json.data || '';\nconst text = String(raw).replace(/\\s+/g, ' ').trim();\nif (!text) throw new Error('Document could not be read. Please upload a readable file or OCR version.');\nconst chunkSize = 2200;\nconst overlap = 180;\nconst chunks = [];\nfor (let i = 0; i < text.length; i += chunkSize - overlap) {\n  chunks.push({ json: { ...$json, chunkIndex: chunks.length, chunkText: text.slice(i, i + chunkSize) } });\n}\nreturn chunks;"
+      }
+    },
+    {
+      "id": "summarize-chunk-openai",
+      "name": "Summarize Chunk - OpenAI",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        -360,
+        1160
+      ],
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-4o-mini"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "={{ 'Summarize this company knowledge chunk for retrieval. Return concise summary, key points, actions, deadlines, owners, departments, risks, and tags.\\n\\nChunk:\\n' + $json.chunkText }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "final-document-summary",
+      "name": "Create Final Document Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -120,
+        1160
+      ],
+      "parameters": {
+        "jsCode": "const summaries = items.map(item => item.json.message?.content || item.json.output || '').filter(Boolean);\nreturn [{ json: {\n  summary_short: summaries[0]?.slice(0, 400) || '',\n  summary_detailed: summaries.join('\\n\\n'),\n  tags: [],\n  status: 'trained',\n  chunks: items.map((item, index) => ({ index, summary: item.json.message?.content || '', text: item.json.chunkText || '' }))\n}}];"
+      }
+    },
+    {
+      "id": "save-document-supabase",
+      "name": "Save Document Metadata to Supabase",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        120,
+        1160
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $vars.SUPABASE_URL }}/rest/v1/ai_documents",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=representation"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "organization_id",
+              "value": "={{ $json.organization_id || $json.context?.organizationId }}"
+            },
+            {
+              "name": "document_name",
+              "value": "={{ $json.file_name || $json.name || 'Uploaded document' }}"
+            },
+            {
+              "name": "file_type",
+              "value": "={{ $json.file_type || $binary?.data?.mimeType || 'unknown' }}"
+            },
+            {
+              "name": "source",
+              "value": "={{ $json.source || 'google_drive' }}"
+            },
+            {
+              "name": "source_url",
+              "value": "={{ $json.source_url || $json.webViewLink || null }}"
+            },
+            {
+              "name": "uploaded_by",
+              "value": "={{ $json.uploaded_by || $json.context?.userId || null }}"
+            },
+            {
+              "name": "department",
+              "value": "={{ $json.department || $json.context?.department || null }}"
+            },
+            {
+              "name": "module",
+              "value": "={{ $json.module || 'ai-workspace' }}"
+            },
+            {
+              "name": "access_level",
+              "value": "={{ $json.access_level || 'internal' }}"
+            },
+            {
+              "name": "status",
+              "value": "trained"
+            },
+            {
+              "name": "summary_short",
+              "value": "={{ $json.summary_short }}"
+            },
+            {
+              "name": "summary_detailed",
+              "value": "={{ $json.summary_detailed }}"
+            },
+            {
+              "name": "tags",
+              "value": "={{ $json.tags || [] }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "save-to-graphrag",
+      "name": "Save Summary to InfraNodus GraphRAG",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        360,
+        1160
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://infranodus.com/api/v1/graphAndStatements?doNotSave=false&includeGraph=false&includeGraphSummary=true",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "name",
+              "value": "ai_topic_marketing-guidance"
+            },
+            {
+              "name": "text",
+              "value": "={{ $json.summary_detailed }}"
+            },
+            {
+              "name": "categories",
+              "value": "={{ ['ITsNomatata', $json.department || 'General', $json.module || 'AI Workspace'].join(', ') }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "document-trained-response",
+      "name": "Document Learned Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        600,
+        1160
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{ \"success\": true, \"message\": \"Document learned and summarized successfully.\" }",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "01 Chat Trigger - Frontend or n8n Chat": {
+      "main": [
+        [
+          {
+            "node": "02 Normalize Chat Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "02 Normalize Chat Payload": {
+      "main": [
+        [
+          {
+            "node": "03 Prepare User Context (Supabase Optional)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "04 Merge Request + User Context": {
+      "main": [
+        [
+          {
+            "node": "05 Permission + Tool Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "05 Permission + Tool Router": {
+      "main": [
+        [
+          {
+            "node": "06 Codex Main Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Main Reasoning Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "06 Codex Main Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Project Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "06 Codex Main Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Document Knowledge Tool": {
+      "ai_tool": [
+        [
+          {
+            "node": "06 Codex Main Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "People Directory Tool": {
+      "ai_tool": [
+        [
+          {
+            "node": "06 Codex Main Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Web Research Tool": {
+      "ai_tool": [
+        [
+          {
+            "node": "06 Codex Main Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Image Fetch Tool": {
+      "ai_tool": [
+        [
+          {
+            "node": "06 Codex Main Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "06 Codex Main Agent": {
+      "main": [
+        [
+          {
+            "node": "07 Safe Response Contract",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Document Training Trigger - Upload / Manual / Drive": {
+      "main": [
+        [
+          {
+            "node": "Clean and Chunk Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Drive Search - Approved Folder": {
+      "main": [
+        [
+          {
+            "node": "Download File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download File": {
+      "main": [
+        [
+          {
+            "node": "Detect File Type",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Detect File Type": {
+      "main": [
+        [
+          {
+            "node": "Extract Text from File",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Extract Text from File",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Extract Text from File",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Extract Text from File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Text from File": {
+      "main": [
+        [
+          {
+            "node": "Clean and Chunk Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clean and Chunk Text": {
+      "main": [
+        [
+          {
+            "node": "Summarize Chunk - OpenAI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summarize Chunk - OpenAI": {
+      "main": [
+        [
+          {
+            "node": "Create Final Document Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Final Document Summary": {
+      "main": [
+        [
+          {
+            "node": "Save Document Metadata to Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Document Metadata to Supabase": {
+      "main": [
+        [
+          {
+            "node": "Save Summary to InfraNodus GraphRAG",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Summary to InfraNodus GraphRAG": {
+      "main": [
+        [
+          {
+            "node": "Document Learned Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "03 Prepare User Context (Supabase Optional)": {
+      "main": [
+        [
+          {
+            "node": "04 Merge Request + User Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {}
+}
