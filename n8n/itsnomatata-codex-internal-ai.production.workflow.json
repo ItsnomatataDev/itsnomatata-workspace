@@ -32,7 +32,7 @@
         0
       ],
       "parameters": {
-        "jsCode": "const body = $json;\nconst chatInput = body.chatInput || body.message || body.text || body.output || '';\nreturn [{ json: {\n  ...body,\n  chatInput,\n  message: chatInput,\n  sessionId: body.sessionId || body.conversationId || body.context?.userId || 'anonymous',\n  conversationId: body.conversationId || null,\n  context: body.context || {},\n  metadata: body.metadata || {},\n  attachments: body.attachments || [],\n  action: body.action || 'sendMessage'\n}}];"
+        "jsCode": "const body = $json;\nconst rawInput = body.chatInput || body.message || body.text || body.output || '';\nconst chatInput = String(rawInput).replace(/data:image\\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+/g, '[uploaded image data removed]').slice(0, 12000);\nconst safeAttachments = (body.attachments || []).slice(0, 8).map(item => {\n  const url = String(item?.url || item?.download_url || item?.image_url || '');\n  const safeUrl = url.startsWith('data:') && url.length > 2000 ? '[inline data removed]' : url.slice(0, 1200);\n  return {\n    type: item?.type || item?.file_type || 'file',\n    name: String(item?.name || item?.file_name || 'attachment').slice(0, 180),\n    mimeType: item?.mimeType || item?.mime_type || null,\n    url: safeUrl,\n    download_url: String(item?.download_url || safeUrl || '').slice(0, 1200),\n    documentId: item?.documentId || item?.document_id || null\n  };\n});\nreturn [{ json: {\n  ...body,\n  chatInput,\n  message: chatInput,\n  sessionId: body.sessionId || body.conversationId || body.context?.userId || 'anonymous',\n  conversationId: body.conversationId || null,\n  context: body.context || {},\n  metadata: body.metadata || {},\n  attachments: safeAttachments,\n  action: body.action || 'sendMessage'\n}}];"
       }
     },
     {
@@ -71,7 +71,7 @@
         0
       ],
       "parameters": {
-        "jsCode": "const chatInput = $json.chatInput || $json.message || '';\nconst message = chatInput.toLowerCase();\nconst attachments = $json.attachments || [];\nlet route = 'main_agent';\nif (attachments.length || /document|file|pdf|policy|summarize this|action items|deadline/.test(message)) route = 'document_qa';\nif (/who|team|department|responsible|maintain|built codex|developer/.test(message)) route = 'people_directory';\nif (/website|external company|research|find online|official site/.test(message)) route = 'web_research';\nif (/logo|image|hero image|gallery|open graph|og:image|favicon/.test(message)) route = 'image_fetch';\nif (/code|typescript|react|next|tailwind|supabase|node|expo|bug|error/.test(message)) route = 'code_assistant';\nreturn [{ json: { ...$json, chatInput, message: chatInput, route, allowed: true } }];"
+        "jsCode": "const chatInput = $json.chatInput || $json.message || '';\nconst message = chatInput.toLowerCase();\nconst attachments = $json.attachments || [];\nconst hasImageAttachment = attachments.some(item => item?.type === 'image' || String(item?.mimeType || '').startsWith('image/'));\nconst hasDocumentAttachment = attachments.some(item => item?.type === 'document' || /pdf|text|markdown|csv|json|word|document/i.test(String(item?.mimeType || item?.name || '')));\nlet route = 'main_agent';\nif (hasDocumentAttachment || /document|file|pdf|policy|summarize this|action items|deadline|extract text|invoice|receipt/.test(message)) route = 'document_qa';\nif (hasImageAttachment || /what can you see|analy[sz]e image|identify this|what car|car model|read this image|extract text from image|ocr image/.test(message)) route = 'image_analysis';\nif (/who|team|department|responsible|maintain|built codex|developer/.test(message)) route = 'people_directory';\nif (/website|external company|research|find online|official site/.test(message)) route = 'web_research';\nif (/logo|hero image|gallery|open graph|og:image|favicon/.test(message)) route = 'image_fetch';\nif (/generate.*image|create.*image|draw|make.*picture|image of/.test(message)) route = 'image_generation';\nif (/code|typescript|react|next|tailwind|supabase|node|expo|bug|error/.test(message)) route = 'code_assistant';\nreturn [{ json: { ...$json, chatInput, message: chatInput, route, allowed: true } }];"
       }
     },
     {
@@ -91,6 +91,168 @@
           "cachedResultName": "gpt-4o"
         },
         "options": {}
+      }
+    },
+    {
+      "id": "route-image-generation",
+      "name": "Route Image Generation?",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        -660,
+        0
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "renameOutput": true,
+              "outputKey": "image_generation",
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "image_generation",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and",
+                "options": {
+                  "caseSensitive": true,
+                  "typeValidation": "strict",
+                  "version": 2
+                }
+              }
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      }
+    },
+    {
+      "id": "generate-image-openai-direct",
+      "name": "Generate Image - OpenAI Direct",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -420,
+        -180
+      ],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/images/generations",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "model",
+              "value": "gpt-image-1"
+            },
+            {
+              "name": "prompt",
+              "value": "={{ ($json.message || $json.chatInput || '').replace(/\\n\\[Context\\][\\s\\S]*$/,'').trim() }}"
+            },
+            {
+              "name": "size",
+              "value": "1024x1024"
+            },
+            {
+              "name": "n",
+              "value": "={{ 1 }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "credentials": {
+        "openAiApi": {
+          "id": "AMCuIhOcN1ffKYz9",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "id": "has-openai-image-key",
+      "name": "Has OpenAI Image Key?",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        -540,
+        -180
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "renameOutput": true,
+              "outputKey": "configured",
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ true }}",
+                    "rightValue": true,
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and",
+                "options": {
+                  "caseSensitive": true,
+                  "typeValidation": "strict",
+                  "version": 2
+                }
+              }
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      }
+    },
+    {
+      "id": "image-generation-config-missing",
+      "name": "Image Generation Config Missing Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -420,
+        -360
+      ],
+      "parameters": {
+        "jsCode": "const source = $('05 Permission + Tool Router').first().json;\nreturn [{ json: {\n  success: true,\n  type: 'text',\n  message: 'Image generation is almost ready, but the OpenAI credential is not connected to the image generation node. Open Generate Image - OpenAI Direct, select your OpenAi account credential, save and activate the workflow, then try again.',\n  output: 'Image generation is almost ready, but the OpenAI credential is not connected to the image generation node. Open Generate Image - OpenAI Direct, select your OpenAi account credential, save and activate the workflow, then try again.',\n  conversationId: source.conversationId || null,\n  data: {},\n  attachments: [],\n  sources: []\n}}];"
+      }
+    },
+    {
+      "id": "format-openai-image-response",
+      "name": "Format OpenAI Image Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -180,
+        -180
+      ],
+      "parameters": {
+        "jsCode": "const source = $('05 Permission + Tool Router').first().json;\nconst prompt = (source.message || source.chatInput || 'generated image').replace(/\\n\\[Context\\][\\s\\S]*$/, '').trim();\nconst b64 = $json.data?.[0]?.b64_json;\nif (!b64) {\n  const detail = $json.error?.message || $json.message || $json.error || 'OpenAI did not return image data.';\n  const message = `I could not return a generated image yet. OpenAI image generation failed: ${String(detail).slice(0, 300)}`;\n  return [{ json: {\n    success: true,\n    type: 'text',\n    message,\n    output: message,\n    conversationId: source.conversationId || null,\n    data: { prompt },\n    attachments: [],\n    sources: []\n  }}];\n}\nconst imageUrl = `data:image/png;base64,${b64}`;\nconst slug = prompt.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48) || 'codex-image';\nreturn [{ json: {\n  success: true,\n  type: 'generated_image',\n  message: 'Image generated successfully.',\n  output: 'Image generated successfully.',\n  conversationId: source.conversationId || null,\n  data: { prompt },\n  attachments: [{\n    type: 'image',\n    name: `${slug}.png`,\n    url: imageUrl,\n    download_url: imageUrl,\n    metadata: { source: 'openai_images', model: 'gpt-image-1' }\n  }],\n  sources: []\n}}];"
       }
     },
     {
@@ -148,6 +310,121 @@
       }
     },
     {
+      "id": "private-memory-retrieval-tool",
+      "name": "Private Memory Retrieval Tool",
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        -600,
+        420
+      ],
+      "parameters": {
+        "toolDescription": "Retrieve long-term private memory for the current user and, when present, the current project. Use this before answering questions that depend on prior preferences, decisions, project context, recurring work, or what the user previously told Codex. Never retrieve another user's memory.",
+        "method": "GET",
+        "url": "={{ (() => { const base = $vars.SUPABASE_URL || 'https://zirftywinscopzuuwdlg.supabase.co'; const org = $json.context.organizationId; const user = $json.context.userId; const project = $json.metadata?.projectId; const scope = project ? `&or=(project_id.is.null,project_id.eq.${encodeURIComponent(project)})` : '&project_id=is.null'; return `${base}/rest/v1/ai_memory_items?select=*&organization_id=eq.${org}&user_id=eq.${user}${scope}&order=pinned.desc,importance.desc,updated_at.desc&limit=16`; })() }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "private-memory-save-tool",
+      "name": "Private Memory Save Tool",
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        -600,
+        580
+      ],
+      "parameters": {
+        "toolDescription": "Save useful long-term memory for the current user only. Save preferences, stable facts, project decisions, recurring instructions, and concise summaries that will help future chats. Do not save secrets, credentials, medical/legal sensitive data, or other people's private history. Use project scope when metadata.projectId exists.",
+        "method": "POST",
+        "url": "={{ ($vars.SUPABASE_URL || 'https://zirftywinscopzuuwdlg.supabase.co') + '/rest/v1/ai_memory_items' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=representation"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "organization_id",
+              "value": "={{ $json.context.organizationId }}"
+            },
+            {
+              "name": "user_id",
+              "value": "={{ $json.context.userId }}"
+            },
+            {
+              "name": "project_id",
+              "value": "={{ $json.metadata?.projectId || null }}"
+            },
+            {
+              "name": "conversation_id",
+              "value": "={{ $json.conversationId || null }}"
+            },
+            {
+              "name": "scope",
+              "value": "={{ $json.metadata?.projectId ? 'project' : 'user' }}"
+            },
+            {
+              "name": "memory_type",
+              "value": "={{ $fromAI('memory_type', 'summary', 'string') }}"
+            },
+            {
+              "name": "title",
+              "value": "={{ $fromAI('memory_title', 'Codex memory', 'string') }}"
+            },
+            {
+              "name": "content",
+              "value": "={{ $fromAI('memory_content', '', 'string') }}"
+            },
+            {
+              "name": "importance",
+              "value": "={{ Number($fromAI('importance', '3', 'string')) }}"
+            },
+            {
+              "name": "source",
+              "value": "chat"
+            },
+            {
+              "name": "metadata",
+              "value": "={{ { projectName: $json.metadata?.projectName || null, savedBy: 'codex' } }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
       "id": "people-directory-tool",
       "name": "People Directory Tool",
       "type": "n8n-nodes-base.httpRequestTool",
@@ -159,7 +436,7 @@
       "parameters": {
         "toolDescription": "Look up approved team members, departments, roles, responsibilities, managers, and active status from Supabase. Never invent people.",
         "method": "GET",
-        "url": "={{ $vars.SUPABASE_URL }}/rest/v1/team_members?organization_id=eq.{{ $json.context.organizationId }}&active_status=eq.active&select=*",
+        "url": "={{ ($vars.SUPABASE_URL || 'https://zirftywinscopzuuwdlg.supabase.co') + '/rest/v1/team_members?organization_id=eq.' + $json.context.organizationId + '&active_status=eq.active&select=*' }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -186,9 +463,51 @@
         420
       ],
       "parameters": {
-        "toolDescription": "Research external companies from official websites first. Extract description, services, contact details, social links, logos, and source URLs. Use only when the user allows or asks for web research.",
-        "method": "GET",
-        "url": "={{ 'https://www.google.com/search?q=' + encodeURIComponent($fromAI('web_query', '', 'string') + ' official website') }}",
+        "toolDescription": "Research external companies using Tavily Search API. Prefer official websites and reliable sources. Return title, description, services, contact details, social links, images, and source URLs. Do not use random unsourced content.",
+        "method": "POST",
+        "url": "https://api.tavily.com/search",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $vars.TAVILY_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "query",
+              "value": "={{ $fromAI('web_query', '', 'string') }}"
+            },
+            {
+              "name": "search_depth",
+              "value": "advanced"
+            },
+            {
+              "name": "include_answer",
+              "value": "true"
+            },
+            {
+              "name": "include_images",
+              "value": "true"
+            },
+            {
+              "name": "include_raw_content",
+              "value": "true"
+            },
+            {
+              "name": "max_results",
+              "value": "5"
+            }
+          ]
+        },
         "options": {}
       }
     },
@@ -204,7 +523,207 @@
       "parameters": {
         "toolDescription": "Fetch company-related images from official websites: og:image, logo, favicon, hero images, gallery images, product images. Return source URLs and avoid random unsourced images.",
         "method": "GET",
-        "url": "={{ $fromAI('source_page_url', '', 'string') }}",
+        "url": "={{ $fromAI('source_page_url', 'https://example.com', 'string') || 'https://example.com' }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "image-analysis-tool",
+      "name": "Image Analysis Tool",
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        600,
+        580
+      ],
+      "parameters": {
+        "toolDescription": "Analyze an uploaded image using OpenAI vision. Use this when the user sends a picture and asks what it is, what car/model/object appears, to read text from an image, or to extract visible details. Input must include an image URL from the current attachments and a focused question. Return observations, likely identification, visible text, confidence, and limits.",
+        "method": "POST",
+        "url": "https://api.openai.com/v1/responses",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $vars.OPENAI_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "model",
+              "value": "gpt-4o-mini"
+            },
+            {
+              "name": "input",
+              "value": "={{ [{ role: 'user', content: [{ type: 'input_text', text: $fromAI('image_question', 'Analyze this image. Identify visible objects, text, brand/model clues, and important details. Be honest about uncertainty.', 'string') }, { type: 'input_image', image_url: $fromAI('image_url', ($json.attachments || []).find(a => a?.url)?.url || '', 'string') }] }] }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "pdf-generator-tool",
+      "name": "PDF Generator Tool",
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        600,
+        420
+      ],
+      "parameters": {
+        "toolDescription": "Generate a downloadable PDF from an AI answer, document summary, report, or HTML. Input should include title, html or markdown/content, file_name, organization_id, user_id, and optional storage target. Return attachment object with type pdf, url, and download_url.",
+        "method": "POST",
+        "url": "={{ ($vars.CODEX_FILE_SERVICE_URL || 'https://example.com/codex-file-service') + '/pdf' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $vars.CODEX_FILE_SERVICE_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "title",
+              "value": "={{ $fromAI('pdf_title', 'Codex Export', 'string') }}"
+            },
+            {
+              "name": "html",
+              "value": "={{ $fromAI('pdf_html', '', 'string') }}"
+            },
+            {
+              "name": "file_name",
+              "value": "={{ $fromAI('pdf_file_name', 'codex-export.pdf', 'string') }}"
+            },
+            {
+              "name": "organization_id",
+              "value": "={{ $json.context.organizationId }}"
+            },
+            {
+              "name": "user_id",
+              "value": "={{ $json.context.userId }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "file-export-tool",
+      "name": "File Export Tool",
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        840,
+        420
+      ],
+      "parameters": {
+        "toolDescription": "Create downloadable txt, md, json, csv, or html files from Codex output. Save to Supabase Storage or Google Drive through the file service. Return attachment object with type, name, url, and download_url.",
+        "method": "POST",
+        "url": "={{ ($vars.CODEX_FILE_SERVICE_URL || 'https://example.com/codex-file-service') + '/export' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $vars.CODEX_FILE_SERVICE_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "format",
+              "value": "={{ $fromAI('export_format', 'md', 'string') }}"
+            },
+            {
+              "name": "content",
+              "value": "={{ $fromAI('export_content', '', 'string') }}"
+            },
+            {
+              "name": "file_name",
+              "value": "={{ $fromAI('export_file_name', 'codex-export.md', 'string') }}"
+            },
+            {
+              "name": "organization_id",
+              "value": "={{ $json.context.organizationId }}"
+            },
+            {
+              "name": "user_id",
+              "value": "={{ $json.context.userId }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "image-generation-tool",
+      "name": "Image Generation Tool",
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        1080,
+        420
+      ],
+      "parameters": {
+        "toolDescription": "Generate an image with OpenAI. Use this only when the user asks to create a new image. Improve the prompt for clean business use. The OpenAI response returns base64 image data in data[0].b64_json; convert it into an attachment with url and download_url set to data:image/png;base64,{b64_json}. Never claim success without returning that visible image attachment.",
+        "method": "POST",
+        "url": "https://api.openai.com/v1/images/generations",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $vars.OPENAI_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "model",
+              "value": "gpt-image-1"
+            },
+            {
+              "name": "prompt",
+              "value": "={{ $fromAI('image_prompt', '', 'string') }}"
+            },
+            {
+              "name": "size",
+              "value": "1024x1024"
+            },
+            {
+              "name": "n",
+              "value": "={{ 1 }}"
+            }
+          ]
+        },
         "options": {}
       }
     },
@@ -259,7 +778,7 @@
         0
       ],
       "parameters": {
-        "jsCode": "const output = $json.output || $json.message || $json.text || 'I could not produce a verified response.';\nreturn [{ json: {\n  success: true,\n  type: 'text',\n  message: output,\n  output,\n  conversationId: $('04 Merge Request + User Context').first().json.conversationId || null,\n  data: {},\n  sources: $json.sources || []\n}}];"
+        "jsCode": "let output = $json.output || $json.message || $json.text || 'I could not produce a verified response.';\nconst rawAttachments = Array.isArray($json.attachments) ? $json.attachments : [];\nconst isBrowserUrl = value => typeof value === 'string' && /^(https?:|data:image\\/|blob:)/i.test(value);\nlet attachments = rawAttachments\n  .filter(item => item && typeof item === 'object')\n  .map(item => ({\n    type: item.type || item.file_type || 'file',\n    name: item.name || item.file_name || 'codex-file',\n    url: item.url || item.image_url || item.download_url || '',\n    download_url: item.download_url || item.url || item.image_url || '',\n    metadata: item.metadata || {}\n  }))\n  .filter(item => isBrowserUrl(item.url) || isBrowserUrl(item.download_url));\nconst rawB64 = $json.data?.[0]?.b64_json || $json.data?.b64_json || $json.b64_json;\nif (rawB64 && typeof rawB64 === 'string') {\n  const imageUrl = `data:image/png;base64,${rawB64}`;\n  attachments.push({\n    type: 'image',\n    name: $json.file_name || 'codex-generated-image.png',\n    url: imageUrl,\n    download_url: imageUrl,\n    metadata: { source: 'openai_images' }\n  });\n}\nlet hasVisibleImage = attachments.some(item => String(item.type || '').toLowerCase().includes('image') && (isBrowserUrl(item.url) || isBrowserUrl(item.download_url)));\nconst claimsImageGenerated = /image\\s+(has been\\s+)?(created|generated)|generated\\s+image|download\\s+.*image/i.test(output);\nif (claimsImageGenerated && !hasVisibleImage) {\n  output = 'I could not return a generated image because OpenAI did not provide image data in the tool result. Please check the Image Generation Tool execution in n8n.';\n  attachments = [];\n}\nreturn [{ json: {\n  success: true,\n  type: $json.type || (hasVisibleImage ? 'generated_image' : 'text'),\n  message: output,\n  output,\n  conversationId: $('04 Merge Request + User Context').first().json.conversationId || null,\n  data: $json.data || {},\n  attachments,\n  sources: $json.sources || []\n}}];"
       }
     },
     {
@@ -274,7 +793,51 @@
       "parameters": {
         "path": "codex/upload-document",
         "httpMethod": "POST",
-        "responseMode": "lastNode",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "prepare-document-training-input",
+      "name": "Prepare Document Training Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1560,
+        980
+      ],
+      "parameters": {
+        "jsCode": "const body = $json.body || $json;\nconst parsedContext = typeof body.context === 'string' ? JSON.parse(body.context || '{}') : (body.context || {});\nconst parsedMetadata = typeof body.metadata === 'string' ? JSON.parse(body.metadata || '{}') : (body.metadata || {});\nconst uploadBinary = $binary?.file || $binary?.data || null;\nconst driveFileId = body.drive_file_id || body.driveFileId || body.googleDriveFileId || body.fileId || body.id || null;\nconst json = {\n  ...body,\n  context: parsedContext,\n  metadata: parsedMetadata,\n  driveFileId,\n  hasUploadedBinary: Boolean(uploadBinary),\n  source: uploadBinary ? 'upload' : 'google_drive',\n  file_name: body.file_name || body.fileName || body.name || uploadBinary?.fileName || 'Uploaded document',\n  file_type: body.file_type || body.fileType || uploadBinary?.mimeType || 'unknown',\n  organization_id: body.organization_id || parsedContext.organizationId || parsedContext.organization_id || null,\n  uploaded_by: body.uploaded_by || parsedContext.userId || parsedContext.user_id || null,\n  department: body.department || parsedContext.department || null,\n  module: body.module || parsedContext.currentModule || 'ai-workspace',\n  access_level: body.access_level || 'internal',\n  source_url: body.source_url || body.webViewLink || null\n};\nif (!uploadBinary && !driveFileId) {\n  throw new Error('No uploaded file or Google Drive file id was provided.');\n}\nreturn [{ json, binary: uploadBinary ? { data: uploadBinary } : $binary }];"
+      }
+    },
+    {
+      "id": "has-uploaded-binary",
+      "name": "Has Uploaded Binary?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -1320,
+        980
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.hasUploadedBinary }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
         "options": {}
       }
     },
@@ -315,7 +878,7 @@
         "fileId": {
           "__rl": true,
           "mode": "id",
-          "value": "={{ $json.id }}"
+          "value": "={{ $json.driveFileId || $json.fileId || $json.id }}"
         },
         "options": {}
       }
@@ -338,7 +901,7 @@
               "conditions": {
                 "conditions": [
                   {
-                    "leftValue": "={{ $binary.data.mimeType }}",
+                    "leftValue": "={{ $binary?.data?.mimeType || $json.file_type || $json.mimeType }}",
                     "rightValue": "application/pdf",
                     "operator": {
                       "type": "string",
@@ -360,7 +923,7 @@
               "conditions": {
                 "conditions": [
                   {
-                    "leftValue": "={{ $binary.data.mimeType }}",
+                    "leftValue": "={{ $binary?.data?.mimeType || $json.file_type || $json.mimeType }}",
                     "rightValue": "text/plain",
                     "operator": {
                       "type": "string",
@@ -382,7 +945,7 @@
               "conditions": {
                 "conditions": [
                   {
-                    "leftValue": "={{ $binary.data.mimeType }}",
+                    "leftValue": "={{ $binary?.data?.mimeType || $json.file_type || $json.mimeType }}",
                     "rightValue": "text/markdown",
                     "operator": {
                       "type": "string",
@@ -404,7 +967,7 @@
               "conditions": {
                 "conditions": [
                   {
-                    "leftValue": "={{ $binary.data.mimeType }}",
+                    "leftValue": "={{ $binary?.data?.mimeType || $json.file_type || $json.mimeType }}",
                     "rightValue": "text/csv",
                     "operator": {
                       "type": "string",
@@ -425,6 +988,20 @@
         "options": {
           "fallbackOutput": "extra"
         }
+      }
+    },
+    {
+      "id": "extract-pdf",
+      "name": "Extract Text from PDF",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        -840,
+        1040
+      ],
+      "parameters": {
+        "operation": "pdf",
+        "options": {}
       }
     },
     {
@@ -451,7 +1028,7 @@
         1160
       ],
       "parameters": {
-        "jsCode": "const raw = $json.text || $json.data || '';\nconst text = String(raw).replace(/\\s+/g, ' ').trim();\nif (!text) throw new Error('Document could not be read. Please upload a readable file or OCR version.');\nconst chunkSize = 2200;\nconst overlap = 180;\nconst chunks = [];\nfor (let i = 0; i < text.length; i += chunkSize - overlap) {\n  chunks.push({ json: { ...$json, chunkIndex: chunks.length, chunkText: text.slice(i, i + chunkSize) } });\n}\nreturn chunks;"
+        "jsCode": "const source = $('Prepare Document Training Input').first().json || {};\nconst raw = $json.text || $json.data || $json.content || $json.markdown || '';\nlet text = String(raw).replace(/\\u0000/g, ' ').replace(/\\s+/g, ' ').trim();\nconst lower = text.toLowerCase();\nconst looksLikeHtml = /<!doctype html|<html[\\s>]|<script[\\s>]|window\\.__|webpack|vite|next-data|<body[\\s>]/i.test(text);\nconst tagCount = (text.match(/<[^>]+>/g) || []).length;\nconst wordCount = (text.match(/[a-z0-9]{2,}/gi) || []).length;\nif (!text || wordCount < 8) {\n  throw new Error('Document could not be read. Please upload a readable file or OCR version.');\n}\nif (looksLikeHtml || (tagCount > 20 && tagCount > wordCount / 3)) {\n  throw new Error('Document extraction returned HTML/script content instead of document text. Check that the workflow is receiving the actual file binary, not a preview page or website URL.');\n}\nconst chunkSize = 2200;\nconst overlap = 180;\nconst chunks = [];\nfor (let i = 0; i < text.length; i += chunkSize - overlap) {\n  chunks.push({ json: { ...source, ...$json, chunkIndex: chunks.length, chunkText: text.slice(i, i + chunkSize), extractedTextLength: text.length } });\n}\nreturn chunks;"
       }
     },
     {
@@ -490,7 +1067,7 @@
         1160
       ],
       "parameters": {
-        "jsCode": "const summaries = items.map(item => item.json.message?.content || item.json.output || '').filter(Boolean);\nreturn [{ json: {\n  summary_short: summaries[0]?.slice(0, 400) || '',\n  summary_detailed: summaries.join('\\n\\n'),\n  tags: [],\n  status: 'trained',\n  chunks: items.map((item, index) => ({ index, summary: item.json.message?.content || '', text: item.json.chunkText || '' }))\n}}];"
+        "jsCode": "const first = items[0]?.json || {};\nconst summaries = items.map(item => item.json.message?.content || item.json.output || '').filter(Boolean);\nconst detailed = summaries.join('\\n\\n');\nreturn [{ json: {\n  ...first,\n  summary_short: summaries[0]?.slice(0, 400) || '',\n  summary_detailed: detailed,\n  tags: first.tags || [],\n  status: 'trained',\n  chunks: items.map((item, index) => ({ index, summary: item.json.message?.content || '', text: item.json.chunkText || '' }))\n}}];"
       }
     },
     {
@@ -504,7 +1081,7 @@
       ],
       "parameters": {
         "method": "POST",
-        "url": "={{ $vars.SUPABASE_URL }}/rest/v1/ai_documents",
+        "url": "={{ ($vars.SUPABASE_URL || 'https://zirftywinscopzuuwdlg.supabase.co') + '/rest/v1/ai_documents' }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -627,7 +1204,7 @@
       ],
       "parameters": {
         "respondWith": "json",
-        "responseBody": "{ \"success\": true, \"message\": \"Document learned and summarized successfully.\" }",
+        "responseBody": "={{ {\n  success: true,\n  type: 'document_training',\n  message: 'Document learned and summarized successfully.',\n  documentId: $json.id || $json.document_id || null,\n  sourceUrl: $json.source_url || null,\n  attachments: [],\n  sources: $json.source_url ? [{ title: $json.document_name || 'Document', url: $json.source_url }] : []\n} }}",
         "options": {}
       }
     }
@@ -670,7 +1247,76 @@
       "main": [
         [
           {
+            "node": "Route Image Generation?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Image Generation?": {
+      "main": [
+        [
+          {
+            "node": "Has OpenAI Image Key?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
             "node": "06 Codex Main Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has OpenAI Image Key?": {
+      "main": [
+        [
+          {
+            "node": "Generate Image - OpenAI Direct",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Image Generation Config Missing Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Image - OpenAI Direct": {
+      "main": [
+        [
+          {
+            "node": "Format OpenAI Image Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Image Generation Config Missing Response": {
+      "main": [
+        [
+          {
+            "node": "07 Safe Response Contract",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format OpenAI Image Response": {
+      "main": [
+        [
+          {
+            "node": "07 Safe Response Contract",
             "type": "main",
             "index": 0
           }
@@ -700,6 +1346,28 @@
       ]
     },
     "Document Knowledge Tool": {
+      "ai_tool": [
+        [
+          {
+            "node": "06 Codex Main Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Private Memory Retrieval Tool": {
+      "ai_tool": [
+        [
+          {
+            "node": "06 Codex Main Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Private Memory Save Tool": {
       "ai_tool": [
         [
           {
@@ -743,6 +1411,39 @@
         ]
       ]
     },
+    "Image Analysis Tool": {
+      "ai_tool": [
+        [
+          {
+            "node": "06 Codex Main Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PDF Generator Tool": {
+      "ai_tool": [
+        [
+          {
+            "node": "06 Codex Main Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "File Export Tool": {
+      "ai_tool": [
+        [
+          {
+            "node": "06 Codex Main Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "06 Codex Main Agent": {
       "main": [
         [
@@ -758,7 +1459,36 @@
       "main": [
         [
           {
-            "node": "Clean and Chunk Text",
+            "node": "Prepare Document Training Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Document Training Input": {
+      "main": [
+        [
+          {
+            "node": "Has Uploaded Binary?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Uploaded Binary?": {
+      "main": [
+        [
+          {
+            "node": "Detect File Type",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Download File",
             "type": "main",
             "index": 0
           }
@@ -791,7 +1521,7 @@
       "main": [
         [
           {
-            "node": "Extract Text from File",
+            "node": "Extract Text from PDF",
             "type": "main",
             "index": 0
           }
@@ -813,6 +1543,17 @@
         [
           {
             "node": "Extract Text from File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Text from PDF": {
+      "main": [
+        [
+          {
+            "node": "Clean and Chunk Text",
             "type": "main",
             "index": 0
           }

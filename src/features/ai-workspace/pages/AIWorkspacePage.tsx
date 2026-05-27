@@ -33,6 +33,7 @@ import { useAIWorkspace } from "../hooks/useAIWorkspace";
 import type { ChatAttachment } from "../services/chatHistoryService";
 import type {
   AIWorkspaceHistoryItem,
+  AIWorkspaceOutput,
   AIWorkspaceTool,
   AIWorkspaceViewMode,
 } from "../types/aiWorkspace";
@@ -158,6 +159,34 @@ function toAssistantAttachment(
     mimeType: attachment.mimeType,
     size: attachment.size,
     type,
+    metadata: attachment.metadata,
+  };
+}
+
+function outputAttachmentToChatAttachment(
+  attachment: NonNullable<AIWorkspaceOutput["attachments"]>[number],
+): ChatAttachment {
+  const rawType = String(attachment.type ?? "document").toLowerCase();
+  const type: ChatAttachment["type"] = rawType === "image"
+    ? "image"
+    : rawType === "audio"
+    ? "audio"
+    : rawType === "video"
+    ? "video"
+    : "document";
+
+  return {
+    id: attachment.id ?? crypto.randomUUID(),
+    messageId: "",
+    type,
+    name: attachment.name,
+    url: attachment.download_url || attachment.url || "",
+    size: attachment.size ?? 0,
+    mimeType: attachment.mimeType ?? (
+      rawType === "pdf" ? "application/pdf" : "application/octet-stream"
+    ),
+    uploadedAt: new Date().toISOString(),
+    metadata: attachment.metadata as ChatAttachment["metadata"],
   };
 }
 
@@ -528,11 +557,17 @@ export default function AIWorkspacePage() {
         attachments?.map(toAssistantAttachment),
         metadata,
       );
-      return { content: output.content };
+      return {
+        content: output.content,
+        attachments: output.attachments?.map(outputAttachmentToChatAttachment),
+      };
     } catch (error) {
       console.error("Chat AI service error:", error);
+      const message = error instanceof Error
+        ? error.message
+        : "I'm having trouble connecting right now. Please try again in a moment.";
       return { 
-        content: "I'm having trouble connecting right now. Please try again in a moment." 
+        content: message,
       };
     }
   };

@@ -169,6 +169,32 @@ function makeLocalConversation(params: {
   };
 }
 
+function normalizeConversationProjectId(
+  value: unknown,
+): string | null {
+  return typeof value === "string" && value.trim().length > 0
+    ? value
+    : null;
+}
+
+function normalizeConversation(conversation: ChatConversation): ChatConversation {
+  return {
+    ...conversation,
+    metadata: {
+      totalMessages: conversation.metadata?.totalMessages ?? 0,
+      lastActivity: conversation.metadata?.lastActivity ?? conversation.updatedAt,
+      tags: conversation.metadata?.tags ?? [],
+      isPinned: conversation.metadata?.isPinned ?? false,
+      isArchived: conversation.metadata?.isArchived ?? false,
+      ...conversation.metadata,
+      projectId: normalizeConversationProjectId(
+        conversation.metadata?.projectId,
+      ),
+      projectName: conversation.metadata?.projectName ?? null,
+    },
+  };
+}
+
 export class ChatHistoryService {
   static async createConversation(params: {
     userId: string;
@@ -269,7 +295,7 @@ export class ChatHistoryService {
       const conversations = readLocalConversations(
         params.userId,
         params.organizationId,
-      );
+      ).map(normalizeConversation);
       return { conversations, total: conversations.length, hasMore: false };
     }
 
@@ -314,7 +340,7 @@ export class ChatHistoryService {
       const conversations = readLocalConversations(
         params.userId,
         params.organizationId,
-      );
+      ).map(normalizeConversation);
       return { conversations, total: conversations.length, hasMore: false };
     }
   }
@@ -322,13 +348,17 @@ export class ChatHistoryService {
   static async getChatSession(params: {
     conversationId: string;
     userId: string;
+    organizationId?: string | null;
     limit?: number;
     cursor?: string;
   }): Promise<ChatSession> {
     try {
       if (params.conversationId.startsWith("local_")) {
         const messages = readLocalMessages(params.conversationId);
-        const conversations = readLocalConversations(params.userId);
+        const conversations = readLocalConversations(
+          params.userId,
+          params.organizationId,
+        ).map(normalizeConversation);
         const conversation = conversations.find(
           (item) => item.id === params.conversationId,
         ) ?? {
@@ -340,7 +370,7 @@ export class ChatHistoryService {
         };
 
         return {
-          conversation,
+          conversation: normalizeConversation(conversation),
           messages,
           hasMore: false,
         };

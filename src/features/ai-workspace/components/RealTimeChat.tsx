@@ -3,6 +3,7 @@ import {
   ArrowLeft,
   ArrowUp,
   Copy,
+  Download,
   FileText,
   Folder,
   Image as ImageIcon,
@@ -11,6 +12,7 @@ import {
   Mic,
   Paperclip,
   Plus,
+  RefreshCw,
   Search,
   Sparkles,
   Trash2,
@@ -39,7 +41,7 @@ interface RealTimeChatProps {
     prompt: string,
     attachments?: ChatAttachment[],
     metadata?: Record<string, unknown>,
-  ) => Promise<{ content: string }>;
+  ) => Promise<{ content: string; attachments?: ChatAttachment[] }>;
   initialConversationId?: string;
   onBack?: () => void;
 }
@@ -151,40 +153,178 @@ function AttachmentIcon({ type }: { type: ChatAttachment["type"] }) {
   return <FileText size={14} />;
 }
 
-function MessageAttachments({ attachments }: { attachments?: ChatAttachment[] }) {
+function isBrowserUrl(url?: string) {
+  return !!url && /^(https?:|blob:|data:)/i.test(url);
+}
+
+function MessageContent({ content }: { content: string }) {
+  const parts: Array<
+    | { type: "text"; value: string }
+    | { type: "link"; label: string; url: string; downloadable: boolean }
+  > = [];
+  const linkPattern = /\[([^\]]+)\]\(([^)]+)\)/g;
+  let cursor = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = linkPattern.exec(content)) !== null) {
+    if (match.index > cursor) {
+      parts.push({ type: "text", value: content.slice(cursor, match.index) });
+    }
+
+    const url = match[2] ?? "";
+    parts.push({
+      type: "link",
+      label: match[1] ?? url,
+      url,
+      downloadable: isBrowserUrl(url),
+    });
+    cursor = match.index + match[0].length;
+  }
+
+  if (cursor < content.length) {
+    parts.push({ type: "text", value: content.slice(cursor) });
+  }
+
+  if (!parts.length) return <>{content}</>;
+
+  return (
+    <>
+      {parts.map((part, index) => {
+        if (part.type === "text") {
+          return <span key={index}>{part.value}</span>;
+        }
+
+        if (!part.downloadable) {
+          return (
+            <span
+              key={index}
+              className="rounded-md border border-amber-400/20 bg-amber-400/10 px-1.5 py-0.5 text-amber-200"
+              title={`${part.url} is not a browser-downloadable URL`}
+            >
+              {part.label} unavailable - no real download URL
+            </span>
+          );
+        }
+
+        return (
+          <a
+            key={index}
+            href={part.url}
+            target="_blank"
+            rel="noreferrer"
+            download
+            className="font-medium text-[#8ab4ff] underline decoration-white/20 underline-offset-4 hover:text-white"
+          >
+            {part.label}
+          </a>
+        );
+      })}
+    </>
+  );
+}
+
+function MessageAttachments({
+  attachments,
+  onRegenerateImage,
+}: {
+  attachments?: ChatAttachment[];
+  onRegenerateImage?: () => void;
+}) {
   if (!attachments?.length) return null;
 
   return (
-    <div className="mt-3 grid gap-2">
-      {attachments.map((attachment) => (
-        <a
-          key={attachment.id}
-          href={attachment.url}
-          target="_blank"
-          rel="noreferrer"
-          className="group flex max-w-sm items-center gap-3 rounded-xl border border-white/10 bg-white/4 p-2 text-left transition hover:bg-white/[0.07]"
-        >
-          {attachment.type === "image" ? (
-            <img
-              src={attachment.url}
-              alt={attachment.name}
-              className="h-11 w-11 rounded-md object-cover"
-            />
-          ) : (
+    <div className="mt-3 grid gap-3">
+      {attachments.map((attachment) => {
+        const canOpen = isBrowserUrl(attachment.url);
+
+        if (attachment.type === "image") {
+          return (
+            <figure
+              key={attachment.id}
+              className="w-full max-w-[min(420px,100%)] overflow-hidden rounded-2xl border border-white/10 bg-[#171717] shadow-[0_18px_70px_rgba(0,0,0,0.25)]"
+            >
+              {canOpen ? (
+                <a
+                  href={attachment.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="block bg-black/30"
+                  aria-label={`Open ${attachment.name}`}
+                >
+                  <img
+                    src={attachment.url}
+                    alt={attachment.name}
+                    className="aspect-square w-full object-cover"
+                    loading="lazy"
+                  />
+                </a>
+              ) : (
+                <div className="flex aspect-square w-full items-center justify-center bg-white/5 text-sm text-white/45">
+                  Image unavailable
+                </div>
+              )}
+
+              <figcaption className="flex flex-wrap items-center justify-between gap-2 border-t border-white/10 px-3 py-2.5">
+                <span className="min-w-0 truncate text-xs text-white/52">
+                  {attachment.name}
+                </span>
+                <span className="flex items-center gap-1.5">
+                  {canOpen && (
+                    <a
+                      href={attachment.url}
+                      download={attachment.name}
+                      className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium text-white/65 transition hover:bg-white/10 hover:text-white"
+                    >
+                      <Download size={14} />
+                      Download
+                    </a>
+                  )}
+                  {onRegenerateImage && (
+                    <button
+                      type="button"
+                      onClick={onRegenerateImage}
+                      className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium text-white/65 transition hover:bg-white/10 hover:text-white"
+                    >
+                      <RefreshCw size={14} />
+                      Redo
+                    </button>
+                  )}
+                </span>
+              </figcaption>
+            </figure>
+          );
+        }
+
+        return (
+          <a
+            key={attachment.id}
+            href={canOpen ? attachment.url : undefined}
+            target="_blank"
+            rel="noreferrer"
+            download
+            aria-disabled={!canOpen}
+            className={`group flex max-w-sm items-center gap-3 rounded-xl border border-white/10 bg-white/4 p-2 text-left transition ${
+              canOpen
+                ? "hover:bg-white/[0.07]"
+                : "cursor-not-allowed opacity-60"
+            }`}
+          >
             <span className="flex h-11 w-11 items-center justify-center rounded-md bg-white/8 text-white/60">
               <AttachmentIcon type={attachment.type} />
             </span>
-          )}
-          <span className="min-w-0">
-            <span className="block truncate text-xs font-medium text-white">
-              {attachment.name}
+            <span className="min-w-0">
+              <span className="block truncate text-xs font-medium text-white">
+                {attachment.name}
+              </span>
+              <span className="text-[11px] text-white/45">
+                {canOpen
+                  ? formatFileSize(attachment.size)
+                  : "No real download URL returned"}
+              </span>
             </span>
-            <span className="text-[11px] text-white/45">
-              {formatFileSize(attachment.size)}
-            </span>
-          </span>
-        </a>
-      ))}
+          </a>
+        );
+      })}
     </div>
   );
 }
@@ -192,9 +332,11 @@ function MessageAttachments({ attachments }: { attachments?: ChatAttachment[] })
 function MessageBubble({
   message,
   onDelete,
+  onRegenerateImage,
 }: {
   message: LocalChatMessage;
   onDelete?: (messageId: string) => void;
+  onRegenerateImage?: (messageId: string) => void;
 }) {
   const [copied, setCopied] = useState(false);
   const isUser = message.role === "user";
@@ -233,9 +375,16 @@ function MessageBubble({
           <div className="whitespace-pre-wrap">
             {message.error
               ? "Something went wrong while getting the response. Please try again."
-              : message.content || "Attached file"}
+              : <MessageContent content={message.content || "Attached file"} />}
           </div>
-          <MessageAttachments attachments={message.attachments} />
+          <MessageAttachments
+            attachments={message.attachments}
+            onRegenerateImage={
+              !isUser && message.attachments?.some((item) => item.type === "image")
+                ? () => onRegenerateImage?.(message.id)
+                : undefined
+            }
+          />
         </div>
 
         <div
@@ -297,8 +446,17 @@ function ChatSidebar({
 }) {
   const filteredConversations = conversations
     .filter((conversation) => {
-      const conversationProjectId = conversation.metadata?.projectId ?? null;
-      return selectedProjectId === conversationProjectId;
+      const conversationProjectId =
+        typeof conversation.metadata?.projectId === "string" &&
+          conversation.metadata.projectId.trim().length > 0
+          ? conversation.metadata.projectId
+          : null;
+
+      if (selectedProjectId === null) {
+        return conversationProjectId === null;
+      }
+
+      return conversationProjectId === selectedProjectId;
     })
     .filter((conversation) =>
       conversation.title.toLowerCase().includes(searchQuery.toLowerCase()),
@@ -536,9 +694,17 @@ export default function RealTimeChat({
         const session = await ChatHistoryService.getChatSession({
           conversationId,
           userId,
+          organizationId,
           limit: 100,
         });
 
+        const sessionProjectId =
+          typeof session.conversation.metadata?.projectId === "string" &&
+            session.conversation.metadata.projectId.trim().length > 0
+            ? session.conversation.metadata.projectId
+            : null;
+
+        setSelectedProjectId(sessionProjectId);
         setMessages(session.messages);
         setActiveConversationId(conversationId);
         setShowStarters(false);
@@ -550,7 +716,7 @@ export default function RealTimeChat({
         setLoading(false);
       }
     },
-    [userId],
+    [organizationId, userId],
   );
 
   useEffect(() => {
@@ -886,6 +1052,7 @@ export default function RealTimeChat({
         conversationId,
         role: "assistant",
         content: response.content,
+        attachments: response.attachments,
         createdAt: nowIso(),
         userId,
       };
@@ -906,6 +1073,14 @@ export default function RealTimeChat({
           data: {
             model: "workspace-ai",
             tokens: response.content.length,
+            attachments: response.attachments?.map((attachment) => ({
+              type: attachment.type,
+              name: attachment.name,
+              url: attachment.url,
+              size: attachment.size,
+              mimeType: attachment.mimeType,
+              metadata: attachment.metadata,
+            })) ?? [],
           },
         });
       } catch (error) {
@@ -936,6 +1111,109 @@ export default function RealTimeChat({
     selectedProjectId,
     userId,
   ]);
+
+  const regenerateImage = useCallback(
+    async (assistantMessageId: string) => {
+      if (busy || !userId || !organizationId) return;
+
+      const assistantIndex = messages.findIndex(
+        (message) => message.id === assistantMessageId,
+      );
+      const targetMessage = messages[assistantIndex];
+      if (!targetMessage) return;
+
+      const previousUserMessage = messages
+        .slice(0, assistantIndex)
+        .reverse()
+        .find((message) => message.role === "user");
+      const originalPrompt = previousUserMessage?.content?.trim();
+      const prompt = originalPrompt
+        ? `Regenerate this image with the same request: ${originalPrompt}`
+        : "Regenerate the last image with a similar prompt.";
+      const conversationId = targetMessage.conversationId || activeConversationId;
+      if (!conversationId) return;
+
+      const typingMessage: LocalChatMessage = {
+        id: makeId("typing"),
+        conversationId,
+        role: "assistant",
+        content: "",
+        createdAt: nowIso(),
+        userId,
+        pending: true,
+      };
+
+      setError(null);
+      setMessages((prev) => [...prev, typingMessage]);
+
+      try {
+        const response = await onAsk(prompt, [], {
+          projectId: selectedProjectId,
+          projectName: selectedProject?.title ?? "General",
+          projectMemoryScope: selectedProjectId ? "project" : "general",
+          action: "regenerate_image",
+        });
+        const assistantMessage: LocalChatMessage = {
+          id: makeId("msg"),
+          conversationId,
+          role: "assistant",
+          content: response.content,
+          attachments: response.attachments,
+          createdAt: nowIso(),
+          userId,
+        };
+
+        setMessages((prev) => [
+          ...prev.filter((message) => message.id !== typingMessage.id),
+          assistantMessage,
+        ]);
+
+        try {
+          await ChatHistoryService.addMessage({
+            conversationId,
+            role: "assistant",
+            content: response.content,
+            userId,
+            organizationId,
+            type: "text",
+            data: {
+              model: "workspace-ai",
+              regeneratedFrom: assistantMessageId,
+              attachments: response.attachments?.map((attachment) => ({
+                type: attachment.type,
+                name: attachment.name,
+                url: attachment.url,
+                size: attachment.size,
+                mimeType: attachment.mimeType,
+                metadata: attachment.metadata,
+              })) ?? [],
+            },
+          });
+        } catch (error) {
+          console.warn("Regenerated image was shown but not saved:", error);
+        }
+      } catch (error) {
+        console.error("Image regeneration failed:", error);
+        setMessages((prev) =>
+          prev.map((message) =>
+            message.id === typingMessage.id
+              ? { ...message, pending: false, error: true }
+              : message,
+          ),
+        );
+      }
+    },
+    [
+      activeConversationId,
+      busy,
+      messages,
+      onAsk,
+      organizationId,
+      selectedProject?.title,
+      selectedProjectId,
+      userId,
+    ],
+  );
 
   const activeTitle = activeConversation?.title || "New chat";
 
@@ -1096,6 +1374,7 @@ export default function RealTimeChat({
                     key={message.id}
                     message={message}
                     onDelete={message.role === "user" ? deleteMessage : undefined}
+                    onRegenerateImage={regenerateImage}
                   />
                 ))}
                 <div ref={messagesEndRef} />

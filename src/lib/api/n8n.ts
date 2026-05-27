@@ -15,6 +15,7 @@ export interface AssistantAttachmentInput {
   size?: number;
   type: AssistantAttachmentType;
   textContent?: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface AssistantContextInput {
@@ -92,6 +93,16 @@ export interface AssistantResponse {
   data?: AssistantStructuredData;
   actions?: AssistantQuickAction[];
   sources?: AssistantSourceReference[];
+  attachments?: Array<{
+    id?: string;
+    type?: string;
+    name: string;
+    url?: string;
+    download_url?: string;
+    mimeType?: string;
+    size?: number;
+    metadata?: Record<string, unknown>;
+  }>;
   raw?: unknown;
 }
 

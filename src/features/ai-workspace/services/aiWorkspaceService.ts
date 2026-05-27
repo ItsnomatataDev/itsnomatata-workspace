@@ -242,6 +242,7 @@ function toWorkspaceOutput(
     approvalId: response.approvalId ?? null,
     data: (response.data as Record<string, unknown>) ?? {},
     sources: response.sources ?? [],
+    attachments: response.attachments ?? [],
   };
 }
 

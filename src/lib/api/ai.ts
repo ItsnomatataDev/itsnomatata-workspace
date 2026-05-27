@@ -221,6 +221,9 @@ function normalizeAssistantResponse(value: unknown): AssistantResponse {
   const sources = Array.isArray(value.sources)
     ? (value.sources as NonNullable<AssistantResponse["sources"]>)
     : [];
+  const attachments = Array.isArray(value.attachments)
+    ? (value.attachments as NonNullable<AssistantResponse["attachments"]>)
+    : [];
 
   return {
     success,
@@ -233,6 +236,7 @@ function normalizeAssistantResponse(value: unknown): AssistantResponse {
     data,
     actions,
     sources,
+    attachments,
     raw: value.raw ?? value,
   };
 }
@@ -481,16 +485,43 @@ function buildChatInput(
     parts.push(
       `\n[Attachments]\n${
         attachments.map((attachment) =>
-          [
+          {
+            const metadata = attachment.metadata ?? {};
+            const documentId = typeof metadata.documentId === "string"
+              ? metadata.documentId
+              : null;
+            const trained = typeof metadata.trained === "boolean"
+              ? metadata.trained
+              : null;
+            const trainingMessage = typeof metadata.message === "string"
+              ? metadata.message
+              : null;
+
+            return [
             `Name: ${attachment.name}`,
             `Type: ${attachment.type}`,
             attachment.mimeType ? `MIME: ${attachment.mimeType}` : null,
             attachment.size ? `Size: ${attachment.size}` : null,
             attachment.url ? `URL: ${attachment.url}` : null,
+            attachment.type === "document"
+              ? `Document training status: ${trained === true ? "trained" : trained === false ? "not trained" : "unknown"}`
+              : null,
+            documentId ? `Document ID: ${documentId}` : null,
+            trainingMessage ? `Document upload message: ${trainingMessage}` : null,
+            attachment.type === "document" && trained === true
+              ? `Document instruction: this file was already uploaded through document training. Do not ask the user to upload it again. Use the Document Knowledge Tool with the document name, document ID, and the user's question to summarize or extract relevant details.`
+              : null,
+            attachment.type === "document" && trained === false
+              ? `Document instruction: document training failed or is unavailable. Explain the upload problem and ask for a readable/OCR version only if needed.`
+              : null,
+            attachment.type === "image" && attachment.url
+              ? `Vision instruction: use the Image Analysis Tool with this image URL when the user asks what is visible, asks for the car/object name, or asks to extract text from the image.`
+              : null,
             attachment.textContent
               ? `Text: ${attachment.textContent.slice(0, 4000)}`
               : null,
-          ].filter(Boolean).join("\n")
+            ].filter(Boolean).join("\n");
+          }
         ).join("\n---\n")
       }`,
     );

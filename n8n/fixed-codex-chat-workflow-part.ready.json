@@ -1,0 +1,557 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "public": true,
+        "mode": "webhook",
+        "options": {}
+      },
+      "id": "70a76a58-01f9-4565-ad3f-faaeda9dc876",
+      "name": "01 Chat Trigger - Frontend or n8n Chat",
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1.1,
+      "position": [2080, 3184],
+      "webhookId": "53b25707-d40b-4a66-a59b-242447844cb8"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json;\nconst rawInput = body.chatInput || body.message || body.text || body.output || '';\nconst chatInput = String(rawInput)\n  .replace(/data:image\\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+/g, '[uploaded image data removed]')\n  .slice(0, 12000);\nconst safeAttachments = (body.attachments || []).slice(0, 8).map(item => {\n  const url = String(item?.url || item?.download_url || item?.image_url || '');\n  const safeUrl = url.startsWith('data:') && url.length > 2000 ? '[inline data removed]' : url.slice(0, 1200);\n  return {\n    type: item?.type || item?.file_type || 'file',\n    name: String(item?.name || item?.file_name || 'attachment').slice(0, 180),\n    mimeType: item?.mimeType || item?.mime_type || null,\n    url: safeUrl,\n    download_url: String(item?.download_url || safeUrl || '').slice(0, 1200),\n    documentId: item?.documentId || item?.document_id || null\n  };\n});\nreturn [{ json: {\n  ...body,\n  chatInput,\n  message: chatInput,\n  sessionId: body.sessionId || body.conversationId || body.context?.userId || 'anonymous',\n  conversationId: body.conversationId || null,\n  context: body.context || {},\n  metadata: body.metadata || {},\n  attachments: safeAttachments,\n  action: body.action || 'sendMessage'\n}}];"
+      },
+      "id": "faa42401-5120-40ea-8983-712b5dfd2a24",
+      "name": "02 Normalize Chat Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2320, 3184]
+    },
+    {
+      "parameters": {
+        "jsCode": "const request = $('02 Normalize Chat Payload').first().json;\nconst context = request.context || {};\nreturn [{ json: {\n  ...request,\n  profile: {\n    id: context.userId || null,\n    full_name: context.fullName || null,\n    email: context.email || null,\n    primary_role: context.role || 'employee',\n    department: context.department || null,\n    organization_id: context.organizationId || null\n  },\n  supabaseContextStatus: context.userId ? 'frontend_context' : 'anonymous_or_manual_test'\n}}];"
+      },
+      "id": "99fb8f71-9b81-4b20-9de0-ed6bd75ed53e",
+      "name": "03 Prepare User Context (Supabase Optional)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2560, 3184]
+    },
+    {
+      "parameters": {
+        "jsCode": "const request = $('03 Prepare User Context (Supabase Optional)').first().json;\nconst profile = request.profile || {};\nconst chatInput = request.chatInput || request.message || '';\nreturn [{ json: {\n  ...request,\n  chatInput,\n  message: chatInput,\n  context: {\n    ...request.context,\n    userId: request.context.userId || profile.id || 'anonymous',\n    fullName: request.context.fullName || profile.full_name || 'Workspace User',\n    email: request.context.email || profile.email || null,\n    role: request.context.role || profile.primary_role || 'employee',\n    department: request.context.department || profile.department || null,\n    organizationId: request.context.organizationId || profile.organization_id || 'workspace-default',\n    currentModule: request.context.currentModule || 'ai-workspace',\n    timezone: request.context.timezone || 'Africa/Harare',\n    channel: request.context.channel || 'web'\n  }\n}}];"
+      },
+      "id": "e36dccf8-4cd5-4eac-97ff-3de7c4d6c226",
+      "name": "04 Merge Request + User Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2800, 3184]
+    },
+    {
+      "parameters": {
+        "jsCode": "const chatInput = $json.chatInput || $json.message || '';\nconst message = chatInput.toLowerCase();\nconst attachments = $json.attachments || [];\nconst hasImageAttachment = attachments.some(item => item?.type === 'image' || String(item?.mimeType || '').startsWith('image/'));\nconst hasDocumentAttachment = attachments.some(item => item?.type === 'document' || /pdf|text|markdown|csv|json|word|document/i.test(String(item?.mimeType || item?.name || '')));\nlet route = 'main_agent';\nif (hasDocumentAttachment || /document|file|pdf|policy|summarize this|action items|deadline|extract text|invoice|receipt/.test(message)) route = 'document_qa';\nif (hasImageAttachment || /what can you see|analy[sz]e image|identify this|what car|car model|read this image|extract text from image|ocr image/.test(message)) route = 'image_analysis';\nif (/who|team|department|responsible|maintain|built codex|developer/.test(message)) route = 'people_directory';\nif (/website|external company|research|find online|official site/.test(message)) route = 'web_research';\nif (/logo|hero image|gallery|open graph|og:image|favicon/.test(message)) route = 'image_fetch';\nif (/generate.*image|create.*image|draw|make.*picture|image of/.test(message)) route = 'image_generation';\nif (/code|typescript|react|next|tailwind|supabase|node|expo|bug|error/.test(message)) route = 'code_assistant';\nreturn [{ json: { ...$json, chatInput, message: chatInput, route, allowed: true } }];"
+      },
+      "id": "956f2b06-57ca-42f3-9bf3-c4cac89225cb",
+      "name": "05 Permission + Tool Router",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3040, 3184]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "image_generation",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and",
+                "options": {
+                  "caseSensitive": true,
+                  "typeValidation": "strict",
+                  "version": 2
+                }
+              },
+              "renameOutput": true,
+              "outputKey": "image_generation"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "ceab131c-8526-4b7a-b979-e283b652c13d",
+      "name": "Route Image Generation?",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [3184, 3152]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/images/generations",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "model",
+              "value": "gpt-image-1"
+            },
+            {
+              "name": "prompt",
+              "value": "={{ ($json.message || $json.chatInput || '').replace(/\\n\\[Context\\][\\s\\S]*$/,'').trim() }}"
+            },
+            {
+              "name": "size",
+              "value": "1024x1024"
+            },
+            {
+              "name": "n",
+              "value": "={{ 1 }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "2f99978d-8503-4c1d-89fb-4e6096ac4f57",
+      "name": "Generate Image - OpenAI Direct",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [3584, 2864],
+      "credentials": {
+        "openAiApi": {
+          "id": "AMCuIhOcN1ffKYz9",
+          "name": "OpenAi account"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const source = $('05 Permission + Tool Router').first().json;\nconst prompt = (source.message || source.chatInput || 'generated image').replace(/\\n\\[Context\\][\\s\\S]*$/, '').trim();\nconst b64 = $json.data?.[0]?.b64_json;\nif (!b64) {\n  const detail = $json.error?.message || $json.message || $json.error || 'OpenAI did not return image data.';\n  const message = `I could not return a generated image yet. OpenAI image generation failed: ${String(detail).slice(0, 300)}`;\n  return [{ json: {\n    success: true,\n    type: 'text',\n    message,\n    output: message,\n    conversationId: source.conversationId || null,\n    data: { prompt },\n    attachments: [],\n    sources: []\n  }}];\n}\nconst imageUrl = `data:image/png;base64,${b64}`;\nconst slug = prompt.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48) || 'codex-image';\nreturn [{ json: {\n  success: true,\n  type: 'generated_image',\n  message: 'Image generated successfully.',\n  output: 'Image generated successfully.',\n  conversationId: source.conversationId || null,\n  data: { prompt },\n  attachments: [{\n    type: 'image',\n    name: `${slug}.png`,\n    url: imageUrl,\n    download_url: imageUrl,\n    metadata: { source: 'openai_images', model: 'gpt-image-1' }\n  }],\n  sources: []\n}}];"
+      },
+      "id": "4c605427-7ac4-4db1-91a5-a7c5fc66b855",
+      "name": "Format OpenAI Image Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3920, 2864]
+    },
+    {
+      "parameters": {},
+      "id": "e17ec8d7-f0e4-4fbd-a28d-4cfe22bef34b",
+      "name": "Project Memory",
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [3120, 3552]
+    },
+    {
+      "parameters": {
+        "toolDescription": "Search approved ITsNomatata internal documents, policies, uploaded files, project summaries, and GraphRAG knowledge. Check role/department scope before using content. Return concise relevant summaries only.",
+        "method": "POST",
+        "url": "https://infranodus.com/api/v1/graphAndStatements?doNotSave=true&includeGraph=false&includeGraphSummary=false",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "name",
+              "value": "ai_topic_marketing-guidance"
+            },
+            {
+              "name": "requestMode",
+              "value": "response"
+            },
+            {
+              "name": "prompt",
+              "value": "={{ String($fromAI('document_query', '', 'string')).slice(0, 3000) }}"
+            },
+            {
+              "name": "includeOnlySummaries",
+              "value": "={{ true }}"
+            },
+            {
+              "name": "maxResults",
+              "value": "={{ 3 }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "22ef2273-2eed-414a-a7ec-841a689c753b",
+      "name": "Document Knowledge Tool",
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [3520, 3600],
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "avvALbqGyQanRNTH",
+          "name": "Bearer Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "toolDescription": "Look up approved team members, departments, roles, responsibilities, managers, and active status from Supabase. Never invent people.",
+        "url": "={{ ($vars.SUPABASE_URL || 'https://zirftywinscopzuuwdlg.supabase.co') + '/rest/v1/team_members?organization_id=eq.' + $json.context.organizationId + '&active_status=eq.active&select=*' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "e1790f66-83df-4611-b304-15c398f64048",
+      "name": "People Directory Tool",
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [3760, 3600]
+    },
+    {
+      "parameters": {
+        "toolDescription": "Research external companies using Tavily Search API. Prefer official websites and reliable sources. Return title, description, services, contacts, social links, images, and source URLs.",
+        "method": "POST",
+        "url": "https://api.tavily.com/search",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $vars.TAVILY_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "query",
+              "value": "={{ String($fromAI('web_query', '', 'string')).slice(0, 1000) }}"
+            },
+            {
+              "name": "search_depth",
+              "value": "advanced"
+            },
+            {
+              "name": "include_answer",
+              "value": "={{ true }}"
+            },
+            {
+              "name": "include_images",
+              "value": "={{ true }}"
+            },
+            {
+              "name": "include_raw_content",
+              "value": "={{ false }}"
+            },
+            {
+              "name": "max_results",
+              "value": "={{ 5 }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "2b002c60-1ae2-4988-958a-bfd148705fd4",
+      "name": "Web Research Tool",
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [4000, 3600]
+    },
+    {
+      "parameters": {
+        "toolDescription": "Fetch company-related images from official websites: og:image, logo, favicon, hero images, gallery images, product images. Return source URLs and avoid random unsourced images.",
+        "url": "={{ $fromAI('source_page_url', 'https://example.com', 'string') || 'https://example.com' }}",
+        "options": {}
+      },
+      "id": "f57ad263-8520-4017-87be-5d9798b25842",
+      "name": "Image Fetch Tool",
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [4240, 3600]
+    },
+    {
+      "parameters": {
+        "toolDescription": "Analyze an uploaded image using OpenAI vision. Use this when the user sends a picture and asks what it is, what car/model/object appears, to read text from an image, or to extract visible details.",
+        "method": "POST",
+        "url": "https://api.openai.com/v1/responses",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "model",
+              "value": "gpt-4o-mini"
+            },
+            {
+              "name": "input",
+              "value": "={{ [{ role: 'user', content: [{ type: 'input_text', text: $fromAI('image_question', 'Analyze this image. Identify visible objects, text, brand/model clues, and important details. Be honest about uncertainty.', 'string') }, { type: 'input_image', image_url: $fromAI('image_url', ($json.attachments || []).find(a => a?.url && !String(a.url).startsWith('['))?.url || '', 'string') }] }] }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "626c1d3b-e652-45d1-a8c7-269b23daa82c",
+      "name": "Image Analysis Tool",
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [4480, 3760],
+      "credentials": {
+        "openAiApi": {
+          "id": "AMCuIhOcN1ffKYz9",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "toolDescription": "Generate a downloadable PDF from an AI answer, document summary, report, or HTML. Return attachment object with type pdf, url, and download_url. Use only when CODEX_FILE_SERVICE_URL and CODEX_FILE_SERVICE_KEY are configured.",
+        "method": "POST",
+        "url": "={{ ($vars.CODEX_FILE_SERVICE_URL || 'https://example.com/codex-file-service') + '/pdf' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $vars.CODEX_FILE_SERVICE_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "title",
+              "value": "={{ $fromAI('pdf_title', 'Codex Export', 'string') }}"
+            },
+            {
+              "name": "html",
+              "value": "={{ String($fromAI('pdf_html', '', 'string')).slice(0, 50000) }}"
+            },
+            {
+              "name": "file_name",
+              "value": "={{ $fromAI('pdf_file_name', 'codex-export.pdf', 'string') }}"
+            },
+            {
+              "name": "organization_id",
+              "value": "={{ $json.context.organizationId }}"
+            },
+            {
+              "name": "user_id",
+              "value": "={{ $json.context.userId }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "dd572cfd-245f-473d-8c6d-2925d98758b6",
+      "name": "PDF Generator Tool",
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [4480, 3600]
+    },
+    {
+      "parameters": {
+        "toolDescription": "Create downloadable txt, md, json, csv, or html files from Codex output. Return attachment object with type, name, url, and download_url. Use only when CODEX_FILE_SERVICE_URL and CODEX_FILE_SERVICE_KEY are configured.",
+        "method": "POST",
+        "url": "={{ ($vars.CODEX_FILE_SERVICE_URL || 'https://example.com/codex-file-service') + '/export' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $vars.CODEX_FILE_SERVICE_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "format",
+              "value": "={{ $fromAI('export_format', 'md', 'string') }}"
+            },
+            {
+              "name": "content",
+              "value": "={{ String($fromAI('export_content', '', 'string')).slice(0, 50000) }}"
+            },
+            {
+              "name": "file_name",
+              "value": "={{ $fromAI('export_file_name', 'codex-export.md', 'string') }}"
+            },
+            {
+              "name": "organization_id",
+              "value": "={{ $json.context.organizationId }}"
+            },
+            {
+              "name": "user_id",
+              "value": "={{ $json.context.userId }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "12c1939b-f809-4422-a384-1215c6ead55b",
+      "name": "File Export Tool",
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [4720, 3600]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ String($json.chatInput || $json.message || '').replace(/data:image\\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+/g, '[uploaded image data removed]').slice(0, 8000) }}",
+        "options": {
+          "systemMessage": "You are Codex, the internal AI assistant for ITsNomatata. Answer clearly and safely. Use tools only when needed. Respect role, department, organization, and project memory scope. Never expose restricted company data. If verified internal knowledge is missing, say so clearly. Do not process huge raw files or base64 data in chat; ask the user to upload the file through document training."
+        }
+      },
+      "id": "ae08a7b5-77d2-429b-a894-1b4e30549d4f",
+      "name": "06 Codex Main Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.9,
+      "position": [3632, 3200]
+    },
+    {
+      "parameters": {
+        "jsCode": "let output = $json.output || $json.message || $json.text || 'I could not produce a verified response.';\nconst rawAttachments = Array.isArray($json.attachments) ? $json.attachments : [];\nconst isBrowserUrl = value => typeof value === 'string' && /^(https?:|data:image\\/|blob:)/i.test(value);\nlet attachments = rawAttachments\n  .filter(item => item && typeof item === 'object')\n  .map(item => ({\n    type: item.type || item.file_type || 'file',\n    name: item.name || item.file_name || 'codex-file',\n    url: item.url || item.image_url || item.download_url || '',\n    download_url: item.download_url || item.url || item.image_url || '',\n    metadata: item.metadata || {}\n  }))\n  .filter(item => isBrowserUrl(item.url) || isBrowserUrl(item.download_url));\nconst rawB64 = $json.data?.[0]?.b64_json || $json.data?.b64_json || $json.b64_json;\nif (rawB64 && typeof rawB64 === 'string') {\n  const imageUrl = `data:image/png;base64,${rawB64}`;\n  attachments.push({ type: 'image', name: $json.file_name || 'codex-generated-image.png', url: imageUrl, download_url: imageUrl, metadata: { source: 'openai_images' } });\n}\nlet hasVisibleImage = attachments.some(item => String(item.type || '').toLowerCase().includes('image') && (isBrowserUrl(item.url) || isBrowserUrl(item.download_url)));\nconst claimsImageGenerated = /image\\s+(has been\\s+)?(created|generated)|generated\\s+image|download\\s+.*image/i.test(output);\nif (claimsImageGenerated && !hasVisibleImage) {\n  output = 'I could not return a generated image because the image generation result did not include browser-visible image data.';\n  attachments = [];\n}\nreturn [{ json: {\n  success: true,\n  type: $json.type || (hasVisibleImage ? 'generated_image' : 'text'),\n  message: output,\n  output,\n  conversationId: $('04 Merge Request + User Context').first().json.conversationId || null,\n  data: $json.data || {},\n  attachments,\n  sources: $json.sources || []\n}}];"
+      },
+      "id": "193b3991-04b8-4076-8da3-2304143d9eb6",
+      "name": "07 Safe Response Contract",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [4352, 3008]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o",
+          "mode": "list",
+          "cachedResultName": "gpt-4o"
+        },
+        "options": {}
+      },
+      "id": "b3115cae-ac1b-4ebc-b0ba-a371aa06e56e",
+      "name": "OpenAI Main Reasoning Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [3392, 3584],
+      "credentials": {
+        "openAiApi": {
+          "id": "AMCuIhOcN1ffKYz9",
+          "name": "OpenAi account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "01 Chat Trigger - Frontend or n8n Chat": {
+      "main": [[{ "node": "02 Normalize Chat Payload", "type": "main", "index": 0 }]]
+    },
+    "02 Normalize Chat Payload": {
+      "main": [[{ "node": "03 Prepare User Context (Supabase Optional)", "type": "main", "index": 0 }]]
+    },
+    "03 Prepare User Context (Supabase Optional)": {
+      "main": [[{ "node": "04 Merge Request + User Context", "type": "main", "index": 0 }]]
+    },
+    "04 Merge Request + User Context": {
+      "main": [[{ "node": "05 Permission + Tool Router", "type": "main", "index": 0 }]]
+    },
+    "05 Permission + Tool Router": {
+      "main": [[{ "node": "Route Image Generation?", "type": "main", "index": 0 }]]
+    },
+    "Route Image Generation?": {
+      "main": [
+        [{ "node": "Generate Image - OpenAI Direct", "type": "main", "index": 0 }],
+        [{ "node": "06 Codex Main Agent", "type": "main", "index": 0 }]
+      ]
+    },
+    "Generate Image - OpenAI Direct": {
+      "main": [[{ "node": "Format OpenAI Image Response", "type": "main", "index": 0 }]]
+    },
+    "Format OpenAI Image Response": {
+      "main": [[{ "node": "07 Safe Response Contract", "type": "main", "index": 0 }]]
+    },
+    "Project Memory": {
+      "ai_memory": [[{ "node": "06 Codex Main Agent", "type": "ai_memory", "index": 0 }]]
+    },
+    "Document Knowledge Tool": {
+      "ai_tool": [[{ "node": "06 Codex Main Agent", "type": "ai_tool", "index": 0 }]]
+    },
+    "People Directory Tool": {
+      "ai_tool": [[{ "node": "06 Codex Main Agent", "type": "ai_tool", "index": 0 }]]
+    },
+    "Web Research Tool": {
+      "ai_tool": [[{ "node": "06 Codex Main Agent", "type": "ai_tool", "index": 0 }]]
+    },
+    "Image Fetch Tool": {
+      "ai_tool": [[{ "node": "06 Codex Main Agent", "type": "ai_tool", "index": 0 }]]
+    },
+    "Image Analysis Tool": {
+      "ai_tool": [[{ "node": "06 Codex Main Agent", "type": "ai_tool", "index": 0 }]]
+    },
+    "PDF Generator Tool": {
+      "ai_tool": [[{ "node": "06 Codex Main Agent", "type": "ai_tool", "index": 0 }]]
+    },
+    "File Export Tool": {
+      "ai_tool": [[{ "node": "06 Codex Main Agent", "type": "ai_tool", "index": 0 }]]
+    },
+    "06 Codex Main Agent": {
+      "main": [[{ "node": "07 Safe Response Contract", "type": "main", "index": 0 }]]
+    },
+    "OpenAI Main Reasoning Model": {
+      "ai_languageModel": [[{ "node": "06 Codex Main Agent", "type": "ai_languageModel", "index": 0 }]]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "50e6bfa796b7843cf807280c4dfaf50c8d8481a53f2c542e4644133e795419bf"
+  }
+}

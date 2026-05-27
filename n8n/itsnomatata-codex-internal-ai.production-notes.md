@@ -5,6 +5,8 @@ Created artifacts:
 - `n8n/itsnomatata-codex-internal-ai.production.workflow.json`
 - `n8n/itsnomatata-ai-workspace-brain.system-prompt.md`
 - `supabase/migrations/202605270002_codex_internal_ai_system.sql`
+- `supabase/migrations/202605270003_codex_generated_files.sql`
+- `supabase/migrations/202605270004_codex_private_memory.sql`
 
 ## What This Rebuild Does
 
@@ -15,7 +17,7 @@ Chat frontend
 -> Main Codex Agent
 -> Permission/context loader
 -> Tool router
--> Documents / People / Web / Images / Code / Tasks
+-> Private Memory / Documents / People / Web / Images / Code / Tasks
 -> Safe response contract
 ```
 
@@ -32,7 +34,11 @@ Create these in the n8n UI under Variables:
 ```text
 SUPABASE_URL=
 SUPABASE_SERVICE_ROLE_KEY=
+OPENAI_API_KEY=
 GEMINI_API_KEY=
+TAVILY_API_KEY=
+CODEX_FILE_SERVICE_URL=
+CODEX_FILE_SERVICE_KEY=
 ```
 
 Do not use `$env.SUPABASE_URL` inside node fields on this server.
@@ -103,6 +109,70 @@ when a manual n8n test fails.
 
 Keep your existing OpenAI, Google Drive, and InfraNodus credentials in n8n.
 
+## Document Training Flow
+
+The document training branch must stay wired in this order:
+
+```text
+Document Training Trigger
+-> Prepare Document Training Input
+-> Has Uploaded Binary?
+   -> true: Detect File Type
+   -> false: Download File
+-> Detect File Type
+   -> PDF: Extract Text from PDF
+   -> TXT/Markdown/CSV: Extract Text from File
+-> Clean and Chunk Text
+-> Summarize Chunk - OpenAI
+-> Create Final Document Summary
+-> Save Document Metadata to Supabase
+-> Save Summary to InfraNodus GraphRAG
+-> Document Learned Response
+```
+
+Do not connect `Document Training Trigger` directly to `Clean and Chunk Text`.
+The trigger must first normalize the uploaded binary or download the Google
+Drive file so extraction receives readable file data.
+
+If extraction returns HTML, scripts, a login page, or a preview page, the
+`Clean and Chunk Text` node now stops with a clear error. That means the
+workflow received a webpage/preview instead of the real file binary.
+
+## Private Long-Term Memory
+
+Run:
+
+```text
+supabase/migrations/202605270004_codex_private_memory.sql
+```
+
+This creates `ai_memory_items`, scoped by:
+
+- `organization_id`
+- `user_id`
+- optional `project_id`
+
+The workflow has:
+
+- `Private Memory Retrieval Tool`
+- `Private Memory Save Tool`
+
+This means Codex can remember user preferences and project decisions across new
+chats, but it must not read or expose another user's memory.
+
+## Image Analysis and Generation
+
+`Image Analysis Tool` uses OpenAI vision through `OPENAI_API_KEY`. This is the
+tool Codex should use when a user uploads a car photo, screenshot, invoice image,
+or any picture and asks what can be seen.
+
+`Image Generation Tool` now uses OpenAI directly through `OPENAI_API_KEY`.
+OpenAI returns base64 image data, and Codex must convert it into a browser
+attachment like `data:image/png;base64,...`.
+
+Codex must not say an image was generated successfully unless the final response
+contains a real browser-visible `url` or `download_url` attachment.
+
 ## Critical Manual Step
 
 Open the `06 Codex Main Agent` node and paste the full contents of:
@@ -125,10 +195,9 @@ After importing the workflow JSON into n8n, reconnect:
 
 ## Known Production Improvements Still Recommended
 
-- Replace the placeholder Google Search HTTP URL with a proper search API such as Tavily, SerpAPI, Brave Search, or Google Custom Search.
 - Add dedicated Supabase RPC endpoints for permission-filtered document search.
 - Add OCR for scanned PDFs/images.
-- Add a real image generation provider node when you connect one later.
+- Connect `CODEX_FILE_SERVICE_URL` to your PDF/export service.
 - Add task/project tool endpoints once you decide which workspace actions Codex may execute.
 
 ## Safety Defaults

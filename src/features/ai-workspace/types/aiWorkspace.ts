@@ -68,6 +68,16 @@ export interface AIWorkspaceOutput {
     url?: string;
     snippet?: string;
   }>;
+  attachments?: Array<{
+    id?: string;
+    type?: string;
+    name: string;
+    url?: string;
+    download_url?: string;
+    mimeType?: string;
+    size?: number;
+    metadata?: Record<string, unknown>;
+  }>;
 }
 
 export interface AIWorkspaceApprovalItem {
