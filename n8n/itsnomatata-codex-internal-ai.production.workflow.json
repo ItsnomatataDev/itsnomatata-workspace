@@ -1,5 +1,5 @@
 {
-  "name": "ITsNomatata Codex Internal AI - Production Blueprint",
+  "name": "ITsNomatata Codex Internal AI",
   "meta": {
     "description": "Production-ready n8n blueprint for Codex: chat agent, document training, document Q&A, people directory, web research, image fetch, code assistant, OpenAI primary model, Gemini backup model.",
     "openAiPrimary": true,
@@ -32,7 +32,7 @@
         0
       ],
       "parameters": {
-        "jsCode": "const body = $json;\nconst rawInput = body.chatInput || body.message || body.text || body.output || '';\nconst chatInput = String(rawInput).replace(/data:image\\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+/g, '[uploaded image data removed]').slice(0, 12000);\nconst safeAttachments = (body.attachments || []).slice(0, 8).map(item => {\n  const url = String(item?.url || item?.download_url || item?.image_url || '');\n  const safeUrl = url.startsWith('data:') && url.length > 2000 ? '[inline data removed]' : url.slice(0, 1200);\n  return {\n    type: item?.type || item?.file_type || 'file',\n    name: String(item?.name || item?.file_name || 'attachment').slice(0, 180),\n    mimeType: item?.mimeType || item?.mime_type || null,\n    url: safeUrl,\n    download_url: String(item?.download_url || safeUrl || '').slice(0, 1200),\n    documentId: item?.documentId || item?.document_id || null\n  };\n});\nreturn [{ json: {\n  ...body,\n  chatInput,\n  message: chatInput,\n  sessionId: body.sessionId || body.conversationId || body.context?.userId || 'anonymous',\n  conversationId: body.conversationId || null,\n  context: body.context || {},\n  metadata: body.metadata || {},\n  attachments: safeAttachments,\n  action: body.action || 'sendMessage'\n}}];"
+        "jsCode": "const body = $json;\nconst rawInput = body.chatInput || body.message || body.text || body.output || '';\nconst chatInput = String(rawInput).replace(/data:image/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+/g, '[uploaded image data removed]').slice(0, 12000);\nconst rawAttachments = Array.isArray(body.attachments) ? body.attachments : [];\nconst attachmentSources = rawAttachments.slice(0, 8).map((item, index) => {\n  const sourceUrl = String(item?.url || item?.download_url || item?.image_url || item?.publicUrl || item?.signedUrl || '');\n  return { index, type: item?.type || item?.file_type || 'file', name: String(item?.name || item?.file_name || 'attachment').slice(0, 180), mimeType: item?.mimeType || item?.mime_type || null, url: sourceUrl, download_url: String(item?.download_url || sourceUrl || ''), documentId: item?.documentId || item?.document_id || null };\n});\nconst safeAttachments = rawAttachments.slice(0, 8).map((item, index) => {\n  const source = attachmentSources[index] || {};\n  const url = String(source.url || '');\n  const download = String(source.download_url || url || '');\n  const safeUrl = url.startsWith('data:') && url.length > 2000 ? '[inline data removed]' : url.slice(0, 1200);\n  const safeDownload = download.startsWith('data:') && download.length > 2000 ? '[inline data removed]' : download.slice(0, 1200);\n  return { type: source.type || 'file', name: source.name || 'attachment', mimeType: source.mimeType || null, url: safeUrl, download_url: safeDownload, documentId: source.documentId || null };\n});\nreturn [{ json: { ...body, chatInput, message: chatInput, sessionId: body.sessionId || body.conversationId || body.context?.userId || 'anonymous', conversationId: body.conversationId || null, context: body.context || {}, metadata: body.metadata || {}, attachments: safeAttachments, attachmentSources, action: body.action || 'sendMessage' }, binary: $binary }];"
       }
     },
     {
@@ -71,7 +71,7 @@
         0
       ],
       "parameters": {
-        "jsCode": "const chatInput = $json.chatInput || $json.message || '';\nconst message = chatInput.toLowerCase();\nconst attachments = $json.attachments || [];\nconst hasImageAttachment = attachments.some(item => item?.type === 'image' || String(item?.mimeType || '').startsWith('image/'));\nconst hasDocumentAttachment = attachments.some(item => item?.type === 'document' || /pdf|text|markdown|csv|json|word|document/i.test(String(item?.mimeType || item?.name || '')));\nlet route = 'main_agent';\nif (hasDocumentAttachment || /document|file|pdf|policy|summarize this|action items|deadline|extract text|invoice|receipt/.test(message)) route = 'document_qa';\nif (hasImageAttachment || /what can you see|analy[sz]e image|identify this|what car|car model|read this image|extract text from image|ocr image/.test(message)) route = 'image_analysis';\nif (/who|team|department|responsible|maintain|built codex|developer/.test(message)) route = 'people_directory';\nif (/website|external company|research|find online|official site/.test(message)) route = 'web_research';\nif (/logo|hero image|gallery|open graph|og:image|favicon/.test(message)) route = 'image_fetch';\nif (/generate.*image|create.*image|draw|make.*picture|image of/.test(message)) route = 'image_generation';\nif (/code|typescript|react|next|tailwind|supabase|node|expo|bug|error/.test(message)) route = 'code_assistant';\nreturn [{ json: { ...$json, chatInput, message: chatInput, route, allowed: true } }];"
+        "jsCode": "const chatInput = $json.chatInput || $json.message || '';\nconst message = chatInput.toLowerCase();\nconst attachments = Array.isArray($json.attachments) ? $json.attachments : [];\nconst sources = Array.isArray($json.attachmentSources) ? $json.attachmentSources : [];\nconst allAttachments = [...attachments, ...sources];\nconst mimeOrName = item => String(item?.mimeType || item?.mime_type || item?.type || item?.name || item?.url || item?.download_url || '').toLowerCase();\nconst hasImageAttachment = allAttachments.some(item => item?.type === 'image' || mimeOrName(item).startsWith('image/') || /.(png|jpe?g|webp|gif)(?|#|$)/i.test(String(item?.url || item?.download_url || item?.name || '')) || String(item?.url || item?.download_url || '').startsWith('data:image/'));\nconst hasDocumentAttachment = allAttachments.some(item => item?.type === 'document' || /pdf|text|markdown|csv|json|word|docx|document|invoice|receipt|form/.test(mimeOrName(item)));\nconst hasAnyAttachment = hasImageAttachment || hasDocumentAttachment || allAttachments.length > 0 || Object.keys($binary || {}).length > 0;\nconst editIntent = /\b(edit|change|modify|enhance|improve|retouch|remove|replace|background|make it professional|product photo|poster|add text|add the words|resize|crop|upscale|hd|high[- ]?resolution|clean up|color|colour|turn this into|use this image)\b/i.test(chatInput);\nconst imageQuestionIntent = /what (can you see|is in|do you see)|describe (this|the) image|analy[sz]e (this|the) image|identify this|what car|car model|caption this image/i.test(chatInput);\nconst ocrIntent = /extract (the )?text|read this|scan this|ocr|what does this document say|transcribe|receipt|invoice|screenshot|form|scanned pdf|photographed document/i.test(chatInput);\nlet route = 'main_agent';\nif (hasImageAttachment && editIntent) route = 'image_editing';\nelse if (/generate.*image|create.*image|draw|make.*picture|image of|generate.*logo|create.*logo/i.test(chatInput) && !hasImageAttachment) route = 'image_generation';\nelse if (hasImageAttachment && imageQuestionIntent) route = 'image_analysis';\nelse if ((hasAnyAttachment && ocrIntent) || (hasImageAttachment && /text|receipt|invoice|screenshot|form/i.test(message))) route = 'ocr_extraction';\nelse if (hasDocumentAttachment || /document|file|pdf|policy|summarize this|action items|deadline|extract text|invoice|receipt/i.test(message)) route = 'document_qa';\nelse if (/website|external company|research|find online|official site/i.test(message)) route = 'web_research';\nelse if (/logo|hero image|gallery|open graph|og:image|favicon/i.test(message)) route = 'image_fetch';\nelse if (/who|team|department|responsible|maintain|built codex|developer/i.test(message)) route = 'people_directory';\nelse if (/code|typescript|react|next|tailwind|supabase|node|expo|bug|error/i.test(message)) route = 'code_assistant';\nreturn [{ json: { ...$json, chatInput, message: chatInput, route, allowed: true, routing: { hasImageAttachment, hasDocumentAttachment, editIntent, ocrIntent } }, binary: $binary }];"
       }
     },
     {
@@ -107,12 +107,56 @@
           "values": [
             {
               "renameOutput": true,
+              "outputKey": "image_editing",
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "image_editing",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and",
+                "options": {
+                  "caseSensitive": true,
+                  "typeValidation": "strict",
+                  "version": 2
+                }
+              }
+            },
+            {
+              "renameOutput": true,
               "outputKey": "image_generation",
               "conditions": {
                 "conditions": [
                   {
                     "leftValue": "={{ $json.route }}",
                     "rightValue": "image_generation",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and",
+                "options": {
+                  "caseSensitive": true,
+                  "typeValidation": "strict",
+                  "version": 2
+                }
+              }
+            },
+            {
+              "renameOutput": true,
+              "outputKey": "ocr_extraction",
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "ocr_extraction",
                     "operator": {
                       "type": "string",
                       "operation": "equals"
@@ -778,7 +822,7 @@
         0
       ],
       "parameters": {
-        "jsCode": "let output = $json.output || $json.message || $json.text || 'I could not produce a verified response.';\nconst rawAttachments = Array.isArray($json.attachments) ? $json.attachments : [];\nconst isBrowserUrl = value => typeof value === 'string' && /^(https?:|data:image\\/|blob:)/i.test(value);\nlet attachments = rawAttachments\n  .filter(item => item && typeof item === 'object')\n  .map(item => ({\n    type: item.type || item.file_type || 'file',\n    name: item.name || item.file_name || 'codex-file',\n    url: item.url || item.image_url || item.download_url || '',\n    download_url: item.download_url || item.url || item.image_url || '',\n    metadata: item.metadata || {}\n  }))\n  .filter(item => isBrowserUrl(item.url) || isBrowserUrl(item.download_url));\nconst rawB64 = $json.data?.[0]?.b64_json || $json.data?.b64_json || $json.b64_json;\nif (rawB64 && typeof rawB64 === 'string') {\n  const imageUrl = `data:image/png;base64,${rawB64}`;\n  attachments.push({\n    type: 'image',\n    name: $json.file_name || 'codex-generated-image.png',\n    url: imageUrl,\n    download_url: imageUrl,\n    metadata: { source: 'openai_images' }\n  });\n}\nlet hasVisibleImage = attachments.some(item => String(item.type || '').toLowerCase().includes('image') && (isBrowserUrl(item.url) || isBrowserUrl(item.download_url)));\nconst claimsImageGenerated = /image\\s+(has been\\s+)?(created|generated)|generated\\s+image|download\\s+.*image/i.test(output);\nif (claimsImageGenerated && !hasVisibleImage) {\n  output = 'I could not return a generated image because OpenAI did not provide image data in the tool result. Please check the Image Generation Tool execution in n8n.';\n  attachments = [];\n}\nreturn [{ json: {\n  success: true,\n  type: $json.type || (hasVisibleImage ? 'generated_image' : 'text'),\n  message: output,\n  output,\n  conversationId: $('04 Merge Request + User Context').first().json.conversationId || null,\n  data: $json.data || {},\n  attachments,\n  sources: $json.sources || []\n}}];"
+        "jsCode": "let output = $json.output || $json.message || $json.text || 'I could not produce a verified response.';\nconst rawAttachments = Array.isArray($json.attachments) ? $json.attachments : [];\nconst isBrowserUrl = value => typeof value === 'string' && /^(https?:|data:image/|blob:)/i.test(value);\nlet attachments = rawAttachments.filter(item => item && typeof item === 'object').map(item => ({ type: item.type || item.file_type || 'file', name: item.name || item.file_name || 'codex-file', url: item.url || item.image_url || item.download_url || '', download_url: item.download_url || item.url || item.image_url || '', metadata: item.metadata || {} })).filter(item => isBrowserUrl(item.url) || isBrowserUrl(item.download_url));\nconst rawB64 = $json.data?.[0]?.b64_json || $json.data?.b64_json || $json.b64_json;\nif (rawB64 && typeof rawB64 === 'string') { const imageUrl = 'data:image/png;base64,' + rawB64; attachments.push({ type: 'image', name: $json.file_name || 'codex-generated-image.png', url: imageUrl, download_url: imageUrl, metadata: { source: $json.type === 'edited_image' ? 'openai_images_edit' : 'openai_images' } }); }\nlet hasVisibleImage = attachments.some(item => String(item.type || '').toLowerCase().includes('image') && (isBrowserUrl(item.url) || isBrowserUrl(item.download_url)));\nconst requestedType = $json.type || 'text';\nconst claimsImageGenerated = /images+(has beens+)?(created|generated)|generateds+image|downloads+.*image/i.test(output);\nconst claimsImageEdited = /images+(has beens+)?(edited|updated|modified)|editeds+image/i.test(output);\nif ((claimsImageGenerated || claimsImageEdited || ['generated_image', 'edited_image'].includes(requestedType)) && !hasVisibleImage) { output = claimsImageEdited || requestedType === 'edited_image' ? 'I could not return an edited image because no visible image attachment was produced.' : 'I could not return a generated image because no visible image attachment was produced.'; attachments = []; }\nconst allowedTypes = new Set(['generated_image', 'edited_image', 'image_analysis', 'document_extraction', 'ocr_extraction', 'file_export', 'text']);\nconst responseType = allowedTypes.has(requestedType) ? requestedType : (hasVisibleImage ? 'generated_image' : 'text');\nreturn [{ json: { success: $json.success !== false, type: responseType, message: output, output, conversationId: $json.conversationId || $('04 Merge Request + User Context').first().json.conversationId || null, data: $json.data || {}, attachments, sources: $json.sources || [] } }];"
       }
     },
     {
@@ -982,6 +1026,72 @@
                   "version": 2
                 }
               }
+            },
+            {
+              "renameOutput": true,
+              "outputKey": "json",
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $binary?.data?.mimeType || $json.file_type || $json.mimeType }}",
+                    "rightValue": "application/json",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and",
+                "options": {
+                  "caseSensitive": true,
+                  "typeValidation": "strict",
+                  "version": 2
+                }
+              }
+            },
+            {
+              "renameOutput": true,
+              "outputKey": "docx",
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $binary?.data?.mimeType || $json.file_type || $json.mimeType }}",
+                    "rightValue": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and",
+                "options": {
+                  "caseSensitive": true,
+                  "typeValidation": "strict",
+                  "version": 2
+                }
+              }
+            },
+            {
+              "renameOutput": true,
+              "outputKey": "image",
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $binary?.data?.mimeType || $json.file_type || $json.mimeType }}",
+                    "rightValue": "image/",
+                    "operator": {
+                      "type": "string",
+                      "operation": "startsWith"
+                    }
+                  }
+                ],
+                "combinator": "and",
+                "options": {
+                  "caseSensitive": true,
+                  "typeValidation": "strict",
+                  "version": 2
+                }
+              }
             }
           ]
         },
@@ -1002,7 +1112,8 @@
       "parameters": {
         "operation": "pdf",
         "options": {}
-      }
+      },
+      "continueOnFail": true
     },
     {
       "id": "extract-text",
@@ -1016,7 +1127,8 @@
       "parameters": {
         "operation": "text",
         "options": {}
-      }
+      },
+      "continueOnFail": true
     },
     {
       "id": "clean-and-chunk",
@@ -1028,7 +1140,7 @@
         1160
       ],
       "parameters": {
-        "jsCode": "const source = $('Prepare Document Training Input').first().json || {};\nconst raw = $json.text || $json.data || $json.content || $json.markdown || '';\nlet text = String(raw).replace(/\\u0000/g, ' ').replace(/\\s+/g, ' ').trim();\nconst lower = text.toLowerCase();\nconst looksLikeHtml = /<!doctype html|<html[\\s>]|<script[\\s>]|window\\.__|webpack|vite|next-data|<body[\\s>]/i.test(text);\nconst tagCount = (text.match(/<[^>]+>/g) || []).length;\nconst wordCount = (text.match(/[a-z0-9]{2,}/gi) || []).length;\nif (!text || wordCount < 8) {\n  throw new Error('Document could not be read. Please upload a readable file or OCR version.');\n}\nif (looksLikeHtml || (tagCount > 20 && tagCount > wordCount / 3)) {\n  throw new Error('Document extraction returned HTML/script content instead of document text. Check that the workflow is receiving the actual file binary, not a preview page or website URL.');\n}\nconst chunkSize = 2200;\nconst overlap = 180;\nconst chunks = [];\nfor (let i = 0; i < text.length; i += chunkSize - overlap) {\n  chunks.push({ json: { ...source, ...$json, chunkIndex: chunks.length, chunkText: text.slice(i, i + chunkSize), extractedTextLength: text.length } });\n}\nreturn chunks;"
+        "jsCode": "const source = $('Prepare Document Training Input').first().json || {};\nconst raw = $json.text || $json.data || $json.content || $json.markdown || '';\nlet text = String(raw).replace(/\u0000/g, ' ').replace(/s+/g, ' ').trim();\nconst looksLikeHtml = /<!doctype html|<html[s>]|<script[s>]|window.__|webpack|vite|next-data|<body[s>]/i.test(text);\nconst tagCount = (text.match(/<[^>]+>/g) || []).length;\nconst wordCount = (text.match(/[a-z0-9]{2,}/gi) || []).length;\nconst repeatedJunk = /(.)\\1{80,}|(\\b\\w{1,3}\\b\\s*){80,}/i.test(text);\nconst previewPage = /preview unavailable|download this file|sign in to view|enable javascript|access denied/i.test(text);\nconst badExtraction = !text || wordCount < 30 || looksLikeHtml || (tagCount > 20 && tagCount > wordCount / 3) || repeatedJunk || previewPage;\nif (badExtraction) throw new Error('Document extraction quality was too low. Use OCR fallback for scanned PDFs, screenshots, receipts, forms, or photographed documents.');\nconst chunkSize = 2200; const overlap = 180; const chunks = [];\nfor (let i = 0; i < text.length; i += chunkSize - overlap) chunks.push({ json: { ...source, ...$json, chunkIndex: chunks.length, chunkText: text.slice(i, i + chunkSize), extractedTextLength: text.length, extractionQuality: { wordCount, badExtraction: false } } });\nreturn chunks;"
       }
     },
     {
@@ -1207,6 +1319,486 @@
         "responseBody": "={{ {\n  success: true,\n  type: 'document_training',\n  message: 'Document learned and summarized successfully.',\n  documentId: $json.id || $json.document_id || null,\n  sourceUrl: $json.source_url || null,\n  attachments: [],\n  sources: $json.source_url ? [{ title: $json.document_name || 'Document', url: $json.source_url }] : []\n} }}",
         "options": {}
       }
+    },
+    {
+      "id": "get-source-image",
+      "name": "Get Source Image",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -420,
+        -520
+      ],
+      "parameters": {
+        "jsCode": "const source = $json;\nconst candidates = [];\nconst add = item => { if (item && typeof item === 'object') candidates.push(item); };\n(source.attachmentSources || []).forEach(add); (source.attachments || []).forEach(add); (source.context?.attachments || []).forEach(add); (source.context?.previousAttachments || []).forEach(add); (source.metadata?.attachments || []).forEach(add); (source.metadata?.previousAttachments || []).forEach(add);\nif (source.context?.lastGeneratedImage) add(source.context.lastGeneratedImage); if (source.metadata?.lastGeneratedImage) add(source.metadata.lastGeneratedImage);\nconst imageLike = item => { const value = String(item?.mimeType || item?.mime_type || item?.type || item?.name || item?.url || item?.download_url || '').toLowerCase(); return item?.type === 'image' || value.startsWith('image/') || /.(png|jpe?g|webp)(?|#|$)/i.test(String(item?.url || item?.download_url || item?.name || '')) || String(item?.url || item?.download_url || '').startsWith('data:image/'); };\nconst picked = candidates.find(imageLike);\nconst existingBinary = $binary?.image || $binary?.file || $binary?.data || null;\nif (!picked && !existingBinary) return [{ json: { ...source, imageSourceFound: false, userMessage: 'Please upload or select the image you want me to edit.' } }];\nconst rawUrl = String(picked?.download_url || picked?.url || picked?.image_url || '');\nconst isDataUrl = rawUrl.startsWith('data:image/'); const isUrl = /^https?:///i.test(rawUrl);\nreturn [{ json: { ...source, imageSourceFound: true, imageSource: picked || { name: existingBinary?.fileName || 'uploaded-image', mimeType: existingBinary?.mimeType || 'image/png' }, imageSourceUrl: isUrl ? rawUrl : '', imageSourceDataUrl: isDataUrl ? rawUrl : '', imageSourceIsUrl: isUrl, original_image: rawUrl || picked?.name || existingBinary?.fileName || 'uploaded image' }, binary: existingBinary ? { image: existingBinary } : $binary }];"
+      }
+    },
+    {
+      "id": "source-image-found",
+      "name": "Source Image Found?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -180,
+        -520
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.imageSourceFound }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "source-image-is-url",
+      "name": "Source Image Is URL?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        60,
+        -560
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.imageSourceIsUrl }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "download-source-image",
+      "name": "Download Source Image",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        300,
+        -660
+      ],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.imageSourceUrl }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "image"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "prepare-image-edit-binary",
+      "name": "Prepare Image Edit Binary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        540,
+        -540
+      ],
+      "parameters": {
+        "jsCode": "const item = $json;\nlet image = $binary?.image || $binary?.file || $binary?.data || null;\nif (!image && item.imageSourceDataUrl) { const match = String(item.imageSourceDataUrl).match(/^data:([^;]+);base64,(.+)$/); if (match) image = { data: match[2], mimeType: match[1], fileName: item.imageSource?.name || 'source-image.png' }; }\nif (!image?.data) return [{ json: { ...item, imageEditPreparationFailed: true, userMessage: 'I could not edit this image because no source image was found.' } }];\nreturn [{ json: { ...item, imageEditPreparationFailed: false }, binary: { image } }];"
+      }
+    },
+    {
+      "id": "build-image-edit-prompt",
+      "name": "Build Image Edit Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        780,
+        -540
+      ],
+      "parameters": {
+        "jsCode": "const source = $('05 Permission + Tool Router').first().json;\nconst instruction = String(source.message || source.chatInput || '').replace(/\n[Context][sS]*$/, '').trim();\nconst prompt = ['Edit the provided image.', instruction || 'Improve the image quality while preserving the original subject.', 'Preserve the main subject, proportions, composition, quality, and realistic details unless the user explicitly asks to change them.', 'Preserve faces and identity if people are present.', 'Preserve logos and text unless the user asks to remove or change them.', 'Make the result high quality and realistic.', 'Follow the user instruction exactly and do not invent extra changes.'].join(' ');\nreturn [{ json: { ...$json, imageEditPrompt: prompt }, binary: $binary }];"
+      }
+    },
+    {
+      "id": "openai-image-edit",
+      "name": "OpenAI Image Edit",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1020,
+        -540
+      ],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/images/edits",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "image",
+              "inputDataFieldName": "image"
+            },
+            {
+              "name": "model",
+              "value": "gpt-image-1"
+            },
+            {
+              "name": "prompt",
+              "value": "={{ $json.imageEditPrompt }}"
+            },
+            {
+              "name": "size",
+              "value": "1024x1024"
+            },
+            {
+              "name": "n",
+              "value": "={{ 1 }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "credentials": {
+        "openAiApi": {
+          "id": "AMCuIhOcN1ffKYz9",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "id": "format-edited-image-response",
+      "name": "Format Edited Image Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1260,
+        -540
+      ],
+      "parameters": {
+        "jsCode": "const source = $('05 Permission + Tool Router').first().json;\nconst editContext = $('Build Image Edit Prompt').first().json;\nconst b64 = $json.data?.[0]?.b64_json || $json.data?.b64_json || $json.b64_json;\nif (!b64) { const technical = $json.error?.message || $json.message || $json.error || 'No edited image data returned.'; return [{ json: { success: true, type: 'text', message: 'The image edit service failed, but your original image is safe. Please try a smaller image.', output: 'The image edit service failed, but your original image is safe. Please try a smaller image.', conversationId: source.conversationId || null, data: { internal_error: String(technical).slice(0, 500), prompt: editContext.imageEditPrompt }, attachments: [], sources: [] } }]; }\nconst imageUrl = 'data:image/png;base64,' + b64;\nreturn [{ json: { success: true, type: 'edited_image', message: 'Image edited successfully.', output: 'Image edited successfully.', conversationId: source.conversationId || null, data: { prompt: editContext.imageEditPrompt }, attachments: [{ type: 'image', name: 'edited-image.png', url: imageUrl, download_url: imageUrl, metadata: { source: 'openai_images_edit', model: 'gpt-image-1', original_image: editContext.original_image || null } }], sources: [] } }];"
+      }
+    },
+    {
+      "id": "image-edit-missing-source-response",
+      "name": "Image Edit Missing Source Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        60,
+        -340
+      ],
+      "parameters": {
+        "jsCode": "const source = $('05 Permission + Tool Router').first().json;\nreturn [{ json: { success: true, type: 'text', message: 'Please upload or select the image you want me to edit.', output: 'Please upload or select the image you want me to edit.', conversationId: source.conversationId || null, attachments: [], sources: [] } }];"
+      }
+    },
+    {
+      "id": "get-ocr-source",
+      "name": "Get OCR Source",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -420,
+        260
+      ],
+      "parameters": {
+        "jsCode": "const source = $json;\nconst candidates = []; const add = item => { if (item && typeof item === 'object') candidates.push(item); };\n(source.attachmentSources || []).forEach(add); (source.attachments || []).forEach(add); (source.context?.attachments || []).forEach(add); (source.metadata?.attachments || []).forEach(add);\nconst existingBinary = $binary?.document || $binary?.file || $binary?.data || $binary?.image || null;\nconst picked = candidates.find(item => item?.url || item?.download_url || item?.image_url || item?.mimeType || item?.name) || null;\nif (!picked && !existingBinary) return [{ json: { ...source, ocrSourceFound: false, userMessage: 'Please upload the document or image you want me to read.' } }];\nconst rawUrl = String(picked?.download_url || picked?.url || picked?.image_url || '');\nconst mime = picked?.mimeType || picked?.mime_type || existingBinary?.mimeType || (/.pdf(?|#|$)/i.test(rawUrl) ? 'application/pdf' : 'image/png');\nconst isDataUrl = rawUrl.startsWith('data:'); const isUrl = /^https?:///i.test(rawUrl);\nreturn [{ json: { ...source, ocrSourceFound: true, ocrSourceUrl: isUrl ? rawUrl : '', ocrSourceDataUrl: isDataUrl ? rawUrl : '', ocrSourceIsUrl: isUrl, ocrMimeType: mime, ocrFileName: picked?.name || existingBinary?.fileName || 'uploaded-document' }, binary: existingBinary ? { document: existingBinary } : $binary }];"
+      }
+    },
+    {
+      "id": "ocr-source-found",
+      "name": "OCR Source Found?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -180,
+        260
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.ocrSourceFound }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "ocr-source-is-url",
+      "name": "OCR Source Is URL?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        60,
+        220
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.ocrSourceIsUrl }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "download-ocr-source",
+      "name": "Download OCR Source",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        300,
+        120
+      ],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.ocrSourceUrl }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "document"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "prepare-openai-vision-ocr-request",
+      "name": "Prepare OpenAI Vision OCR Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        540,
+        240
+      ],
+      "parameters": {
+        "jsCode": "const item = $json;\nlet doc = $binary?.document || $binary?.file || $binary?.data || $binary?.image || null;\nlet dataUrl = item.ocrSourceDataUrl || ''; let mime = item.ocrMimeType || doc?.mimeType || 'image/png';\nif (!dataUrl && doc?.data) dataUrl = 'data:' + mime + ';base64,' + doc.data;\nif (!dataUrl) return [{ json: { ...item, ocrPreparationFailed: true, userMessage: 'I could not read this file clearly. Please upload a clearer version or OCR-readable file.' } }];\nconst isPdf = /pdf/i.test(mime) || /.pdf$/i.test(item.ocrFileName || '');\nconst content = [{ type: 'input_text', text: 'Extract all readable text from this document/image. Preserve headings, paragraphs, tables, dates, totals, names, references, and important formatting. If something is unclear, mark it as [unclear]. Return only the extracted text first, then a short structured summary.' }];\nif (isPdf) content.push({ type: 'input_file', filename: item.ocrFileName || 'document.pdf', file_data: dataUrl }); else content.push({ type: 'input_image', image_url: dataUrl });\nreturn [{ json: { ...item, ocrPreparationFailed: false, openaiBody: { model: 'gpt-4.1-mini', input: [{ role: 'user', content }] } } }];"
+      }
+    },
+    {
+      "id": "openai-vision-ocr-fallback",
+      "name": "OpenAI Vision OCR Fallback",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        780,
+        240
+      ],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/responses",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.openaiBody) }}",
+        "options": {}
+      },
+      "credentials": {
+        "openAiApi": {
+          "id": "AMCuIhOcN1ffKYz9",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "id": "format-ocr-response",
+      "name": "Format OCR Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1020,
+        240
+      ],
+      "parameters": {
+        "jsCode": "const source = $('05 Permission + Tool Router').first().json;\nconst text = $json.output_text || ($json.output || []).flatMap(o => o.content || []).map(c => c.text || '').filter(Boolean).join('\n') || $json.text || '';\nconst wordCount = (text.match(/[A-Za-z0-9]{2,}/g) || []).length;\nif (!text || wordCount < 8 || $json.error) { const technical = $json.error?.message || $json.message || 'OCR returned too little readable text.'; return [{ json: { success: true, type: 'ocr_extraction', message: 'I could not read this file clearly. Please upload a clearer version or OCR-readable file.', output: 'I could not read this file clearly. Please upload a clearer version or OCR-readable file.', conversationId: source.conversationId || null, data: { internal_error: String(technical).slice(0, 500), wordCount }, attachments: [], sources: [] } }]; }\nreturn [{ json: { success: true, type: 'ocr_extraction', message: text, output: text, conversationId: source.conversationId || null, data: { wordCount, source: 'openai_vision_ocr', model: 'gpt-4.1-mini' }, attachments: [], sources: [] } }];"
+      }
+    },
+    {
+      "id": "ocr-missing-source-response",
+      "name": "OCR Missing Source Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        60,
+        420
+      ],
+      "parameters": {
+        "jsCode": "const source = $('05 Permission + Tool Router').first().json;\nreturn [{ json: { success: true, type: 'ocr_extraction', message: 'Please upload the document or image you want me to read.', output: 'Please upload the document or image you want me to read.', conversationId: source.conversationId || null, attachments: [], sources: [] } }];"
+      }
+    },
+    {
+      "id": "validate-document-text-quality",
+      "name": "Validate Document Text Quality",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -760,
+        1160
+      ],
+      "parameters": {
+        "jsCode": "const raw = $json.text || $json.data || $json.content || $json.markdown || '';\nconst text = String(raw).replace(/\u0000/g, ' ').replace(/s+/g, ' ').trim();\nconst looksLikeHtml = /<!doctype html|<html[s>]|<script[s>]|window.__|webpack|vite|next-data|<body[s>]/i.test(text);\nconst tagCount = (text.match(/<[^>]+>/g) || []).length;\nconst wordCount = (text.match(/[a-z0-9]{2,}/gi) || []).length;\nconst repeatedJunk = /(.)\\1{80,}|(\\b\\w{1,3}\\b\\s*){80,}/i.test(text);\nconst previewPage = /preview unavailable|download this file|sign in to view|enable javascript|access denied/i.test(text);\nconst documentTextGood = Boolean(text) && wordCount >= 30 && !looksLikeHtml && !(tagCount > 20 && tagCount > wordCount / 3) && !repeatedJunk && !previewPage;\nreturn [{ json: { ...$json, text, documentTextGood, extractionQuality: { wordCount, looksLikeHtml, tagCount, repeatedJunk, previewPage } }, binary: $binary }];"
+      }
+    },
+    {
+      "id": "document-text-quality-good",
+      "name": "Document Text Quality Good?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -560,
+        1160
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.documentTextGood }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "prepare-document-ocr-request",
+      "name": "Prepare Document OCR Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -360,
+        1320
+      ],
+      "parameters": {
+        "jsCode": "const source = $('Prepare Document Training Input').first();\nconst sourceJson = source.json || {};\nconst sourceBinary = source.binary?.data || null;\nconst currentBinary = $binary?.data || $binary?.document || $binary?.file || $binary?.image || null;\nconst doc = currentBinary || sourceBinary;\nif (!doc?.data) throw new Error('OCR fallback could not find the original file binary.');\nconst mime = doc.mimeType || sourceJson.file_type || 'application/pdf';\nconst fileName = doc.fileName || sourceJson.file_name || 'document';\nconst dataUrl = 'data:' + mime + ';base64,' + doc.data;\nconst isImage = /^image//i.test(mime);\nconst content = [{ type: 'input_text', text: 'Extract all readable text from this document/image. Preserve headings, paragraphs, tables, dates, totals, names, references, and important formatting. If something is unclear, mark it as [unclear]. Return only the extracted text first, then a short structured summary.' }];\nif (isImage) content.push({ type: 'input_image', image_url: dataUrl }); else content.push({ type: 'input_file', filename: fileName, file_data: dataUrl });\nreturn [{ json: { ...sourceJson, openaiBody: { model: 'gpt-4.1-mini', input: [{ role: 'user', content }] }, ocrFallbackReason: $json.extractionQuality || null } }];"
+      }
+    },
+    {
+      "id": "openai-document-ocr-fallback",
+      "name": "OpenAI Document OCR Fallback",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -120,
+        1320
+      ],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/responses",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.openaiBody) }}",
+        "options": {}
+      },
+      "credentials": {
+        "openAiApi": {
+          "id": "AMCuIhOcN1ffKYz9",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "id": "format-document-ocr-text",
+      "name": "Format Document OCR Text",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        120,
+        1320
+      ],
+      "parameters": {
+        "jsCode": "const text = $json.output_text || ($json.output || []).flatMap(o => o.content || []).map(c => c.text || '').filter(Boolean).join('\n') || '';\nconst wordCount = (text.match(/[A-Za-z0-9]{2,}/g) || []).length;\nif (!text || wordCount < 8 || $json.error) throw new Error('OCR fallback could not read enough text from this file.');\nconst source = $('Prepare Document Training Input').first().json || {};\nreturn [{ json: { ...source, text, extraction_method: 'openai_vision_ocr', extractionQuality: { wordCount, ocrFallback: true } } }];"
+      }
     }
   ],
   "connections": {
@@ -1258,7 +1850,21 @@
       "main": [
         [
           {
+            "node": "Get Source Image",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
             "node": "Has OpenAI Image Key?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Get OCR Source",
             "type": "main",
             "index": 0
           }
@@ -1546,6 +2152,34 @@
             "type": "main",
             "index": 0
           }
+        ],
+        [
+          {
+            "node": "Extract Text from File",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Extract Text from File",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Document OCR Request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Extract Text from File",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },
@@ -1553,7 +2187,7 @@
       "main": [
         [
           {
-            "node": "Clean and Chunk Text",
+            "node": "Validate Document Text Quality",
             "type": "main",
             "index": 0
           }
@@ -1564,7 +2198,7 @@
       "main": [
         [
           {
-            "node": "Clean and Chunk Text",
+            "node": "Validate Document Text Quality",
             "type": "main",
             "index": 0
           }
@@ -1631,6 +2265,283 @@
         [
           {
             "node": "04 Merge Request + User Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Source Image": {
+      "main": [
+        [
+          {
+            "node": "Source Image Found?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Source Image Found?": {
+      "main": [
+        [
+          {
+            "node": "Source Image Is URL?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Image Edit Missing Source Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Source Image Is URL?": {
+      "main": [
+        [
+          {
+            "node": "Download Source Image",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Image Edit Binary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Source Image": {
+      "main": [
+        [
+          {
+            "node": "Prepare Image Edit Binary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Image Edit Binary": {
+      "main": [
+        [
+          {
+            "node": "Build Image Edit Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Image Edit Prompt": {
+      "main": [
+        [
+          {
+            "node": "OpenAI Image Edit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Image Edit": {
+      "main": [
+        [
+          {
+            "node": "Format Edited Image Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Edited Image Response": {
+      "main": [
+        [
+          {
+            "node": "07 Safe Response Contract",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Image Edit Missing Source Response": {
+      "main": [
+        [
+          {
+            "node": "07 Safe Response Contract",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get OCR Source": {
+      "main": [
+        [
+          {
+            "node": "OCR Source Found?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OCR Source Found?": {
+      "main": [
+        [
+          {
+            "node": "OCR Source Is URL?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "OCR Missing Source Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OCR Source Is URL?": {
+      "main": [
+        [
+          {
+            "node": "Download OCR Source",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare OpenAI Vision OCR Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download OCR Source": {
+      "main": [
+        [
+          {
+            "node": "Prepare OpenAI Vision OCR Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare OpenAI Vision OCR Request": {
+      "main": [
+        [
+          {
+            "node": "OpenAI Vision OCR Fallback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Vision OCR Fallback": {
+      "main": [
+        [
+          {
+            "node": "Format OCR Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format OCR Response": {
+      "main": [
+        [
+          {
+            "node": "07 Safe Response Contract",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OCR Missing Source Response": {
+      "main": [
+        [
+          {
+            "node": "07 Safe Response Contract",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Document Text Quality": {
+      "main": [
+        [
+          {
+            "node": "Document Text Quality Good?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Document Text Quality Good?": {
+      "main": [
+        [
+          {
+            "node": "Clean and Chunk Text",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Document OCR Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Document OCR Request": {
+      "main": [
+        [
+          {
+            "node": "OpenAI Document OCR Fallback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Document OCR Fallback": {
+      "main": [
+        [
+          {
+            "node": "Format Document OCR Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Document OCR Text": {
+      "main": [
+        [
+          {
+            "node": "Clean and Chunk Text",
             "type": "main",
             "index": 0
           }

@@ -234,28 +234,16 @@ return [
  case "org_admin":
  case "admin":
   return [
-    {
-          to: "/admin/dashboard",
-          label: "Admin Dashboard",
-          icon: LayoutDashboard,
-          featureKey: "admin_dashboard",
-        },
-
-        { to: "/admin/employees", label: "Employees", icon: Users, featureKey: "admin_users" },
-        { to: "/organization/team", label: "Team Access", icon: Users, featureKey: "admin_users" },
-        { to: "/admin/leave", label: "Leave Request", icon: CalendarDays, featureKey: "admin_leave" },
-        { to: "/admin/roster", label: "Duty Roster", icon: CalendarClock, featureKey: "admin_roster" },
-        { to: "/admin/attendance", label: "Attendance", icon: Timer, featureKey: "attendance" },
-        { to: "/organization/settings", label: "Org Settings", icon: Settings },
-        { to: "/admin/documents", label: "Documents", icon: FileText, featureKey: "knowledge_base" },
-        { to: "/admin/content-studio", label: "Content Studio", icon: FileText, featureKey: "content_review" },
-        { to: "/admin/payslips", label: "Payslips", icon: ClipboardList, featureKey: "finance" },
-        {
-          type: "group",
-          label: "Assets",
-          icon: Package,
-          color: "text-blue-400",
-          activePaths: ["/assets", "/scan", "/fleet"],
+    {to: "/admin/dashboard", label: "Admin Dashboard", icon: LayoutDashboard, featureKey: "admin_dashboard",},
+    { to: "/admin/employees", label: "Employees", icon: Users, featureKey: "admin_users" },
+    { to: "/admin/leave", label: "Leave Request", icon: CalendarDays, featureKey: "admin_leave" },
+    { to: "/admin/roster", label: "Duty Roster", icon: CalendarClock, featureKey: "admin_roster" },
+    { to: "/admin/attendance", label: "Attendance", icon: Timer, featureKey: "attendance" },
+    { to: "/organization/settings", label: "Org Settings", icon: Settings },
+    { to: "/admin/documents", label: "Documents", icon: FileText, featureKey: "knowledge_base" },
+    { to: "/admin/content-studio", label: "Content Studio", icon: FileText, featureKey: "content_review" },
+    { to: "/admin/payslips", label: "Payslips", icon: ClipboardList, featureKey: "finance" },
+    {type: "group", label: "Assets", icon: Package, color: "text-blue-400",activePaths: ["/assets", "/scan", "/fleet"],
           children: [
             { to: "/assets", label: "All Assets", icon: ShieldCheck, featureKey: "stock" },
             { to: "/scan", label: "Scan Asset", icon: ScanLine, featureKey: "stock" },
