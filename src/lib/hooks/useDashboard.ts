@@ -223,7 +223,44 @@ export function useDashboard(params: {
     }
   }, [role, roleNewsTopic]);
 
-  const load = useCallback(async () => {
+  const refreshTimeTrackingState = useCallback(async () => {
+    if (!userId || !organizationId) return;
+
+    const todayRange = getZimbabweTodayRangeIso();
+
+    let timeEntriesQuery = supabase
+      .from("time_entries")
+      .select("*")
+      .eq("organization_id", organizationId)
+      .eq("user_id", userId)
+      .is("deleted_at", null)
+      .gte("started_at", todayRange.start)
+      .lt("started_at", todayRange.end);
+
+    if (!includeAllOffices && officeId) {
+      timeEntriesQuery = timeEntriesQuery.eq("office_id", officeId);
+    }
+
+    const [timeEntriesRes, activeTimerRes] = await Promise.all([
+      timeEntriesQuery,
+      getActiveTimeEntry({
+        organizationId,
+        userId,
+      }),
+    ]);
+
+    if (timeEntriesRes.error) {
+      console.error("DASHBOARD TIME REFRESH ERROR:", timeEntriesRes.error);
+      return;
+    }
+
+    setTodayTimeEntries((timeEntriesRes.data ?? []) as TimeEntryItem[]);
+    setActiveTimer((activeTimerRes as ActiveTimer) ?? null);
+  }, [userId, organizationId, officeId, includeAllOffices]);
+
+  const load = useCallback(async (options?: { showLoading?: boolean }) => {
+    const showLoading = options?.showLoading !== false;
+
     if (!enabled) {
       setLoading(false);
       setError("");
@@ -243,7 +280,9 @@ export function useDashboard(params: {
     }
 
     try {
-      setLoading(true);
+      if (showLoading) {
+        setLoading(true);
+      }
       setError("");
 
       const { data: taskAssignments, error: taskAssignmentsError } =
@@ -455,7 +494,9 @@ export function useDashboard(params: {
       console.error("DASHBOARD LOAD ERROR:", err);
       setError(err?.message || "Failed to load dashboard.");
     } finally {
-      setLoading(false);
+      if (showLoading) {
+        setLoading(false);
+      }
     }
   }, [enabled, userId, organizationId, officeId, includeAllOffices, role, loadWeather, loadRoleNews]);
 
@@ -472,7 +513,7 @@ export function useDashboard(params: {
       try {
         setBusy(true);
 
-        await startTimeEntry({
+        const entry = await startTimeEntry({
           organizationId,
           userId,
           taskId: taskId ?? null,
@@ -480,12 +521,13 @@ export function useDashboard(params: {
           source: "dashboard",
         });
 
-        await load();
+        setActiveTimer(entry);
+        await refreshTimeTrackingState();
       } finally {
         setBusy(false);
       }
     },
-    [userId, organizationId, load],
+    [userId, organizationId, refreshTimeTrackingState],
   );
 
   const stopTimer = useCallback(async () => {
@@ -494,23 +536,30 @@ export function useDashboard(params: {
     try {
       setBusy(true);
 
-      await stopTimeEntry(activeTimer.id, {
+      const stoppedEntry = await stopTimeEntry(activeTimer.id, {
         userId,
         organizationId: organizationId ?? undefined,
       });
 
-      await load();
+      setActiveTimer(null);
+      setTodayTimeEntries((previous) => {
+        const withoutStopped = previous.filter((entry) => entry.id !== stoppedEntry.id);
+        return [...withoutStopped, stoppedEntry];
+      });
+      await refreshTimeTrackingState();
     } finally {
       setBusy(false);
     }
-  }, [activeTimer, load, organizationId, userId]);
+  }, [activeTimer, organizationId, refreshTimeTrackingState, userId]);
 
   useEffect(() => {
-    void load();
+    void load({ showLoading: true });
   }, [load]);
 
   useEffect(() => {
     if (!organizationId || !userId) return;
+
+    let refreshTimeout: ReturnType<typeof setTimeout> | undefined;
 
     const channel = supabase
       .channel(`dashboard-time:${organizationId}:${userId}`)
@@ -523,15 +572,23 @@ export function useDashboard(params: {
           filter: `user_id=eq.${userId}`,
         },
         () => {
-          void load();
+          if (refreshTimeout) {
+            clearTimeout(refreshTimeout);
+          }
+          refreshTimeout = setTimeout(() => {
+            void refreshTimeTrackingState();
+          }, 400);
         },
       )
       .subscribe();
 
     return () => {
+      if (refreshTimeout) {
+        clearTimeout(refreshTimeout);
+      }
       void supabase.removeChannel(channel);
     };
-  }, [load, organizationId, userId]);
+  }, [organizationId, refreshTimeTrackingState, userId]);
 
   return {
     loading,

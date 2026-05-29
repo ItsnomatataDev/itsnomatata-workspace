@@ -9,6 +9,7 @@ import {
   sendBulkNotifications,
   sendNotification,
 } from "./notificationService";
+import { buildTaskNotificationUrl } from "../utils/notificationLinks";
 
 export type NotificationRecipient = {
   id: string;
@@ -413,10 +414,7 @@ export async function notifyTaskAssigned(params: {
   const taskTitle = params.taskTitle || task?.title || "Untitled task";
   const boardId = params.boardId ?? task?.client_id ?? null;
   const actionUrl =
-    params.actionUrl ??
-    (boardId
-      ? `/boards/${boardId}?cardId=${params.taskId}`
-      : `/tasks/${params.taskId}`);
+    params.actionUrl ?? buildTaskNotificationUrl(params.taskId, boardId);
 
   return notifyUser({
     organizationId: params.organizationId,
@@ -456,6 +454,7 @@ export async function notifyTaskCollaborators(params: {
 }) {
   const task = params.taskTitle ? null : await getTaskDetails(params.taskId);
   const taskTitle = params.taskTitle || task?.title || "Untitled task";
+  const boardId = task?.client_id ?? null;
 
   const recipients = excludeActor(params.userIds, params.actorUserId);
   if (recipients.length === 0) return [];
@@ -472,11 +471,13 @@ export async function notifyTaskCollaborators(params: {
     entityId: params.taskId,
     referenceId: params.taskId,
     referenceType: "task",
-    actionUrl: `/tasks/${params.taskId}`,
+    actionUrl: buildTaskNotificationUrl(params.taskId, boardId),
     priority: "medium",
     metadata: {
       taskId: params.taskId,
       taskTitle,
+      boardId,
+      clientId: boardId,
       actorUserId: params.actorUserId ?? null,
       actorName: params.actorName ?? null,
     },
@@ -500,6 +501,7 @@ export async function notifyTaskCommented(params: {
   ]);
 
   const taskTitle = params.taskTitle || task?.title || "Untitled task";
+  const boardId = task?.client_id ?? null;
   const recipients = excludeActor(
     [
       ...(task?.assigned_to ? [task.assigned_to] : []),
@@ -522,11 +524,13 @@ export async function notifyTaskCommented(params: {
     entityId: params.taskId,
     referenceId: params.taskId,
     referenceType: "task",
-    actionUrl: `/tasks/${params.taskId}`,
+    actionUrl: buildTaskNotificationUrl(params.taskId, boardId),
     priority: "medium",
     metadata: {
       taskId: params.taskId,
       taskTitle,
+      boardId,
+      clientId: boardId,
       commentId: params.commentId ?? null,
       authorUserId: params.authorUserId,
       authorName: params.authorName || null,

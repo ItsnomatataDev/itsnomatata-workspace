@@ -35,6 +35,7 @@ type OrganizationRow = {
   id: string;
   name: string;
   slug: string;
+  is_system_organization?: boolean | null;
 };
 
 const ADMIN_PORTAL_ROLES = new Set([
@@ -56,12 +57,27 @@ async function getOrganizationBySlug(
 ): Promise<OrganizationRow | null> {
   const { data, error } = await supabase
     .from("organizations")
-    .select("id, name, slug")
+    .select("id, name, slug, is_system_organization")
     .eq("slug", slug)
     .maybeSingle();
 
   if (error) throw error;
   return (data ?? null) as OrganizationRow | null;
+}
+
+function isTrustedCompanySignup(
+  email: string,
+  organization: Pick<OrganizationRow, "slug" | "is_system_organization"> | null,
+) {
+  if (!email.endsWith("@itsnomatata.com") || !organization) {
+    return false;
+  }
+
+  return (
+    organization.slug === "its-nomatata" ||
+    organization.slug === "itsnomatata" ||
+    Boolean(organization.is_system_organization)
+  );
 }
 
 export function getDefaultAuthenticatedPath(role?: string | null) {
@@ -166,8 +182,7 @@ export async function signUpUser(params: SignUpUserParams) {
       throw error;
     }
 
-    const isTrustedCompanyAccount =
-      email.endsWith("@itsnomatata.com") && organization?.slug === "its-nomatata";
+    const isTrustedCompanyAccount = isTrustedCompanySignup(email, organization);
 
     return {
       ...data,

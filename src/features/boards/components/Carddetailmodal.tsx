@@ -1746,6 +1746,7 @@ export default function CardDetailModal({
         userId: user.id,
         taskId: cardId,
         taskTitle: title,
+        boardId: card.client_id ?? null,
       }).catch((err) => {
         console.error("ADD ASSIGNEE NOTIFICATION ERROR:", err);
       });
@@ -1762,8 +1763,24 @@ export default function CardDetailModal({
       .delete()
       .eq("task_id", cardId)
       .eq("user_id", userId);
-    if (!error)
+
+    let primaryCleared = false;
+
+    if (card.assigned_to === userId) {
+      const { error: primaryError } = await supabase
+        .from("tasks")
+        .update({ assigned_to: null })
+        .eq("id", cardId);
+
+      primaryCleared = !primaryError;
+      if (primaryError) {
+        console.error("Failed to clear primary assignee:", primaryError);
+      }
+    }
+
+    if (!error || primaryCleared) {
       setAssignees((prev) => prev.filter((a) => a.user_id !== userId));
+    }
   };
 
   const handleFileUpload = async (file: File) => {

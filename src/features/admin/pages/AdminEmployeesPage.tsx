@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Clock3, UserCheck, UserPlus, Users } from "lucide-react";
 import Sidebar from "../../../components/dashboard/components/Sidebar";
 import { useAuth } from "../../../app/providers/AuthProvider";
@@ -44,12 +45,21 @@ function StatCard({
   );
 }
 
+const EMPLOYEE_STATUS_FILTERS = new Set<AccountStatus>([
+  "active",
+  "pending_approval",
+  "suspended",
+  "rejected",
+  "deleted",
+]);
+
 export default function AdminEmployeesPage() {
   const auth = useAuth();
   const user = auth?.user ?? null;
   const profile = auth?.profile ?? null;
   const authLoading = auth?.loading ?? true;
   const organizationId = profile?.organization_id ?? null;
+  const [searchParams] = useSearchParams();
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -59,6 +69,16 @@ export default function AdminEmployeesPage() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<AccountStatus>("active");
   const [inviteOpen, setInviteOpen] = useState(false);
+
+  useEffect(() => {
+    const requestedStatus = searchParams.get("status");
+    if (
+      requestedStatus &&
+      EMPLOYEE_STATUS_FILTERS.has(requestedStatus as AccountStatus)
+    ) {
+      setStatusFilter(requestedStatus as AccountStatus);
+    }
+  }, [searchParams]);
   const [editingEmployee, setEditingEmployee] =
     useState<EmployeeOverviewRow | null>(null);
   const [suspendingEmployee, setSuspendingEmployee] =

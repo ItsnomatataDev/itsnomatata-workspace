@@ -480,7 +480,7 @@ export default function NotificationsPage() {
       <div className="relative flex min-h-screen flex-col lg:flex-row">
         <Sidebar role={role} />
 
-        <main className="min-w-0 flex-1 p-4 sm:px-4 py-6 sm:px-6 lg:px-8">
+        <main className="min-w-0 flex-1 p-4 sm:px-4 py-6 lg:px-8">
           <div className="mb-6 overflow-hidden rounded-3xl border border-white/10 bg-neutral-950/85 shadow-2xl shadow-black/40 backdrop-blur">
             <div className="border-b border-white/10 bg-white/3 p-5 sm:p-6">
               <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">

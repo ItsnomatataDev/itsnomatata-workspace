@@ -43,6 +43,43 @@ function chunkArray<T>(items: T[], size: number): T[][] {
   return chunks;
 }
 
+type AssigneeProfile = {
+  id: string;
+  full_name: string | null;
+  email: string | null;
+  primary_role?: string | null;
+};
+
+function mergePrimaryAssigneeIntoList(
+  taskAssignees: CardAssignee[],
+  task: { id: string; assigned_to: string | null; created_at: string },
+  profileMap: Map<string, AssigneeProfile>,
+): CardAssignee[] {
+  const primaryAssigneeId = task.assigned_to;
+
+  if (
+    !primaryAssigneeId ||
+    taskAssignees.some((assignee) => assignee.user_id === primaryAssigneeId)
+  ) {
+    return taskAssignees;
+  }
+
+  const profile = profileMap.get(primaryAssigneeId);
+
+  return [
+    {
+      id: `primary-${task.id}-${primaryAssigneeId}`,
+      task_id: task.id,
+      user_id: primaryAssigneeId,
+      created_at: task.created_at,
+      full_name: profile?.full_name ?? null,
+      email: profile?.email ?? null,
+      primary_role: profile?.primary_role ?? null,
+    },
+    ...taskAssignees,
+  ];
+}
+
 export function markStatusManuallyUpdated(
   metadata: CardMetadata | null | undefined,
   userId?: string | null,
@@ -187,23 +224,15 @@ export async function getCards(
     const creator = task.created_by
       ? profileMap.get(task.created_by as string)
       : null;
-    const taskAssignees = [...(assigneesByTask.get(task.id) ?? [])];
-    const primaryAssigneeId = task.assigned_to as string | null;
-
-    if (
-      primaryAssigneeId &&
-      !taskAssignees.some((assignee) => assignee.user_id === primaryAssigneeId)
-    ) {
-      const profile = profileMap.get(primaryAssigneeId);
-      taskAssignees.unshift({
-        id: `primary-${task.id}-${primaryAssigneeId}`,
-        task_id: task.id as string,
-        user_id: primaryAssigneeId,
+    const taskAssignees = mergePrimaryAssigneeIntoList(
+      [...(assigneesByTask.get(task.id) ?? [])],
+      {
+        id: task.id as string,
+        assigned_to: task.assigned_to as string | null,
         created_at: task.created_at as string,
-        full_name: profile?.full_name ?? null,
-        email: profile?.email ?? null,
-      });
-    }
+      },
+      profileMap,
+    );
 
     return {
       ...task,
@@ -264,23 +293,15 @@ export async function getCardById(
     }
   }
 
-  const taskAssignees = [...assignees];
-  const primaryAssigneeId = task.assigned_to as string | null;
-
-  if (
-    primaryAssigneeId &&
-    !taskAssignees.some((assignee) => assignee.user_id === primaryAssigneeId)
-  ) {
-    const profile = profileMap.get(primaryAssigneeId);
-    taskAssignees.unshift({
-      id: `primary-${task.id}-${primaryAssigneeId}`,
-      task_id: task.id as string,
-      user_id: primaryAssigneeId,
+  const taskAssignees = mergePrimaryAssigneeIntoList(
+    [...assignees],
+    {
+      id: task.id as string,
+      assigned_to: task.assigned_to as string | null,
       created_at: task.created_at as string,
-      full_name: profile?.full_name ?? null,
-      email: profile?.email ?? null,
-    });
-  }
+    },
+    profileMap,
+  );
 
   const creator = task.created_by
     ? profileMap.get(task.created_by as string)
@@ -348,7 +369,7 @@ export async function getCardAssignees(
     }
   }
 
-  return assignees.map((assignee) => {
+  const mappedAssignees = assignees.map((assignee) => {
     const profile = profileMap.get(assignee.user_id as string);
     return {
       id: assignee.id as string,
@@ -360,6 +381,51 @@ export async function getCardAssignees(
       primary_role: profile?.primary_role ?? null,
     };
   });
+
+  if (Array.isArray(taskIdsOrTaskId)) {
+    return mappedAssignees;
+  }
+
+  const taskId = taskIdsOrTaskId;
+  const { data: task, error: taskError } = await supabase
+    .from("tasks")
+    .select("id, assigned_to, created_at")
+    .eq("id", taskId)
+    .maybeSingle();
+
+  if (taskError) throw taskError;
+  if (!task) return mappedAssignees;
+
+  const primaryAssigneeId = task.assigned_to as string | null;
+
+  if (primaryAssigneeId && !profileMap.has(primaryAssigneeId)) {
+    const { data: profile, error: profileError } = await supabase
+      .from("profiles")
+      .select("id, full_name, email, primary_role")
+      .eq("id", primaryAssigneeId)
+      .maybeSingle();
+
+    if (profileError) throw profileError;
+
+    if (profile) {
+      profileMap.set(profile.id, {
+        id: profile.id,
+        full_name: profile.full_name ?? null,
+        email: profile.email ?? null,
+        primary_role: profile.primary_role ?? null,
+      });
+    }
+  }
+
+  return mergePrimaryAssigneeIntoList(
+    mappedAssignees,
+    {
+      id: task.id as string,
+      assigned_to: primaryAssigneeId,
+      created_at: task.created_at as string,
+    },
+    profileMap,
+  );
 }
 
 // ─────────────────────────────────────────────

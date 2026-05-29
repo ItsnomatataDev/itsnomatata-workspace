@@ -15,6 +15,7 @@ import RoleRoute from "./RoleRoute";
 import FeatureRoute from "./FeatureRoute";
 import SystemOwnerAdminRoute from "./SystemOwnerAdminRoute";
 import TasksPage from "../../features/tasks/pages/TasksPage";
+import TaskDeepLinkPage from "../../features/tasks/pages/TaskDeepLinkPage";
 import TimePage from "../../features/time/pages/TimePage";
 import CampaignsPage from "../../features/campaigns/pages/CampaignsPage";
 import ReportsPage from "../../features/reports/pages/ReportsPage";
@@ -181,6 +182,17 @@ const AppRouter = () => {
           element={
             <ProtectedRoute>
               <FeatureRoute feature="tasks"><TasksPage /></FeatureRoute>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/tasks/:taskId"
+          element={
+            <ProtectedRoute>
+              <FeatureRoute feature="tasks">
+                <TaskDeepLinkPage />
+              </FeatureRoute>
             </ProtectedRoute>
           }
         />
