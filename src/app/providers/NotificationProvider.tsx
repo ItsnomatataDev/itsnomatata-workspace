@@ -23,6 +23,7 @@ import {
   getPushSupportError,
   registerPushNotifications,
 } from "../../features/notifications/services/pushService";
+import { resolveNotificationActionUrl } from "../../features/notifications/utils/notificationLinks";
 
 type PushPermissionState = NotificationPermission | "unsupported";
 
@@ -213,8 +214,9 @@ export function NotificationProvider({
             if (navigator.onLine) {
               toast.info(incoming.message || incoming.title, {
                 onClick: () => {
-                  if (incoming.action_url) {
-                    window.location.href = incoming.action_url;
+                  const targetUrl = resolveNotificationActionUrl(incoming);
+                  if (targetUrl) {
+                    window.location.assign(targetUrl);
                   }
                 },
               });

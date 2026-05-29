@@ -74,7 +74,7 @@ async function getLeaveTypeName(leaveTypeId?: string | null) {
 async function getTaskDetails(taskId: string) {
   const { data, error } = await supabase
     .from("tasks")
-    .select("id, title, assigned_to, created_by, organization_id")
+    .select("id, title, assigned_to, created_by, organization_id, client_id")
     .eq("id", taskId)
     .maybeSingle();
 
@@ -409,8 +409,14 @@ export async function notifyTaskAssigned(params: {
   actorName?: string | null;
   sendEmail?: boolean;
 }) {
-  const task = params.taskTitle ? null : await getTaskDetails(params.taskId);
+  const task = params.taskTitle && params.boardId ? null : await getTaskDetails(params.taskId);
   const taskTitle = params.taskTitle || task?.title || "Untitled task";
+  const boardId = params.boardId ?? task?.client_id ?? null;
+  const actionUrl =
+    params.actionUrl ??
+    (boardId
+      ? `/boards/${boardId}?cardId=${params.taskId}`
+      : `/tasks/${params.taskId}`);
 
   return notifyUser({
     organizationId: params.organizationId,
@@ -424,15 +430,13 @@ export async function notifyTaskAssigned(params: {
     entityId: params.taskId,
     referenceId: params.taskId,
     referenceType: "task",
-    actionUrl: params.actionUrl ??
-      (params.boardId
-        ? `/boards/${params.boardId}?cardId=${params.taskId}`
-        : `/tasks/${params.taskId}`),
+    actionUrl,
     priority: "high",
     metadata: {
       taskId: params.taskId,
       taskTitle,
-      boardId: params.boardId ?? null,
+      boardId,
+      clientId: boardId,
       actorUserId: params.actorUserId ?? null,
       actorName: params.actorName ?? null,
     },

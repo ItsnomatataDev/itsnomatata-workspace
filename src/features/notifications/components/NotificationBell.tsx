@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import { useNotifications } from "../../../lib/hooks/useNotifications";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import { createNotification } from "../../../lib/supabase/mutations/notifications";
+import { resolveNotificationActionUrl } from "../utils/notificationLinks";
 
 function timeAgo(dateString: string) {
   const date = new Date(dateString).getTime();
@@ -153,7 +154,7 @@ export default function NotificationBell() {
               latest.map((item) => (
                 <Link
                   key={item.id}
-                  to={item.action_url || "/notifications"}
+                  to={resolveNotificationActionUrl(item)}
                   onClick={() => {
                     void markOneAsRead(item.id);
                     setOpen(false);

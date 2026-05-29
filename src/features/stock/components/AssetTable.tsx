@@ -68,6 +68,7 @@ function formatDate(value?: string | null) {
 export default function AssetTable({
   assets,
   loading,
+  canManage,
   onView,
   onEdit,
   onAssign,
@@ -78,6 +79,7 @@ export default function AssetTable({
 }: {
   assets: AssetRow[];
   loading: boolean;
+  canManage: boolean;
   onView: (asset: AssetRow) => void;
   onEdit: (asset: AssetRow) => void;
   onAssign: (asset: AssetRow) => void;
@@ -201,61 +203,71 @@ export default function AssetTable({
                     View
                   </button>
 
-                  <button
-                    type="button"
-                    onClick={() => onEdit(asset)}
-                    className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/75 transition hover:border-orange-500 hover:text-orange-300"
-                  >
-                    <Edit3 size={14} />
-                    Edit
-                  </button>
-
-                  {asset.status !== "assigned" ? (
+                  {canManage ? (
                     <button
                       type="button"
-                      onClick={() => onAssign(asset)}
-                      className="inline-flex items-center gap-2 rounded-2xl border border-orange-500/30 bg-orange-500/10 px-3 py-2 text-xs text-orange-300 transition hover:bg-orange-500/20"
+                      onClick={() => onEdit(asset)}
+                      className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/75 transition hover:border-orange-500 hover:text-orange-300"
                     >
-                      <RotateCcw size={14} />
-                      Assign
+                      <Edit3 size={14} />
+                      Edit
                     </button>
-                  ) : (
+                  ) : null}
+
+                  {canManage ? (
+                    asset.status !== "assigned" ? (
+                      <button
+                        type="button"
+                        onClick={() => onAssign(asset)}
+                        className="inline-flex items-center gap-2 rounded-2xl border border-orange-500/30 bg-orange-500/10 px-3 py-2 text-xs text-orange-300 transition hover:bg-orange-500/20"
+                      >
+                        <RotateCcw size={14} />
+                        Assign
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => onReturn(asset)}
+                        className="inline-flex items-center gap-2 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-300 transition hover:bg-emerald-500/20"
+                      >
+                        <RotateCcw size={14} />
+                        Return
+                      </button>
+                    )
+                  ) : null}
+
+                  {canManage ? (
                     <button
                       type="button"
-                      onClick={() => onReturn(asset)}
-                      className="inline-flex items-center gap-2 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-300 transition hover:bg-emerald-500/20"
+                      onClick={() => onRepair(asset)}
+                      className="inline-flex items-center gap-2 rounded-2xl border border-yellow-500/30 bg-yellow-500/10 px-3 py-2 text-xs text-yellow-300 transition hover:bg-yellow-500/20"
                     >
-                      <RotateCcw size={14} />
-                      Return
+                      <Wrench size={14} />
+                      Repair
                     </button>
-                  )}
+                  ) : null}
 
-                  <button
-                    type="button"
-                    onClick={() => onRepair(asset)}
-                    className="inline-flex items-center gap-2 rounded-2xl border border-yellow-500/30 bg-yellow-500/10 px-3 py-2 text-xs text-yellow-300 transition hover:bg-yellow-500/20"
-                  >
-                    <Wrench size={14} />
-                    Repair
-                  </button>
+                  {canManage ? (
+                    <button
+                      type="button"
+                      onClick={() => onRetire(asset)}
+                      className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/65 transition hover:bg-white/10 hover:text-white"
+                    >
+                      <Archive size={14} />
+                      Retire
+                    </button>
+                  ) : null}
 
-                  <button
-                    type="button"
-                    onClick={() => onRetire(asset)}
-                    className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/65 transition hover:bg-white/10 hover:text-white"
-                  >
-                    <Archive size={14} />
-                    Retire
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => onDelete(asset)}
-                    className="inline-flex items-center gap-2 rounded-2xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300 transition hover:bg-red-500/20"
-                  >
-                    <Trash2 size={14} />
-                    Delete
-                  </button>
+                  {canManage ? (
+                    <button
+                      type="button"
+                      onClick={() => onDelete(asset)}
+                      className="inline-flex items-center gap-2 rounded-2xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300 transition hover:bg-red-500/20"
+                    >
+                      <Trash2 size={14} />
+                      Delete
+                    </button>
+                  ) : null}
                 </div>
               </td>
             </tr>

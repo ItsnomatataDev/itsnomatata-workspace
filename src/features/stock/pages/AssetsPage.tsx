@@ -23,6 +23,7 @@ import { useAuth } from "../../../app/providers/AuthProvider";
 import { useAssets } from "../../../lib/hooks/useAssets";
 import { askAssistant, buildAssistantContext } from "../../../lib/api/ai";
 import { supabase } from "../../../lib/supabase/client";
+import { hasPermission } from "../../../lib/helpers/permissions";
 import AssetTable from "../components/AssetTable";
 import AssetForm from "../components/AssetForm";
 import AssetImportModal from "../components/AssetImportModal";
@@ -549,6 +550,12 @@ export default function AssetsPage() {
   const user = auth?.user ?? null;
   const profile = auth?.profile ?? null;
   const organizationId = profile?.organization_id;
+  const role =
+    auth?.currentOrganization?.role ??
+    profile?.organization_role_key ??
+    profile?.primary_role ??
+    null;
+  const canManageAssets = hasPermission(role, "*") || hasPermission(role, "stock.manage");
 
   const {
     assets,
@@ -974,12 +981,14 @@ export default function AssetsPage() {
   }
 
   function handleAddClick() {
+    if (!canManageAssets) return;
     setSelectedAsset(null);
     setFormMode("create");
     setFormOpen(true);
   }
 
   function handleEditClick(asset: AssetRecord) {
+    if (!canManageAssets) return;
     setSelectedAsset(asset);
     setFormMode("edit");
     setFormOpen(true);
@@ -990,12 +999,13 @@ export default function AssetsPage() {
   }
 
   function handleAssignClick(asset: AssetRecord) {
+    if (!canManageAssets) return;
     setAssigningAsset(asset);
     setAssignModalOpen(true);
   }
 
   async function submitAssign(userId: string) {
-    if (!organizationId || !user?.id || !assigningAsset) return;
+    if (!canManageAssets || !organizationId || !user?.id || !assigningAsset) return;
 
     await assignAsset({
       organization_id: organizationId,
@@ -1011,6 +1021,7 @@ export default function AssetsPage() {
   }
 
   async function handleReturnClick(asset: AssetRecord) {
+    if (!canManageAssets) return;
     setReturningAsset(asset);
     setReturnModalOpen(true);
 
@@ -1023,7 +1034,7 @@ export default function AssetsPage() {
   }
 
   async function submitReturn() {
-    if (!user?.id || !returningAsset || !activeAssignment?.id) return;
+    if (!canManageAssets || !user?.id || !returningAsset || !activeAssignment?.id) return;
 
     await returnAsset({
       assignment_id: activeAssignment.id,
@@ -1038,6 +1049,7 @@ export default function AssetsPage() {
   }
 
   async function handleRepairClick(asset: AssetRecord) {
+    if (!canManageAssets) return;
     const confirmed = window.confirm(
       `Mark "${asset.asset_name}" as in repair?`,
     );
@@ -1046,12 +1058,14 @@ export default function AssetsPage() {
   }
 
   async function handleRetireClick(asset: AssetRecord) {
+    if (!canManageAssets) return;
     const confirmed = window.confirm(`Retire "${asset.asset_name}"?`);
     if (!confirmed) return;
     await retireAsset(asset.id);
   }
 
   async function handleDeleteClick(asset: AssetRecord) {
+    if (!canManageAssets) return;
     const confirmed = window.confirm(
       `Delete "${asset.asset_name}" permanently? This cannot be undone.`,
     );
@@ -1101,23 +1115,27 @@ export default function AssetsPage() {
                   Export All Assets
                 </button>
 
-                <button
-                  type="button"
-                  onClick={() => setImportModalOpen(true)}
-                  className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/75 transition hover:border-white/20 hover:bg-white/10 hover:text-white"
-                >
-                  <Upload size={16} />
-                  Import Assets
-                </button>
+                {canManageAssets ? (
+                  <button
+                    type="button"
+                    onClick={() => setImportModalOpen(true)}
+                    className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/75 transition hover:border-white/20 hover:bg-white/10 hover:text-white"
+                  >
+                    <Upload size={16} />
+                    Import Assets
+                  </button>
+                ) : null}
 
-                <button
-                  type="button"
-                  onClick={handleAddClick}
-                  className="inline-flex items-center gap-2 rounded-2xl border border-orange-500 bg-orange-500 px-4 py-3 text-sm font-semibold text-black shadow-lg shadow-orange-500/15 transition hover:bg-orange-400"
-                >
-                  <Plus size={16} />
-                  Add Asset
-                </button>
+                {canManageAssets ? (
+                  <button
+                    type="button"
+                    onClick={handleAddClick}
+                    className="inline-flex items-center gap-2 rounded-2xl border border-orange-500 bg-orange-500 px-4 py-3 text-sm font-semibold text-black shadow-lg shadow-orange-500/15 transition hover:bg-orange-400"
+                  >
+                    <Plus size={16} />
+                    Add Asset
+                  </button>
+                ) : null}
               </div>
             </div>
           </section>
@@ -1384,6 +1402,7 @@ export default function AssetsPage() {
             <AssetTable
               assets={displayedAssets}
               loading={loading}
+              canManage={canManageAssets}
               onView={handleViewClick}
               onEdit={handleEditClick}
               onAssign={(asset) => handleAssignClick(asset)}
@@ -1396,40 +1415,44 @@ export default function AssetsPage() {
         </div>
       </main>
 
-      <AssetForm
-        mode={formMode}
-        open={formOpen}
-        saving={saving}
-        asset={selectedAsset}
-        categories={categories}
-        locations={locations}
-        purchaseBatches={purchaseBatches}
-        organizationId={organizationId}
-        userId={user.id}
-        onClose={() => setFormOpen(false)}
-        onCreate={async (input) => {
-          await addAsset(input);
-          await loadLookups();
-        }}
-        onUpdate={async (assetId, input) => {
-          await updateAsset(assetId, input);
-          await loadLookups();
-        }}
-        onCreatePurchaseBatch={createPurchaseBatch}
-      />
+      {canManageAssets ? (
+        <AssetForm
+          mode={formMode}
+          open={formOpen}
+          saving={saving}
+          asset={selectedAsset}
+          categories={categories}
+          locations={locations}
+          purchaseBatches={purchaseBatches}
+          organizationId={organizationId}
+          userId={user.id}
+          onClose={() => setFormOpen(false)}
+          onCreate={async (input) => {
+            await addAsset(input);
+            await loadLookups();
+          }}
+          onUpdate={async (assetId, input) => {
+            await updateAsset(assetId, input);
+            await loadLookups();
+          }}
+          onCreatePurchaseBatch={createPurchaseBatch}
+        />
+      ) : null}
 
-      <AssetImportModal
-        open={importModalOpen}
-        organizationId={organizationId}
-        userId={user.id}
-        categories={categories}
-        locations={locations}
-        purchaseBatches={purchaseBatches}
-        saving={importingAssets}
-        onClose={() => setImportModalOpen(false)}
-        onImport={handleImportAssets}
-        onCreatePurchaseBatch={createPurchaseBatch}
-      />
+      {canManageAssets ? (
+        <AssetImportModal
+          open={importModalOpen}
+          organizationId={organizationId}
+          userId={user.id}
+          categories={categories}
+          locations={locations}
+          purchaseBatches={purchaseBatches}
+          saving={importingAssets}
+          onClose={() => setImportModalOpen(false)}
+          onImport={handleImportAssets}
+          onCreatePurchaseBatch={createPurchaseBatch}
+        />
+      ) : null}
 
       <AssignAssetModal
         open={assignModalOpen}

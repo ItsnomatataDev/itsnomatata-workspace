@@ -189,7 +189,13 @@ export default function CreateCardModal({
       reset();
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create card.");
+      const message =
+        err instanceof Error
+          ? err.message
+          : err && typeof err === "object" && "message" in err
+            ? String((err as { message?: unknown }).message || "")
+            : "";
+      setError(message || "Failed to create card.");
     } finally {
       setIsSubmitting(false);
     }
@@ -336,7 +342,7 @@ export default function CreateCardModal({
             </label>
           </div>
 
-          <div className="mt-5 rounded-3xl border border-white/10 bg-white/[0.03] p-4">
+          <div className="mt-5 rounded-3xl border border-white/10 bg-white/3 p-4">
             <div className="mb-3 flex items-center justify-between gap-3">
               <p className="text-sm font-semibold text-white">Assignees</p>
               <p className="text-xs text-white/40">{assigneeIds.length} selected</p>

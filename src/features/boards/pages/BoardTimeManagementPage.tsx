@@ -20,17 +20,26 @@ import {
   Calendar,
   BriefcaseBusiness,
   Briefcase,
+  ListPlus,
 } from "lucide-react";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import { useNavigate } from "react-router-dom";
 import Sidebar from "../../../components/dashboard/components/Sidebar";
-import { getBoards, createCard, updateCard, createBoard } from "../services/boardService";
+import CreateCardModal from "../components/CreateCardModal";
+import {
+  getBoards,
+  createCard,
+  updateCard,
+  createBoard,
+  getLists,
+} from "../services/boardService";
+import type { TaskStatus } from "../../../lib/supabase/queries/tasks";
+import type { Board, List } from "../../../types/board";
 import { createClient } from "../../clients/services/clientService";
 import { getAdminTimeEntries } from "../../../lib/supabase/queries/adminTime";
 import { stopAllRunningTimersForOrganization } from "../../../lib/supabase/mutations/timeEntries";
 import { supabase } from "../../../lib/supabase/client";
 import { getBoardTimeSettings, updateBoardTimeSettings, assignUsersToBoard, getBoardAssignments } from "../services/boardTimeService";
-import type { Board } from "../../../types/board";
 import { getZimbabweMonthRangeIso } from "../../../lib/utils/zimbabweCalendar";
 import { canManageAllOffices, getOfficeName, type CompanyOffice } from "../../../lib/offices";
 import { getCompanyOffices } from "../../../lib/supabase/queries/offices";
@@ -74,6 +83,49 @@ interface CreateBoardForm {
   hourlyRate: number;
   fixedPrice: number;
 }
+
+type AssignableUser = {
+  id: string;
+  full_name: string | null;
+  email: string | null;
+  primary_role: string | null;
+};
+
+type CreateCardColumnOption = {
+  id: string;
+  columnId: string | null;
+  status: TaskStatus;
+  label: string;
+};
+
+function statusFromColumnName(name: string | null | undefined): TaskStatus {
+  const normalized = name?.trim().toLowerCase() ?? "";
+  if (normalized.includes("done") || normalized.includes("complete")) return "done";
+  if (normalized.includes("review") || normalized.includes("approval")) return "review";
+  if (normalized.includes("progress") || normalized.includes("doing")) return "in_progress";
+  if (normalized.includes("backlog") || normalized.includes("pending")) return "backlog";
+  return "todo";
+}
+
+function listToColumnOption(list: List): CreateCardColumnOption {
+  const status = list.id.startsWith("list-")
+    ? (list.id.replace("list-", "") as TaskStatus)
+    : statusFromColumnName(list.name);
+
+  return {
+    id: list.id,
+    columnId: list.id.startsWith("list-") ? null : list.id,
+    status,
+    label: list.name,
+  };
+}
+
+const DEFAULT_CREATE_CARD_COLUMNS: CreateCardColumnOption[] = [
+  { id: "list-todo", columnId: null, status: "todo", label: "To Do" },
+  { id: "list-in_progress", columnId: null, status: "in_progress", label: "In Progress" },
+  { id: "list-review", columnId: null, status: "review", label: "Review" },
+  { id: "list-done", columnId: null, status: "done", label: "Done" },
+];
 
 export default function BoardTimeManagementPage() {
   const auth = useAuth();
@@ -122,6 +174,13 @@ export default function BoardTimeManagementPage() {
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [isStoppingTimers, setIsStoppingTimers] = useState(false);
   const [stopTimersSuccess, setStopTimersSuccess] = useState(false);
+  const [isCreateCardModalOpen, setIsCreateCardModalOpen] = useState(false);
+  const [createCardBoardId, setCreateCardBoardId] = useState<string | null>(null);
+  const [createCardColumns, setCreateCardColumns] = useState<CreateCardColumnOption[]>(
+    DEFAULT_CREATE_CARD_COLUMNS,
+  );
+  const [assignableUsers, setAssignableUsers] = useState<AssignableUser[]>([]);
+  const [cardCreateNotice, setCardCreateNotice] = useState("");
 
   // Realtime subscription for time entries
   useEffect(() => {
@@ -640,6 +699,91 @@ export default function BoardTimeManagementPage() {
     }
   };
 
+  const openCreateCardModal = async (board: BoardTimeData) => {
+    if (!organizationId) return;
+
+    setCreateCardBoardId(board.id);
+    setCardCreateNotice("");
+
+    try {
+      const lists = await getLists(board.id);
+      setCreateCardColumns(
+        lists.length > 0 ? lists.map(listToColumnOption) : DEFAULT_CREATE_CARD_COLUMNS,
+      );
+
+      let usersQuery = supabase
+        .from("profiles")
+        .select("id, full_name, email, primary_role")
+        .eq("organization_id", organizationId)
+        .eq("is_active", true)
+        .order("full_name", { ascending: true });
+
+      if (board.office_id) {
+        usersQuery = usersQuery.eq("office_id", board.office_id);
+      }
+
+      const { data: profiles, error: profilesError } = await usersQuery;
+      if (profilesError) throw profilesError;
+
+      setAssignableUsers(
+        (profiles ?? []).map((profile) => ({
+          id: profile.id,
+          full_name: profile.full_name ?? null,
+          email: profile.email ?? null,
+          primary_role: profile.primary_role ?? null,
+        })),
+      );
+      setIsCreateCardModalOpen(true);
+    } catch (error) {
+      console.error("Failed to open create card modal:", error);
+      setCardCreateNotice(
+        error instanceof Error
+          ? error.message
+          : "Failed to load board details for card creation.",
+      );
+    }
+  };
+
+  const handleAdminCreateCard = async (input: {
+    boardId: string;
+    columnId?: string | null;
+    title: string;
+    description?: string;
+    status?: TaskStatus;
+    priority?: string;
+    assigneeIds: string[];
+    dueDate?: string;
+    estimatedHours?: number | null;
+  }) => {
+    if (!organizationId || !auth?.user?.id) return;
+
+    await createCard(organizationId, input.boardId, {
+      title: input.title,
+      description: input.description,
+      status: input.status,
+      priority: input.priority,
+      assigneeIds: input.assigneeIds,
+      dueDate: input.dueDate,
+      estimatedSeconds:
+        input.estimatedHours !== null && input.estimatedHours !== undefined
+          ? Math.round(input.estimatedHours * 3600)
+          : null,
+      columnId: input.columnId ?? null,
+      createdBy: auth.user.id,
+      assignedBy: auth.user.id,
+    });
+
+    const assigneeCount = input.assigneeIds.length;
+    setCardCreateNotice(
+      assigneeCount > 0
+        ? `Card "${input.title}" created and ${assigneeCount} member(s) notified.`
+        : `Card "${input.title}" created on the board.`,
+    );
+    setTimeout(() => setCardCreateNotice(""), 5000);
+    setIsCreateCardModalOpen(false);
+    setCreateCardBoardId(null);
+  };
+
   const handleStopAllRunningTimers = async () => {
     if (!organizationId) return;
 
@@ -741,6 +885,15 @@ export default function BoardTimeManagementPage() {
             </div>
           </div>
         )}
+
+        {cardCreateNotice ? (
+          <div className="mx-6 mt-4 p-4 bg-green-500/10 border border-green-500/20 rounded-lg">
+            <div className="flex items-center gap-3">
+              <CheckCircle2 className="w-5 h-5 text-green-400 shrink-0" />
+              <p className="text-green-400 font-medium">{cardCreateNotice}</p>
+            </div>
+          </div>
+        ) : null}
 
         {/* Search and Filters */}
         <div className="p-6 border-b border-white/10">
@@ -959,6 +1112,17 @@ export default function BoardTimeManagementPage() {
                       {/* Actions */}
                       <td className="py-4 px-6">
                         <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void openCreateCardModal(board);
+                            }}
+                            className="p-1.5 text-white/40 hover:text-orange-300 hover:bg-orange-500/10 rounded-lg transition"
+                            title="Create Card & Assign"
+                          >
+                            <ListPlus className="w-4 h-4" />
+                          </button>
+
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
@@ -1513,6 +1677,21 @@ export default function BoardTimeManagementPage() {
           </div>
         </div>
       )}
+
+      {isCreateCardModalOpen && createCardBoardId ? (
+        <CreateCardModal
+          isOpen={isCreateCardModalOpen}
+          onClose={() => {
+            setIsCreateCardModalOpen(false);
+            setCreateCardBoardId(null);
+          }}
+          onCreate={handleAdminCreateCard}
+          boards={boards as Board[]}
+          users={assignableUsers}
+          currentBoardId={createCardBoardId}
+          currentColumns={createCardColumns}
+        />
+      ) : null}
 
       {/* Assign Users Modal */}
       {isAssignModalOpen && selectedBoard && (

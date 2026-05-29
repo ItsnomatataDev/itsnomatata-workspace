@@ -25,6 +25,7 @@ import {
   getBoard,
   getBoards,
   getCards,
+  getCardById,
   createCard,
   getBoardStats,
   getLists,
@@ -245,8 +246,13 @@ function KanbanCard({
     task.due_date &&
     new Date(task.due_date) < new Date() &&
     task.status !== "done";
-  const visibleAssignees = ((task.assignees as any[]) ?? []).slice(0, 3);
-  const extraAssignees = Math.max(0, ((task.assignees as any[]) ?? []).length - visibleAssignees.length);
+  const allAssignees = (task.assignees as any[]) ?? [];
+  const visibleAssignees = allAssignees.slice(0, 3);
+  const extraAssignees = Math.max(0, allAssignees.length - visibleAssignees.length);
+  const assigneeNames = allAssignees
+    .map((assignee) => assignee.full_name || assignee.email)
+    .filter(Boolean)
+    .join(", ");
   const initialsFor = (assignee: any) => {
     const src = assignee.full_name ?? assignee.email ?? "";
     const parts = src.split(" ").filter(Boolean);
@@ -308,6 +314,12 @@ function KanbanCard({
           ))}
         </div>
       )}
+
+      {assigneeNames ? (
+        <p className="mb-2 truncate text-[11px] text-white/55" title={assigneeNames}>
+          Assigned to {assigneeNames}
+        </p>
+      ) : null}
 
       {/* Due date */}
       {task.due_date && (
@@ -734,17 +746,47 @@ export default function BoardViewPage() {
     if (loading) return;
 
     const nextSelectedTask = tasks.find((task) => task.id === requestedCardId);
-    if (!nextSelectedTask) {
-      setSelectedTask(null);
+    if (nextSelectedTask) {
+      setSelectedTask((current) =>
+        current?.id === nextSelectedTask.id
+          ? { ...current, ...nextSelectedTask }
+          : nextSelectedTask,
+      );
       return;
     }
 
-    setSelectedTask((current) =>
-      current?.id === nextSelectedTask.id
-        ? { ...current, ...nextSelectedTask }
-        : nextSelectedTask,
-    );
-  }, [loading, requestedCardId, tasks]);
+    if (!organizationId) return;
+
+    let cancelled = false;
+    void getCardById(organizationId, requestedCardId)
+      .then((card) => {
+        if (cancelled || !card) return;
+        const deepLinkedTask = cardToTask(card);
+        setSelectedTask(deepLinkedTask);
+        setTasks((current) => {
+          if (current.some((task) => task.id === deepLinkedTask.id)) return current;
+          return [...current, deepLinkedTask];
+        });
+        setGroupedTasks((current) => {
+          const groupKey =
+            deepLinkedTask.column_id ??
+            deepLinkedTask.status ??
+            "todo";
+          return {
+            ...current,
+            [groupKey]: [...(current[groupKey] ?? []), deepLinkedTask],
+          };
+        });
+      })
+      .catch((err) => {
+        console.warn("Failed to open card from notification link:", err);
+        if (!cancelled) setSelectedTask(null);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [loading, organizationId, requestedCardId, tasks]);
 
   // Realtime subscription for time entries and cards
   useEffect(() => {

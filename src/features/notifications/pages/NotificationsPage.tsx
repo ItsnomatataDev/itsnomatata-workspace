@@ -16,8 +16,9 @@ import {
   Video,
   Zap,
 } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import Sidebar from "../../../components/dashboard/components/Sidebar";
+import { resolveNotificationActionUrl } from "../utils/notificationLinks";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import { useNotifications } from "../../../lib/hooks/useNotifications";
 import { sendNotification } from "../services/notificationService";
@@ -155,14 +156,28 @@ function NotificationCard({
   item: NotificationItem & { _category: NotificationCategory };
   onRead: (id: string) => void;
 }) {
+  const navigate = useNavigate();
   const meta = CATEGORY_META[item._category] ?? CATEGORY_META.all;
   const Icon = meta.icon;
   const priority = item.priority ?? "medium";
+  const targetUrl = resolveNotificationActionUrl(item);
 
   return (
     <div
+      role="button"
+      tabIndex={0}
+      onClick={() => {
+        void onRead(item.id);
+        navigate(targetUrl);
+      }}
+      onKeyDown={(event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        void onRead(item.id);
+        navigate(targetUrl);
+      }}
       className={[
-        "rounded-3xl border p-4 shadow-xl shadow-black/20 transition hover:border-orange-500/25",
+        "cursor-pointer rounded-3xl border p-4 shadow-xl shadow-black/20 transition hover:border-orange-500/25",
         item.is_read
           ? "border-white/10 bg-black/35"
           : (PRIORITY_STYLES[priority] ?? PRIORITY_STYLES.medium),
@@ -232,14 +247,9 @@ function NotificationCard({
                   </span>
                 ) : null}
 
-                {item.action_url ? (
-                  <Link
-                    to={item.action_url}
-                    className="rounded-full bg-orange-500/10 px-2.5 py-1 text-xs font-semibold text-orange-300 transition hover:bg-orange-500/20"
-                  >
-                    View →
-                  </Link>
-                ) : null}
+                <span className="rounded-full bg-orange-500/10 px-2.5 py-1 text-xs font-semibold text-orange-300">
+                  Open card →
+                </span>
               </div>
             </div>
 
@@ -251,7 +261,10 @@ function NotificationCard({
               {!item.is_read ? (
                 <button
                   type="button"
-                  onClick={() => onRead(item.id)}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onRead(item.id);
+                  }}
                   className="rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-white/60 transition hover:bg-white/10 hover:text-white"
                 >
                   Mark read

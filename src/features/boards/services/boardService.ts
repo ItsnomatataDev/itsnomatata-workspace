@@ -26,6 +26,15 @@ type CardAssignee = {
 
 const POSTGREST_IN_FILTER_CHUNK_SIZE = 75;
 
+function toMutationError(error: unknown, fallback: string) {
+  if (error instanceof Error) return error;
+  if (error && typeof error === "object" && "message" in error) {
+    const message = String((error as { message?: unknown }).message ?? "").trim();
+    if (message) return new Error(message);
+  }
+  return new Error(fallback);
+}
+
 function chunkArray<T>(items: T[], size: number): T[][] {
   const chunks: T[][] = [];
   for (let index = 0; index < items.length; index += size) {
@@ -128,6 +137,7 @@ export async function getCards(
       [
         ...assignees.map((a) => a.user_id),
         ...tasks.map((task) => task.created_by as string | null).filter(Boolean),
+        ...tasks.map((task) => task.assigned_to as string | null).filter(Boolean),
       ].filter(Boolean) as string[],
     ),
   ];
@@ -177,14 +187,112 @@ export async function getCards(
     const creator = task.created_by
       ? profileMap.get(task.created_by as string)
       : null;
+    const taskAssignees = [...(assigneesByTask.get(task.id) ?? [])];
+    const primaryAssigneeId = task.assigned_to as string | null;
+
+    if (
+      primaryAssigneeId &&
+      !taskAssignees.some((assignee) => assignee.user_id === primaryAssigneeId)
+    ) {
+      const profile = profileMap.get(primaryAssigneeId);
+      taskAssignees.unshift({
+        id: `primary-${task.id}-${primaryAssigneeId}`,
+        task_id: task.id as string,
+        user_id: primaryAssigneeId,
+        created_at: task.created_at as string,
+        full_name: profile?.full_name ?? null,
+        email: profile?.email ?? null,
+      });
+    }
+
     return {
       ...task,
-      assignees: assigneesByTask.get(task.id) ?? [],
+      assignees: taskAssignees,
       commentsCount: commentCountMap.get(task.id) ?? 0,
       created_by_full_name: creator?.full_name ?? null,
       created_by_email: creator?.email ?? null,
     };
   }) as Card[];
+}
+
+export async function getCardById(
+  organizationId: string,
+  cardId: string,
+): Promise<Card | null> {
+  const { data: task, error } = await supabase
+    .from("tasks")
+    .select("*")
+    .eq("id", cardId)
+    .eq("organization_id", organizationId)
+    .maybeSingle();
+
+  if (error) throw toMutationError(error, "Failed to load card.");
+  if (!task) return null;
+
+  const [assignees, commentRows] = await Promise.all([
+    getCardAssignees(cardId),
+    supabase.from("task_comments").select("task_id").eq("task_id", cardId),
+  ]);
+
+  const userIds = [
+    ...new Set(
+      [
+        ...assignees.map((assignee) => assignee.user_id),
+        task.created_by as string | null,
+        task.assigned_to as string | null,
+      ].filter(Boolean) as string[],
+    ),
+  ];
+
+  const profileMap = new Map<
+    string,
+    { id: string; full_name: string | null; email: string | null }
+  >();
+
+  if (userIds.length > 0) {
+    const { data: profiles } = await supabase
+      .from("profiles")
+      .select("id, full_name, email")
+      .in("id", userIds);
+
+    for (const profile of profiles ?? []) {
+      profileMap.set(profile.id, {
+        id: profile.id,
+        full_name: profile.full_name ?? null,
+        email: profile.email ?? null,
+      });
+    }
+  }
+
+  const taskAssignees = [...assignees];
+  const primaryAssigneeId = task.assigned_to as string | null;
+
+  if (
+    primaryAssigneeId &&
+    !taskAssignees.some((assignee) => assignee.user_id === primaryAssigneeId)
+  ) {
+    const profile = profileMap.get(primaryAssigneeId);
+    taskAssignees.unshift({
+      id: `primary-${task.id}-${primaryAssigneeId}`,
+      task_id: task.id as string,
+      user_id: primaryAssigneeId,
+      created_at: task.created_at as string,
+      full_name: profile?.full_name ?? null,
+      email: profile?.email ?? null,
+    });
+  }
+
+  const creator = task.created_by
+    ? profileMap.get(task.created_by as string)
+    : null;
+
+  return {
+    ...task,
+    assignees: taskAssignees,
+    commentsCount: commentRows.data?.length ?? 0,
+    created_by_full_name: creator?.full_name ?? null,
+    created_by_email: creator?.email ?? null,
+  } as Card;
 }
 
 export async function getCardAssignees(
@@ -363,13 +471,32 @@ export async function createCard(
     .eq("organization_id", organizationId)
     .maybeSingle();
 
-  if (boardError) throw boardError;
+  if (boardError) throw toMutationError(boardError, "Failed to load board for card creation.");
+
+  let officeId = board?.office_id ?? null;
+  if (!officeId && input.createdBy) {
+    const { data: creatorProfile } = await supabase
+      .from("profiles")
+      .select("office_id")
+      .eq("id", input.createdBy)
+      .maybeSingle();
+    officeId = creatorProfile?.office_id ?? null;
+  }
+  if (!officeId) {
+    const { data: primaryOffice } = await supabase
+      .from("company_offices")
+      .select("id")
+      .eq("organization_id", organizationId)
+      .eq("is_primary", true)
+      .maybeSingle();
+    officeId = primaryOffice?.id ?? null;
+  }
 
   const { data: card, error } = await supabase
     .from("tasks")
     .insert({
       organization_id: organizationId,
-      office_id: board?.office_id ?? null,
+      office_id: officeId,
       client_id: boardId,
       column_id: input.columnId ?? null,
       title: input.title,
@@ -388,7 +515,7 @@ export async function createCard(
     .select()
     .single();
 
-  if (error) throw error;
+  if (error) throw toMutationError(error, "Failed to create card.");
 
   if (assigneeIds.length > 0) {
     const { error: assigneeError } = await supabase.from("task_assignees").upsert(
@@ -400,7 +527,12 @@ export async function createCard(
       { onConflict: "organization_id,task_id,user_id", ignoreDuplicates: true },
     );
 
-    if (assigneeError) throw assigneeError;
+    if (assigneeError) {
+      throw toMutationError(
+        assigneeError,
+        "Card was created but assigning users failed. Check office permissions.",
+      );
+    }
 
     try {
       await Promise.all(

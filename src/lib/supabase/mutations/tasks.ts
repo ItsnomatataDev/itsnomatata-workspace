@@ -460,6 +460,7 @@ export async function createTask(payload: CreateTaskPayload): Promise<TaskRow> {
               userId,
               taskId: data.id,
               taskTitle: data.title,
+              boardId: (data.client_id as string | null) ?? null,
               actorUserId: payload.created_by ?? payload.assigned_by ?? null,
             }),
           ),
@@ -476,6 +477,7 @@ export async function createTask(payload: CreateTaskPayload): Promise<TaskRow> {
         userId: data.assigned_to,
         taskId: data.id,
         taskTitle: data.title,
+        boardId: (data.client_id as string | null) ?? null,
         actorUserId: data.created_by ?? data.assigned_by ?? null,
       });
     } catch (notifError) {
@@ -558,6 +560,7 @@ export async function updateTask(
               userId,
               taskId,
               taskTitle: data.title,
+              boardId: (data.client_id as string | null) ?? null,
               actorUserId: data.assigned_by ?? data.created_by ?? null,
             }),
           );
@@ -580,6 +583,7 @@ export async function updateTask(
         userId: fields.assigned_to,
         taskId,
         taskTitle: data.title,
+        boardId: (data.client_id as string | null) ?? null,
         actorUserId: fields.assigned_by ?? data.created_by ?? null,
       });
     } catch (notifError) {
