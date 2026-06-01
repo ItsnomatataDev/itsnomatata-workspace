@@ -92,7 +92,15 @@ export default function PublicClientReviewPage() {
             ? "This review link has expired."
             : result.error === "read_only"
               ? "This review is read-only."
-              : "Unable to submit feedback.",
+              : result.error === "already_approved"
+                ? "You have already approved this post."
+                : result.error === "already_commented"
+                  ? "You have already left your comment on this post."
+                  : result.error === "already_requested_changes"
+                    ? "You have already requested changes on this post."
+                    : result.error === "comment_required"
+                      ? "Please add a comment before submitting."
+                      : "Unable to submit feedback.",
         );
         return;
       }

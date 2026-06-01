@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type CSSProperties, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { CalendarDays, CheckCircle2, Copy, GripVertical, Image, Loader2, MessageSquare, Plus, Trash2, Upload } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import Sidebar from "../../../components/dashboard/components/Sidebar";
@@ -22,6 +22,7 @@ import {
   updateContentReviewDraft,
   uploadContentReviewAsset,
   type ContentReviewAsset,
+  type ContentReviewActivity,
   type ContentReviewComment,
   type ContentReviewDetail,
   type ContentReviewDraft,
@@ -113,7 +114,9 @@ export default function ContentStudioPage() {
   const [detail, setDetail] = useState<ContentReviewDetail | null>(null);
   const [statusFilter, setStatusFilter] = useState<ContentReviewStatus | "all">("all");
   const [loading, setLoading] = useState(true);
+  const [detailLoading, setDetailLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const skipNextDetailLoadRef = useRef(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [createTitle, setCreateTitle] = useState("");
@@ -129,10 +132,43 @@ export default function ContentStudioPage() {
           ? "drafts"
           : "studio";
 
-  const selectedDraft = detail?.draft ?? drafts.find((draft) => draft.id === selectedDraftId) ?? null;
-  const assets = detail?.assets ?? [];
+  const selectedDraft =
+    detail?.draft.id === selectedDraftId
+      ? detail.draft
+      : drafts.find((draft) => draft.id === selectedDraftId) ?? null;
+  const assets = detail?.draft.id === selectedDraftId ? detail.assets : [];
 
-  const load = useCallback(async () => {
+  const loadDraftDetail = useCallback(
+    async (draftId: string | null) => {
+      if (!draftId || !organizationId || !officeId) {
+        setDetail(null);
+        return;
+      }
+
+      try {
+        setDetailLoading(true);
+        setError("");
+        const detailData = await getContentReviewDetail({
+          organizationId,
+          officeId,
+          draftId,
+        });
+        setDetail(detailData);
+        setDrafts((current) =>
+          current.map((draft) =>
+            draft.id === detailData.draft.id ? detailData.draft : draft,
+          ),
+        );
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to load draft.");
+      } finally {
+        setDetailLoading(false);
+      }
+    },
+    [organizationId, officeId],
+  );
+
+  const initializeStudio = useCallback(async () => {
     if (!organizationId) return;
     try {
       setLoading(true);
@@ -149,28 +185,35 @@ export default function ContentStudioPage() {
         status: statusFilter,
       });
       setDrafts(draftData);
-      const nextSelected = selectedDraftId ?? draftData[0]?.id ?? null;
-      setSelectedDraftId(nextSelected);
-      if (nextSelected) {
-        const detailData = await getContentReviewDetail({
-          organizationId,
-          officeId: office.id,
-          draftId: nextSelected,
-        });
-        setDetail(detailData);
-      } else {
-        setDetail(null);
-      }
+      setSelectedDraftId((current) => {
+        if (current && draftData.some((draft) => draft.id === current)) return current;
+        return draftData[0]?.id ?? null;
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load Content Studio.");
     } finally {
       setLoading(false);
     }
-  }, [organizationId, profile?.office_id, profile?.primary_role, selectedDraftId, statusFilter]);
+  }, [organizationId, profile?.office_id, profile?.primary_role, statusFilter]);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    void initializeStudio();
+  }, [initializeStudio]);
+
+  useEffect(() => {
+    if (loading || !officeId) return;
+    if (skipNextDetailLoadRef.current) {
+      skipNextDetailLoadRef.current = false;
+      return;
+    }
+    void loadDraftDetail(selectedDraftId);
+  }, [loading, officeId, selectedDraftId, loadDraftDetail]);
+
+  function syncDraftInList(draft: ContentReviewDraft) {
+    setDrafts((current) =>
+      current.map((item) => (item.id === draft.id ? draft : item)),
+    );
+  }
 
   const counts = useMemo(() => {
     return {
@@ -193,9 +236,16 @@ export default function ContentStudioPage() {
         title: createTitle,
       });
       setCreateTitle("");
+      setDrafts((current) => [draft, ...current.filter((item) => item.id !== draft.id)]);
+      skipNextDetailLoadRef.current = true;
       setSelectedDraftId(draft.id);
+      setDetail({
+        draft,
+        assets: [],
+        comments: [],
+        activity: [] as ContentReviewActivity[],
+      });
       setMessage("Draft created.");
-      await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create draft.");
     } finally {
@@ -230,8 +280,8 @@ export default function ContentStudioPage() {
         cta_url: String(form.get("cta_url") || ""),
       });
       setDetail({ ...detail, draft: updated });
+      syncDraftInList(updated);
       setMessage("Draft saved.");
-      await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save draft.");
     } finally {
@@ -252,6 +302,7 @@ export default function ContentStudioPage() {
           file,
           uploadedBy: userId,
           sortOrder: order,
+          displaySlot: order,
         });
         order += 1;
       }
@@ -261,10 +312,42 @@ export default function ContentStudioPage() {
         message: `${Array.from(files).length} asset(s) were uploaded for ${selectedDraft.title}.`,
         dedupeKey: `content-media:${selectedDraft.id}:${Date.now()}`,
       });
-      await load();
+      await loadDraftDetail(selectedDraft.id);
       setMessage(`${Array.from(files).length} asset(s) uploaded. Videos are compressed when the browser supports it.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to upload media.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleAddCarouselSlide(asset: ContentReviewAsset, files: FileList | null) {
+    if (!files || !selectedDraft || !userId || !detail) return;
+    const displaySlot = asset.display_slot ?? asset.sort_order;
+    const slotAssets = detail.assets.filter(
+      (item) => (item.display_slot ?? item.sort_order) === displaySlot,
+    );
+    let order = slotAssets.length
+      ? Math.max(...slotAssets.map((item) => item.sort_order)) + 1
+      : asset.sort_order;
+
+    try {
+      setSaving(true);
+      setError("");
+      for (const file of Array.from(files)) {
+        await uploadContentReviewAsset({
+          draft: selectedDraft,
+          file,
+          uploadedBy: userId,
+          sortOrder: order,
+          displaySlot,
+        });
+        order += 1;
+      }
+      await loadDraftDetail(selectedDraft.id);
+      setMessage("Carousel slide added to this row.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to add carousel slide.");
     } finally {
       setSaving(false);
     }
@@ -274,7 +357,14 @@ export default function ContentStudioPage() {
     asset: ContentReviewAsset,
     updates: Pick<
       Partial<ContentReviewAsset>,
-      "heading" | "caption" | "is_selected" | "sort_order" | "crop_x" | "crop_y" | "crop_zoom"
+      | "heading"
+      | "caption"
+      | "is_selected"
+      | "sort_order"
+      | "display_slot"
+      | "crop_x"
+      | "crop_y"
+      | "crop_zoom"
     >,
   ) {
     if (!detail) return;
@@ -306,7 +396,7 @@ export default function ContentStudioPage() {
       setMessage(isSelected ? "All media selected." : "All media unselected.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to update media selection.");
-      await load();
+      if (selectedDraftId) await loadDraftDetail(selectedDraftId);
     } finally {
       setSaving(false);
     }
@@ -325,7 +415,7 @@ export default function ContentStudioPage() {
       setMessage("Media deleted.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete media.");
-      await load();
+      await loadDraftDetail(selectedDraftId);
     } finally {
       setSaving(false);
     }
@@ -340,20 +430,27 @@ export default function ContentStudioPage() {
     const reordered = [...detail.assets];
     const [dragged] = reordered.splice(fromIndex, 1);
     reordered.splice(toIndex, 0, dragged);
-    const orderedAssets = reordered.map((asset, index) => ({ ...asset, sort_order: index }));
+    const orderedAssets = reordered.map((asset, index) => ({
+      ...asset,
+      sort_order: index,
+      display_slot: index,
+    }));
     setDetail({ ...detail, assets: orderedAssets });
 
     try {
       setSaving(true);
       await Promise.all(
         orderedAssets.map((asset) =>
-          updateContentReviewAsset(asset.id, { sort_order: asset.sort_order }),
+          updateContentReviewAsset(asset.id, {
+            sort_order: asset.sort_order,
+            display_slot: asset.display_slot,
+          }),
         ),
       );
       setMessage("Media order updated.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to reorder media.");
-      await load();
+      await loadDraftDetail(selectedDraftId);
     } finally {
       setSaving(false);
     }
@@ -365,6 +462,7 @@ export default function ContentStudioPage() {
       setSaving(true);
       const updated = await updateContentReviewDraft(selectedDraft, { status });
       setDetail({ ...detail, draft: updated });
+      syncDraftInList(updated);
       if (status === "ready_for_review" || status === "sent_to_client") {
         await notifyContentReviewTeam({
           draft: updated,
@@ -373,7 +471,6 @@ export default function ContentStudioPage() {
           dedupeKey: `content-ready:${updated.id}:${status}`,
         });
       }
-      await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to update status.");
     } finally {
@@ -401,7 +498,7 @@ export default function ContentStudioPage() {
       });
       setInternalComment("");
       setMessage("Internal comment added.");
-      await load();
+      await loadDraftDetail(selectedDraft.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to add comment.");
     } finally {
@@ -416,9 +513,15 @@ export default function ContentStudioPage() {
       setSaving(true);
       await deleteContentReviewDraft(draft.id);
       setMessage("Draft and attached media deleted.");
-      setSelectedDraftId(null);
-      setDetail(null);
-      await load();
+      const remaining = drafts.filter((item) => item.id !== draft.id);
+      setDrafts(remaining);
+      const nextId = remaining[0]?.id ?? null;
+      setSelectedDraftId(nextId);
+      if (nextId) {
+        await loadDraftDetail(nextId);
+      } else {
+        setDetail(null);
+      }
     } catch (err) {
       setError(`Failed to delete draft: ${err instanceof Error ? err.message : "Unknown error"}`);
     } finally {
@@ -533,6 +636,7 @@ export default function ContentStudioPage() {
               onReorderAssets={handleReorderAssets}
               onSetAllSelected={handleSetAllAssetSelection}
               onDeleteAsset={handleDeleteAsset}
+              onAddCarouselSlide={handleAddCarouselSlide}
             />
           ) : section === "reviews" ? (
             <ReviewsTab drafts={drafts} detail={detail} onSelect={setSelectedDraftId} />
@@ -600,9 +704,21 @@ export default function ContentStudioPage() {
               </div>
             </section>
 
-            {selectedDraft && detail ? (
-              <section className="space-y-6">
-                <form onSubmit={handleSaveDraft} className="rounded-2xl border border-white/10 bg-white/5 p-5">
+            {selectedDraft ? (
+              <section className="relative space-y-6">
+                {detailLoading ? (
+                  <div className="absolute inset-0 z-10 flex items-start justify-center rounded-2xl bg-black/40 pt-16 backdrop-blur-[1px]">
+                    <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/80 px-4 py-2 text-sm text-white/70">
+                      <Loader2 size={16} className="animate-spin text-orange-400" />
+                      Loading draft...
+                    </div>
+                  </div>
+                ) : null}
+                <form
+                  key={selectedDraft.id}
+                  onSubmit={handleSaveDraft}
+                  className="rounded-2xl border border-white/10 bg-white/5 p-5"
+                >
                   <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                     <div>
                       <h2 className="text-xl font-semibold">Draft Editor</h2>
@@ -697,6 +813,7 @@ export default function ContentStudioPage() {
                             onUpdate={handleUpdateAsset}
                             onReorder={handleReorderAssets}
                             onDelete={handleDeleteAsset}
+                            onAddCarouselSlide={handleAddCarouselSlide}
                           />
                         ))}
                       </div>
@@ -704,6 +821,8 @@ export default function ContentStudioPage() {
                   )}
                 </section>
 
+                {detail?.draft.id === selectedDraft.id ? (
+                  <>
                 <section className="rounded-2xl border border-white/10 bg-white/5 p-5">
                   <h2 className="text-xl font-semibold">Blog-style Preview</h2>
                   <div className="mt-4">
@@ -761,6 +880,8 @@ export default function ContentStudioPage() {
                     </div>
                   </div>
                 </section>
+                  </>
+                ) : null}
               </section>
             ) : (
               <section className="rounded-2xl border border-white/10 bg-white/5 p-8 text-center text-white/50">
@@ -786,6 +907,7 @@ function UploadsTab({
   onReorderAssets,
   onSetAllSelected,
   onDeleteAsset,
+  onAddCarouselSlide,
 }: {
   drafts: ContentReviewDraft[];
   selectedDraft: ContentReviewDraft | null;
@@ -797,12 +919,20 @@ function UploadsTab({
     asset: ContentReviewAsset,
     updates: Pick<
       Partial<ContentReviewAsset>,
-      "heading" | "caption" | "is_selected" | "sort_order" | "crop_x" | "crop_y" | "crop_zoom"
+      | "heading"
+      | "caption"
+      | "is_selected"
+      | "sort_order"
+      | "display_slot"
+      | "crop_x"
+      | "crop_y"
+      | "crop_zoom"
     >,
   ) => void;
   onReorderAssets: (draggedId: string, targetId: string) => void;
   onSetAllSelected: (isSelected: boolean) => void;
   onDeleteAsset: (asset: ContentReviewAsset) => void;
+  onAddCarouselSlide: (asset: ContentReviewAsset, files: FileList | null) => void;
 }) {
   return (
     <section className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
@@ -883,6 +1013,7 @@ function UploadsTab({
                   onUpdate={onUpdateAsset}
                   onReorder={onReorderAssets}
                   onDelete={onDeleteAsset}
+                  onAddCarouselSlide={onAddCarouselSlide}
                 />
               ))}
             </div>
@@ -1001,6 +1132,7 @@ function AssetReviewCard({
   onUpdate,
   onReorder,
   onDelete,
+  onAddCarouselSlide,
 }: {
   asset: ContentReviewAsset;
   saving: boolean;
@@ -1008,11 +1140,19 @@ function AssetReviewCard({
     asset: ContentReviewAsset,
     updates: Pick<
       Partial<ContentReviewAsset>,
-      "heading" | "caption" | "is_selected" | "sort_order" | "crop_x" | "crop_y" | "crop_zoom"
+      | "heading"
+      | "caption"
+      | "is_selected"
+      | "sort_order"
+      | "display_slot"
+      | "crop_x"
+      | "crop_y"
+      | "crop_zoom"
     >,
   ) => void;
   onReorder: (draggedId: string, targetId: string) => void;
   onDelete: (asset: ContentReviewAsset) => void;
+  onAddCarouselSlide: (asset: ContentReviewAsset, files: FileList | null) => void;
 }) {
   const [heading, setHeading] = useState(asset.heading ?? "");
   const [caption, setCaption] = useState(asset.caption ?? "");
@@ -1068,7 +1208,12 @@ function AssetReviewCard({
       <div className="mt-3 flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2">
           <GripVertical className="shrink-0 text-white/30" size={16} />
-          <p className="min-w-0 truncate text-xs text-white/45">{asset.file_name}</p>
+          <p className="min-w-0 truncate text-xs text-white/45">
+            {asset.file_name}
+            <span className="ml-2 rounded-full bg-white/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-white/50">
+              Row {(asset.display_slot ?? asset.sort_order) + 1}
+            </span>
+          </p>
         </div>
         <label className="inline-flex shrink-0 items-center gap-2 text-xs font-semibold text-white/70">
           <input
@@ -1102,6 +1247,21 @@ function AssetReviewCard({
       >
         Save heading and paragraph
       </button>
+      {isImage ? (
+        <label className="mt-3 inline-flex cursor-pointer items-center justify-center rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-xs font-semibold text-white/80 hover:bg-white/10">
+          Add carousel slide to this row
+          <input
+            type="file"
+            accept="image/*"
+            className="hidden"
+            disabled={saving}
+            onChange={(event) => {
+              onAddCarouselSlide(asset, event.target.files);
+              event.target.value = "";
+            }}
+          />
+        </label>
+      ) : null}
       {isImage ? (
         <div className="mt-4 space-y-3 rounded-lg border border-white/10 bg-black/20 p-3">
           <RangeControl

@@ -71,6 +71,7 @@ export type ContentReviewAsset = {
   crop_y?: number | null;
   crop_zoom?: number | null;
   sort_order: number;
+  display_slot?: number;
   expires_at?: string | null;
   original_size_bytes?: number | null;
   stored_size_bytes?: number | null;
@@ -148,6 +149,7 @@ export type ContentReviewDetail = {
 
 const BUCKET = "content-review-assets";
 const ASSET_RETENTION_DAYS = 60;
+const SCHEDULE_RETENTION_DAYS = 60;
 export const CONTENT_REVIEW_UPLOAD_LIMIT_BYTES = 1024 * 1024 * 1024;
 const VIDEO_TARGET_BITS_PER_SECOND = 2_500_000;
 const AUDIO_TARGET_BITS_PER_SECOND = 128_000;
@@ -216,6 +218,19 @@ export async function assertCanUseContentStudio(params: {
   return office;
 }
 
+export async function purgeOldContentReviewSchedules(
+  retentionDays = SCHEDULE_RETENTION_DAYS,
+) {
+  const { data, error } = await supabase.rpc("purge_content_review_schedules", {
+    retention_days: retentionDays,
+  });
+  if (error) {
+    console.warn("Content review schedule purge skipped.", error.message);
+    return { ok: false, deleted: 0 };
+  }
+  return (data ?? { ok: true, deleted: 0 }) as { ok: boolean; deleted: number };
+}
+
 export async function listContentReviewDrafts(params: {
   organizationId: string;
   officeId: string;
@@ -223,11 +238,18 @@ export async function listContentReviewDrafts(params: {
   clientId?: string;
 }) {
   await cleanupExpiredContentReviewAssets();
+  await purgeOldContentReviewSchedules();
+
+  const retentionCutoff = new Date(
+    Date.now() - SCHEDULE_RETENTION_DAYS * 86400000,
+  ).toISOString();
+
   let query = supabase
     .from("content_review_drafts")
     .select("*")
     .eq("organization_id", params.organizationId)
     .eq("office_id", params.officeId)
+    .gte("created_at", retentionCutoff)
     .order("created_at", { ascending: false });
 
   if (params.status && params.status !== "all") {
@@ -248,6 +270,7 @@ export async function getContentReviewDetail(params: {
   draftId: string;
 }): Promise<ContentReviewDetail> {
   await cleanupExpiredContentReviewAssets();
+  await purgeOldContentReviewSchedules();
   const [draftResult, assetsResult, commentsResult, activityResult] =
     await Promise.all([
       supabase
@@ -262,6 +285,7 @@ export async function getContentReviewDetail(params: {
         .select("*")
         .eq("draft_id", params.draftId)
         .gte("expires_at", new Date().toISOString())
+        .order("display_slot", { ascending: true })
         .order("sort_order", { ascending: true })
         .order("created_at", { ascending: true }),
       supabase
@@ -462,7 +486,14 @@ export async function updateContentReviewAsset(
   assetId: string,
   updates: Pick<
     Partial<ContentReviewAsset>,
-    "heading" | "caption" | "is_selected" | "sort_order" | "crop_x" | "crop_y" | "crop_zoom"
+    | "heading"
+    | "caption"
+    | "is_selected"
+    | "sort_order"
+    | "display_slot"
+    | "crop_x"
+    | "crop_y"
+    | "crop_zoom"
   >,
 ) {
   const { data, error } = await supabase
@@ -722,6 +753,7 @@ export async function uploadContentReviewAsset(params: {
   file: File;
   uploadedBy: string;
   sortOrder: number;
+  displaySlot?: number;
 }) {
   await cleanupExpiredContentReviewAssets();
   const uploadFile = await compressMediaFile(params.file);
@@ -759,6 +791,7 @@ export async function uploadContentReviewAsset(params: {
       crop_y: 50,
       crop_zoom: 1,
       sort_order: params.sortOrder,
+      display_slot: params.displaySlot ?? params.sortOrder,
       expires_at: new Date(Date.now() + ASSET_RETENTION_DAYS * 86400000).toISOString(),
       original_size_bytes: uploadFile.originalSize,
       stored_size_bytes: uploadFile.storedSize,
@@ -905,19 +938,27 @@ export async function recordActivity(params: {
   if (error) throw error;
 }
 
-async function getInternalRecipients(organizationId: string) {
+async function getContentReviewNotificationRecipients(draft: ContentReviewDraft) {
+  const recipientIds = new Set<string>();
+
+  if (draft.created_by) recipientIds.add(draft.created_by);
+  if (draft.assigned_to) recipientIds.add(draft.assigned_to);
+
   const { data, error } = await supabase
     .from("profiles")
     .select("id, office:company_offices!profiles_office_id_fkey(slug)")
-    .eq("organization_id", organizationId)
-    .in("primary_role", ["admin", "social_media", "media_team"]);
+    .eq("organization_id", draft.organization_id)
+    .eq("primary_role", "admin");
   if (error) throw error;
-  return (data ?? [])
-    .filter((item) => {
-      const office = Array.isArray(item.office) ? item.office[0] : item.office;
-      return office?.slug === OFFICE_SLUGS.itsNoMatata;
-    })
-    .map((item) => item.id as string);
+
+  for (const profile of data ?? []) {
+    const office = Array.isArray(profile.office) ? profile.office[0] : profile.office;
+    if (office?.slug === OFFICE_SLUGS.itsNoMatata) {
+      recipientIds.add(profile.id as string);
+    }
+  }
+
+  return Array.from(recipientIds);
 }
 
 export async function notifyContentReviewTeam(params: {
@@ -928,7 +969,8 @@ export async function notifyContentReviewTeam(params: {
   dedupeKey?: string;
 }) {
   try {
-    const recipients = await getInternalRecipients(params.draft.organization_id);
+    const recipients = await getContentReviewNotificationRecipients(params.draft);
+    if (recipients.length === 0) return;
     const results = await Promise.allSettled(
       recipients.map((userId) =>
         createNotification({
@@ -1014,6 +1056,7 @@ export async function getContentClientPortal(params: {
   sessionToken: string;
   email: string;
 }) {
+  await purgeOldContentReviewSchedules();
   const { data, error } = await supabase.rpc("get_content_client_portal", {
     client_token: params.clientToken,
     session_token: params.sessionToken,
@@ -1048,8 +1091,19 @@ export async function getContentClientReview(params: {
     draft?: ContentReviewDraft;
     assets?: ContentReviewAsset[];
     comments?: ContentReviewComment[];
+    feedback?: {
+      has_approved: boolean;
+      has_commented: boolean;
+      has_requested_changes: boolean;
+    };
   };
 }
+
+export type ContentClientFeedbackLimits = {
+  has_approved: boolean;
+  has_commented: boolean;
+  has_requested_changes: boolean;
+};
 
 export async function submitContentClientReviewFeedback(params: {
   clientToken: string;
@@ -1068,5 +1122,17 @@ export async function submitContentClientReviewFeedback(params: {
     decision: params.decision,
   });
   if (error) throw error;
-  return data as { ok: boolean; error?: string; status?: ContentReviewStatus };
+  return data as {
+    ok: boolean;
+    error?:
+      | string
+      | "already_approved"
+      | "already_commented"
+      | "already_requested_changes"
+      | "comment_required"
+      | "read_only"
+      | "unauthorized";
+    status?: ContentReviewStatus;
+    feedback?: ContentClientFeedbackLimits;
+  };
 }
