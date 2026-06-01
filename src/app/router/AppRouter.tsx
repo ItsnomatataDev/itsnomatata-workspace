@@ -62,7 +62,6 @@ import BoardTimeManagementPage from "../../features/boards/pages/BoardTimeManage
 import BoardDetailView from "../../features/boards/pages/BoardDetailView";
 import AttendancePage from "../../features/attendance/pages/AttendancePage";
 import AdminAttendancePage from "../../features/attendance/pages/AdminAttendancePage";
-import UserTimesheetPage from "../../features/timesheets/pages/UserTimesheetPage";
 import EmployeeInboxPage from "../../features/employee-inbox/pages/EmployeeInboxPage";
 import AdminDocumentCenterPage from "../../features/employee-inbox/pages/AdminDocumentCenterPage";
 import PayslipDeliveryPage from "../../features/employee-inbox/pages/PayslipDeliveryPage";
@@ -281,7 +280,7 @@ const AppRouter = () => {
           element={
             <ProtectedRoute>
               <FeatureRoute feature="timesheets">
-                <Navigate to="/timesheet" replace />
+                <Navigate to="/timesheets/team" replace />
               </FeatureRoute>
             </ProtectedRoute>
           }
@@ -292,7 +291,7 @@ const AppRouter = () => {
           element={
             <ProtectedRoute>
               <FeatureRoute feature="timesheets">
-                <Navigate to="/timesheet" replace />
+                <Navigate to="/timesheets/team" replace />
               </FeatureRoute>
             </ProtectedRoute>
           }
@@ -671,7 +670,9 @@ const AppRouter = () => {
           path="/timesheet"
           element={
             <ProtectedRoute>
-              <FeatureRoute feature="timesheets"><UserTimesheetPage /></FeatureRoute>
+              <FeatureRoute feature="timesheets">
+                <Navigate to="/timesheets/team" replace />
+              </FeatureRoute>
             </ProtectedRoute>
           }
         />
@@ -978,9 +979,9 @@ const AppRouter = () => {
           path="/timesheets/team"
           element={
             <ProtectedRoute>
-              <RoleRoute roles={["admin", "org_admin", "manager", "it"]}>
-                <FeatureRoute feature="timesheets"><TeamTimesheetsPage /></FeatureRoute>
-              </RoleRoute>
+              <FeatureRoute feature="timesheets">
+                <TeamTimesheetsPage />
+              </FeatureRoute>
             </ProtectedRoute>
           }
         />

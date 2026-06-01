@@ -227,7 +227,7 @@ export default function SocialPostsPage() {
                   </span>
                 </Link>
                 <Link
-                  to="/timesheet"
+                  to="/timesheets/team"
                   className="rounded-2xl border border-white/10 bg-black/35 px-4 py-4 text-sm font-medium text-white transition hover:border-orange-500/30 hover:bg-black/45"
                 >
                   Time tracking

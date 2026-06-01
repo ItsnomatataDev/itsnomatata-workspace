@@ -615,7 +615,6 @@ export function contentStudioCropFromAsset(asset: {
   };
 }
 
-/** @deprecated Use ContentStudioImageCropFlow — crop opens on image tap. */
 export default function ContentStudioCropEditor(props: {
   imageUrl: string;
   alt: string;

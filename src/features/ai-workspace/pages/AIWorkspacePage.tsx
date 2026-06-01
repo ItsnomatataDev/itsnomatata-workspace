@@ -159,6 +159,10 @@ function toAssistantAttachment(
     mimeType: attachment.mimeType,
     size: attachment.size,
     type,
+    textContent: attachment.textContent ??
+      (typeof attachment.metadata?.textContent === "string"
+        ? attachment.metadata.textContent
+        : undefined),
     metadata: attachment.metadata,
   };
 }

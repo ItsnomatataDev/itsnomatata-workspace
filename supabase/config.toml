@@ -6,3 +6,9 @@ verify_jwt = false
 
 [functions.import-ezitrack-daily-report]
 verify_jwt = false
+
+[functions.codex-execute-tool]
+verify_jwt = false
+
+[functions.codex-process-input]
+verify_jwt = false

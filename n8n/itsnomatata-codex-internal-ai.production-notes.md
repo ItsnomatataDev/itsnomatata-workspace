@@ -193,12 +193,30 @@ After importing the workflow JSON into n8n, reconnect:
 - Gemini API key through n8n Variables or credentials
 - Supabase service role key through n8n Variables or credentials
 
+## Workspace Action Tools (Option A — implemented)
+
+Deploy:
+
+```bash
+supabase functions deploy codex-execute-tool
+```
+
+Set n8n Variables: `INTERNAL_API_KEY` (same as Supabase secret).
+
+The production workflow includes four HTTP agent tools calling `codex-execute-tool`:
+
+- Summarize My Tasks
+- List Boards
+- Create Board Card
+- Notify Content Review
+
+See `n8n/itsnomatata-codex-workspace-tools-setup.md`.
+
 ## Known Production Improvements Still Recommended
 
 - Add dedicated Supabase RPC endpoints for permission-filtered document search.
 - Add OCR for scanned PDFs/images.
 - Connect `CODEX_FILE_SERVICE_URL` to your PDF/export service.
-- Add task/project tool endpoints once you decide which workspace actions Codex may execute.
 
 ## Safety Defaults
 

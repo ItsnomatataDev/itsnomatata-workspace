@@ -451,6 +451,15 @@ function buildChatInput(
 ): string {
   const parts: string[] = [message];
 
+  const metaInsightsUrl = message.match(
+    /https?:\/\/[^\s)\]"'<>]*business\.facebook\.com[^\s)\]"'<>]*/i,
+  )?.[0]?.replace(/[.,;]+$/, "");
+  if (metaInsightsUrl) {
+    parts.push(
+      `\n[Meta Business link]\nURL: ${metaInsightsUrl}\nThis page requires the user's Facebook login. Do not invent metrics. Provide Meta Business Suite export steps (CSV/XLSX) and analyze after they upload the export file.`,
+    );
+  }
+
   if (context) {
     const contextLines: string[] = [];
     if (context.role) contextLines.push(`Role: ${context.role}`);
@@ -482,6 +491,20 @@ function buildChatInput(
   }
 
   if (attachments?.length) {
+    const wantsExtraction =
+      /\bextract\b|\bpull\s+(the\s+)?data\b|presented\s+attach|this\s+attach|attached\s+file|from\s+(the\s+)?attach/i
+        .test(message);
+    if (wantsExtraction) {
+      parts.push(
+        "\n[Task]\nExtract structured data from the attached file(s) in this message. Use [Codex Intake] as the primary source when present. Return clear fields, tables, dates, amounts, names, and line items. Do not refuse because document training failed.",
+      );
+    }
+    const filenameHint = message.match(/[\w.-]+\.(pdf|docx?|xlsx|csv)/i)?.[0];
+    if (filenameHint) {
+      parts.push(
+        `\n[File focus]\nThe user is asking about "${filenameHint}". Use only intake/attachment content for this filename; ignore unrelated URLs or knowledge hits.`,
+      );
+    }
     parts.push(
       `\n[Attachments]\n${
         attachments.map((attachment) =>
@@ -496,6 +519,33 @@ function buildChatInput(
             const trainingMessage = typeof metadata.message === "string"
               ? metadata.message
               : null;
+            const codexStorage = metadata.codexStorage === true;
+            const hasDownloadableUrl = Boolean(
+              attachment.url &&
+                /^https?:\/\//i.test(attachment.url) &&
+                !attachment.url.startsWith("blob:"),
+            );
+            const hasInlineText = Boolean(
+              attachment.textContent && attachment.textContent.trim().length > 0,
+            );
+            const canExtractThisTurn = codexStorage || hasDownloadableUrl ||
+              hasInlineText;
+
+            const isMetaInsightsLink = hasDownloadableUrl &&
+              /business\.facebook\.com|business\.meta\.com|adsmanager\.facebook/i
+                .test(attachment.url ?? "");
+
+            const documentInstruction = isMetaInsightsLink
+              ? "Link instruction: Meta Business / Insights URL — cannot be read without the user's login. Give export steps (CSV/XLSX from Business Suite) and offer to analyze after they upload the export. Do not claim you accessed the dashboard."
+              : attachment.type === "document"
+              ? trained === true && documentId
+              ? "Document instruction: long-term training succeeded. Prefer Document Knowledge Tool with document ID for company knowledge. Also use [Codex Intake] in the message if present for this question."
+              : canExtractThisTurn
+              ? "Document instruction: file is attached for THIS chat (Codex intake / URL). Extract and answer from [Codex Intake] when present, or from the attachment URL. Do NOT refuse because long-term document training failed — training is optional and separate from reading this file now."
+              : trained === false
+              ? "Document instruction: no downloadable URL yet. Ask the user to wait for upload to finish or re-attach the file. Only mention OCR if intake and download both failed."
+              : null
+              : null;
 
             return [
             `Name: ${attachment.name}`,
@@ -503,17 +553,14 @@ function buildChatInput(
             attachment.mimeType ? `MIME: ${attachment.mimeType}` : null,
             attachment.size ? `Size: ${attachment.size}` : null,
             attachment.url ? `URL: ${attachment.url}` : null,
-            attachment.type === "document"
-              ? `Document training status: ${trained === true ? "trained" : trained === false ? "not trained" : "unknown"}`
+            attachment.type === "document" && trained === true
+              ? `Long-term knowledge training: succeeded`
+              : attachment.type === "document" && trained === false
+              ? `Long-term knowledge training: not required for this message (chat extraction handles the file)`
               : null,
             documentId ? `Document ID: ${documentId}` : null,
-            trainingMessage ? `Document upload message: ${trainingMessage}` : null,
-            attachment.type === "document" && trained === true
-              ? `Document instruction: this file was already uploaded through document training. Do not ask the user to upload it again. Use the Document Knowledge Tool with the document name, document ID, and the user's question to summarize or extract relevant details.`
-              : null,
-            attachment.type === "document" && trained === false
-              ? `Document instruction: document training failed or is unavailable. Explain the upload problem and ask for a readable/OCR version only if needed.`
-              : null,
+            trainingMessage ? `Upload note: ${trainingMessage}` : null,
+            documentInstruction,
             attachment.type === "image" && attachment.url
               ? `Vision instruction: use the Image Analysis Tool with this image URL when the user asks what is visible, asks for the car/object name, or asks to extract text from the image.`
               : null,

@@ -32,7 +32,7 @@
         0
       ],
       "parameters": {
-        "jsCode": "const body = $json;\nconst rawInput = body.chatInput || body.message || body.text || body.output || '';\nconst chatInput = String(rawInput).replace(/data:image\\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+/g, '[uploaded image data removed]').slice(0, 12000);\nconst rawAttachments = Array.isArray(body.attachments) ? body.attachments : [];\nconst attachmentSources = rawAttachments.slice(0, 8).map((item, index) => {\n  const sourceUrl = String(item?.url || item?.download_url || item?.image_url || item?.publicUrl || item?.signedUrl || '');\n  return { index, type: item?.type || item?.file_type || 'file', name: String(item?.name || item?.file_name || 'attachment').slice(0, 180), mimeType: item?.mimeType || item?.mime_type || null, url: sourceUrl, download_url: String(item?.download_url || sourceUrl || ''), documentId: item?.documentId || item?.document_id || null };\n});\nconst safeAttachments = rawAttachments.slice(0, 8).map((item, index) => {\n  const source = attachmentSources[index] || {};\n  const url = String(source.url || '');\n  const download = String(source.download_url || url || '');\n  const safeUrl = url.startsWith('data:') && url.length > 2000 ? '[inline data removed]' : url.slice(0, 1200);\n  const safeDownload = download.startsWith('data:') && download.length > 2000 ? '[inline data removed]' : download.slice(0, 1200);\n  return { type: source.type || 'file', name: source.name || 'attachment', mimeType: source.mimeType || null, url: safeUrl, download_url: safeDownload, documentId: source.documentId || null };\n});\nreturn [{ json: { ...body, chatInput, message: chatInput, sessionId: body.sessionId || body.conversationId || body.context?.userId || 'anonymous', conversationId: body.conversationId || null, context: body.context || {}, metadata: body.metadata || {}, attachments: safeAttachments, attachmentSources, action: body.action || 'sendMessage' }, binary: $binary }];"
+        "jsCode": "const body = $json;\nconst rawInput = body.chatInput || body.message || body.text || body.output || '';\nconst chatInput = String(rawInput).replace(/data:image\\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+/g, '[uploaded image data removed]').slice(0, 12000);\nconst isSkippableLink = url => /supabase\\.com\\/dashboard|app\\.supabase\\.com|supabase\\.com\\/docs/i.test(url);\nconst extractedLinks = [...String(rawInput).matchAll(/https?:\\/\\/[^\\s)\\]\"'<>]+/gi)].map(m => m[0].replace(/[.,;]+$/, '')).filter(url => !isSkippableLink(url)).filter((url, index, list) => list.indexOf(url) === index).slice(0, 6);\nconst rawAttachments = Array.isArray(body.attachments) ? body.attachments : [];\nconst attachmentSources = rawAttachments.slice(0, 8).map((item, index) => {\n  const sourceUrl = String(item?.url || item?.download_url || item?.image_url || item?.publicUrl || item?.signedUrl || '');\n  return { index, type: item?.type || item?.file_type || 'file', name: String(item?.name || item?.file_name || 'attachment').slice(0, 180), mimeType: item?.mimeType || item?.mime_type || null, url: sourceUrl, download_url: String(item?.download_url || sourceUrl || ''), documentId: item?.documentId || item?.document_id || item?.metadata?.documentId || null, textContent: item?.textContent || item?.metadata?.textContent || null };\n});\nconst safeAttachments = rawAttachments.slice(0, 8).map((item, index) => {\n  const source = attachmentSources[index] || {};\n  const url = String(source.url || '');\n  const download = String(source.download_url || url || '');\n  const safeUrl = url.startsWith('data:') && url.length > 2000 ? '[inline data removed]' : url.slice(0, 1200);\n  const safeDownload = download.startsWith('data:') && download.length > 2000 ? '[inline data removed]' : download.slice(0, 1200);\n  return { type: source.type || 'file', name: source.name || 'attachment', mimeType: source.mimeType || null, url: safeUrl, download_url: safeDownload, documentId: source.documentId || null, textContent: source.textContent || null };\n});\nreturn [{ json: { ...body, chatInput, message: chatInput, sessionId: body.sessionId || body.conversationId || body.context?.userId || 'anonymous', conversationId: body.conversationId || null, context: body.context || {}, metadata: body.metadata || {}, attachments: safeAttachments, attachmentSources, extractedLinks, action: body.action || 'sendMessage' }, binary: $binary }];"
       }
     },
     {
@@ -62,6 +62,59 @@
       }
     },
     {
+      "id": "codex-process-input-http",
+      "name": "04b Codex Process Input",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -960,
+        0
+      ],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($vars.SUPABASE_URL || 'https://zirftywinscopzuuwdlg.supabase.co') + '/functions/v1/codex-process-input' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+            },
+            {
+              "name": "x-codex-internal-key",
+              "value": "={{ $vars.INTERNAL_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ message: $json.chatInput || $json.message || '', chatInput: $json.chatInput || $json.message || '', attachments: $('02 Normalize Chat Payload').first().json.attachmentSources || $json.attachmentSources || [], attachmentSources: $('02 Normalize Chat Payload').first().json.attachmentSources || $json.attachmentSources || [], links: $json.extractedLinks || [], context: $json.context || {} }) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "merge-processed-input",
+      "name": "04c Merge Processed Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -900,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const base = $('04 Merge Request + User Context').first().json;\nconst processed = $json || {};\nconst intakeBlock = typeof processed.intakeBlock === 'string' ? processed.intakeBlock.trim() : '';\nconst intakeItems = Array.isArray(processed.items) ? processed.items : [];\nconst hasUsableContent = processed.hasUsableContent === true || intakeItems.some(item => item?.ok === true && String(item?.text || '').trim().length >= 24);\nlet chatInput = base.chatInput || base.message || '';\nif (intakeBlock) chatInput = `${chatInput}\\n\\n${intakeBlock}`.slice(0, 16000);\nreturn [{ json: {\n  ...base,\n  chatInput,\n  message: chatInput,\n  intakeBlock,\n  processedInput: {\n    ok: processed.ok !== false,\n    hasUsableContent,\n    items: processed.items || [],\n    links: processed.links || base.extractedLinks || [],\n    metaReportDetected: processed.metaReportDetected === true\n  }\n}, binary: $('04 Merge Request + User Context').first().binary || $binary }];"
+      }
+    },
+    {
       "id": "permission-router",
       "name": "05 Permission + Tool Router",
       "type": "n8n-nodes-base.code",
@@ -71,7 +124,7 @@
         0
       ],
       "parameters": {
-        "jsCode": "const chatInput = $json.chatInput || $json.message || '';\nconst message = chatInput.toLowerCase();\nconst attachments = Array.isArray($json.attachments) ? $json.attachments : [];\nconst sources = Array.isArray($json.attachmentSources) ? $json.attachmentSources : [];\nconst contextAttachments = Array.isArray($json.context?.attachments) ? $json.context.attachments : [];\nconst previousAttachments = Array.isArray($json.context?.previousAttachments) ? $json.context.previousAttachments : [];\nconst metadataAttachments = Array.isArray($json.metadata?.attachments) ? $json.metadata.attachments : [];\nconst metadataPreviousAttachments = Array.isArray($json.metadata?.previousAttachments) ? $json.metadata.previousAttachments : [];\nconst rememberedImages = [$json.context?.lastGeneratedImage, $json.metadata?.lastGeneratedImage].filter(Boolean);\nconst allAttachments = [...attachments, ...sources, ...contextAttachments, ...previousAttachments, ...metadataAttachments, ...metadataPreviousAttachments, ...rememberedImages];\nconst mimeOrName = item => String(item?.mimeType || item?.mime_type || item?.type || item?.name || item?.url || item?.download_url || '').toLowerCase();\nconst hasImageAttachment = allAttachments.some(item => item?.type === 'image' || mimeOrName(item).startsWith('image/') || /\\.(png|jpe?g|webp|gif)(\\?|#|$)/i.test(String(item?.url || item?.download_url || item?.name || '')) || String(item?.url || item?.download_url || '').startsWith('data:image/'));\nconst hasDocumentAttachment = allAttachments.some(item => item?.type === 'document' || /pdf|text|markdown|csv|json|word|docx|document|invoice|receipt|form/.test(mimeOrName(item)));\nconst hasAnyAttachment = hasImageAttachment || hasDocumentAttachment || allAttachments.length > 0 || Object.keys($binary || {}).length > 0;\nconst editIntent = /\\b(edit|change|modify|enhance|improve|retouch|remove|replace|background|make it professional|product photo|poster|add text|add the words|resize|crop|upscale|hd|high[- ]?resolution|clean up|color|colour|turn this into|use this image)\\b/i.test(chatInput);\nconst imageQuestionIntent = /what (can you see|is in|do you see)|describe (this|the) image|analy[sz]e (this|the) image|identify this|what car|car model|caption this image/i.test(chatInput);\nconst ocrIntent = /extract (the )?text|read this|scan this|ocr|what does this document say|transcribe|receipt|invoice|screenshot|form|scanned pdf|photographed document/i.test(chatInput);\nlet route = 'main_agent';\nif (hasImageAttachment && editIntent) route = 'image_editing';\nelse if (/generate.*image|create.*image|draw|make.*picture|image of|generate.*logo|create.*logo/i.test(chatInput) && !hasImageAttachment) route = 'image_generation';\nelse if (hasImageAttachment && imageQuestionIntent) route = 'image_analysis';\nelse if ((hasAnyAttachment && ocrIntent) || (hasImageAttachment && /text|receipt|invoice|screenshot|form/i.test(message))) route = 'ocr_extraction';\nelse if (hasDocumentAttachment || /document|file|pdf|policy|summarize this|action items|deadline|extract text|invoice|receipt/i.test(message)) route = 'document_qa';\nelse if (/website|external company|research|find online|official site/i.test(message)) route = 'web_research';\nelse if (/logo|hero image|gallery|open graph|og:image|favicon/i.test(message)) route = 'image_fetch';\nelse if (/who|team|department|responsible|maintain|built codex|developer/i.test(message)) route = 'people_directory';\nelse if (/code|typescript|react|next|tailwind|supabase|node|expo|bug|error/i.test(message)) route = 'code_assistant';\nreturn [{ json: { ...$json, chatInput, message: chatInput, route, allowed: true, routing: { hasImageAttachment, hasDocumentAttachment, editIntent, ocrIntent } }, binary: $binary }];"
+        "jsCode": "const chatInput = $json.chatInput || $json.message || '';\nconst message = chatInput.toLowerCase();\nconst intakeReady = $json.processedInput?.hasUsableContent === true;\nconst metaReportDetected = $json.processedInput?.metaReportDetected === true;\nconst extractedLinks = Array.isArray($json.extractedLinks) ? $json.extractedLinks : [];\nconst attachments = Array.isArray($json.attachments) ? $json.attachments : [];\nconst sources = Array.isArray($json.attachmentSources) ? $json.attachmentSources : [];\nconst contextAttachments = Array.isArray($json.context?.attachments) ? $json.context.attachments : [];\nconst previousAttachments = Array.isArray($json.context?.previousAttachments) ? $json.context.previousAttachments : [];\nconst metadataAttachments = Array.isArray($json.metadata?.attachments) ? $json.metadata.attachments : [];\nconst metadataPreviousAttachments = Array.isArray($json.metadata?.previousAttachments) ? $json.metadata.previousAttachments : [];\nconst rememberedImages = [$json.context?.lastGeneratedImage, $json.metadata?.lastGeneratedImage].filter(Boolean);\nconst allAttachments = [...attachments, ...sources, ...contextAttachments, ...previousAttachments, ...metadataAttachments, ...metadataPreviousAttachments, ...rememberedImages];\nconst mimeOrName = item => String(item?.mimeType || item?.mime_type || item?.type || item?.name || item?.url || item?.download_url || '').toLowerCase();\nconst hasImageAttachment = allAttachments.some(item => item?.type === 'image' || mimeOrName(item).startsWith('image/') || /\\.(png|jpe?g|webp|gif)(\\?|#|$)/i.test(String(item?.url || item?.download_url || item?.name || '')) || String(item?.url || item?.download_url || '').startsWith('data:image/'));\nconst hasDocumentAttachment = allAttachments.some(item => item?.type === 'document' || /pdf|text|markdown|csv|json|word|docx|xlsx|excel|spreadsheet|document|invoice|receipt|form/.test(mimeOrName(item)));\nconst isStructuredFileAttachment = allAttachments.some(item => /\\.(csv|xlsx|xls|tsv|docx?|txt|md)$/i.test(String(item?.name || '')) || /csv|spreadsheet|excel|word|docx|plain|tab-separated/i.test(mimeOrName(item)));\nconst isTabularAttachment = allAttachments.some(item => /\\.(csv|xlsx|xls|tsv)$/i.test(String(item?.name || item?.url || '')) || /csv|spreadsheet|excel/i.test(mimeOrName(item)));\nconst isPdfAttachment = allAttachments.some(item => /pdf/i.test(mimeOrName(item)) || item?.type === 'document' && /\\.pdf/i.test(String(item?.name || item?.url || '')));\nconst hasAnyAttachment = hasImageAttachment || hasDocumentAttachment || allAttachments.length > 0 || Object.keys($binary || {}).length > 0;\nconst hasMetaLink = metaReportDetected || extractedLinks.some(url => /business\\.facebook|facebook\\.com\\/ads|business\\.meta|adsmanager\\.facebook/i.test(String(url))) || /meta business|ads manager|facebook ads|instagram insights|campaign report|ad account report/i.test(message);\nconst editIntent = /\\b(edit|change|modify|enhance|improve|retouch|remove|replace|background|make it professional|product photo|poster|add text|add the words|resize|crop|upscale|hd|high[- ]?resolution|clean up|color|colour|turn this into|use this image)\\b/i.test(chatInput);\nconst imageQuestionIntent = /what (can you see|is in|do you see)|describe (this|the) image|analy[sz]e (this|the) image|identify this|what car|car model|caption this image/i.test(chatInput);\nconst extractAttachmentIntent = /\\bextract\\b|\\bpull\\s+(the\\s+)?data\\b|\\bget\\s+(the\\s+)?data\\b|presented\\s+attach|this\\s+attach|attached\\s+file|from\\s+(the\\s+)?attach|parse\\s+(the\\s+)?(file|document|attach)|what'?s\\s+in\\s+(this|the)\\s+(file|attach|document)/i.test(chatInput);\nconst ocrIntent = extractAttachmentIntent || /extract (the )?text|read this|scan this|ocr|what does this document say|transcribe|receipt|invoice|screenshot|form|scanned pdf|photographed document/i.test(chatInput);\nconst summarizeIntent = /summarize|summary|insights|performance|report|roas|spend|campaign results|account overview/i.test(message);\nlet route = 'main_agent';\nif (hasImageAttachment && editIntent) route = 'image_editing';\nelse if (/generate.*image|create.*image|draw|make.*picture|image of|generate.*logo|create.*logo|social post|instagram|facebook post|ad creative|marketing visual/i.test(chatInput) && !hasImageAttachment) route = 'image_generation';\nelse if (hasImageAttachment && imageQuestionIntent) route = 'image_analysis';\nelse if (intakeReady && hasAnyAttachment && (extractAttachmentIntent || summarizeIntent || hasDocumentAttachment)) route = 'document_intake';\nelse if (!intakeReady && hasAnyAttachment && (extractAttachmentIntent || ocrIntent || summarizeIntent) && (isStructuredFileAttachment || isPdfAttachment)) route = 'ocr_extraction';\nelse if (!intakeReady && hasAnyAttachment && (extractAttachmentIntent || ocrIntent) && !isStructuredFileAttachment && !isPdfAttachment) route = 'ocr_extraction';\nelse if (intakeReady && (hasDocumentAttachment || hasMetaLink || summarizeIntent)) route = 'document_intake';\nelse if (hasMetaLink && summarizeIntent) route = 'meta_report';\nelse if (hasDocumentAttachment || /document|file|pdf|policy|summarize this|action items|deadline|extract text|invoice|receipt|xlsx|csv|spreadsheet/i.test(message)) route = 'document_qa';\nelse if (/website|external company|research|find online|official site/i.test(message)) route = 'web_research';\nelse if (/logo|hero image|gallery|open graph|og:image|favicon/i.test(message)) route = 'image_fetch';\nelse if (/who|team|department|responsible|maintain|built codex|developer/i.test(message)) route = 'people_directory';\nelse if (/code|typescript|react|next|tailwind|supabase|node|expo|bug|error/i.test(message)) route = 'code_assistant';\nreturn [{ json: { ...$json, chatInput, message: chatInput, route, allowed: true, routing: { hasImageAttachment, hasDocumentAttachment, editIntent, ocrIntent, extractAttachmentIntent, intakeReady, hasMetaLink } }, binary: $binary }];"
       }
     },
     {
@@ -211,7 +264,7 @@
             },
             {
               "name": "prompt",
-              "value": "={{ ($json.message || $json.chatInput || '').replace(/\\n\\[Context\\][\\s\\S]*$/,'').trim() }}"
+              "value": "={{ ($json.smartImagePrompt || $json.message || $json.chatInput || '').replace(/\\n\\[Context\\][\\s\\S]*$/,'').trim() }}"
             },
             {
               "name": "size",
@@ -230,6 +283,19 @@
           "id": "AMCuIhOcN1ffKYz9",
           "name": "OpenAi account"
         }
+      }
+    },
+    {
+      "id": "build-smart-image-prompt",
+      "name": "Build Smart Image Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -600,
+        -180
+      ],
+      "parameters": {
+        "jsCode": "const source = $json;\nconst raw = String(source.message || source.chatInput || '').replace(/\\n\\[Context\\][\\s\\S]*$/, '').trim();\nconst moduleName = source.context?.currentModule || 'ai-workspace';\nconst projectName = source.metadata?.projectName || '';\nconst role = source.context?.role || 'employee';\nconst isMarketing = /social|instagram|facebook|ad creative|poster|flyer|campaign|brand|logo|marketing|meta|reel|story/i.test(raw);\nconst isProduct = /product|ecommerce|catalog|packshot/i.test(raw);\nconst smartImagePrompt = [\n  raw || 'Professional marketing visual for ITsNomatata workspace',\n  isMarketing ? 'Style: clean modern agency marketing visual, strong hierarchy, readable text areas if requested, brand-safe composition.' : '',\n  isProduct ? 'Style: realistic product photography, soft studio lighting, crisp details.' : '',\n  projectName ? `Project context: ${projectName}.` : '',\n  `Workspace module: ${moduleName}. Requested by role: ${role}.`,\n  'Avoid watermarks, distorted text, extra limbs, or cluttered backgrounds unless explicitly requested.'\n].filter(Boolean).join(' ');\nreturn [{ json: { ...source, smartImagePrompt } }];"
       }
     },
     {
@@ -718,6 +784,166 @@
             }
           ]
         },
+        "options": {}
+      }
+    },
+    {
+      "id": "codex-tool-summarize-tasks",
+      "name": "Codex Tool - Summarize My Tasks",
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        600,
+        540
+      ],
+      "parameters": {
+        "toolDescription": "Load the current user's open assigned tasks from the workspace (with overdue count and board links). Use when the user asks what they should work on, what is overdue, or wants a task summary. Do not guess task lists.",
+        "method": "POST",
+        "url": "={{ ($vars.SUPABASE_URL || 'https://zirftywinscopzuuwdlg.supabase.co') + '/functions/v1/codex-execute-tool' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+            },
+            {
+              "name": "x-codex-internal-key",
+              "value": "={{ $vars.INTERNAL_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ toolId: 'summarize_my_tasks', payload: {}, context: $('04 Merge Request + User Context').first().json.context }) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "codex-tool-list-boards",
+      "name": "Codex Tool - List Boards",
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        840,
+        540
+      ],
+      "parameters": {
+        "toolDescription": "List kanban boards (clients table) for the user's organization. Use to resolve board_id from a board name before creating a card. Pass search when the user names a board.",
+        "method": "POST",
+        "url": "={{ ($vars.SUPABASE_URL || 'https://zirftywinscopzuuwdlg.supabase.co') + '/functions/v1/codex-execute-tool' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+            },
+            {
+              "name": "x-codex-internal-key",
+              "value": "={{ $vars.INTERNAL_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ toolId: 'list_boards', payload: { search: $fromAI('board_search', '', 'string') || '' }, context: $('04 Merge Request + User Context').first().json.context }) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "codex-tool-create-board-card",
+      "name": "Codex Tool - Create Board Card",
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        1080,
+        540
+      ],
+      "parameters": {
+        "toolDescription": "Create a kanban card on a board for the user's organization. Required: title and board_id or board_name. Optional: description, priority (low|medium|high|urgent), due_date (YYYY-MM-DD), assignee_user_id, assignee_email, assignee_name. Managers create immediately; others submit for approval. Always call List Boards first if board_id is unknown.",
+        "method": "POST",
+        "url": "={{ ($vars.SUPABASE_URL || 'https://zirftywinscopzuuwdlg.supabase.co') + '/functions/v1/codex-execute-tool' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+            },
+            {
+              "name": "x-codex-internal-key",
+              "value": "={{ $vars.INTERNAL_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ toolId: 'create_board_card', payload: { title: $fromAI('card_title', '', 'string'), board_id: $fromAI('board_id', '', 'string') || '', board_name: $fromAI('board_name', '', 'string') || '', description: $fromAI('card_description', '', 'string') || '', priority: $fromAI('card_priority', 'medium', 'string'), due_date: $fromAI('due_date', '', 'string') || '', assignee_email: $fromAI('assignee_email', '', 'string') || '', assignee_name: $fromAI('assignee_name', '', 'string') || '' }, context: $('04 Merge Request + User Context').first().json.context }) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "codex-tool-notify-content-review",
+      "name": "Codex Tool - Notify Content Review",
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        1320,
+        540
+      ],
+      "parameters": {
+        "toolDescription": "Notify the content review team (draft creator, assignee, IT's No Matata admins) about a content studio draft. Required: draft_id. Optional: title and message for the notification body.",
+        "method": "POST",
+        "url": "={{ ($vars.SUPABASE_URL || 'https://zirftywinscopzuuwdlg.supabase.co') + '/functions/v1/codex-execute-tool' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+            },
+            {
+              "name": "x-codex-internal-key",
+              "value": "={{ $vars.INTERNAL_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ toolId: 'notify_content_review', payload: { draft_id: $fromAI('draft_id', '', 'string'), title: $fromAI('notification_title', 'Content review update', 'string'), message: $fromAI('notification_message', '', 'string') || '' }, context: $('04 Merge Request + User Context').first().json.context }) }}",
         "options": {}
       }
     },
@@ -1531,7 +1757,7 @@
         260
       ],
       "parameters": {
-        "jsCode": "const source = $json;\nconst candidates = []; const add = item => { if (item && typeof item === 'object') candidates.push(item); };\n(source.attachmentSources || []).forEach(add); (source.attachments || []).forEach(add); (source.context?.attachments || []).forEach(add); (source.metadata?.attachments || []).forEach(add);\nconst existingBinary = $binary?.document || $binary?.file || $binary?.data || $binary?.image || null;\nconst picked = candidates.find(item => item?.url || item?.download_url || item?.image_url || item?.mimeType || item?.name) || null;\nif (!picked && !existingBinary) return [{ json: { ...source, ocrSourceFound: false, userMessage: 'Please upload the document or image you want me to read.' } }];\nconst rawUrl = String(picked?.download_url || picked?.url || picked?.image_url || '');\nconst mime = picked?.mimeType || picked?.mime_type || existingBinary?.mimeType || (/\\.pdf(\\?|#|$)/i.test(rawUrl) ? 'application/pdf' : 'image/png');\nconst isDataUrl = rawUrl.startsWith('data:'); const isUrl = /^https?:\\/\\//i.test(rawUrl);\nreturn [{ json: { ...source, ocrSourceFound: true, ocrSourceUrl: isUrl ? rawUrl : '', ocrSourceDataUrl: isDataUrl ? rawUrl : '', ocrSourceIsUrl: isUrl, ocrMimeType: mime, ocrFileName: picked?.name || existingBinary?.fileName || 'uploaded-document' }, binary: existingBinary ? { document: existingBinary } : $binary }];"
+        "jsCode": "const source = $('04c Merge Processed Input').first()?.json || $json;\nconst candidates = []; const add = item => { if (item && typeof item === 'object') candidates.push(item); };\n(source.attachmentSources || []).forEach(add); (source.attachments || []).forEach(add); (source.context?.attachments || []).forEach(add); (source.metadata?.attachments || []).forEach(add);\nconst existingBinary = $binary?.document || $binary?.file || $binary?.data || $binary?.image || null;\nconst picked = candidates.find(item => { const url = String(item?.download_url || item?.url || item?.image_url || ''); return url && !url.startsWith('[inline'); }) || candidates.find(item => item?.mimeType || item?.name) || null;\nif (!picked && !existingBinary) return [{ json: { ...source, ocrSourceFound: false, userMessage: 'Please upload the document or image you want me to read.' } }];\nconst rawUrl = String(picked?.download_url || picked?.url || picked?.image_url || '');\nconst fileName = picked?.name || existingBinary?.fileName || 'uploaded-file';\nconst mime = picked?.mimeType || picked?.mime_type || existingBinary?.mimeType || (/\\.csv(\\?|#|$)/i.test(rawUrl) || /\\.csv$/i.test(fileName) ? 'text/csv' : /\\.(xlsx|xls)(\\?|#|$)/i.test(rawUrl) || /\\.(xlsx|xls)$/i.test(fileName) ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : /\\.pdf(\\?|#|$)/i.test(rawUrl) || /\\.pdf$/i.test(fileName) ? 'application/pdf' : 'image/png');\nconst isDataUrl = rawUrl.startsWith('data:'); const isUrl = /^https?:\\/\\//i.test(rawUrl);\nreturn [{ json: { ...source, ocrSourceFound: true, ocrSourceUrl: isUrl ? rawUrl : '', ocrSourceDataUrl: isDataUrl ? rawUrl : '', ocrSourceIsUrl: isUrl, ocrMimeType: mime, ocrFileName: fileName || existingBinary?.fileName || 'uploaded-document' }, binary: existingBinary ? { document: existingBinary } : $binary }];"
       }
     },
     {
@@ -1629,7 +1855,38 @@
         240
       ],
       "parameters": {
-        "jsCode": "const item = $json;\nlet doc = $binary?.document || $binary?.file || $binary?.data || $binary?.image || null;\nlet dataUrl = item.ocrSourceDataUrl || ''; let mime = item.ocrMimeType || doc?.mimeType || 'image/png';\nif (!dataUrl && doc?.data) dataUrl = 'data:' + mime + ';base64,' + doc.data;\nif (!dataUrl) return [{ json: { ...item, ocrPreparationFailed: true, userMessage: 'I could not read this file clearly. Please upload a clearer version or OCR-readable file.' } }];\nconst isPdf = /pdf/i.test(mime) || /.pdf$/i.test(item.ocrFileName || '');\nconst content = [{ type: 'input_text', text: 'Extract all readable text from this document/image. Preserve headings, paragraphs, tables, dates, totals, names, references, and important formatting. If something is unclear, mark it as [unclear]. Return only the extracted text first, then a short structured summary.' }];\nif (isPdf) content.push({ type: 'input_file', filename: item.ocrFileName || 'document.pdf', file_data: dataUrl }); else content.push({ type: 'input_image', image_url: dataUrl });\nreturn [{ json: { ...item, ocrPreparationFailed: false, openaiBody: { model: 'gpt-4.1-mini', input: [{ role: 'user', content }] } } }];"
+        "jsCode": "const item = $json;\nlet dataUrl = item.ocrSourceDataUrl || '';\nconst ocrName = item.ocrFileName || 'uploaded-file';\nlet mime = item.ocrMimeType || (/\\.csv$/i.test(ocrName) ? 'text/csv' : /\\.(xlsx|xls)$/i.test(ocrName) ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : /\\.pdf$/i.test(ocrName) ? 'application/pdf' : 'image/png');\nconst binaryKeys = ['document', 'file', 'data', 'image'];\nif (!dataUrl) {\n  for (const key of binaryKeys) {\n    if (!$binary?.[key]) continue;\n    try {\n      const buffer = await this.helpers.getBinaryDataBuffer(0, key);\n      mime = $binary[key].mimeType || mime;\n      const bytes = new Uint8Array(buffer);\n      let binary = '';\n      const chunk = 0x8000;\n      for (let i = 0; i < bytes.length; i += chunk) {\n        binary += String.fromCharCode(...bytes.subarray(i, i + chunk));\n      }\n      dataUrl = 'data:' + mime + ';base64,' + btoa(binary);\n      break;\n    } catch (error) {\n      // try next binary property\n    }\n  }\n}\nif (!dataUrl) {\n  const intakeItems = $('04c Merge Processed Input').first()?.json?.processedInput?.items || [];\n  const recovered = intakeItems.find(entry => entry?.ok && entry?.text);\n  if (recovered?.text) {\n    return [{ json: { ...item, ocrPreparationFailed: false, ocrRecoveredText: recovered.text, openaiBody: null, skipOpenAi: true } }];\n  }\n  return [{ json: { ...item, ocrPreparationFailed: true, userMessage: 'Could not load the PDF bytes. Re-upload the file in chat (wait for upload to finish) or use a direct https link.' } }];\n}\nconst isPdf = /pdf/i.test(mime) || /\\.pdf$/i.test(item.ocrFileName || '');\nconst content = [{ type: 'input_text', text: 'Extract all readable text from this document/image. Preserve headings, paragraphs, tables, dates, totals, names, references, and important formatting. If something is unclear, mark it as [unclear]. Return only the extracted text first, then a short structured summary.' }];\nif (isPdf) content.push({ type: 'input_file', filename: item.ocrFileName || 'document.pdf', file_data: dataUrl });\nelse content.push({ type: 'input_image', image_url: dataUrl });\nreturn [{ json: { ...item, ocrPreparationFailed: false, openaiBody: { model: 'gpt-4o-mini', input: [{ role: 'user', content }] }, skipOpenAi: false } }];"
+      }
+    },
+    {
+      "id": "ocr-should-call-openai",
+      "name": "OCR Should Call OpenAI?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        660,
+        240
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.skipOpenAi !== true && $json.ocrPreparationFailed !== true && Boolean($json.openaiBody) }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
       }
     },
     {
@@ -1678,7 +1935,7 @@
         240
       ],
       "parameters": {
-        "jsCode": "const source = $('05 Permission + Tool Router').first().json;\nconst text = $json.output_text || ($json.output || []).flatMap(o => o.content || []).map(c => c.text || '').filter(Boolean).join('\\n') || $json.text || '';\nconst wordCount = (text.match(/[A-Za-z0-9]{2,}/g) || []).length;\nif (!text || wordCount < 8 || $json.error) { const technical = $json.error?.message || $json.message || 'OCR returned too little readable text.'; return [{ json: { success: true, type: 'ocr_extraction', message: 'I could not read this file clearly. Please upload a clearer version or OCR-readable file.', output: 'I could not read this file clearly. Please upload a clearer version or OCR-readable file.', conversationId: source.conversationId || null, data: { internal_error: String(technical).slice(0, 500), wordCount }, attachments: [], sources: [] } }]; }\nreturn [{ json: { success: true, type: 'ocr_extraction', message: text, output: text, conversationId: source.conversationId || null, data: { wordCount, source: 'openai_vision_ocr', model: 'gpt-4.1-mini' }, attachments: [], sources: [] } }];"
+        "jsCode": "const source = $('05 Permission + Tool Router').first().json;\nconst intakeBlock = $('04c Merge Processed Input').first()?.json?.intakeBlock || source.intakeBlock || '';\nconst intakeItems = $('04c Merge Processed Input').first()?.json?.processedInput?.items || [];\nconst recovered = $json.ocrRecoveredText || intakeItems.find(item => item?.ok && item?.text)?.text || '';\nif (recovered && String(recovered).trim().length > 15) {\n  const text = String(recovered).trim();\n  return [{ json: { success: true, type: 'ocr_extraction', message: text, output: text, conversationId: source.conversationId || null, data: { source: 'codex_process_input', wordCount: (text.match(/[A-Za-z0-9]{2,}/g) || []).length }, attachments: [], sources: [] } }];\n}\nconst text = $json.output_text || ($json.output || []).flatMap(o => o.content || []).map(c => c.text || '').filter(Boolean).join('\\n') || $json.text || '';\nconst wordCount = (text.match(/[A-Za-z0-9]{2,}/g) || []).length;\nif ((!text || wordCount < 5 || $json.error) && intakeBlock) {\n  const fallback = intakeBlock.replace(/^\\[Codex Intake[^\\]]*\\][^\\n]*\\nUse the material below[^\\n]*\\n/i, '').trim();\n  if (fallback.length > 40) {\n    return [{ json: { success: true, type: 'ocr_extraction', message: fallback, output: fallback, conversationId: source.conversationId || null, data: { source: 'codex_process_input_fallback', wordCount: (fallback.match(/[A-Za-z0-9]{2,}/g) || []).length }, attachments: [], sources: [] } }];\n  }\n}\nif (!text || wordCount < 5 || $json.error) {\n  const failedItem = intakeItems.find(item => item && item.ok === false);\n  const hint = $json.codexExtractError || failedItem?.error || $json.userMessage || $json.error?.message || 'OCR returned too little readable text.';\n  const message = `I could not extract enough readable data from this file. ${hint} Try re-uploading in chat (wait until upload completes), use a text-based PDF export, or a clearer scan.`;\n  return [{ json: { success: true, type: 'ocr_extraction', message, output: message, conversationId: source.conversationId || null, data: { internal_error: String(hint).slice(0, 500), wordCount }, attachments: [], sources: [] } }];\n}\nreturn [{ json: { success: true, type: 'ocr_extraction', message: text, output: text, conversationId: source.conversationId || null, data: { wordCount, source: 'openai_vision_ocr', model: 'gpt-4o-mini' }, attachments: [], sources: [] } }];"
       }
     },
     {
@@ -1748,7 +2005,7 @@
         1320
       ],
       "parameters": {
-        "jsCode": "const source = $('Prepare Document Training Input').first();\nconst sourceJson = source.json || {};\nconst sourceBinary = source.binary?.data || null;\nconst currentBinary = $binary?.data || $binary?.document || $binary?.file || $binary?.image || null;\nconst doc = currentBinary || sourceBinary;\nif (!doc?.data) throw new Error('OCR fallback could not find the original file binary.');\nconst mime = doc.mimeType || sourceJson.file_type || 'application/pdf';\nconst fileName = doc.fileName || sourceJson.file_name || 'document';\nconst dataUrl = 'data:' + mime + ';base64,' + doc.data;\nconst isImage = /^image//i.test(mime);\nconst content = [{ type: 'input_text', text: 'Extract all readable text from this document/image. Preserve headings, paragraphs, tables, dates, totals, names, references, and important formatting. If something is unclear, mark it as [unclear]. Return only the extracted text first, then a short structured summary.' }];\nif (isImage) content.push({ type: 'input_image', image_url: dataUrl }); else content.push({ type: 'input_file', filename: fileName, file_data: dataUrl });\nreturn [{ json: { ...sourceJson, openaiBody: { model: 'gpt-4.1-mini', input: [{ role: 'user', content }] }, ocrFallbackReason: $json.extractionQuality || null } }];"
+        "jsCode": "const source = $('Prepare Document Training Input').first();\nconst sourceJson = source.json || {};\nconst sourceBinary = source.binary?.data || null;\nconst currentBinary = $binary?.data || $binary?.document || $binary?.file || $binary?.image || null;\nconst doc = currentBinary || sourceBinary;\nif (!doc?.data) throw new Error('OCR fallback could not find the original file binary.');\nconst fileName = doc.fileName || sourceJson.file_name || 'document';\nconst mime = doc.mimeType || sourceJson.file_type || (/\\.csv$/i.test(fileName) ? 'text/csv' : /\\.(xlsx|xls)$/i.test(fileName) ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : 'application/pdf');\nconst dataUrl = 'data:' + mime + ';base64,' + doc.data;\nconst isImage = /^image//i.test(mime);\nconst content = [{ type: 'input_text', text: 'Extract all readable text from this document/image. Preserve headings, paragraphs, tables, dates, totals, names, references, and important formatting. If something is unclear, mark it as [unclear]. Return only the extracted text first, then a short structured summary.' }];\nif (isImage) content.push({ type: 'input_image', image_url: dataUrl }); else content.push({ type: 'input_file', filename: fileName, file_data: dataUrl });\nreturn [{ json: { ...sourceJson, openaiBody: { model: 'gpt-4o-mini', input: [{ role: 'user', content }] }, ocrFallbackReason: $json.extractionQuality || null } }];"
       }
     },
     {
@@ -1799,6 +2056,50 @@
       "parameters": {
         "jsCode": "const text = $json.output_text || ($json.output || []).flatMap(o => o.content || []).map(c => c.text || '').filter(Boolean).join('\\n') || '';\nconst wordCount = (text.match(/[A-Za-z0-9]{2,}/g) || []).length;\nif (!text || wordCount < 8 || $json.error) throw new Error('OCR fallback could not read enough text from this file.');\nconst source = $('Prepare Document Training Input').first().json || {};\nreturn [{ json: { ...source, text, extraction_method: 'openai_vision_ocr', extractionQuality: { wordCount, ocrFallback: true } } }];"
       }
+    },
+    {
+      "id": "ocr-extract-file-codex",
+      "name": "OCR Extract File via Codex",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        120,
+        260
+      ],
+      "parameters": {
+        "jsCode": "const item = $json;\nconst merge = $('04c Merge Processed Input').first()?.json || {};\nconst router = $('05 Permission + Tool Router').first()?.json || {};\nconst name = item.ocrFileName || 'uploaded-file';\nconst mime = item.ocrMimeType || (name.toLowerCase().endsWith('.csv') ? 'text/csv' : name.toLowerCase().endsWith('.xlsx') ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : 'application/pdf');\nconst lower = name.toLowerCase();\nconst isCodexFile = /\\.(pdf|csv|xlsx|xls|docx?|txt|md)$/i.test(lower) || /pdf|csv|spreadsheet|excel|word|plain/i.test(mime);\nconst isImageOnly = /^image\\//i.test(mime) && !/\\.(pdf|csv|xlsx)/i.test(lower);\nif (!isCodexFile || isImageOnly) {\n  return [{ json: { ...item, ocrMimeType: mime, ocrHandledByCodex: false } }];\n}\nconst url = String(item.ocrSourceUrl || item.ocrSourceDataUrl || '').trim();\nif (!url || url.startsWith('[inline')) {\n  return [{ json: { ...item, ocrMimeType: mime, ocrHandledByCodex: false } }];\n}\nconst supabaseUrl = $vars.SUPABASE_URL || 'https://zirftywinscopzuuwdlg.supabase.co';\nconst key = $vars.SUPABASE_SERVICE_ROLE_KEY;\nconst internal = $vars.INTERNAL_API_KEY;\nif (!key) {\n  return [{ json: { ...item, ocrMimeType: mime, ocrHandledByCodex: false } }];\n}\nconst userMessage = String(router.chatInput || router.message || 'extract data from the attachment').split('\\n[Codex Intake')[0].trim();\nlet response;\ntry {\n  response = await this.helpers.httpRequest({\n    method: 'POST',\n    url: supabaseUrl + '/functions/v1/codex-process-input',\n    headers: {\n      apikey: key,\n      Authorization: 'Bearer ' + key,\n      'x-codex-internal-key': internal,\n      'Content-Type': 'application/json',\n    },\n    body: {\n      message: userMessage,\n      chatInput: userMessage,\n      attachments: [{ name, url, download_url: url, mimeType: mime, type: 'document' }],\n      attachmentSources: [{ name, url, download_url: url, mimeType: mime }],\n      links: [],\n      context: merge.context || router.context || {},\n    },\n    json: true,\n  });\n} catch (error) {\n  return [{ json: { ...item, ocrMimeType: mime, ocrHandledByCodex: false, userMessage: String(error.message || error) } }];\n}\nconst hit = (response.items || []).find(i => i && i.ok && i.text);\nconst text = hit?.text || '';\nreturn [{ json: {\n  ...item,\n  ocrMimeType: mime,\n  ocrHandledByCodex: true,\n  ocrRecoveredText: text,\n  skipOpenAi: true,\n  openaiBody: null,\n  codexExtractError: hit ? null : ((response.items || [])[0]?.error || 'Could not read file'),\n}}];"
+      }
+    },
+    {
+      "id": "ocr-handled-by-codex",
+      "name": "OCR Handled by Codex?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        300,
+        260
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.ocrHandledByCodex === true }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
     }
   ],
   "connections": {
@@ -1825,6 +2126,28 @@
       ]
     },
     "04 Merge Request + User Context": {
+      "main": [
+        [
+          {
+            "node": "04b Codex Process Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "04b Codex Process Input": {
+      "main": [
+        [
+          {
+            "node": "04c Merge Processed Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "04c Merge Processed Input": {
       "main": [
         [
           {
@@ -1857,7 +2180,7 @@
         ],
         [
           {
-            "node": "Has OpenAI Image Key?",
+            "node": "Build Smart Image Prompt",
             "type": "main",
             "index": 0
           }
@@ -1872,6 +2195,17 @@
         [
           {
             "node": "06 Codex Main Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Smart Image Prompt": {
+      "main": [
+        [
+          {
+            "node": "Has OpenAI Image Key?",
             "type": "main",
             "index": 0
           }
@@ -2040,6 +2374,50 @@
       ]
     },
     "File Export Tool": {
+      "ai_tool": [
+        [
+          {
+            "node": "06 Codex Main Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Codex Tool - Summarize My Tasks": {
+      "ai_tool": [
+        [
+          {
+            "node": "06 Codex Main Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Codex Tool - List Boards": {
+      "ai_tool": [
+        [
+          {
+            "node": "06 Codex Main Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Codex Tool - Create Board Card": {
+      "ai_tool": [
+        [
+          {
+            "node": "06 Codex Main Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Codex Tool - Notify Content Review": {
       "ai_tool": [
         [
           {
@@ -2399,7 +2777,7 @@
       "main": [
         [
           {
-            "node": "OCR Source Is URL?",
+            "node": "OCR Extract File via Codex",
             "type": "main",
             "index": 0
           }
@@ -2446,7 +2824,25 @@
       "main": [
         [
           {
+            "node": "OCR Should Call OpenAI?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OCR Should Call OpenAI?": {
+      "main": [
+        [
+          {
             "node": "OpenAI Vision OCR Fallback",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Format OCR Response",
             "type": "main",
             "index": 0
           }
@@ -2542,6 +2938,35 @@
         [
           {
             "node": "Clean and Chunk Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OCR Handled by Codex?": {
+      "main": [
+        [
+          {
+            "node": "Format OCR Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "OCR Source Is URL?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OCR Extract File via Codex": {
+      "main": [
+        [
+          {
+            "node": "OCR Handled by Codex?",
             "type": "main",
             "index": 0
           }

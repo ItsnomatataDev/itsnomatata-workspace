@@ -19,9 +19,11 @@ import {
   markNotificationAsRead,
 } from "../../lib/supabase/mutations/notifications";
 import {
+  checkPushEnabledForUser,
   getPushConfigurationError,
   getPushSupportError,
   registerPushNotifications,
+  syncPushSubscriptionWithServer,
   unregisterPushNotifications,
 } from "../../features/notifications/services/pushService";
 import { resolveNotificationActionUrl } from "../../features/notifications/utils/notificationLinks";
@@ -122,6 +124,15 @@ export function NotificationProvider({
     );
   }, []);
 
+  const refreshPushEnabledState = useCallback(async () => {
+    if (!userId) {
+      setPushEnabled(false);
+      return;
+    }
+
+    setPushEnabled(await checkPushEnabledForUser(userId));
+  }, [userId]);
+
   const enablePushNotifications = useCallback(async () => {
     if (!userId || !organizationId) {
       setPushError("You need to be signed in to enable browser notifications.");
@@ -150,8 +161,8 @@ export function NotificationProvider({
       await registerPushNotifications({ userId, organizationId });
 
       setPushPermission(Notification.permission);
-      setPushEnabled(true);
       autoRegisteredPushFor.current = `${userId}:${organizationId}`;
+      await refreshPushEnabledState();
       return true;
     } catch (err) {
       setPushPermission(
@@ -167,7 +178,7 @@ export function NotificationProvider({
     } finally {
       setPushLoading(false);
     }
-  }, [organizationId, userId]);
+  }, [organizationId, refreshPushEnabledState, userId]);
 
   const disablePushNotifications = useCallback(async () => {
     if (!userId) {
@@ -179,8 +190,8 @@ export function NotificationProvider({
       setPushLoading(true);
       setPushError("");
       await unregisterPushNotifications({ userId });
-      setPushEnabled(false);
       autoRegisteredPushFor.current = null;
+      await refreshPushEnabledState();
       return true;
     } catch (err) {
       setPushError(
@@ -192,48 +203,60 @@ export function NotificationProvider({
     } finally {
       setPushLoading(false);
     }
-  }, [userId]);
+  }, [refreshPushEnabledState, userId]);
 
   useEffect(() => {
-    if (!userId) {
-      setPushEnabled(false);
+    void refreshPushEnabledState();
+  }, [refreshPushEnabledState]);
+
+  useEffect(() => {
+    if (!userId || !organizationId || !pushSupported) return;
+    if (typeof Notification === "undefined" || Notification.permission !== "granted") {
       return;
     }
 
-    let mounted = true;
-
-    void supabase
-      .from("push_subscriptions")
-      .select("id")
-      .eq("user_id", userId)
-      .eq("is_active", true)
-      .limit(1)
-      .then(({ data, error }) => {
-        if (!mounted || error) return;
-        setPushEnabled((data?.length ?? 0) > 0);
-      });
-
-    return () => {
-      mounted = false;
-    };
-  }, [userId]);
-
-  useEffect(() => {
-    if (!userId || !organizationId || !pushSupported || pushEnabled) return;
-    if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
-
     const registrationKey = `${userId}:${organizationId}`;
     if (autoRegisteredPushFor.current === registrationKey) return;
-    autoRegisteredPushFor.current = registrationKey;
 
-    void enablePushNotifications();
-  }, [
-    enablePushNotifications,
-    organizationId,
-    pushEnabled,
-    pushSupported,
-    userId,
-  ]);
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        await syncPushSubscriptionWithServer({ userId, organizationId });
+        if (!cancelled) {
+          autoRegisteredPushFor.current = registrationKey;
+          await refreshPushEnabledState();
+        }
+      } catch (err) {
+        console.warn("PUSH SUBSCRIPTION SYNC:", err);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [organizationId, pushSupported, refreshPushEnabledState, userId]);
+
+  useEffect(() => {
+    if (!("serviceWorker" in navigator)) return;
+
+    const onMessage = (event: MessageEvent) => {
+      if (event.data?.type !== "NOTIFICATION_CLICK") return;
+      const url = typeof event.data.url === "string" ? event.data.url : "";
+      if (!url) return;
+
+      try {
+        const parsed = new URL(url, window.location.origin);
+        if (parsed.origin !== window.location.origin) return;
+        window.location.assign(`${parsed.pathname}${parsed.search}${parsed.hash}`);
+      } catch {
+        // Ignore malformed URLs from the service worker.
+      }
+    };
+
+    navigator.serviceWorker.addEventListener("message", onMessage);
+    return () => navigator.serviceWorker.removeEventListener("message", onMessage);
+  }, []);
 
   useEffect(() => {
     if (!userId) return;

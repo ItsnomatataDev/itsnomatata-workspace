@@ -27,9 +27,11 @@ export interface ChatAttachment {
   type: "image" | "document" | "audio" | "video";
   name: string;
   url: string;
+  download_url?: string;
   size: number;
   mimeType: string;
   uploadedAt: string;
+  textContent?: string;
   metadata?: {
     width?: number;
     height?: number;
@@ -39,6 +41,8 @@ export interface ChatAttachment {
     trained?: boolean;
     message?: string;
     uploadError?: string;
+    codexStorage?: boolean;
+    textContent?: string;
   };
 }
 

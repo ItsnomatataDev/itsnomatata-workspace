@@ -1,3 +1,11 @@
+self.addEventListener("install", function (event) {
+  event.waitUntil(self.skipWaiting());
+});
+
+self.addEventListener("activate", function (event) {
+  event.waitUntil(self.clients.claim());
+});
+
 function readMetadataString(metadata, keys) {
   if (!metadata || typeof metadata !== "object") return null;
 
@@ -53,6 +61,16 @@ function resolveActionUrl(actionUrl, data) {
   }
 }
 
+function isAppTabVisible(clientList) {
+  return clientList.some(function (client) {
+    return (
+      client.visibilityState === "visible" &&
+      typeof client.url === "string" &&
+      client.url.startsWith(self.location.origin)
+    );
+  });
+}
+
 self.addEventListener("push", function (event) {
   let data = {};
 
@@ -82,7 +100,20 @@ self.addEventListener("push", function (event) {
     },
   };
 
-  event.waitUntil(self.registration.showNotification(title, options));
+  event.waitUntil(
+    clients
+      .matchAll({
+        type: "window",
+        includeUncontrolled: true,
+      })
+      .then(function (clientList) {
+        if (isAppTabVisible(clientList)) {
+          return;
+        }
+
+        return self.registration.showNotification(title, options);
+      }),
+  );
 });
 
 self.addEventListener("notificationclick", function (event) {
@@ -98,13 +129,21 @@ self.addEventListener("notificationclick", function (event) {
         type: "window",
         includeUncontrolled: true,
       })
-      .then(function (clientList) {
+      .then(async function (clientList) {
         for (const client of clientList) {
-          if ("focus" in client && "navigate" in client) {
-            return client.navigate(url).then(function () {
-              return client.focus();
-            });
+          if (!("focus" in client)) continue;
+
+          await client.focus();
+
+          if ("navigate" in client && typeof client.navigate === "function") {
+            return client.navigate(url);
           }
+
+          client.postMessage({
+            type: "NOTIFICATION_CLICK",
+            url: url,
+          });
+          return;
         }
 
         if (clients.openWindow) {

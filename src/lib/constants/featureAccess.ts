@@ -182,8 +182,8 @@ export const ROUTE_ACCESS: Record<string, RouteAccessRule> = {
     permissions: ["tasks.view"],
   },
 
-  "/timesheet": {
-    permissions: ["time.track", "timesheets.view_own"],
+  "/timesheets/team": {
+    permissions: ["timesheets.view_own", "time.track"],
   },
 
   "/timesheets": {

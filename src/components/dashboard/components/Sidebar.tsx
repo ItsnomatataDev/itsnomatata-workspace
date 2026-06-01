@@ -77,7 +77,7 @@ const commonLinks: LinkItem[] = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { to: "/inbox", label: "Inbox", icon: Inbox, featureKey: "notifications" },
   { to: "/boards", label: "Boards", icon: BriefcaseBusiness, featureKey: "boards" },
-  { to: "/timesheet", label: "Timesheet", icon: Clock3, featureKey: "timesheets" },
+  { to: "/timesheets/team", label: "Timesheet", icon: Clock3, featureKey: "timesheets" },
   { to: "/attendance", label: "Attendance", icon: Timer, featureKey: "attendance" },
   { to: "/leave", label: "Leave", icon: CalendarDays, featureKey: "leave_requests" },
   { to: "/roster", label: "Duty Roster", icon: CalendarClock, featureKey: "duty_roster" },
@@ -180,10 +180,9 @@ function getRoleNav(role?: string | null, counts?: SidebarCounts): NavItem[] {
           label: "Time Management",
           icon: Timer,
           color: "text-orange-400",
-          activePaths: ["/timesheet", "/timesheets", "/admin/attendance"],
+          activePaths: ["/timesheets", "/admin/attendance"],
           children: [
-            { to: "/timesheet", label: "My Timesheet", icon: Clock3, featureKey: "timesheets" },
-            { to: "/timesheets/team", label: "Team Timesheet", icon: Clock3, featureKey: "timesheets" },
+            { to: "/timesheets/team", label: "Timesheet", icon: Clock3, featureKey: "timesheets" },
             { to: "/admin/attendance", label: "Attendance", icon: Timer, featureKey: "attendance" },
           ],
         },
@@ -261,10 +260,9 @@ return [
           label: "Time Management",
           icon: Timer,
           color: "text-orange-400",
-          activePaths: ["/timesheet", "/timesheets", "/everhour", "/board-management", "/time-approvals"],
+          activePaths: ["/timesheets", "/everhour", "/board-management", "/time-approvals"],
           children: [
-            { to: "/timesheet", label: "My Timesheet", icon: Clock3, featureKey: "timesheets" },
-            { to: "/timesheets/team", label: "Team Timesheet", icon: Clock3, featureKey: "timesheets" },
+            { to: "/timesheets/team", label: "Timesheet", icon: Clock3, featureKey: "timesheets" },
             { to: "/time-approvals", label: "Time Approvals", icon: ShieldCheck, featureKey: "timesheets" },
             { to: "/timesheets/reports", label: "Reports", icon: BarChart3, featureKey: "reports" },
             {
@@ -424,7 +422,7 @@ export default function Sidebar({
   );
   const baseCommonLinks = isThreeLittleBirds
     ? commonLinks.filter((link) =>
-        !["/ai-workspace", "/meetings", "/timesheet"].includes(link.to),
+        !["/ai-workspace", "/meetings", "/timesheets/team"].includes(link.to),
       )
     : commonLinks;
   const visibleCommonLinks = filterNavByFeatures(baseCommonLinks, isEnabled) as LinkItem[];
@@ -441,14 +439,14 @@ export default function Sidebar({
           const children = item.children.filter(
             (child) =>
               !child.to.startsWith("/admin/content-studio") &&
-              (canUseTimeTracking || !child.to.startsWith("/timesheet")) &&
+              (canUseTimeTracking || child.to !== "/timesheets/team") &&
               (canUseTimeTracking || child.to !== "/board-management"),
           );
           return children.length > 0 ? [{ ...item, children } as GroupItem] : [];
         }
         const link = item as LinkItem;
         if (link.to.startsWith("/admin/content-studio")) return [];
-        if (!canUseTimeTracking && link.to.startsWith("/timesheet")) return [];
+        if (!canUseTimeTracking && link.to === "/timesheets/team") return [];
         return [link];
       })
     : rawRoleNav;

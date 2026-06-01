@@ -27,6 +27,7 @@ import {
   type ChatMessage,
 } from "../services/chatHistoryService";
 import { ImageUploadService } from "../services/imageUploadService";
+import { uploadCodexChatFile } from "../services/codexAttachmentService";
 import {
   AIProjectService,
   type AIWorkspaceProject,
@@ -898,6 +899,29 @@ export default function RealTimeChat({
 
       if (pending.type === "document") {
         try {
+          const codexUpload = await uploadCodexChatFile(pending.file);
+          attachments.push({
+            id: makeId("attachment"),
+            messageId,
+            type: "document",
+            name: codexUpload.name,
+            url: codexUpload.url,
+            download_url: codexUpload.download_url,
+            size: codexUpload.size,
+            mimeType: codexUpload.mimeType,
+            uploadedAt: nowIso(),
+            textContent: codexUpload.textContent,
+            metadata: {
+              trained: false,
+              codexStorage: true,
+              message: "Ready for Codex extraction.",
+            },
+          });
+        } catch (error) {
+          console.warn("Codex chat file upload failed:", error);
+        }
+
+        try {
           const upload = await uploadAIDocument({
             file: pending.file,
             context: {
@@ -916,24 +940,43 @@ export default function RealTimeChat({
             },
           });
 
-          attachments.push({
-            id: makeId("attachment"),
-            messageId,
-            type: "document",
-            name: pending.file.name,
-            url: upload.sourceUrl || "",
-            size: pending.file.size,
-            mimeType: pending.file.type || "application/octet-stream",
-            uploadedAt: nowIso(),
-            metadata: {
+          const existing = attachments.find(
+            (item) => item.messageId === messageId && item.type === "document",
+          );
+          if (existing) {
+            existing.metadata = {
+              ...existing.metadata,
               documentId: upload.documentId,
               trained: upload.success,
               message: upload.message,
-            },
-          });
+            };
+            if (upload.sourceUrl && !existing.url.startsWith("http")) {
+              existing.url = upload.sourceUrl;
+            }
+          } else {
+            attachments.push({
+              id: makeId("attachment"),
+              messageId,
+              type: "document",
+              name: pending.file.name,
+              url: upload.sourceUrl || "",
+              size: pending.file.size,
+              mimeType: pending.file.type || "application/octet-stream",
+              uploadedAt: nowIso(),
+              metadata: {
+                documentId: upload.documentId,
+                trained: upload.success,
+                message: upload.message,
+              },
+            });
+          }
           continue;
         } catch (error) {
           console.warn("Document training upload failed:", error);
+        }
+
+        if (attachments.some((item) => item.messageId === messageId && item.type === "document")) {
+          continue;
         }
       }
 
@@ -947,7 +990,7 @@ export default function RealTimeChat({
         mimeType: pending.file.type || "application/octet-stream",
         uploadedAt: nowIso(),
         metadata: pending.type === "document"
-          ? { trained: false, uploadError: "Document training upload failed." }
+          ? { trained: false, uploadError: "Document upload failed. Try a smaller PDF/CSV or paste a report URL." }
           : undefined,
       });
     }
