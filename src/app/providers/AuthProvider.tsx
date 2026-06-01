@@ -315,7 +315,7 @@ async function ensureProfile(user: User): Promise<AuthProfile | null> {
         created_at,
         updated_at
       ),
-      office:company_offices(
+      office:company_offices!profiles_office_id_fkey(
         id,
         name,
         slug,
@@ -349,7 +349,20 @@ async function ensureProfile(user: User): Promise<AuthProfile | null> {
     return ensureProfile(user);
   }
 
-  return (refreshed as AuthProfile | null) ?? null;
+  const profile = (refreshed as AuthProfile | null) ?? null;
+  if (!profile) return null;
+
+  const office = profile.office as
+    | AuthProfile["office"]
+    | AuthProfile["office"][]
+    | null
+    | undefined;
+
+  if (Array.isArray(office)) {
+    profile.office = office[0] ?? null;
+  }
+
+  return profile;
 }
 
 async function ensureOrganizationMembership(

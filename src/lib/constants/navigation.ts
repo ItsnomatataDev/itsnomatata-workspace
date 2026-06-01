@@ -103,8 +103,8 @@ export const NAV_ITEMS: NavItem[] = [
   },
   { label: "Stock", to: "/stock", roles: ["admin", "manager", "it"], featureKey: "stock" },
   {
-    label: "Time",
-    to: "/time",
+    label: "My Timesheet",
+    to: "/timesheet",
     roles: [
       "admin",
       "manager",

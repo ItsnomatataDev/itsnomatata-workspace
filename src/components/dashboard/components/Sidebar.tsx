@@ -38,7 +38,10 @@ import { signOutUser } from "../../../lib/supabase/auth";
 import NotificationBell from "../../../features/notifications/components/NotificationBell";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import { useOrganizationBranding } from "../../../app/providers/OrganizationBrandingProvider";
-import { OFFICE_SLUGS, canUseDetailedTimeTracking } from "../../../lib/offices";
+import {
+  canUseDetailedTimeTracking,
+  getOfficeCapabilities,
+} from "../../../lib/offices";
 import { checkIsPlatformAdmin } from "../../../features/platform-admin/services/platformAdminService";
 import { useOrganizationFeatures, type FeatureKey } from "../../../lib/hooks/useOrganizationFeatures";
 
@@ -258,9 +261,12 @@ return [
           label: "Time Management",
           icon: Timer,
           color: "text-orange-400",
-          activePaths: ["/timesheets", "/everhour", "/board-management"],
+          activePaths: ["/timesheet", "/timesheets", "/everhour", "/board-management", "/time-approvals"],
           children: [
+            { to: "/timesheet", label: "My Timesheet", icon: Clock3, featureKey: "timesheets" },
             { to: "/timesheets/team", label: "Team Timesheet", icon: Clock3, featureKey: "timesheets" },
+            { to: "/timesheets/submissions", label: "Weekly Submissions", icon: FileText, featureKey: "timesheets" },
+            { to: "/time-approvals", label: "Time Approvals", icon: ShieldCheck, featureKey: "timesheets" },
             { to: "/timesheets/reports", label: "Reports", icon: BarChart3, featureKey: "reports" },
             {
               to: "/timesheets/everhouradmin",
@@ -401,10 +407,8 @@ export default function Sidebar({
     };
   }, [auth?.user?.id]);
 
-  const isThreeLittleBirds =
-    auth?.profile?.office && "slug" in auth.profile.office
-      ? auth.profile.office.slug === OFFICE_SLUGS.threeLittleBirds
-      : false;
+  const officeCapabilities = getOfficeCapabilities(auth?.profile?.office);
+  const isThreeLittleBirds = officeCapabilities.isThreeLittleBirds;
   const canUseTimeTracking = canUseDetailedTimeTracking(auth?.profile);
   const organization = auth?.profile?.organization as
     | {

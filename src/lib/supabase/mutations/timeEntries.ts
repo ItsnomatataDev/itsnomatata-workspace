@@ -6,7 +6,7 @@ import {
   getZimbabwePauseIso,
   isAtOrAfterZimbabwePause,
 } from "../../utils/zimbabweCalendar";
-import { OFFICE_SLUGS } from "../../offices";
+import { isThreeLittleBirdsOffice } from "../../offices";
 
 export type TimeEntryApprovalStatus = "pending" | "approved" | "rejected";
 
@@ -322,7 +322,7 @@ async function ensureUserCanTrackDetailedTime(params: {
 }) {
   const office = await getUserOffice(params);
 
-  if (office?.slug === OFFICE_SLUGS.threeLittleBirds) {
+  if (isThreeLittleBirdsOffice(office)) {
     throw new Error(
       "Detailed time tracking is disabled for Three Little Birds. Please use clock in and clock out only.",
     );
@@ -609,7 +609,7 @@ export const getActiveTimeEntry = async ({
   if (active) {
     const office = await getUserOffice({ organizationId, userId });
 
-    if (office?.slug === OFFICE_SLUGS.threeLittleBirds) {
+    if (isThreeLittleBirdsOffice(office)) {
       await closeRunningEntryForOfficeRule({
         id: active.id,
         started_at: active.started_at,

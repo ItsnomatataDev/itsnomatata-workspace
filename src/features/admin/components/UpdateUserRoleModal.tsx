@@ -6,7 +6,11 @@ import {
   type EmployeeOverviewRow,
 } from "../services/adminService";
 import { getCompanyOffices } from "../../../lib/supabase/queries/offices";
-import type { CompanyOffice } from "../../../lib/offices";
+import {
+  type CompanyOffice,
+  describeOfficeCapabilities,
+  getOfficeCapabilities,
+} from "../../../lib/offices";
 import {
   ADMIN_ROLE_ASSIGNMENT_OPTIONS,
   ROLE_LABELS,
@@ -86,6 +90,16 @@ export default function UpdateUserRoleModal({
     }
     return ROLE_LABELS[employee.primary_role];
   }, [employee]);
+
+  const selectedOffice = useMemo(
+    () => offices.find((office) => office.id === officeId) ?? null,
+    [officeId, offices],
+  );
+
+  const selectedOfficeCapabilities = useMemo(
+    () => getOfficeCapabilities(selectedOffice),
+    [selectedOffice],
+  );
 
   if (!open || !employee) return null;
 
@@ -257,8 +271,34 @@ export default function UpdateUserRoleModal({
               </select>
 
               <p className="mt-2 text-xs text-white/45">
-                Office assignment controls office-based leave, roster, task, and time filters.
+                Office assignment controls attendance rules, navigation, boards, leave,
+                roster visibility, and detailed time tracking.
               </p>
+
+              {selectedOffice ? (
+                <div className="mt-3 rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-xs leading-5 text-white/55">
+                  <p className="font-medium text-white/80">
+                    Access after save
+                  </p>
+                  <p className="mt-1">
+                    {describeOfficeCapabilities(selectedOffice)}
+                  </p>
+                  <ul className="mt-2 space-y-1">
+                    <li>
+                      Detailed time tracking:{" "}
+                      {selectedOfficeCapabilities.detailedTimeTracking
+                        ? "Enabled"
+                        : "Hidden"}
+                    </li>
+                    <li>
+                      Meetings / AI workspace:{" "}
+                      {selectedOfficeCapabilities.meetings
+                        ? "Enabled"
+                        : "Hidden"}
+                    </li>
+                  </ul>
+                </div>
+              ) : null}
             </div>
 
             <div>

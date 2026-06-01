@@ -1,6 +1,8 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import Sidebar from "../../../components/dashboard/components/Sidebar";
+import { getBoards } from "../../boards/services/boardService";
+import { canManageAllOffices } from "../../../lib/offices";
 import {
   useUserTimesheet,
   type TimesheetView,
@@ -28,6 +30,7 @@ import {
 import { formatDuration } from "../../../lib/utils/formatTime";
 import { getZimbabweDateKey } from "../../../lib/utils/zimbabweCalendar";
 import { canUseDetailedTimeTracking } from "../../../lib/offices";
+import { UserTimesheetEntryModal } from "../components/UserTimesheetEntryModal";
 
 type TimeForm = {
   date: string;
@@ -82,6 +85,7 @@ const UserTimesheetPage = () => {
   const auth = useAuth() as any;
   const profile = auth?.profile;
   const authUser = auth?.user;
+  const currentOrganization = auth?.currentOrganization;
 
   const [activeView, setActiveView] = useState<TimesheetView>("today");
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -99,7 +103,8 @@ const UserTimesheetPage = () => {
   const [loadingBoards, setLoadingBoards] = useState(false);
   const [loadingTasks, setLoadingTasks] = useState(false);
 
-  const organizationId = profile?.organization_id || "";
+  const organizationId =
+    currentOrganization?.organization_id || profile?.organization_id || "";
   const userId =
     profile?.user_id ||
     profile?.auth_user_id ||
@@ -109,83 +114,113 @@ const UserTimesheetPage = () => {
   const detailedTimeTrackingDisabled =
     profile && !canUseDetailedTimeTracking(profile);
 
+  const entryModalOpen = isAddModalOpen || Boolean(editingEntry);
+  const profileOfficeId = profile?.office_id ?? null;
+  const canViewAllOffices = canManageAllOffices(profile);
+  const tasksLoadSeqRef = useRef(0);
+
   const { data, loading, error, refetch } = useUserTimesheet({
     organizationId,
     userId,
     view: activeView,
-    realtime: true,
+    realtime: !entryModalOpen,
   });
 
   const todayKey = getZimbabweDateKey(new Date());
   const todayTotal = data.daily[todayKey]?.totalSeconds || 0;
   const runningStatus = data.activeEntry ? "Timer running" : "No active timer";
 
-  useEffect(() => {
-    if (!organizationId) return;
+  const loadBoards = useCallback(async () => {
+    if (!organizationId) {
+      setBoards([]);
+      return;
+    }
 
-    const loadBoards = async () => {
+    try {
+      setLoadingBoards(true);
+
+      const data = await getBoards(organizationId, {
+        officeId: canViewAllOffices ? null : profileOfficeId,
+        includeAllOffices: canViewAllOffices,
+      });
+
+      setBoards(
+        data.map((board) => ({
+          id: board.id,
+          name: board.name,
+        })),
+      );
+    } catch (err) {
+      console.error("Failed to load boards:", err);
+    } finally {
+      setLoadingBoards(false);
+    }
+  }, [canViewAllOffices, organizationId, profileOfficeId]);
+
+  const loadCardsForBoard = useCallback(
+    async (boardId: string) => {
+      if (!organizationId || !boardId) {
+        setTasks([]);
+        return;
+      }
+
+      const requestSeq = ++tasksLoadSeqRef.current;
+
       try {
-        setLoadingBoards(true);
+        setLoadingTasks(true);
 
         const { data, error } = await supabase
-          .from("clients")
-          .select("id, name")
+          .from("tasks")
+          .select("id, title, client_id, status, priority")
           .eq("organization_id", organizationId)
-          .order("name", { ascending: true });
+          .eq("client_id", boardId)
+          .is("archived_at", null)
+          .order("position", { ascending: true });
 
         if (error) throw error;
+        if (requestSeq !== tasksLoadSeqRef.current) return;
 
-        setBoards((data || []) as BoardsOption[]);
+        setTasks((data || []) as TaskOption[]);
       } catch (err) {
-        console.error("Failed to load boards:", err);
+        console.error("Failed to load cards:", err);
+        if (requestSeq !== tasksLoadSeqRef.current) return;
+        setTasks([]);
       } finally {
-        setLoadingBoards(false);
+        if (requestSeq === tasksLoadSeqRef.current) {
+          setLoadingTasks(false);
+        }
       }
-    };
+    },
+    [organizationId],
+  );
 
+  useEffect(() => {
     void loadBoards();
-  }, [organizationId]);
-const loadCardsForBoard = async (boardId: string) => {
-  if (!organizationId || !boardId) {
-    setTasks([]);
-    return;
-  }
+  }, [loadBoards]);
 
-  try {
-    setLoadingTasks(true);
+  useEffect(() => {
+    if (!entryModalOpen) return;
+    void loadBoards();
+  }, [entryModalOpen, loadBoards]);
 
-    const { data, error } = await supabase
-      .from("tasks")
-      .select("id, title, client_id, status, priority")
-      .eq("organization_id", organizationId)
-      .eq("client_id", boardId)
-      .order("position", { ascending: true });
+  useEffect(() => {
+    if (!entryModalOpen) return;
 
-    if (error) throw error;
+    if (!form.clientId) {
+      setTasks([]);
+      return;
+    }
 
-    setTasks((data || []) as TaskOption[]);
-  } catch (err) {
-    console.error("Failed to load cards:", err);
-    setTasks([]);
-  } finally {
-    setLoadingTasks(false);
-  }
-};
+    void loadCardsForBoard(form.clientId);
+  }, [entryModalOpen, form.clientId, loadCardsForBoard]);
 
-const handleBoardChange = async (boardId: string) => {
-  setForm((prev) => ({
-    ...prev,
-    clientId: boardId,
-    taskId: "",
-  }));
-
-  if (!boardId) {
-    setTasks([]);
-    return;
-  }
-
-  await loadCardsForBoard(boardId);
-};
+  const handleBoardChange = (boardId: string) => {
+    setForm((prev) => ({
+      ...prev,
+      clientId: boardId,
+      taskId: "",
+    }));
+  };
 
   const resetForm = () => {
     setForm(emptyForm());
@@ -213,22 +248,24 @@ const handleBoardChange = async (boardId: string) => {
     setFormError(null);
     setEditingEntry(entry);
 
-    const boardId = entry.project_id || "";
+    const boardId =
+      entry.client_id ||
+      entry.projects?.client_id ||
+      entry.source_board_id ||
+      "";
 
     setForm({
       date: getDateInputValue(entry.started_at),
       startTime: getTimeInputValue(entry.started_at),
       endTime: getTimeInputValue(entry.ended_at),
       taskId: entry.task_id || "",
-      clientId: entry.client_id || "",
+      clientId: boardId,
       description: entry.description || "",
       isBillable: Boolean(entry.is_billable),
       reason: "",
     });
 
-    if (boardId) {
-      await loadCardsForBoard(boardId);
-    } else {
+    if (!boardId) {
       setTasks([]);
     }
   };
@@ -516,223 +553,6 @@ const handleBoardChange = async (boardId: string) => {
     );
   };
 
-  const TimeEntryFormModal = ({
-    title,
-    description,
-    onClose,
-    onSubmit,
-    submitLabel,
-    showReason = false,
-  }: {
-    title: string;
-    description: string;
-    onClose: () => void;
-    onSubmit: (event: React.FormEvent) => void;
-    submitLabel: string;
-    showReason?: boolean;
-  }) => (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-2xl rounded-3xl border border-white/10 bg-[#101010] shadow-2xl">
-        <div className="flex items-center justify-between border-b border-white/10 p-6">
-          <div>
-            <h3 className="text-2xl font-bold">{title}</h3>
-            <p className="mt-1 text-sm text-white/45">{description}</p>
-          </div>
-
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={submitting}
-            className="rounded-xl p-2 hover:bg-white/10 disabled:opacity-50"
-          >
-            <X size={20} />
-          </button>
-        </div>
-
-        <form onSubmit={onSubmit} className="p-6">
-          {formError && (
-            <div className="mb-5 flex items-center gap-3 rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-200">
-              <AlertCircle size={18} />
-              <p>{formError}</p>
-            </div>
-          )}
-
-          <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
-            <label className="block">
-              <span className="text-sm text-white/60">Date</span>
-              <input
-                type="date"
-                value={form.date}
-                onChange={(e) =>
-                  setForm((prev) => ({ ...prev, date: e.target.value }))
-                }
-                className="mt-2 w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-white outline-none focus:border-orange-500"
-              />
-            </label>
-
-            <label className="block">
-              <span className="text-sm text-white/60">Start time</span>
-              <input
-                type="time"
-                value={form.startTime}
-                onChange={(e) =>
-                  setForm((prev) => ({
-                    ...prev,
-                    startTime: e.target.value,
-                  }))
-                }
-                className="mt-2 w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-white outline-none focus:border-orange-500"
-              />
-            </label>
-
-            <label className="block">
-              <span className="text-sm text-white/60">End time</span>
-              <input
-                type="time"
-                value={form.endTime}
-                onChange={(e) =>
-                  setForm((prev) => ({
-                    ...prev,
-                    endTime: e.target.value,
-                  }))
-                }
-                className="mt-2 w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-white outline-none focus:border-orange-500"
-              />
-            </label>
-          </div>
-
-          <div className="mt-5 grid grid-cols-1 gap-5 md:grid-cols-2">
-            <label className="block">
-              <span className="text-sm text-white/60">Project optional</span>
-              <select
-                value={form.clientId}
-                onChange={(e) => void handleBoardChange(e.target.value)}
-                className="mt-2 w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-white outline-none focus:border-orange-500"
-              >
-                <option value="">
-                  {loadingBoards ? "Loading projects..." : "Select project"}
-                </option>
-
-                {boards.map((board) => (
-                  <option key={board.id} value={board.id}>
-                    {board.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="block">
-              <span className="text-sm text-white/60">Task optional</span>
-              <select
-                value={form.taskId}
-                onChange={(e) =>
-                  setForm((prev) => ({ ...prev, taskId: e.target.value }))
-                }
-                disabled={!form.clientId || loadingTasks}
-                className="mt-2 w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-white outline-none focus:border-orange-500 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <option value="">
-                  {loadingTasks
-                    ? "Loading tasks..."
-                    : form.clientId
-                      ? "Select task"
-                      : "Select project first"}
-                </option>
-
-                {tasks.map((task) => (
-                  <option key={task.id} value={task.id}>
-                    {task.title}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-
-          <label className="mt-5 block">
-            <span className="text-sm text-white/60">
-              Description / work note
-            </span>
-            <textarea
-              value={form.description}
-              onChange={(e) =>
-                setForm((prev) => ({
-                  ...prev,
-                  description: e.target.value,
-                }))
-              }
-              rows={4}
-              placeholder="Example: Worked on dashboard fixes and client updates"
-              className="mt-2 w-full resize-none rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-white outline-none placeholder:text-white/25 focus:border-orange-500"
-            />
-          </label>
-
-          {showReason && (
-            <label className="mt-5 block">
-              <span className="text-sm text-white/60">Reason for edit</span>
-              <textarea
-                value={form.reason}
-                onChange={(e) =>
-                  setForm((prev) => ({
-                    ...prev,
-                    reason: e.target.value,
-                  }))
-                }
-                rows={3}
-                placeholder="Example: Corrected forgotten time after working on the task"
-                className="mt-2 w-full resize-none rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-white outline-none placeholder:text-white/25 focus:border-orange-500"
-              />
-            </label>
-          )}
-
-          <div className="mt-5 flex flex-col gap-4 rounded-2xl border border-white/10 bg-white/3 p-4 md:flex-row md:items-center md:justify-between">
-            <label className="flex items-center gap-3">
-              <input
-                type="checkbox"
-                checked={form.isBillable}
-                onChange={(e) =>
-                  setForm((prev) => ({
-                    ...prev,
-                    isBillable: e.target.checked,
-                  }))
-                }
-                className="h-4 w-4 rounded border-white/20 bg-black"
-              />
-              <span className="text-sm text-white/70">
-                Mark this time as billable
-              </span>
-            </label>
-
-            <p className="text-sm text-white/45">
-              Duration:{" "}
-              <span className="font-semibold text-white">
-                {durationPreview || "—"}
-              </span>
-            </p>
-          </div>
-
-          <div className="mt-6 flex flex-col-reverse gap-3 md:flex-row md:justify-end">
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={submitting}
-              className="rounded-xl border border-white/10 px-5 py-3 text-sm font-semibold text-white/70 hover:bg-white/10 disabled:opacity-50"
-            >
-              Cancel
-            </button>
-
-            <button
-              type="submit"
-              disabled={submitting}
-              className="rounded-xl bg-orange-500 px-5 py-3 text-sm font-semibold text-white hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {submitting ? "Saving..." : submitLabel}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-
   if (detailedTimeTrackingDisabled) {
     return (
       <div className="min-h-screen bg-black text-white">
@@ -961,26 +781,44 @@ const handleBoardChange = async (boardId: string) => {
         </main>
       </div>
 
-      {isAddModalOpen && (
-        <TimeEntryFormModal
-          title="Add Time Entry"
-          description="Add missing work time for today or a previous day."
-          onClose={closeAddModal}
-          onSubmit={handleSubmitManualTime}
-          submitLabel="Add Time Entry"
-        />
-      )}
+      <UserTimesheetEntryModal
+        open={isAddModalOpen}
+        title="Add Time Entry"
+        description="Add missing work time for today or a previous day."
+        submitLabel="Add Time Entry"
+        submitting={submitting}
+        formError={formError}
+        form={form}
+        boards={boards}
+        tasks={tasks}
+        loadingBoards={loadingBoards}
+        loadingTasks={loadingTasks}
+        durationPreview={durationPreview}
+        onClose={closeAddModal}
+        onSubmit={handleSubmitManualTime}
+        onFormChange={setForm}
+        onBoardChange={handleBoardChange}
+      />
 
-      {editingEntry && (
-        <TimeEntryFormModal
-          title="Edit Time Entry"
-          description="Update the time, project/task link, description, or billable status."
-          onClose={closeEditModal}
-          onSubmit={handleSubmitEditTime}
-          submitLabel="Save Changes"
-          showReason
-        />
-      )}
+      <UserTimesheetEntryModal
+        open={Boolean(editingEntry)}
+        title="Edit Time Entry"
+        description="Update the time, project/task link, description, or billable status."
+        submitLabel="Save Changes"
+        showReason
+        submitting={submitting}
+        formError={formError}
+        form={form}
+        boards={boards}
+        tasks={tasks}
+        loadingBoards={loadingBoards}
+        loadingTasks={loadingTasks}
+        durationPreview={durationPreview}
+        onClose={closeEditModal}
+        onSubmit={handleSubmitEditTime}
+        onFormChange={setForm}
+        onBoardChange={handleBoardChange}
+      />
 
       {deletingEntry && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">

@@ -45,7 +45,10 @@ export default function TimeEntryFormModal({
   onUpdateEntry: (entryId: string, values: EntryDraft) => Promise<void>;
 }) {
   const auth = useAuth();
-  const organizationId = auth?.profile?.organization_id ?? "";
+  const organizationId =
+    auth?.currentOrganization?.organization_id ??
+    auth?.profile?.organization_id ??
+    "";
   
   const { taskOptions, loading: tasksLoading } = useTasks({
     organizationId: organizationId || null,
@@ -203,16 +206,16 @@ export default function TimeEntryFormModal({
                   onChange={(e) => updateField("taskId", e.target.value)}
                   className="w-full appearance-none rounded-2xl border border-white/10 bg-black px-4 py-3 pr-10 text-white outline-none"
                 >
-                  <option value="">Select a task (optional)</option>
-                  {tasksLoading ? (
-                    <option value="">Loading tasks...</option>
-                  ) : (
-                    taskOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))
-                  )}
+                  <option value="">
+                    {tasksLoading && taskOptions.length === 0
+                      ? "Loading tasks..."
+                      : "Select a task (optional)"}
+                  </option>
+                  {taskOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
                 </select>
                 <ChevronDown className="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-white/50 pointer-events-none" />
               </div>
@@ -228,16 +231,16 @@ export default function TimeEntryFormModal({
                   onChange={(e) => updateField("projectId", e.target.value)}
                   className="w-full appearance-none rounded-2xl border border-white/10 bg-black px-4 py-3 pr-10 text-white outline-none"
                 >
-                  <option value="">Select a project (optional)</option>
-                  {projectsLoading ? (
-                    <option value="">Loading projects...</option>
-                  ) : (
-                    projectOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))
-                  )}
+                  <option value="">
+                    {projectsLoading && projectOptions.length === 0
+                      ? "Loading projects..."
+                      : "Select a project (optional)"}
+                  </option>
+                  {projectOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
                 </select>
                 <ChevronDown className="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-white/50 pointer-events-none" />
               </div>
@@ -253,16 +256,16 @@ export default function TimeEntryFormModal({
                   onChange={(e) => updateField("clientId", e.target.value)}
                   className="w-full appearance-none rounded-2xl border border-white/10 bg-black px-4 py-3 pr-10 text-white outline-none"
                 >
-                  <option value="">Select a client (optional)</option>
-                  {clientsLoading ? (
-                    <option value="">Loading clients...</option>
-                  ) : (
-                    clientOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))
-                  )}
+                  <option value="">
+                    {clientsLoading && clientOptions.length === 0
+                      ? "Loading clients..."
+                      : "Select a client (optional)"}
+                  </option>
+                  {clientOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
                 </select>
                 <ChevronDown className="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-white/50 pointer-events-none" />
               </div>

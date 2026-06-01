@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   getProjects,
   type ProjectRow,
@@ -25,6 +25,13 @@ export const useProjects = ({
   const [projects, setProjects] = useState<ProjectRow[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string>("");
+  const hasLoadedProjectsRef = useRef(false);
+
+  useEffect(() => {
+    hasLoadedProjectsRef.current = false;
+    setProjects([]);
+    setLoading(true);
+  }, [organizationId, clientId, campaignId, isActive]);
 
   const fetchProjects = useCallback(async () => {
     if (!organizationId) {
@@ -34,7 +41,9 @@ export const useProjects = ({
     }
 
     try {
-      setLoading(true);
+      if (!hasLoadedProjectsRef.current) {
+        setLoading(true);
+      }
       setError("");
       
       const projectsData = await getProjects({
@@ -45,6 +54,7 @@ export const useProjects = ({
       });
       
       setProjects(projectsData);
+      hasLoadedProjectsRef.current = true;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to fetch projects");
     } finally {

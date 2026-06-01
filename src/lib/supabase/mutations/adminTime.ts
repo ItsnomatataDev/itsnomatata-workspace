@@ -29,7 +29,7 @@ async function notifyTimeEntryDecision(
           : `Your ${formatHours(entry.duration_seconds)} time entry was sent back for review.`,
       entityType: "time_entry",
       entityId: entry.id,
-      actionUrl: "/time",
+      actionUrl: "/timesheet",
       priority: status === "approved" ? "medium" : "high",
       referenceId: entry.id,
       referenceType: "time_entry",

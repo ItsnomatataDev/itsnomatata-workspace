@@ -28,7 +28,7 @@ import {
 } from "../services/mediaDashboardService";
 import { formatDurationHms } from "../../../lib/utils/timeMath";
 import { getZimbabweDateKey } from "../../../lib/utils/zimbabweCalendar";
-import { OFFICE_SLUGS } from "../../../lib/offices";
+import { getOfficeCapabilities } from "../../../lib/offices";
 
 const PIPELINE_STATUSES = ["backlog", "todo", "in_progress", "review", "approved", "done"];
 
@@ -90,7 +90,7 @@ function TaskCard({ task }: { task: MediaTask }) {
   return (
     <Link
       to={route}
-      className="block rounded-2xl border border-white/10 bg-neutral-950 p-4 transition hover:border-orange-500/35 hover:bg-white/[0.06]"
+      className="block rounded-2xl border border-white/10 bg-neutral-950 p-4 transition hover:border-orange-500/35 hover:bg-white/6"
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
@@ -265,9 +265,7 @@ export default function MediaDashboardPage() {
     });
   }, [calendarView, data]);
 
-  const aiAllowed = profile?.office && "slug" in profile.office
-    ? profile.office.slug !== OFFICE_SLUGS.threeLittleBirds
-    : true;
+  const aiAllowed = getOfficeCapabilities(profile?.office).aiWorkspace;
 
   if (!profile) {
     return <div className="min-h-screen bg-black p-6 text-white">Loading profile...</div>;
@@ -519,7 +517,7 @@ export default function MediaDashboardPage() {
                   ) : (
                     <div className="space-y-3">
                       {data.notifications.map((item) => (
-                        <Link key={item.id} to={item.action_url || "/notifications"} className="block rounded-2xl border border-white/10 bg-neutral-950 p-4 hover:bg-white/[0.06]">
+                        <Link key={item.id} to={item.action_url || "/notifications"} className="block rounded-2xl border border-white/10 bg-neutral-950 p-4 hover:bg-white/6">
                           <p className="font-semibold">{item.title}</p>
                           {item.message ? <p className="mt-1 line-clamp-2 text-sm text-white/45">{item.message}</p> : null}
                           <p className="mt-2 text-xs text-white/30">{new Date(item.created_at).toLocaleString()}</p>

@@ -13,7 +13,13 @@ import {
   notifyUser,
 } from "../../notifications/services/notificationOrchestrationService";
 import { runAdminUserAction } from "../../it-workspace/services/warRoomService";
-import { OFFICE_SLUGS, type CompanyOffice } from "../../../lib/offices";
+import {
+  OFFICE_SLUGS,
+  type CompanyOffice,
+  isITsNomatataOfficeProfile,
+} from "../../../lib/offices";
+
+export { isITsNomatataOfficeProfile } from "../../../lib/offices";
 import { getCompanyOfficeBySlug } from "../../../lib/supabase/queries/offices";
 import { createOrganizationInvitation } from "../../platform-admin/services/platformAdminService";
 
@@ -1194,47 +1200,44 @@ export async function updateEmployeeOffice(params: {
     actorUserId: params.updatedBy,
   });
 
-  if (params.officeId) {
-    const { data: office, error: officeError } = await supabase
-      .from("company_offices")
-      .select("id")
-      .eq("id", params.officeId)
-      .eq("organization_id", params.organizationId)
-      .maybeSingle();
-
-    if (officeError) throw officeError;
-    if (!office) throw new Error("Selected office was not found in this organization.");
-  }
-
-  const { data: current, error: currentError } = await supabase
-    .from("profiles")
-    .select("office_id")
-    .eq("id", params.userId)
-    .eq("organization_id", params.organizationId)
-    .maybeSingle();
-
-  if (currentError) throw currentError;
-  if (!current) throw new Error("User was not found in this organization.");
-
-  const { error } = await supabase
-    .from("profiles")
-    .update({ office_id: params.officeId })
-    .eq("id", params.userId)
-    .eq("organization_id", params.organizationId);
+  const { data, error } = await supabase.rpc("admin_transfer_employee_office", {
+    target_user_id: params.userId,
+    target_office_id: params.officeId,
+    change_reason: params.reason ?? null,
+  });
 
   if (error) throw error;
 
-  await logAdminAudit({
-    organizationId: params.organizationId,
-    actorUserId: params.updatedBy,
-    targetUserId: params.userId,
-    action: "employee_office_updated",
-    reason: params.reason ?? null,
-    metadata: {
-      old_office_id: current.office_id,
-      new_office_id: params.officeId,
-    },
-  });
+  const result = (data ?? {}) as {
+    changed?: boolean;
+    old_office_name?: string;
+    new_office_name?: string;
+  };
+
+  if (result.changed === false) {
+    return true;
+  }
+
+  try {
+    await notifyUser({
+      organizationId: params.organizationId,
+      userId: params.userId,
+      actorUserId: params.updatedBy ?? null,
+      type: "general",
+      title: "Office assignment updated",
+      message: `Your office was changed from ${result.old_office_name ?? "your previous office"} to ${result.new_office_name ?? "a new office"}. Refresh or sign in again if navigation does not update immediately.`,
+      actionUrl: "/dashboard",
+      category: "account",
+      priority: "medium",
+      metadata: {
+        old_office_name: result.old_office_name ?? null,
+        new_office_name: result.new_office_name ?? null,
+      },
+      dedupeKey: `office-updated:${params.userId}:${params.officeId ?? "none"}`,
+    });
+  } catch (notifyError) {
+    console.error("OFFICE UPDATE NOTIFICATION ERROR:", notifyError);
+  }
 
   return true;
 }
@@ -1627,12 +1630,6 @@ export async function getITsNomatataOffice(organizationId: string) {
     organizationId,
     slug: OFFICE_SLUGS.itsNoMatata,
   });
-}
-
-export function isITsNomatataOfficeProfile(profile?: {
-  office?: { slug?: string | null } | null;
-} | null) {
-  return profile?.office?.slug === OFFICE_SLUGS.itsNoMatata;
 }
 
 export function canManageITDutyRoster(profile?: {

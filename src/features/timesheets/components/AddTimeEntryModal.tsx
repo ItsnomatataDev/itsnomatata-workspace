@@ -306,11 +306,13 @@ export function AddTimeEntryModal({
               <select
                 value={projectId}
                 onChange={handleProjectChange}
-                disabled={loadingProjects}
+                disabled={loadingProjects && projects.length === 0}
                 className="mt-2 w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-white outline-none transition focus:border-orange-500 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <option value="">
-                  {loadingProjects ? "Loading projects..." : "Select project"}
+                  {loadingProjects && projects.length === 0
+                    ? "Loading projects..."
+                    : "Select project"}
                 </option>
 
                 {projects.map((project) => (

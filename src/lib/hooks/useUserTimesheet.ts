@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "../supabase/client";
 import type { TimeEntryItem } from "../supabase/mutations/timeEntries";
 import {
@@ -73,8 +73,9 @@ export function useUserTimesheet(params: UseUserTimesheetParams) {
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const hasLoadedRef = useRef(false);
 
-  const getDateRange = () => {
+  const getDateRange = useCallback(() => {
     const now = new Date();
     let from: Date;
     let to: Date = new Date(now);
@@ -123,23 +124,28 @@ export function useUserTimesheet(params: UseUserTimesheetParams) {
       from: from.toISOString(),
       to: to.toISOString(),
     };
-  };
+  }, [view, fromDateParam, toDateParam]);
 
-  const fetchData = async () => {
-    if (!organizationId || !userId) {
-      setLoading(false);
-      return;
-    }
+  const fetchData = useCallback(
+    async (options?: { silent?: boolean }) => {
+      if (!organizationId || !userId) {
+        setLoading(false);
+        return;
+      }
 
-    try {
-      setLoading(true);
-      setError(null);
+      const silent = options?.silent === true;
 
-      const { from, to } = getDateRange();
+      try {
+        if (!silent && !hasLoadedRef.current) {
+          setLoading(true);
+        }
+        setError(null);
 
-      const { data: entriesRaw, error: entriesError } = await supabase
-        .from("time_entries")
-        .select(`
+        const { from, to } = getDateRange();
+
+        const { data: entriesRaw, error: entriesError } = await supabase
+          .from("time_entries")
+          .select(`
           *,
           tasks!task_id (
             id,
@@ -155,22 +161,22 @@ export function useUserTimesheet(params: UseUserTimesheetParams) {
             )
           )
         `)
-        .eq("organization_id", organizationId)
-        .eq("user_id", userId)
-        .gte("started_at", from)
-        .lte("started_at", to)
-        .is("deleted_at", null)
-        .order("started_at", { ascending: false });
+          .eq("organization_id", organizationId)
+          .eq("user_id", userId)
+          .gte("started_at", from)
+          .lte("started_at", to)
+          .is("deleted_at", null)
+          .order("started_at", { ascending: false });
 
-      if (entriesError) throw entriesError;
+        if (entriesError) throw entriesError;
 
-      const entries: TimeEntryItem[] = ((entriesRaw as any[]) || []).map(
-        normalizeTimeEntry,
-      );
+        const entries: TimeEntryItem[] = ((entriesRaw as any[]) || []).map(
+          normalizeTimeEntry,
+        );
 
-      const { data: activeEntryRaw, error: activeEntryError } = await supabase
-        .from("time_entries")
-        .select(`
+        const { data: activeEntryRaw, error: activeEntryError } = await supabase
+          .from("time_entries")
+          .select(`
           *,
           tasks!task_id (
             id,
@@ -186,86 +192,92 @@ export function useUserTimesheet(params: UseUserTimesheetParams) {
             )
           )
         `)
-        .eq("organization_id", organizationId)
-        .eq("user_id", userId)
-        .is("ended_at", null)
-        .is("deleted_at", null)
-        .maybeSingle();
+          .eq("organization_id", organizationId)
+          .eq("user_id", userId)
+          .is("ended_at", null)
+          .is("deleted_at", null)
+          .maybeSingle();
 
-      if (activeEntryError) throw activeEntryError;
+        if (activeEntryError) throw activeEntryError;
 
-      const activeEntry: TimeEntryItem | null = activeEntryRaw
-        ? normalizeTimeEntry(activeEntryRaw)
-        : null;
+        const activeEntry: TimeEntryItem | null = activeEntryRaw
+          ? normalizeTimeEntry(activeEntryRaw)
+          : null;
 
-      const daily: Record<string, DailySummary> = {};
-      const weekTotals: Record<string, number> = {};
+        const daily: Record<string, DailySummary> = {};
+        const weekTotals: Record<string, number> = {};
 
-      let totalSeconds = 0;
-      let billableSeconds = 0;
-      let entryCount = 0;
+        let totalSeconds = 0;
+        let billableSeconds = 0;
+        let entryCount = 0;
 
-      entries.forEach((entry: any) => {
-        const dayKey = getZimbabweDateKey(entry.started_at);
-        const seconds = Number(entry.duration_seconds || 0);
+        entries.forEach((entry: any) => {
+          const dayKey = getZimbabweDateKey(entry.started_at);
+          const seconds = Number(entry.duration_seconds || 0);
 
-        entryCount += 1;
-        totalSeconds += seconds;
+          entryCount += 1;
+          totalSeconds += seconds;
 
-        if (entry.is_billable) {
-          billableSeconds += seconds;
-        }
+          if (entry.is_billable) {
+            billableSeconds += seconds;
+          }
 
-        if (!daily[dayKey]) {
-          daily[dayKey] = {
-            date: dayKey,
-            totalSeconds: 0,
-            billableSeconds: 0,
-            entries: [],
-          };
-        }
+          if (!daily[dayKey]) {
+            daily[dayKey] = {
+              date: dayKey,
+              totalSeconds: 0,
+              billableSeconds: 0,
+              entries: [],
+            };
+          }
 
-        daily[dayKey].totalSeconds += seconds;
-        daily[dayKey].billableSeconds += entry.is_billable ? seconds : 0;
-        daily[dayKey].entries.push(entry);
+          daily[dayKey].totalSeconds += seconds;
+          daily[dayKey].billableSeconds += entry.is_billable ? seconds : 0;
+          daily[dayKey].entries.push(entry);
 
-        weekTotals[dayKey] = (weekTotals[dayKey] || 0) + seconds;
-      });
+          weekTotals[dayKey] = (weekTotals[dayKey] || 0) + seconds;
+        });
 
-      const activeDays = Object.keys(daily).length;
+        const activeDays = Object.keys(daily).length;
 
-      const avgDailyHours =
-        activeDays > 0 ? totalSeconds / 3600 / activeDays : 0;
+        const avgDailyHours =
+          activeDays > 0 ? totalSeconds / 3600 / activeDays : 0;
 
-      setData({
-        entries,
-        summary: {
-          totalSeconds,
-          billableSeconds,
-          entryCount,
-          avgDailyHours,
-        },
-        daily,
-        weekTotals,
-        activeEntry,
-      });
-    } catch (err) {
-      console.error("Failed to load user timesheet:", err);
+        setData({
+          entries,
+          summary: {
+            totalSeconds,
+            billableSeconds,
+            entryCount,
+            avgDailyHours,
+          },
+          daily,
+          weekTotals,
+          activeEntry,
+        });
+        hasLoadedRef.current = true;
+      } catch (err) {
+        console.error("Failed to load user timesheet:", err);
 
-      setError(
-        err instanceof Error ? err.message : "Failed to load timesheet",
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
+        setError(
+          err instanceof Error ? err.message : "Failed to load timesheet",
+        );
+      } finally {
+        setLoading(false);
+      }
+    },
+    [getDateRange, organizationId, userId],
+  );
 
   useEffect(() => {
-    fetchData();
-  }, [organizationId, userId, view, fromDateParam, toDateParam]);
+    hasLoadedRef.current = false;
+    void fetchData();
+  }, [fetchData]);
 
   useEffect(() => {
     if (!realtime || !organizationId || !userId) return;
+
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
     const channel = supabase
       .channel(`user_timesheet_${organizationId}_${userId}`)
@@ -278,21 +290,25 @@ export function useUserTimesheet(params: UseUserTimesheetParams) {
           filter: `user_id=eq.${userId}`,
         },
         () => {
-          fetchData();
+          if (debounceTimer) clearTimeout(debounceTimer);
+          debounceTimer = setTimeout(() => {
+            void fetchData({ silent: true });
+          }, 500);
         },
       )
       .subscribe();
 
     return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
       supabase.removeChannel(channel);
     };
-  }, [organizationId, userId, view, fromDateParam, toDateParam, realtime]);
+  }, [fetchData, organizationId, realtime, userId]);
 
   return {
     data,
     loading,
     error,
-    refetch: fetchData,
+    refetch: () => fetchData({ silent: false }),
     dateRange: getDateRange(),
   };
 }

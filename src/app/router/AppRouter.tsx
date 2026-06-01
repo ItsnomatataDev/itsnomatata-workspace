@@ -16,7 +16,9 @@ import FeatureRoute from "./FeatureRoute";
 import SystemOwnerAdminRoute from "./SystemOwnerAdminRoute";
 import TasksPage from "../../features/tasks/pages/TasksPage";
 import TaskDeepLinkPage from "../../features/tasks/pages/TaskDeepLinkPage";
-import TimePage from "../../features/time/pages/TimePage";
+import TimesheetsIndexRedirect from "../../features/timesheets/pages/TimesheetsIndexRedirect";
+import TimesheetsPage from "../../features/timesheets/pages/TimesheetsPage";
+import TimeApprovalPage from "../../features/timesheets/pages/TimeApprovalPage";
 import CampaignsPage from "../../features/campaigns/pages/CampaignsPage";
 import ReportsPage from "../../features/reports/pages/ReportsPage";
 import ContentLibraryPage from "../../features/content-assets/pages/ContentLibraryPage";
@@ -58,7 +60,6 @@ import WorkIntelligenceBoardPage from "../../features/timesheets/pages/WorkIntel
 import TeamTimesheetsPage from "../../features/timesheets/pages/TeamTimesheetsPage";
 import EverhourAdminPage from "../../features/timesheets/pages/EverhourAdminPage";
 import BoardTimeManagementPage from "../../features/boards/pages/BoardTimeManagementPage";
-import TimeTrackingPage from "../../features/time-tracking/pages/TimeTrackingPage";
 import BoardDetailView from "../../features/boards/pages/BoardDetailView";
 import AttendancePage from "../../features/attendance/pages/AttendancePage";
 import AdminAttendancePage from "../../features/attendance/pages/AdminAttendancePage";
@@ -280,7 +281,9 @@ const AppRouter = () => {
           path="/time"
           element={
             <ProtectedRoute>
-              <FeatureRoute feature="timesheets"><TimePage /></FeatureRoute>
+              <FeatureRoute feature="timesheets">
+                <Navigate to="/timesheet" replace />
+              </FeatureRoute>
             </ProtectedRoute>
           }
         />
@@ -289,7 +292,9 @@ const AppRouter = () => {
           path="/time-tracking"
           element={
             <ProtectedRoute>
-              <FeatureRoute feature="timesheets"><TimeTrackingPage /></FeatureRoute>
+              <FeatureRoute feature="timesheets">
+                <Navigate to="/timesheet" replace />
+              </FeatureRoute>
             </ProtectedRoute>
           }
         />
@@ -946,6 +951,41 @@ const AppRouter = () => {
         />
 
         {/* Timesheets */}
+        <Route
+          path="/timesheets"
+          element={
+            <ProtectedRoute>
+              <FeatureRoute feature="timesheets">
+                <TimesheetsIndexRedirect />
+              </FeatureRoute>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/timesheets/submissions"
+          element={
+            <ProtectedRoute>
+              <FeatureRoute feature="timesheets">
+                <TimesheetsPage />
+              </FeatureRoute>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/time-approvals"
+          element={
+            <ProtectedRoute>
+              <RoleRoute roles={["admin", "org_admin", "manager"]}>
+                <FeatureRoute feature="timesheets">
+                  <TimeApprovalPage />
+                </FeatureRoute>
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+
         <Route
           path="/timesheets/team"
           element={

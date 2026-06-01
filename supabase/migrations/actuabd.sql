@@ -3097,3 +3097,20 @@ CREATE TABLE public.workflow_instances (
   CONSTRAINT workflow_instances_organization_id_fkey FOREIGN KEY (organization_id) REFERENCES public.organizations(id),
   CONSTRAINT workflow_instances_workflow_id_fkey FOREIGN KEY (workflow_id) REFERENCES public.ai_workflows(id)
 );
+
+
+
+
+
+
+create table public.company_offices (
+  id uuid not null default gen_random_uuid (),
+  organization_id uuid not null,
+  name text not null,
+  slug text not null,
+  is_primary boolean not null default false,
+  created_at timestamp with time zone not null default now(),
+  constraint company_offices_pkey primary key (id),
+  constraint company_offices_organization_id_slug_key unique (organization_id, slug),
+  constraint company_offices_organization_id_fkey foreign KEY (organization_id) references organizations (id) on delete CASCADE
+) TABLESPACE pg_default;

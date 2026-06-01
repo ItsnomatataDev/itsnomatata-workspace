@@ -105,7 +105,7 @@ async function notifyTimesheetDecision(
           : `Your timesheet for ${timesheet.week_start} to ${timesheet.week_end} was rejected.${timesheet.notes ? ` ${timesheet.notes}` : ""}`,
       entityType: "timesheet_submission",
       entityId: timesheet.id,
-      actionUrl: "/timesheets",
+      actionUrl: "/timesheets/submissions",
       priority: decision === "approved" ? "medium" : "high",
       referenceId: timesheet.id,
       referenceType: "timesheet_submission",
