@@ -22,6 +22,7 @@ import {
   getPushConfigurationError,
   getPushSupportError,
   registerPushNotifications,
+  unregisterPushNotifications,
 } from "../../features/notifications/services/pushService";
 import { resolveNotificationActionUrl } from "../../features/notifications/utils/notificationLinks";
 
@@ -39,6 +40,7 @@ type NotificationContextValue = {
   pushLoading: boolean;
   pushError: string;
   enablePushNotifications: () => Promise<boolean>;
+  disablePushNotifications: () => Promise<boolean>;
   reload: () => Promise<void>;
   markOneAsRead: (notificationId: string) => Promise<void>;
   markEverythingAsRead: () => Promise<void>;
@@ -162,6 +164,55 @@ export function NotificationProvider({
       setPushLoading(false);
     }
   }, [organizationId, userId]);
+
+  const disablePushNotifications = useCallback(async () => {
+    if (!userId) {
+      setPushError("You need to be signed in to manage browser notifications.");
+      return false;
+    }
+
+    try {
+      setPushLoading(true);
+      setPushError("");
+      await unregisterPushNotifications({ userId });
+      setPushEnabled(false);
+      autoRegisteredPushFor.current = null;
+      return true;
+    } catch (err) {
+      setPushError(
+        err instanceof Error
+          ? err.message
+          : "Failed to disable browser notifications.",
+      );
+      return false;
+    } finally {
+      setPushLoading(false);
+    }
+  }, [userId]);
+
+  useEffect(() => {
+    if (!userId) {
+      setPushEnabled(false);
+      return;
+    }
+
+    let mounted = true;
+
+    void supabase
+      .from("push_subscriptions")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("is_active", true)
+      .limit(1)
+      .then(({ data, error }) => {
+        if (!mounted || error) return;
+        setPushEnabled((data?.length ?? 0) > 0);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [userId]);
 
   useEffect(() => {
     if (!userId || !organizationId || !pushSupported || pushEnabled) return;
@@ -356,6 +407,7 @@ export function NotificationProvider({
       pushLoading,
       pushError,
       enablePushNotifications,
+      disablePushNotifications,
       reload,
       markOneAsRead,
       markEverythingAsRead,
@@ -372,6 +424,7 @@ export function NotificationProvider({
       pushLoading,
       pushError,
       enablePushNotifications,
+      disablePushNotifications,
       reload,
       markOneAsRead,
       markEverythingAsRead,

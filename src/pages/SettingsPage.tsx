@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { Bell, Loader2, Mail, Save } from "lucide-react";
+import { Bell, Loader2, Mail, Save, Smartphone } from "lucide-react";
 import Sidebar from "../components/dashboard/components/Sidebar";
 import { useAuth } from "../app/providers/AuthProvider";
+import { useNotifications } from "../lib/hooks/useNotifications";
 import {
   getGlobalNotificationPreferences,
   saveGlobalNotificationPreferences,
@@ -111,6 +112,17 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [pushMessage, setPushMessage] = useState("");
+
+  const {
+    pushSupported,
+    pushEnabled,
+    pushPermission,
+    pushLoading,
+    pushError,
+    enablePushNotifications,
+    disablePushNotifications,
+  } = useNotifications(user?.id ?? null);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -230,6 +242,87 @@ export default function SettingsPage() {
                       }
                     />
                   ))}
+                </div>
+
+                <div className="border border-white/10 bg-black/40 p-4">
+                  <div className="mb-4 flex items-center gap-3">
+                    <div className="border border-orange-500/20 bg-orange-500/10 p-2 text-orange-400">
+                      <Smartphone size={18} />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-semibold text-white">
+                        Browser push (tab closed)
+                      </h3>
+                      <p className="mt-1 text-sm text-white/45">
+                        OS-level alerts on this device when you are not on the
+                        app. Requires HTTPS and browser permission.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-3 text-sm text-white/55">
+                    <span>
+                      Status:{" "}
+                      <span className="font-medium text-white">
+                        {pushEnabled
+                          ? "Enabled on this device"
+                          : pushPermission === "denied"
+                            ? "Blocked in browser"
+                            : "Not enabled"}
+                      </span>
+                    </span>
+                    <span>Permission: {String(pushPermission)}</span>
+                  </div>
+
+                  {pushError ? (
+                    <p className="mt-3 text-sm text-red-300">{pushError}</p>
+                  ) : null}
+                  {pushMessage ? (
+                    <p className="mt-3 text-sm text-emerald-300">{pushMessage}</p>
+                  ) : null}
+
+                  <div className="mt-4 flex flex-wrap gap-3">
+                    <button
+                      type="button"
+                      disabled={!pushSupported || pushLoading || pushEnabled}
+                      onClick={() => {
+                        setPushMessage("");
+                        void enablePushNotifications().then((ok) => {
+                          if (ok) {
+                            setPushMessage(
+                              "Browser push enabled. Close the tab and send a test from Notifications to verify.",
+                            );
+                          }
+                        });
+                      }}
+                      className="border border-orange-500 bg-orange-500 px-4 py-2 text-sm font-semibold text-black disabled:opacity-50"
+                    >
+                      {pushLoading ? "Working..." : "Enable on this device"}
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={pushLoading || !pushEnabled}
+                      onClick={() => {
+                        setPushMessage("");
+                        void disablePushNotifications().then((ok) => {
+                          if (ok) {
+                            setPushMessage("Browser push disabled on this device.");
+                          }
+                        });
+                      }}
+                      className="border border-white/10 px-4 py-2 text-sm text-white/80 disabled:opacity-50"
+                    >
+                      Disable on this device
+                    </button>
+                  </div>
+
+                  {!pushSupported ? (
+                    <p className="mt-3 text-xs text-white/40">
+                      Push is unavailable until VITE_VAPID_PUBLIC_KEY is set in
+                      your frontend environment and the app is served over HTTPS.
+                    </p>
+                  ) : null}
                 </div>
 
                 <div className="grid gap-4 border border-white/10 bg-black/40 p-4 md:grid-cols-2">

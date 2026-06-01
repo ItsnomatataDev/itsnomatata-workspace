@@ -108,3 +108,25 @@ export async function registerPushNotifications(params: {
 
   return subscription;
 }
+
+export async function unregisterPushNotifications(params: {
+  userId: string;
+}) {
+  const supportError = getPushSupportError();
+  if (supportError) throw new Error(supportError);
+
+  if ("serviceWorker" in navigator) {
+    const registration = await navigator.serviceWorker.getRegistration("/");
+    const subscription = await registration?.pushManager.getSubscription();
+    if (subscription) {
+      await subscription.unsubscribe();
+    }
+  }
+
+  const { error } = await supabase
+    .from("push_subscriptions")
+    .update({ is_active: false, updated_at: new Date().toISOString() })
+    .eq("user_id", params.userId);
+
+  if (error) throw error;
+}

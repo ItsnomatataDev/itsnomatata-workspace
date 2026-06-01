@@ -43,7 +43,7 @@ serve(async (req) => {
       );
     }
 
-    const vapidSubject = Deno.env.get("VAPID_SUBJECT") ?? "mailto:admin@itsnomatata.com";
+    const vapidSubject = Deno.env.get("VAPID_SUBJECT") ?? "mailto:codex@itsnomatata.com";
     const vapidPublicKey = Deno.env.get("VAPID_PUBLIC_KEY");
     const vapidPrivateKey = Deno.env.get("VAPID_PRIVATE_KEY");
 

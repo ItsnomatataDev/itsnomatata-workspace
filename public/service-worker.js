@@ -1,3 +1,16 @@
+function resolveActionUrl(actionUrl) {
+  const fallback = "/notifications";
+  if (!actionUrl || typeof actionUrl !== "string") {
+    return new URL(fallback, self.location.origin).href;
+  }
+
+  try {
+    return new URL(actionUrl, self.location.origin).href;
+  } catch {
+    return new URL(fallback, self.location.origin).href;
+  }
+}
+
 self.addEventListener("push", function (event) {
   let data = {};
 
@@ -11,13 +24,16 @@ self.addEventListener("push", function (event) {
   }
 
   const title = data.title || "New notification";
+  const targetUrl = resolveActionUrl(data.actionUrl);
 
   const options = {
     body: data.message || "",
+    icon: "/favicon.ico",
+    badge: "/favicon.ico",
     tag: data.notificationId || undefined,
     renotify: Boolean(data.notificationId),
     data: {
-      url: data.actionUrl || "/notifications",
+      url: targetUrl,
       notificationId: data.notificationId || null,
       type: data.type || null,
       priority: data.priority || "medium",
@@ -30,7 +46,9 @@ self.addEventListener("push", function (event) {
 self.addEventListener("notificationclick", function (event) {
   event.notification.close();
 
-  const url = event.notification.data?.url || "/notifications";
+  const url =
+    event.notification.data?.url ||
+    new URL("/notifications", self.location.origin).href;
 
   event.waitUntil(
     clients

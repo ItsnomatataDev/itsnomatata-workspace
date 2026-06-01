@@ -8,7 +8,9 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview --host",
-    "deploy:function:create-notification": "./scripts/deploy-create-notification.sh"
+    "deploy:function:create-notification": "./scripts/deploy-create-notification.sh",
+    "deploy:push-functions": "./scripts/deploy-push-functions.sh",
+    "generate:vapid-keys": "web-push generate-vapid-keys"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
