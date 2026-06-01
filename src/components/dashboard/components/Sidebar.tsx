@@ -77,7 +77,7 @@ const commonLinks: LinkItem[] = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { to: "/inbox", label: "Inbox", icon: Inbox, featureKey: "notifications" },
   { to: "/boards", label: "Boards", icon: BriefcaseBusiness, featureKey: "boards" },
-  { to: "/timesheets/team", label: "Timesheet", icon: Clock3, featureKey: "timesheets" },
+  { to: "/time-entries", label: "Time entries", icon: Clock3, featureKey: "timesheets" },
   { to: "/attendance", label: "Attendance", icon: Timer, featureKey: "attendance" },
   { to: "/leave", label: "Leave", icon: CalendarDays, featureKey: "leave_requests" },
   { to: "/roster", label: "Duty Roster", icon: CalendarClock, featureKey: "duty_roster" },
@@ -182,7 +182,7 @@ function getRoleNav(role?: string | null, counts?: SidebarCounts): NavItem[] {
           color: "text-orange-400",
           activePaths: ["/timesheets", "/admin/attendance"],
           children: [
-            { to: "/timesheets/team", label: "Timesheet", icon: Clock3, featureKey: "timesheets" },
+            { to: "/timesheets/team", label: "Team timesheet", icon: Clock3, featureKey: "timesheets" },
             { to: "/admin/attendance", label: "Attendance", icon: Timer, featureKey: "attendance" },
           ],
         },
@@ -262,7 +262,7 @@ return [
           color: "text-orange-400",
           activePaths: ["/timesheets", "/everhour", "/board-management", "/time-approvals"],
           children: [
-            { to: "/timesheets/team", label: "Timesheet", icon: Clock3, featureKey: "timesheets" },
+            { to: "/timesheets/team", label: "Team timesheet", icon: Clock3, featureKey: "timesheets" },
             { to: "/time-approvals", label: "Time Approvals", icon: ShieldCheck, featureKey: "timesheets" },
             { to: "/timesheets/reports", label: "Reports", icon: BarChart3, featureKey: "reports" },
             {
@@ -422,7 +422,7 @@ export default function Sidebar({
   );
   const baseCommonLinks = isThreeLittleBirds
     ? commonLinks.filter((link) =>
-        !["/ai-workspace", "/meetings", "/timesheets/team"].includes(link.to),
+        !["/ai-workspace", "/meetings"].includes(link.to),
       )
     : commonLinks;
   const visibleCommonLinks = filterNavByFeatures(baseCommonLinks, isEnabled) as LinkItem[];

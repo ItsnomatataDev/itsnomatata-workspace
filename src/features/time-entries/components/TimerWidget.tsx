@@ -72,21 +72,21 @@ export default function TimerWidget({
   );
 
   return (
-    <section className="border border-white/10 bg-[#050505] p-5">
+    <section className="rounded-2xl border border-white/10 bg-white/5 p-5">
       <div className="mb-5 flex items-center gap-3">
-        <div className="border border-orange-500/20 bg-orange-500/10 p-2 text-orange-400">
+        <div className="rounded-2xl border border-orange-400/20 bg-orange-500/15 p-3 text-orange-300">
           {activeEntry ? <Radio size={18} /> : <Clock3 size={18} />}
         </div>
 
         <div>
           <h3 className="text-lg font-semibold text-white">Live Timer</h3>
           <p className="text-sm text-white/45">
-            Track your work the Everhour way
+            Track live work, then add manual time when you are done
           </p>
         </div>
       </div>
 
-      <div className="border border-white/10 bg-black/40 p-5">
+      <div className="rounded-2xl border border-white/10 bg-black/25 p-5">
         <p className="text-sm text-white/45">
           {activeEntry ? "Currently tracking" : "Ready to start"}
         </p>
@@ -110,7 +110,7 @@ export default function TimerWidget({
             type="button"
             disabled={mutating}
             onClick={() => void onStopTimer()}
-            className="inline-flex items-center gap-2 border border-white/10 bg-white px-4 py-3 text-sm font-semibold text-black disabled:opacity-60"
+            className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white px-4 py-3 text-sm font-semibold text-black transition hover:bg-white/85 disabled:opacity-60"
           >
             <PauseCircle size={16} />
             Stop timer
@@ -120,7 +120,7 @@ export default function TimerWidget({
             type="button"
             disabled={mutating}
             onClick={() => void onStartQuickTimer()}
-            className="inline-flex items-center gap-2 border border-orange-500 bg-orange-500 px-4 py-3 text-sm font-semibold text-black disabled:opacity-60"
+            className="inline-flex items-center gap-2 rounded-2xl bg-orange-500 px-4 py-3 text-sm font-semibold text-black transition hover:bg-orange-400 disabled:opacity-60"
           >
             <PlayCircle size={16} />
             Start quick timer
@@ -130,14 +130,14 @@ export default function TimerWidget({
         <button
           type="button"
           onClick={onOpenManualEntry}
-          className="inline-flex items-center gap-2 border border-white/10 bg-black px-4 py-3 text-sm font-medium text-white/80"
+          className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm font-medium text-white/80 transition hover:bg-white/10"
         >
           <Plus size={16} />
           {activeEntry ? "Add time on top" : "Add manual entry"}
         </button>
 
         {!activeEntry ? (
-          <div className="inline-flex items-center gap-2 border border-white/10 bg-black px-4 py-3 text-xs text-white/45">
+          <div className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/4 px-4 py-3 text-xs text-white/45">
             <TimerReset size={14} />
             One active timer per user
           </div>

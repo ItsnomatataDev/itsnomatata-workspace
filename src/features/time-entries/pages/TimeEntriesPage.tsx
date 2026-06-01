@@ -44,7 +44,7 @@ function formatDuration(seconds: number) {
   return hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m`;
 }
 
-export default function TimePage() {
+export default function TimeEntriesPage() {
   const auth = useAuth();
   const profile = auth?.profile ?? null;
   const user = auth?.user ?? null;
@@ -242,16 +242,15 @@ export default function TimePage() {
           <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
             <div>
               <p className="text-xs uppercase tracking-[0.3em] text-orange-500">
-                Everhour Workspace
+                Time tracking
               </p>
-              <h1 className="mt-2 text-3xl font-bold">My Time</h1>
+              <h1 className="mt-2 text-3xl font-bold">Time entries</h1>
               <p className="mt-2 text-sm text-white/50">
-                Track work, add manual entries, and review your recent
-                timesheet.
+                Start a timer, add manual time, and review your recent entries.
               </p>
             </div>
 
-            <div className="border border-white/10 bg-[#050505] px-4 py-3 text-sm text-white/65">
+            <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/65">
               {loading
                 ? "Loading entries..."
                 : `${entries.length} visible entries`}
@@ -278,9 +277,9 @@ export default function TimePage() {
               onOpenManualEntry={() => setManualEntryOpen(true)}
             />
 
-            <section className="border border-white/10 bg-[#050505] p-5">
+            <section className="rounded-2xl border border-white/10 bg-white/5 p-5">
               <div className="mb-5 flex items-center gap-3">
-                <div className="border border-orange-500/20 bg-orange-500/10 p-2 text-orange-400">
+                <div className="rounded-2xl border border-orange-400/20 bg-orange-500/15 p-3 text-orange-300">
                   <Brain size={18} />
                 </div>
 
@@ -298,7 +297,7 @@ export default function TimePage() {
                 {insightMessages.map((message, index) => (
                   <div
                     key={`${message}-${index}`}
-                    className="border border-white/10 bg-black/40 p-4"
+                    className="rounded-2xl border border-white/10 bg-black/25 p-4"
                   >
                     <div className="flex items-start gap-3">
                       <div className="mt-0.5 text-orange-400">
@@ -314,7 +313,7 @@ export default function TimePage() {
             </section>
           </div>
 
-          <section className="border border-white/10 bg-[#050505] p-5">
+          <section className="rounded-2xl border border-white/10 bg-white/5 p-5">
             <div className="mb-5 flex items-center justify-between gap-3">
               <div>
                 <h2 className="text-lg font-semibold text-white">
@@ -325,7 +324,7 @@ export default function TimePage() {
                 </p>
               </div>
 
-              <div className="inline-flex items-center gap-2 border border-white/10 bg-black px-3 py-2 text-xs text-white/45">
+              <div className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-black/25 px-3 py-2 text-xs text-white/45">
                 <Clock3 size={13} />
                 Latest 20 entries
               </div>

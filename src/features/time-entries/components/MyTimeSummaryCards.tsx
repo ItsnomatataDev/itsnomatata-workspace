@@ -23,7 +23,7 @@ function SummaryCard({
   icon: React.ReactNode;
 }) {
   return (
-    <div className="border border-white/10 bg-[#050505] p-5">
+    <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className="text-sm text-white/45">{title}</p>
@@ -31,7 +31,7 @@ function SummaryCard({
           <p className="mt-2 text-xs text-white/35">{subtitle}</p>
         </div>
 
-        <div className="border border-orange-500/20 bg-orange-500/10 p-3 text-orange-400">
+        <div className="rounded-2xl border border-orange-400/20 bg-orange-500/15 p-3 text-orange-300">
           {icon}
         </div>
       </div>

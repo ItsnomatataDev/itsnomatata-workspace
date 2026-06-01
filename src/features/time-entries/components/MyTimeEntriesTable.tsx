@@ -37,14 +37,14 @@ export default function MyTimeEntriesTable({
 }) {
   if (entries.length === 0) {
     return (
-      <div className="border border-white/10 bg-[#050505] px-4 py-6 text-white/60 sm:px-6">
+      <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-6 text-white/60 sm:px-6">
         No time entries recorded yet.
       </div>
     );
   }
 
   return (
-    <div className="overflow-x-auto border border-white/10 bg-[#050505]">
+    <div className="overflow-hidden overflow-x-auto rounded-2xl border border-white/10 bg-white/5">
       <table className="min-w-full border-collapse text-sm">
         <thead>
           <tr className="border-b border-white/10 bg-black/40 text-left text-white/45">
@@ -99,7 +99,7 @@ export default function MyTimeEntriesTable({
 
               <td className="px-4 py-4">
                 <span
-                  className={`inline-flex px-3 py-2 text-xs ${
+                  className={`inline-flex rounded-full px-3 py-1.5 text-xs font-semibold ${
                     entry.is_billable
                       ? "border border-orange-500/20 bg-orange-500/10 text-orange-300"
                       : "border border-white/10 bg-white/5 text-white/60"
@@ -120,7 +120,7 @@ export default function MyTimeEntriesTable({
                       type="button"
                       disabled={mutating || hasAnotherActiveEntry}
                       onClick={() => void onResumeEntry(entry.id)}
-                      className="inline-flex items-center gap-1 border border-white/10 bg-white/10 px-3 py-2 text-xs text-white disabled:opacity-60"
+                      className="inline-flex items-center gap-1 rounded-xl border border-white/10 bg-white/10 px-3 py-2 text-xs text-white transition hover:bg-white/15 disabled:opacity-60"
                     >
                       <TimerReset size={13} />
                       Resume
@@ -131,7 +131,7 @@ export default function MyTimeEntriesTable({
                     type="button"
                     disabled={mutating || isRunning}
                     onClick={() => onEditEntry(entry)}
-                    className="inline-flex items-center gap-1 border border-white/10 bg-black px-3 py-2 text-xs text-white/80 disabled:opacity-60"
+                    className="inline-flex items-center gap-1 rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-xs text-white/80 transition hover:bg-white/10 disabled:opacity-60"
                   >
                     <Pencil size={13} />
                     Edit
@@ -141,7 +141,7 @@ export default function MyTimeEntriesTable({
                     type="button"
                     disabled={mutating || isRunning}
                     onClick={() => void onDeleteEntry(entry.id)}
-                    className="inline-flex items-center gap-1 border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-300 disabled:opacity-60"
+                    className="inline-flex items-center gap-1 rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-300 transition hover:bg-red-500/15 disabled:opacity-60"
                   >
                     <Trash2 size={13} />
                     Delete

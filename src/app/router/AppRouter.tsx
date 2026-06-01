@@ -57,6 +57,7 @@ import AiAssistantPage from "../../features/ai-assistant/pages/AiAssistantPage";
 import AIAutomationReviewPage from "../../features/ai-automation-review/pages/AIAutomationReviewPage";
 import WorkIntelligenceBoardPage from "../../features/timesheets/pages/WorkIntelligenceBoardPage";
 import TeamTimesheetsPage from "../../features/timesheets/pages/TeamTimesheetsPage";
+import TimeEntriesPage from "../../features/time-entries/pages/TimeEntriesPage";
 import EverhourAdminPage from "../../features/timesheets/pages/EverhourAdminPage";
 import BoardTimeManagementPage from "../../features/boards/pages/BoardTimeManagementPage";
 import BoardDetailView from "../../features/boards/pages/BoardDetailView";
@@ -280,7 +281,7 @@ const AppRouter = () => {
           element={
             <ProtectedRoute>
               <FeatureRoute feature="timesheets">
-                <Navigate to="/timesheets/team" replace />
+                <Navigate to="/time-entries" replace />
               </FeatureRoute>
             </ProtectedRoute>
           }
@@ -291,7 +292,18 @@ const AppRouter = () => {
           element={
             <ProtectedRoute>
               <FeatureRoute feature="timesheets">
-                <Navigate to="/timesheets/team" replace />
+                <Navigate to="/time-entries" replace />
+              </FeatureRoute>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/time-entries"
+          element={
+            <ProtectedRoute>
+              <FeatureRoute feature="timesheets">
+                <TimeEntriesPage />
               </FeatureRoute>
             </ProtectedRoute>
           }
@@ -671,7 +683,7 @@ const AppRouter = () => {
           element={
             <ProtectedRoute>
               <FeatureRoute feature="timesheets">
-                <Navigate to="/timesheets/team" replace />
+                <Navigate to="/time-entries" replace />
               </FeatureRoute>
             </ProtectedRoute>
           }

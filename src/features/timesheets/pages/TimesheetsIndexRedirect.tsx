@@ -2,7 +2,7 @@ import { Navigate } from "react-router-dom";
 import { useAuth } from "../../../app/providers/AuthProvider";
 
 /**
- * Resolves bare /timesheets to the shared team timesheet view.
+ * Resolves bare /timesheets to personal time entries (timer + manual time).
  */
 export default function TimesheetsIndexRedirect() {
   const auth = useAuth();
@@ -15,5 +15,5 @@ export default function TimesheetsIndexRedirect() {
     );
   }
 
-  return <Navigate to="/timesheets/team" replace />;
+  return <Navigate to="/time-entries" replace />;
 }
