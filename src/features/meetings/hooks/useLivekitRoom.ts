@@ -156,17 +156,7 @@ export function useLivekitRoom(params: {
 
   const setCameraEnabled = useCallback(
     async (enabled: boolean) => {
-      return room.localParticipant.setCameraEnabled(
-        enabled,
-        {
-          resolution: VideoPresets.h720.resolution,
-          frameRate: 30,
-        },
-        {
-          videoEncoding: VideoPresets.h720.encoding,
-          degradationPreference: "maintain-framerate",
-        },
-      );
+      return room.localParticipant.setCameraEnabled(enabled);
     },
     [room],
   );

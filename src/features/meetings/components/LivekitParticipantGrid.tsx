@@ -91,7 +91,7 @@ function TrackTile({
     >
       <div className="absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-3 bg-linear-to-b from-black/85 to-transparent p-4">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <span className="max-w-55 truncate rounded-full bg-black/70 px-3 py-1 text-xs font-medium text-white backdrop-blur">
+          <span className="max-w-55 truncate rounded-full bg-black/80 px-3 py-1 text-xs font-medium text-white">
             {participantName}
           </span>
 
@@ -302,7 +302,7 @@ export default function LivekitParticipantGrid() {
             : "relative",
         ].join(" ")}
       >
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-white/10 bg-neutral-950/90 p-3 backdrop-blur">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-white/10 bg-neutral-950/95 p-3">
           <div>
             <p className="text-xs uppercase tracking-[0.2em] text-white/35">
               {focusedIsScreenShare ? "Screen share focus" : "Pinned focus"}

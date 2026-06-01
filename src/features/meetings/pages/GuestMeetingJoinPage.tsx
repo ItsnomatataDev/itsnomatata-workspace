@@ -15,7 +15,7 @@ import {
 } from "../services/meetingGuestService";
 import { getOptimalRoomOptions, estimateConnectionQuality } from "../services/meetingMediaService";
 import { getLiveKitConnectionErrorMessage } from "../utils/livekitErrors";
-import { useLivekitRoom } from "../hooks/useLivekitRoom";
+import MeetingReconnectBanner from "../components/MeetingReconnectBanner";
 
 export default function GuestMeetingJoinPage() {
   const navigate = useNavigate();
@@ -40,14 +40,6 @@ export default function GuestMeetingJoinPage() {
     () => getOptimalRoomOptions(estimateConnectionQuality()),
     [],
   );
-  const livekitRoom = useLivekitRoom({
-    roomName: session?.roomName,
-    options: roomOptions,
-    onError: (err) => {
-      setError(getLiveKitConnectionErrorMessage(err, session?.url));
-    },
-  });
-
   async function handleJoin(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -212,7 +204,7 @@ export default function GuestMeetingJoinPage() {
             >
               <LiveKitRoom
                 key={session.roomName}
-                room={livekitRoom.room}
+                options={roomOptions}
                 token={session.token}
                 serverUrl={session.url}
                 connect={true}
@@ -225,11 +217,7 @@ export default function GuestMeetingJoinPage() {
               >
                 <RoomAudioRenderer />
                 <StartAudio label="Enable audio" />
-                {livekitRoom.isReconnecting ? (
-                  <div className="mb-3 rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
-                    Reconnecting to meeting media...
-                  </div>
-                ) : null}
+                <MeetingReconnectBanner />
                 <LivekitParticipantGrid />
                 <GuestMeetingControls onLeave={handleLeave} />
               </LiveKitRoom>

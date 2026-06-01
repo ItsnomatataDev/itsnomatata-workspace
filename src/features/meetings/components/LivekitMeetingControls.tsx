@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import {
   Crown,
   Mic,
@@ -17,6 +17,8 @@ import {
 import { Track } from "livekit-client";
 import { updateMeetingMediaState } from "../services/meetingService";
 import MeetingDeviceSettings from "./MeetingDeviceSettings";
+
+const MEDIA_STATE_SYNC_DEBOUNCE_MS = 1500;
 
 type Props = {
   meetingId: string;
@@ -38,31 +40,64 @@ export default function LivekitMeetingControls({
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [deviceSettingsOpen, setDeviceSettingsOpen] = useState(false);
   const [leaving, setLeaving] = useState(false);
+  const mediaSyncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const pendingMediaStateRef = useRef<{
+    isMuted?: boolean;
+    isCameraOn?: boolean;
+  }>({});
 
   const isMuted = localParticipant?.isMicrophoneEnabled === false;
   const isCameraOff = localParticipant?.isCameraEnabled === false;
 
-  async function syncMediaState(input: {
-    isMuted?: boolean;
-    isCameraOn?: boolean;
-  }) {
+  const flushMediaState = useCallback(async () => {
+    const payload = pendingMediaStateRef.current;
+    pendingMediaStateRef.current = {};
+
+    if (
+      typeof payload.isMuted !== "boolean" &&
+      typeof payload.isCameraOn !== "boolean"
+    ) {
+      return;
+    }
+
     try {
       await updateMeetingMediaState({
         meetingId,
         userId,
-        ...input,
+        ...payload,
       });
     } catch (error) {
       console.error("MEDIA STATE SYNC ERROR:", error);
     }
-  }
+  }, [meetingId, userId]);
+
+  const queueMediaState = useCallback(
+    (input: { isMuted?: boolean; isCameraOn?: boolean }) => {
+      pendingMediaStateRef.current = {
+        ...pendingMediaStateRef.current,
+        ...input,
+      };
+
+      if (mediaSyncTimeoutRef.current) {
+        clearTimeout(mediaSyncTimeoutRef.current);
+      }
+
+      mediaSyncTimeoutRef.current = setTimeout(() => {
+        mediaSyncTimeoutRef.current = null;
+        void flushMediaState();
+      }, MEDIA_STATE_SYNC_DEBOUNCE_MS);
+    },
+    [flushMediaState],
+  );
 
   async function handleToggleMic() {
     if (!localParticipant) return;
 
     const next = !localParticipant.isMicrophoneEnabled;
     await localParticipant.setMicrophoneEnabled(next);
-    void syncMediaState({ isMuted: !next });
+    queueMediaState({ isMuted: !next });
   }
 
   async function handleToggleCamera() {
@@ -70,7 +105,7 @@ export default function LivekitMeetingControls({
 
     const next = !localParticipant.isCameraEnabled;
     await localParticipant.setCameraEnabled(next);
-    void syncMediaState({ isCameraOn: next });
+    queueMediaState({ isCameraOn: next });
   }
 
   async function handleToggleScreenShare() {
@@ -118,8 +153,14 @@ export default function LivekitMeetingControls({
   async function handleLeave() {
     if (leaving) return;
 
+    if (mediaSyncTimeoutRef.current) {
+      clearTimeout(mediaSyncTimeoutRef.current);
+      mediaSyncTimeoutRef.current = null;
+    }
+
     try {
       setLeaving(true);
+      await flushMediaState();
       await onLeave();
     } finally {
       setLeaving(false);

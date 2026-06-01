@@ -101,7 +101,7 @@ serve(async (req) => {
 
     const { data: meeting, error: meetingError } = await adminClient
       .from("meetings")
-      .select("id, title, organization_id, host_id, status")
+      .select("id, title, organization_id, host_id, status, livekit_room_name")
       .eq("id", meetingId)
       .maybeSingle();
 
@@ -140,7 +140,7 @@ serve(async (req) => {
       });
     }
 
-    const roomName = `meeting:${meeting.id}`;
+    const roomName = resolveLivekitRoomName(meeting.id, meeting.livekit_room_name);
     const identity = user.id;
     const name =
       user.user_metadata?.full_name ||
@@ -186,6 +186,15 @@ function json(status: number, payload: unknown) {
       "Content-Type": "application/json",
     },
   });
+}
+
+function resolveLivekitRoomName(
+  meetingId: string,
+  livekitRoomName: string | null | undefined,
+) {
+  const trimmed = livekitRoomName?.trim();
+  if (trimmed) return trimmed;
+  return `meeting:${meetingId}`;
 }
 
 function normalizeLivekitUrl(value: string | undefined) {

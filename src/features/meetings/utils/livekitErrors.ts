@@ -20,12 +20,12 @@ export function getLiveKitConnectionErrorMessage(
     const expectedUrl = getExpectedLivekitUrl(serverUrl);
 
     return host
-      ? `Could not reach the meeting media server at ${host}. Check Supabase secret LIVEKIT_URL is ${expectedUrl || `wss://${host}`}, redeploy the LiveKit edge functions, and confirm the LiveKit API key/secret are from the same LiveKit Cloud project.`
-      : "Could not reach the meeting media server. Check that the LiveKit URL configured in Supabase secrets is correct, starts with wss:// or https://, and is reachable from the browser.";
+      ? `Could not reach the meeting media server at ${host}. The browser must open a WebSocket to ${expectedUrl || `wss://${host}`} (HTTPS on port 443 with a valid TLS certificate). Verify your self-hosted LiveKit VPS is running, DNS points to it, the firewall allows 443/tcp (and LiveKit RTC UDP ports), and your reverse proxy forwards WebSocket traffic to LiveKit. Supabase LIVEKIT_URL should be ${expectedUrl || `wss://${host}`}; LIVEKIT_API_KEY and LIVEKIT_API_SECRET must match the keys in your server livekit.yaml.`
+      : "Could not reach the meeting media server. Check that LIVEKIT_URL in Supabase secrets is correct (wss://your-host), the self-hosted server is reachable on HTTPS/WebSocket, and API key/secret match your LiveKit server config.";
   }
 
   if (lowerMessage.includes("unauthorized") || lowerMessage.includes("invalid token")) {
-    return "The meeting media token was rejected. Check the LiveKit API key and secret configured in Supabase secrets.";
+    return "The meeting media token was rejected. Check LIVEKIT_API_KEY and LIVEKIT_API_SECRET in Supabase match the keys in your self-hosted LiveKit server config (livekit.yaml), then redeploy the livekit-token and livekit-guest-token edge functions.";
   }
 
   return message || "Failed to connect to the meeting media server.";

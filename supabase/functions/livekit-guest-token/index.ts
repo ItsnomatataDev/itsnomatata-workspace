@@ -26,6 +26,7 @@ type MeetingRow = {
   started_at: string | null;
   allow_guest_access: boolean | null;
   guest_code: string | null;
+  livekit_room_name: string | null;
 };
 
 serve(async (req) => {
@@ -155,7 +156,7 @@ async function handleJoin(
     });
   }
 
-  const roomName = `meeting:${meeting.id}`;
+  const roomName = resolveLivekitRoomName(meeting.id, meeting.livekit_room_name);
   const identity = `guest:${guest.id}`;
 
   const at = new AccessToken(livekit.livekitApiKey, livekit.livekitApiSecret, {
@@ -220,7 +221,7 @@ async function findMeeting(
   },
 ): Promise<MeetingRow | null> {
   const select =
-    "id, title, meeting_type, status, started_at, allow_guest_access, guest_code";
+    "id, title, meeting_type, status, started_at, allow_guest_access, guest_code, livekit_room_name";
 
   if (params.meetingCode) {
     const { data, error } = await adminClient
@@ -251,6 +252,15 @@ function json(status: number, payload: unknown) {
       "Content-Type": "application/json",
     },
   });
+}
+
+function resolveLivekitRoomName(
+  meetingId: string,
+  livekitRoomName: string | null | undefined,
+) {
+  const trimmed = livekitRoomName?.trim();
+  if (trimmed) return trimmed;
+  return `meeting:${meetingId}`;
 }
 
 function normalizeLivekitUrl(value: string | undefined) {

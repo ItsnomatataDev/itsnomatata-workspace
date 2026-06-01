@@ -1,25 +1,34 @@
 import { supabase } from "../../../lib/supabase/client";
-import type {
-  MeetingMessage,
-  MeetingWithParticipants,
-} from "../types/meeting";
-import { getMeetingById, getMeetingMessages } from "./meetingService";
+import type { MeetingWithParticipants } from "../types/meeting";
+import { getMeetingById } from "./meetingService";
+
+const MEETING_REFRESH_DEBOUNCE_MS = 800;
+
+function debounce<T extends (...args: never[]) => void>(fn: T, waitMs: number) {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+  return (...args: Parameters<T>) => {
+    if (timeoutId) clearTimeout(timeoutId);
+    timeoutId = setTimeout(() => {
+      timeoutId = null;
+      fn(...args);
+    }, waitMs);
+  };
+}
 
 export function subscribeToMeetingRoom(params: {
   meetingId: string;
   onMeetingChange: (meeting: MeetingWithParticipants | null) => void;
-  onMessagesChange?: (messages: MeetingMessage[]) => void;
   onMeetingEnded?: () => void;
   onError?: (message: string) => void;
 }) {
   const channel = supabase.channel(`meeting-room:${params.meetingId}`);
 
-  let refreshingMeeting = false;
-  let refreshingMessages = false;
+  let refreshInFlight = false;
 
   const refreshMeeting = async () => {
-    if (refreshingMeeting) return;
-    refreshingMeeting = true;
+    if (refreshInFlight) return;
+    refreshInFlight = true;
 
     try {
       const meeting = await getMeetingById(params.meetingId);
@@ -31,26 +40,18 @@ export function subscribeToMeetingRoom(params: {
       ) {
         params.onMeetingEnded?.();
       }
-    } catch (err: any) {
-      params.onError?.(err?.message || "Failed to refresh meeting state.");
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : "Failed to refresh meeting state.";
+      params.onError?.(message);
     } finally {
-      refreshingMeeting = false;
+      refreshInFlight = false;
     }
   };
 
-  const refreshMessages = async () => {
-    if (refreshingMessages) return;
-    refreshingMessages = true;
-
-    try {
-      const messages = await getMeetingMessages(params.meetingId);
-      params.onMessagesChange?.(messages);
-    } catch (err: any) {
-      params.onError?.(err?.message || "Failed to refresh meeting messages.");
-    } finally {
-      refreshingMessages = false;
-    }
-  };
+  const scheduleRefresh = debounce(() => {
+    void refreshMeeting();
+  }, MEETING_REFRESH_DEBOUNCE_MS);
 
   channel
     .on(
@@ -61,8 +62,8 @@ export function subscribeToMeetingRoom(params: {
         table: "meetings",
         filter: `id=eq.${params.meetingId}`,
       },
-      async () => {
-        await refreshMeeting();
+      () => {
+        scheduleRefresh();
       },
     )
     .on(
@@ -73,26 +74,13 @@ export function subscribeToMeetingRoom(params: {
         table: "meeting_participants",
         filter: `meeting_id=eq.${params.meetingId}`,
       },
-      async () => {
-        await refreshMeeting();
-      },
-    )
-    .on(
-      "postgres_changes",
-      {
-        event: "*",
-        schema: "public",
-        table: "meeting_messages",
-        filter: `meeting_id=eq.${params.meetingId}`,
-      },
-      async () => {
-        await refreshMessages();
+      () => {
+        scheduleRefresh();
       },
     )
     .subscribe((status) => {
       if (status === "SUBSCRIBED") {
         void refreshMeeting();
-        void refreshMessages();
       }
     });
 

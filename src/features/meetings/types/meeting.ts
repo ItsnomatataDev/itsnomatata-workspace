@@ -10,9 +10,12 @@ export type Meeting = {
   status: MeetingStatus;
   meeting_type: MeetingType;
   room_code: string;
+  livekit_room_name?: string | null;
+  meet_url?: string | null;
   allow_guest_access?: boolean;
   guest_code?: string | null;
   scheduled_start: string | null;
+  scheduled_for?: string | null;
   started_at: string | null;
   ended_at: string | null;
   created_at: string;

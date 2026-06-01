@@ -9,6 +9,7 @@ import type {
   MeetingMessage,
   CreateMeetingInput,
 } from "../types/meeting";
+import { buildMeetingMeetUrl, getLivekitRoomName } from "../utils/livekitRoom";
 
 function generateRoomCode() {
   return Math.random().toString(36).slice(2, 8).toUpperCase();
@@ -93,10 +94,45 @@ export async function createMeeting(
 
   if (participantError) throw participantError;
 
+  const meetUrl = buildMeetingMeetUrl(data.id);
+  const livekitRoomName = getLivekitRoomName(data.id, data.livekit_room_name);
+
+  const { data: syncedMeeting, error: syncError } = await supabase
+    .from("meetings")
+    .update({
+      meet_url: meetUrl,
+      livekit_room_name: livekitRoomName,
+      scheduled_for: scheduledStart ?? data.scheduled_start,
+    })
+    .eq("id", data.id)
+    .select("*")
+    .single();
+
+  if (syncError) throw syncError;
+
+  const meeting = (syncedMeeting ?? data) as Meeting;
+
   try {
     const participantUserIds: string[] = (input.participant_ids ?? []).filter(
       (id) => id !== input.host_id,
     );
+
+    if (participantUserIds.length > 0) {
+      const { error: attendeeError } = await supabase
+        .from("meeting_attendees")
+        .upsert(
+          participantUserIds.map((userId) => ({
+            meeting_id: meeting.id,
+            user_id: userId,
+            response_status: "pending",
+          })),
+          { onConflict: "meeting_id,user_id" },
+        );
+
+      if (attendeeError) {
+        console.error("MEETING ATTENDEE INSERT ERROR:", attendeeError);
+      }
+    }
 
     if (participantUserIds.length > 0) {
       const { data: hostProfile, error: hostError } = await supabase
@@ -124,14 +160,14 @@ export async function createMeeting(
         type: "meeting",
         title: `Meeting Scheduled: ${input.title}`,
         message: `${hostName} scheduled "${input.title}" for ${scheduledLabel}. Join when ready.`,
-        actionUrl: `/meetings/${data.id}`,
+        actionUrl: `/meetings/${meeting.id}`,
         priority: "high",
         entityType: "meeting",
-        entityId: data.id,
-        referenceId: data.id,
+        entityId: meeting.id,
+        referenceId: meeting.id,
         referenceType: "meeting",
         metadata: {
-          meetingId: data.id,
+          meetingId: meeting.id,
           meetingTitle: input.title,
           meetingType: input.meeting_type,
           scheduledStart: scheduledStart ?? null,
@@ -145,7 +181,7 @@ export async function createMeeting(
     console.error("MEETING NOTIFICATION ERROR:", notificationError);
   }
 
-  return data as Meeting;
+  return meeting;
 }
 
 export async function getMeetingById(

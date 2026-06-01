@@ -26,6 +26,7 @@ export interface OptimizedRoomOptions extends RoomOptions {
   publishDefaults: {
     simulcast: boolean;
     videoCodec: "vp8" | "vp9" | "h264";
+    videoSimulcastLayers?: Array<(typeof VideoPresets)[keyof typeof VideoPresets]>;
     videoEncoding: {
       maxBitrate: number;
       maxFramerate: number;
@@ -65,7 +66,12 @@ export const OPTIMIZED_ROOM_OPTIONS: OptimizedRoomOptions = {
   
   publishDefaults: {
     simulcast: true,
-    videoCodec: "vp8",
+    videoCodec: "h264",
+    videoSimulcastLayers: [
+      VideoPresets.h180,
+      VideoPresets.h360,
+      VideoPresets.h720,
+    ],
     videoEncoding: {
       ...VideoPresets.h720.encoding,
       maxBitrate: 1_700_000,
@@ -80,8 +86,8 @@ export const OPTIMIZED_ROOM_OPTIONS: OptimizedRoomOptions = {
       ScreenSharePresets.h720fps15,
       ScreenSharePresets.h1080fps30,
     ],
-    audioPreset: AudioPresets.musicHighQuality,
-    audioBitrate: 96_000,
+    audioPreset: AudioPresets.speech,
+    audioBitrate: 32_000,
     degradationPreference: "maintain-resolution",
   },
   
@@ -131,6 +137,11 @@ export const HIGH_QUALITY_OPTIONS: OptimizedRoomOptions = {
   ...OPTIMIZED_ROOM_OPTIONS,
   publishDefaults: {
     ...OPTIMIZED_ROOM_OPTIONS.publishDefaults,
+    videoSimulcastLayers: [
+      VideoPresets.h360,
+      VideoPresets.h720,
+      VideoPresets.h1080,
+    ],
     videoEncoding: {
       ...VideoPresets.h1080.encoding,
       maxBitrate: 3_000_000,
