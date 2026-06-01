@@ -1,10 +1,17 @@
 import { supabase } from "../../../lib/supabase/client";
 import type { RealtimeChannel } from "@supabase/supabase-js";
+import { isRecentlyOnline } from "../utils/presence";
 import type {
   ChatConversationMember,
   ChatMessage,
   ChatMessageReaction,
 } from "../types/chat";
+
+export type ChatRealtimeStatus =
+  | "SUBSCRIBED"
+  | "CHANNEL_ERROR"
+  | "TIMED_OUT"
+  | "CLOSED";
 
 export function subscribeToConversationMessages(params: {
   conversationId: string;
@@ -13,6 +20,7 @@ export function subscribeToConversationMessages(params: {
   onDelete?: (messageId: string) => void;
   onReactionInsert?: (reaction: ChatMessageReaction) => void;
   onReactionDelete?: (reaction: ChatMessageReaction) => void;
+  onStatusChange?: (status: ChatRealtimeStatus) => void;
 }) {
   const channel: RealtimeChannel = supabase
     .channel(`chat:conversation:${params.conversationId}`)
@@ -75,18 +83,24 @@ export function subscribeToConversationMessages(params: {
       },
     )
     .subscribe((status) => {
-      if (status === "CHANNEL_ERROR") {
+      if (status === "SUBSCRIBED") {
+        params.onStatusChange?.("SUBSCRIBED");
+      } else if (status === "CHANNEL_ERROR") {
+        params.onStatusChange?.("CHANNEL_ERROR");
         if (import.meta.env.DEV) {
           console.error(
             `[chat] realtime error for conversation ${params.conversationId}`,
           );
         }
       } else if (status === "TIMED_OUT") {
+        params.onStatusChange?.("TIMED_OUT");
         if (import.meta.env.DEV) {
           console.error(
             `[chat] realtime timeout for conversation ${params.conversationId}`,
           );
         }
+      } else if (status === "CLOSED") {
+        params.onStatusChange?.("CLOSED");
       }
     });
 
@@ -125,26 +139,36 @@ export function subscribeToConversationMembers(params: {
   };
 }
 
+function profilePresenceFilter(userIds: string[]) {
+  const unique = [...new Set(userIds.filter(Boolean))];
+  if (unique.length === 0) return null;
+  if (unique.length === 1) return `id=eq.${unique[0]}`;
+  return `id=in.(${unique.join(",")})`;
+}
+
 export function subscribeToUserPresence(params: {
   userIds: string[];
-  onPresenceChange: (userId: string, isOnline: boolean) => void;
+  onPresenceChange: (userId: string, isOnline: boolean, lastSeenAt: string | null) => void;
 }) {
+  const filter = profilePresenceFilter(params.userIds);
+  if (!filter) {
+    return () => undefined;
+  }
+
   const channel: RealtimeChannel = supabase
-    .channel("user-presence")
+    .channel(`chat-presence:${params.userIds.join("-")}`)
     .on(
       "postgres_changes",
       {
         event: "UPDATE",
         schema: "public",
         table: "profiles",
-        filter: `id=in.(${params.userIds.join(",")})`,
+        filter,
       },
       (payload) => {
         const lastSeenAt = payload.new.last_seen_at as string | null;
-        const isOnline = lastSeenAt
-          ? Date.now() - new Date(lastSeenAt).getTime() <= 2 * 60 * 1000
-          : false;
-        params.onPresenceChange(payload.new.id as string, isOnline);
+        const isOnline = isRecentlyOnline(lastSeenAt);
+        params.onPresenceChange(payload.new.id as string, isOnline, lastSeenAt);
       },
     )
     .subscribe();

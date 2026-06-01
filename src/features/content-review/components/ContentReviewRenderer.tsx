@@ -79,7 +79,7 @@ function MediaSlide({
 
   return (
     <div
-      className={`overflow-hidden rounded-2xl border ${border} ${imageFrameClass(theme)} ${viewport === "mobile" ? "aspect-[4/5] max-h-[70vh]" : "max-h-[70vh]"}`}
+      className={`overflow-hidden rounded-2xl border ${border} ${imageFrameClass(theme)} ${viewport === "mobile" ? "aspect-4/5 max-h-[70vh]" : "max-h-[70vh]"}`}
     >
       <img
         src={asset.file_url}

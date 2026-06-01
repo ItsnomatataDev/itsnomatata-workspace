@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { ArrowLeft, MessageSquareX } from "lucide-react";
+import { ArrowLeft, Loader2, MessageSquareX } from "lucide-react";
 import { useAuth } from "../../../lib/hooks/useAuth";
 import { supabase } from "../../../lib/supabase/client";
 import ChatSidebar from "../components/ChatSidebar";
@@ -19,9 +19,17 @@ import {
   toggleMessageReaction,
   uploadChatAttachment,
 } from "../services/chatService";
-import { subscribeToConversationMessages, subscribeToUserPresence } from "../services/chatRealtime";
+import {
+  subscribeToConversationMembers,
+  subscribeToConversationMessages,
+  subscribeToUserPresence,
+  type ChatRealtimeStatus,
+} from "../services/chatRealtime";
+import { isRecentlyOnline, touchChatPresence } from "../utils/presence";
 import { createTypingChannel } from "../services/chatTyping";
 import type { ChatConversation, ChatMessage, ChatUser } from "../types/chat";
+import { formatMessagePreview } from "../utils/parseMessageContent";
+import { playSystemSound } from "../../../lib/sounds/systemSounds";
 
 function getMessagePreview(message: Pick<
   ChatMessage,
@@ -42,7 +50,7 @@ function getMessagePreview(message: Pick<
       ? `File: ${message.attachment_name}`
       : "File";
   }
-  return message.body || "Sent a message";
+  return formatMessagePreview(message.body);
 }
 
 function getConversationSortTime(conversation: ChatConversation) {
@@ -81,7 +89,11 @@ export default function ChatPage() {
   const [typingUsers, setTypingUsers] = useState<Record<string, boolean>>({});
 
   const unsubscribeRef = useRef<null | (() => void)>(null);
+  const membersUnsubscribeRef = useRef<null | (() => void)>(null);
   const presenceUnsubscribeRef = useRef<null | (() => void)>(null);
+  const markReadTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const realtimeWasConnectedRef = useRef(false);
+  const [realtimeStatus, setRealtimeStatus] = useState<ChatRealtimeStatus | "idle">("idle");
   const typingChannelRef = useRef<ReturnType<
     typeof createTypingChannel
   > | null>(null);
@@ -127,13 +139,9 @@ export default function ChatPage() {
 
     return groupMembers.filter((member) => {
       if (member.user_id === user?.id) return false;
-      if (!member.profile?.last_seen_at) return false;
-      return (
-        Date.now() - new Date(member.profile.last_seen_at).getTime() <=
-        2 * 60 * 1000
-      );
+      return isRecentlyOnline(member.profile?.last_seen_at);
     });
-  }, [groupMembers]);
+  }, [groupMembers, activeConversation, user?.id]);
 
   const typingUserIds = useMemo(() => {
     return Object.entries(typingUsers)
@@ -190,6 +198,10 @@ export default function ChatPage() {
             conversation.id === activeConversationId ||
             options?.forceUnreadZero === true;
           const isFromCurrentUser = message.sender_id === user?.id;
+
+          if (!isOpenConversation && !isFromCurrentUser) {
+            void playSystemSound("message");
+          }
 
           return {
             ...conversation,
@@ -290,50 +302,52 @@ export default function ChatPage() {
     }
   }, [conversations, deepLinkedConversationId]);
 
-  // Temporarily disable presence subscription to prevent overwriting profile data
-  // useEffect(() => {
-  //   if (!conversations.length) return;
+  useEffect(() => {
+    if (!user?.id || !activeConversationId) return;
+    void touchChatPresence(user.id);
+  }, [user?.id, activeConversationId]);
 
-  //   const allUserIds = new Set<string>();
-  //   conversations.forEach((conv) => {
-  //     conv.members?.forEach((member) => {
-  //       allUserIds.add(member.user_id);
-  //     });
-  //   });
+  useEffect(() => {
+    const otherUserId = activeOtherMember?.user_id;
+    if (!otherUserId) {
+      if (presenceUnsubscribeRef.current) {
+        presenceUnsubscribeRef.current();
+        presenceUnsubscribeRef.current = null;
+      }
+      return;
+    }
 
-  //   if (presenceUnsubscribeRef.current) {
-  //     presenceUnsubscribeRef.current();
-  //     presenceUnsubscribeRef.current = null;
-  //   }
+    presenceUnsubscribeRef.current = subscribeToUserPresence({
+      userIds: [otherUserId],
+      onPresenceChange: (userId, _isOnline, lastSeenAt) => {
+        setConversations((current) =>
+          current.map((conversation) => {
+            if (conversation.id !== activeConversationId) return conversation;
+            return {
+              ...conversation,
+              members: conversation.members?.map((member) =>
+                member.user_id === userId
+                  ? {
+                      ...member,
+                      profile: member.profile
+                        ? { ...member.profile, last_seen_at: lastSeenAt }
+                        : member.profile,
+                    }
+                  : member,
+              ),
+            };
+          }),
+        );
+      },
+    });
 
-  //   presenceUnsubscribeRef.current = subscribeToUserPresence({
-  //     userIds: Array.from(allUserIds),
-  //     onPresenceChange: (userId, isOnline) => {
-  //       setConversations((current) =>
-  //         current.map((conv) => ({
-  //           ...conv,
-  //           members: conv.members?.map((member) =>
-  //             member.user_id === userId
-  //               ? {
-  //                   ...member,
-  //                   profile: member.profile
-  //                     ? { ...member.profile, last_seen_at: isOnline ? new Date().toISOString() : member.profile.last_seen_at }
-  //                     : member.profile,
-  //                 }
-  //               : member,
-  //           ),
-  //         })),
-  //       );
-  //     },
-  //   });
-
-  //   return () => {
-  //     if (presenceUnsubscribeRef.current) {
-  //       presenceUnsubscribeRef.current();
-  //       presenceUnsubscribeRef.current = null;
-  //     }
-  //   };
-  // }, [conversations.length]);
+    return () => {
+      if (presenceUnsubscribeRef.current) {
+        presenceUnsubscribeRef.current();
+        presenceUnsubscribeRef.current = null;
+      }
+    };
+  }, [activeConversationId, activeOtherMember?.user_id]);
 
   useEffect(() => {
     if (!activeConversationId) {
@@ -348,8 +362,52 @@ export default function ChatPage() {
       unsubscribeRef.current = null;
     }
 
+    if (membersUnsubscribeRef.current) {
+      membersUnsubscribeRef.current();
+      membersUnsubscribeRef.current = null;
+    }
+
+    setRealtimeStatus("idle");
+
+    if (user?.id) {
+      membersUnsubscribeRef.current = subscribeToConversationMembers({
+        conversationId: activeConversationId,
+        currentUserId: user.id,
+        onMemberUpdate: (updatedMember) => {
+          setConversations((current) =>
+            current.map((conversation) => {
+              if (conversation.id !== activeConversationId) return conversation;
+              return {
+                ...conversation,
+                members: conversation.members?.map((member) =>
+                  member.user_id === updatedMember.user_id
+                    ? {
+                        ...member,
+                        ...updatedMember,
+                        profile: member.profile,
+                      }
+                    : member,
+                ),
+              };
+            }),
+          );
+        },
+      });
+    }
+
     unsubscribeRef.current = subscribeToConversationMessages({
       conversationId: activeConversationId,
+      onStatusChange: (status) => {
+        setRealtimeStatus(status);
+        if (status === "SUBSCRIBED") {
+          if (realtimeWasConnectedRef.current) {
+            void loadMessagesForConversation(activeConversationId);
+          }
+          realtimeWasConnectedRef.current = true;
+        } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+          realtimeWasConnectedRef.current = false;
+        }
+      },
       onMessage: async (incomingMessage) => {
         // Fetch sender profile for the incoming message
         if (incomingMessage.sender_id) {
@@ -371,6 +429,14 @@ export default function ChatPage() {
         });
 
         mergeConversationMessage(incomingMessage, { forceUnreadZero: true });
+
+        if (user?.id && incomingMessage.sender_id !== user.id) {
+          void markConversationAsRead({
+            conversationId: activeConversationId,
+            userId: user.id,
+            lastReadMessageId: incomingMessage.id,
+          });
+        }
       },
       onUpdate: (updatedMessage) => {
         setMessages((current) =>
@@ -461,6 +527,14 @@ export default function ChatPage() {
         unsubscribeRef.current = null;
       }
 
+      if (membersUnsubscribeRef.current) {
+        membersUnsubscribeRef.current();
+        membersUnsubscribeRef.current = null;
+      }
+
+      setRealtimeStatus("idle");
+      realtimeWasConnectedRef.current = false;
+
       if (typingChannelRef.current) {
         typingChannelRef.current.cleanup();
         typingChannelRef.current = null;
@@ -485,27 +559,40 @@ export default function ChatPage() {
     const lastMessage = messages[messages.length - 1];
     if (!lastMessage?.id) return;
 
-    void markConversationAsRead({
-      conversationId: activeConversationId,
-      userId: user.id,
-      lastReadMessageId: lastMessage.id,
-    });
+    if (markReadTimeoutRef.current) {
+      clearTimeout(markReadTimeoutRef.current);
+    }
 
-    setConversations((current) =>
-      current.map((conversation) =>
-        conversation.id === activeConversationId
-          ? {
-              ...conversation,
-              unread_count: 0,
-              members: conversation.members?.map((member) =>
-                member.user_id === user.id
-                  ? { ...member, last_read_message_id: lastMessage.id }
-                  : member,
-              ),
-            }
-          : conversation,
-      ),
-    );
+    markReadTimeoutRef.current = setTimeout(() => {
+      void markConversationAsRead({
+        conversationId: activeConversationId,
+        userId: user.id,
+        lastReadMessageId: lastMessage.id,
+      });
+
+      setConversations((current) =>
+        current.map((conversation) =>
+          conversation.id === activeConversationId
+            ? {
+                ...conversation,
+                unread_count: 0,
+                members: conversation.members?.map((member) =>
+                  member.user_id === user.id
+                    ? { ...member, last_read_message_id: lastMessage.id }
+                    : member,
+                ),
+              }
+            : conversation,
+        ),
+      );
+    }, 250);
+
+    return () => {
+      if (markReadTimeoutRef.current) {
+        clearTimeout(markReadTimeoutRef.current);
+        markReadTimeoutRef.current = null;
+      }
+    };
   }, [messages, activeConversationId, user?.id]);
 
   async function loadConversations() {
@@ -1067,13 +1154,8 @@ export default function ChatPage() {
                   <span
                     className={[
                       "absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 border-neutral-950",
-                      activeOtherMember?.profile?.last_seen_at &&
-                      Date.now() -
-                        new Date(
-                          activeOtherMember.profile.last_seen_at,
-                        ).getTime() <=
-                        2 * 60 * 1000
-                        ? "bg-green-400"
+                      isRecentlyOnline(activeOtherMember?.profile?.last_seen_at)
+                        ? "bg-green-400 shadow-[0_0_8px_rgba(74,222,128,0.6)]"
                         : "bg-white/20",
                     ].join(" ")}
                   />
@@ -1085,7 +1167,27 @@ export default function ChatPage() {
                   {activeConversation?.display_name || "Select a conversation"}
                 </h2>
 
-                <p className="mt-1 text-sm text-white/50">{headerSubtitle}</p>
+                <div className="mt-1 flex flex-wrap items-center gap-2">
+                  <p className="text-sm text-white/50">{headerSubtitle}</p>
+                  {activeConversationId && realtimeStatus !== "idle" ? (
+                    <span
+                      className={[
+                        "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+                        realtimeStatus === "SUBSCRIBED"
+                          ? "bg-emerald-500/15 text-emerald-300"
+                          : "bg-orange-500/15 text-orange-200",
+                      ].join(" ")}
+                    >
+                      <span
+                        className={[
+                          "h-1.5 w-1.5 rounded-full",
+                          realtimeStatus === "SUBSCRIBED" ? "bg-emerald-400" : "bg-orange-400 animate-pulse",
+                        ].join(" ")}
+                      />
+                      {realtimeStatus === "SUBSCRIBED" ? "Live" : "Reconnecting"}
+                    </span>
+                  ) : null}
+                </div>
 
                 {activeConversation?.type !== "direct" &&
                 activeConversation?.members?.length ? (

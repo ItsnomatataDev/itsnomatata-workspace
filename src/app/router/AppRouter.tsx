@@ -17,7 +17,6 @@ import SystemOwnerAdminRoute from "./SystemOwnerAdminRoute";
 import TasksPage from "../../features/tasks/pages/TasksPage";
 import TaskDeepLinkPage from "../../features/tasks/pages/TaskDeepLinkPage";
 import TimesheetsIndexRedirect from "../../features/timesheets/pages/TimesheetsIndexRedirect";
-import TimesheetsPage from "../../features/timesheets/pages/TimesheetsPage";
 import TimeApprovalPage from "../../features/timesheets/pages/TimeApprovalPage";
 import CampaignsPage from "../../features/campaigns/pages/CampaignsPage";
 import ReportsPage from "../../features/reports/pages/ReportsPage";
@@ -957,17 +956,6 @@ const AppRouter = () => {
             <ProtectedRoute>
               <FeatureRoute feature="timesheets">
                 <TimesheetsIndexRedirect />
-              </FeatureRoute>
-            </ProtectedRoute>
-          }
-        />
-
-        <Route
-          path="/timesheets/submissions"
-          element={
-            <ProtectedRoute>
-              <FeatureRoute feature="timesheets">
-                <TimesheetsPage />
               </FeatureRoute>
             </ProtectedRoute>
           }

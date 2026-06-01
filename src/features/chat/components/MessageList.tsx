@@ -4,18 +4,14 @@ import type { ChatConversation } from "../types/chat";
 import type { ChatMessage } from "../types/chat";
 import { deleteMessage } from "../services/chatService";
 import MessageReactions from "./MessageReactions";
+import FormattedMessageBody from "./FormattedMessageBody";
+import { isRecentlyOnline } from "../utils/presence";
 
 type ImagePreview = {
   url: string;
   alt: string;
   fileName?: string | null;
 };
-
-function isRecentlyOnline(lastSeenAt?: string | null) {
-  if (!lastSeenAt) return false;
-  const diff = Date.now() - new Date(lastSeenAt).getTime();
-  return diff <= 2 * 60 * 1000;
-}
 
 function getSeenStatus(params: {
   message: ChatMessage;
@@ -299,7 +295,8 @@ export default function MessageList({
             <div className={`group flex ${isMine ? "justify-end" : "justify-start"}`}>
               <div
                 className={[
-                  "max-w-[92%] overflow-hidden rounded-2xl px-4 py-3 text-sm shadow-sm sm:max-w-[82%]",
+                  "max-w-[92%] overflow-hidden rounded-2xl px-4 py-3 text-sm shadow-sm transition-shadow sm:max-w-[82%]",
+                  isMine ? "shadow-orange-500/10" : "shadow-black/20",
                   isMine
                     ? "bg-orange-500 text-black"
                     : "border border-white/10 bg-white/10 text-white",
@@ -348,9 +345,10 @@ export default function MessageList({
                     />
                   </button>
                   {media.caption || message.body ? (
-                    <p className="whitespace-pre-wrap wrap-break-word">
-                      {media.caption || message.body}
-                    </p>
+                    <FormattedMessageBody
+                      text={media.caption || message.body || ""}
+                      tone={isMine ? "mine" : "theirs"}
+                    />
                   ) : null}
                 </div>
               ) : message.message_type === "image" && message.attachment_url ? (
@@ -375,9 +373,10 @@ export default function MessageList({
                     />
                   </button>
                   {message.body ? (
-                    <p className="whitespace-pre-wrap wrap-break-word">
-                      {message.body}
-                    </p>
+                    <FormattedMessageBody
+                      text={message.body}
+                      tone={isMine ? "mine" : "theirs"}
+                    />
                   ) : null}
                 </div>
               ) : message.message_type === "audio" && message.attachment_url ? (
@@ -388,9 +387,10 @@ export default function MessageList({
                     className="w-full"
                   />
                   {message.body ? (
-                    <p className="whitespace-pre-wrap wrap-break-word">
-                      {message.body}
-                    </p>
+                    <FormattedMessageBody
+                      text={message.body}
+                      tone={isMine ? "mine" : "theirs"}
+                    />
                   ) : null}
                 </div>
               ) : message.message_type === "file" && message.attachment_url ? (
@@ -406,16 +406,18 @@ export default function MessageList({
                     </span>
                   </a>
                   {message.body ? (
-                    <p className="whitespace-pre-wrap wrap-break-word">
-                      {message.body}
-                    </p>
+                    <FormattedMessageBody
+                      text={message.body}
+                      tone={isMine ? "mine" : "theirs"}
+                    />
                   ) : null}
                 </div>
-              ) : (
-                <p className="whitespace-pre-wrap wrap-break-word">
-                  {message.body}
-                </p>
-              )}
+              ) : message.body ? (
+                <FormattedMessageBody
+                  text={message.body}
+                  tone={isMine ? "mine" : "theirs"}
+                />
+              ) : null}
 
               <div className="mt-2 flex items-center justify-between gap-3">
                 <p
@@ -465,15 +467,15 @@ export default function MessageList({
                   {isMine && seenStatus ? (
                     <span
                       className={[
-                        "inline-flex items-center",
-                        seenStatus === "seen" ? "text-sky-700" : "text-black/70",
+                        "inline-flex items-center gap-0.5",
+                        seenStatus === "seen" ? "text-sky-800" : "text-black/65",
                       ].join(" ")}
-                      title={seenStatus === "seen" ? "Seen" : "Sent"}
+                      title={seenStatus === "seen" ? "Seen" : "Delivered"}
                     >
                       {seenStatus === "seen" ? (
-                        <CheckCheck size={14} />
+                        <CheckCheck size={14} strokeWidth={2.5} />
                       ) : (
-                        <Check size={14} />
+                        <Check size={14} strokeWidth={2.5} />
                       )}
                     </span>
                   ) : null}

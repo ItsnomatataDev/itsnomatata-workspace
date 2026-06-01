@@ -33,14 +33,22 @@ export type FleetDailySummary = {
   organization_id: string;
   vehicle_id: string;
   summary_date: string;
+  source: string;
   route_length_km: number;
   move_duration_seconds: number;
   stop_duration_seconds: number;
   stop_count: number;
+  top_speed_kmh: number | null;
+  average_speed_kmh: number | null;
+  overspeed_count: number;
   fuel_consumption_litres: number | null;
+  average_fuel_consumption_per_100km: number | null;
   fuel_cost: number | null;
   currency: string;
+  engine_work_seconds: number;
+  engine_idle_seconds: number;
   odometer_km: number | null;
+  engine_hours_seconds: number;
   driver_name: string | null;
   imported_at: string;
   created_at: string;
@@ -301,14 +309,24 @@ function normalizeDailySummary(row: Record<string, unknown>): FleetDailySummary 
     organization_id: String(row.organization_id),
     vehicle_id: String(row.vehicle_id),
     summary_date: String(row.summary_date),
+    source: String(row.source ?? "ezitrack_email"),
     route_length_km: asNumber(row.route_length_km),
     move_duration_seconds: asNumber(row.move_duration_seconds),
     stop_duration_seconds: asNumber(row.stop_duration_seconds),
     stop_count: asNumber(row.stop_count),
+    top_speed_kmh: optionalNumber(row.top_speed_kmh),
+    average_speed_kmh: optionalNumber(row.average_speed_kmh),
+    overspeed_count: asNumber(row.overspeed_count),
     fuel_consumption_litres: optionalNumber(row.fuel_consumption_litres),
+    average_fuel_consumption_per_100km: optionalNumber(
+      row.average_fuel_consumption_per_100km,
+    ),
     fuel_cost: optionalNumber(row.fuel_cost),
     currency: String(row.currency ?? "USD"),
+    engine_work_seconds: asNumber(row.engine_work_seconds),
+    engine_idle_seconds: asNumber(row.engine_idle_seconds),
     odometer_km: optionalNumber(row.odometer_km),
+    engine_hours_seconds: asNumber(row.engine_hours_seconds),
     driver_name: (row.driver_name as string | null) ?? null,
     imported_at: String(row.imported_at ?? row.created_at ?? ""),
     created_at: String(row.created_at ?? ""),

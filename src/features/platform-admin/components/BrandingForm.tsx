@@ -1,4 +1,6 @@
 import { Save } from "lucide-react";
+import type { SuggestedColorTarget } from "../constants/brandColorPresets";
+import BrandPaletteSuggestions from "./BrandPaletteSuggestions";
 
 type BrandingValues = {
   brand_name?: string | null;
@@ -159,6 +161,20 @@ export default function BrandingForm({
             placeholder="https://..."
           />
         </label>
+      </div>
+
+      <div className="mt-5">
+        <BrandPaletteSuggestions
+          onApplySuggestedColor={(hex, target: SuggestedColorTarget) => {
+            updateField(target, hex);
+          }}
+          onApplyPreset={(preset) => {
+            onChange({
+              ...values,
+              ...preset,
+            });
+          }}
+        />
       </div>
 
       <div className="mt-5">

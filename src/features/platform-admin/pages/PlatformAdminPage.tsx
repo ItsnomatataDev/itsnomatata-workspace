@@ -14,6 +14,8 @@ import {
 import Sidebar from "../../../components/dashboard/components/Sidebar";
 import AuditLogTable from "../components/AuditLogTable";
 import BrandingForm from "../components/BrandingForm";
+import BrandPaletteSuggestions from "../components/BrandPaletteSuggestions";
+import type { SuggestedColorTarget } from "../constants/brandColorPresets";
 import FeatureToggleCard from "../components/FeatureToggleCard";
 import OrganizationTable from "../components/OrganizationTable";
 import RoleManagementTable from "../components/RoleManagementTable";
@@ -1111,25 +1113,69 @@ export default function PlatformAdminPage() {
                       placeholder="Logo URL"
                       className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none placeholder:text-white/30 focus:border-orange-500"
                     />
+                    <BrandPaletteSuggestions
+                      compact
+                      onApplySuggestedColor={(hex, target: SuggestedColorTarget) => {
+                        if (target === "primary_color") setNewOrgPrimaryColor(hex);
+                        else if (target === "secondary_color") {
+                          setNewOrgSecondaryColor(hex);
+                        } else if (target === "accent_color") {
+                          setNewOrgAccentColor(hex);
+                        }
+                      }}
+                      onApplyPreset={(preset) => {
+                        if (preset.primary_color) {
+                          setNewOrgPrimaryColor(preset.primary_color);
+                        }
+                        if (preset.secondary_color) {
+                          setNewOrgSecondaryColor(preset.secondary_color);
+                        }
+                        if (preset.accent_color) setNewOrgAccentColor(preset.accent_color);
+                        if (preset.brand_name && !newOrgBrandName.trim()) {
+                          setNewOrgBrandName(preset.brand_name);
+                        }
+                      }}
+                    />
                     <div className="grid gap-2 sm:grid-cols-3">
-                      <input
-                        type="color"
-                        value={newOrgPrimaryColor}
-                        onChange={(event) => setNewOrgPrimaryColor(event.target.value)}
-                        className="h-10 w-full rounded-xl border border-white/10 bg-white/5"
-                      />
-                      <input
-                        type="color"
-                        value={newOrgSecondaryColor}
-                        onChange={(event) => setNewOrgSecondaryColor(event.target.value)}
-                        className="h-10 w-full rounded-xl border border-white/10 bg-white/5"
-                      />
-                      <input
-                        type="color"
-                        value={newOrgAccentColor}
-                        onChange={(event) => setNewOrgAccentColor(event.target.value)}
-                        className="h-10 w-full rounded-xl border border-white/10 bg-white/5"
-                      />
+                      <label className="space-y-1">
+                        <span className="text-[10px] uppercase text-white/40">
+                          Primary
+                        </span>
+                        <input
+                          type="color"
+                          value={newOrgPrimaryColor}
+                          onChange={(event) =>
+                            setNewOrgPrimaryColor(event.target.value)
+                          }
+                          className="h-10 w-full rounded-xl border border-white/10 bg-white/5"
+                        />
+                      </label>
+                      <label className="space-y-1">
+                        <span className="text-[10px] uppercase text-white/40">
+                          Secondary
+                        </span>
+                        <input
+                          type="color"
+                          value={newOrgSecondaryColor}
+                          onChange={(event) =>
+                            setNewOrgSecondaryColor(event.target.value)
+                          }
+                          className="h-10 w-full rounded-xl border border-white/10 bg-white/5"
+                        />
+                      </label>
+                      <label className="space-y-1">
+                        <span className="text-[10px] uppercase text-white/40">
+                          Accent
+                        </span>
+                        <input
+                          type="color"
+                          value={newOrgAccentColor}
+                          onChange={(event) =>
+                            setNewOrgAccentColor(event.target.value)
+                          }
+                          className="h-10 w-full rounded-xl border border-white/10 bg-white/5"
+                        />
+                      </label>
                     </div>
                     <textarea
                       value={newOrgWelcomeText}

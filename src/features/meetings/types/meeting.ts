@@ -61,8 +61,10 @@ export type CreateMeetingInput = {
   host_id: string;
   meeting_type: MeetingType;
   scheduled_start?: string | null;
-  participant_ids?: string[]; 
+  participant_ids?: string[];
   allow_guest_access?: boolean;
+  /** When false, skips the default meeting invite notification (caller sends custom copy). */
+  notifyParticipants?: boolean;
 };
 
 export type MeetingWithParticipants = Meeting & {

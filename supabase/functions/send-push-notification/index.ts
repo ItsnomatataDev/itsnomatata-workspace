@@ -90,13 +90,38 @@ serve(async (req) => {
       );
     }
 
+    const metadata =
+      notification.metadata && typeof notification.metadata === "object"
+        ? notification.metadata as Record<string, unknown>
+        : null;
+
+    const draftId =
+      (typeof metadata?.draftId === "string" && metadata.draftId.trim()) ||
+      (typeof metadata?.draft_id === "string" && metadata.draft_id.trim()) ||
+      (notification.entity_type === "content_review_draft"
+        ? notification.entity_id
+        : null);
+
+    const isContentReview =
+      notification.category === "content_review" ||
+      notification.entity_type === "content_review_draft";
+
+    const actionUrl =
+      draftId && isContentReview
+        ? `/admin/content-studio/editor/${draftId}`
+        : notification.action_url ?? "/notifications";
+
     const payload = JSON.stringify({
       notificationId: notification.id,
       title: notification.title,
       message: notification.message ?? "",
-      actionUrl: notification.action_url ?? "/notifications",
+      actionUrl,
       type: notification.type,
       priority: notification.priority,
+      category: notification.category,
+      entityType: notification.entity_type,
+      entityId: notification.entity_id,
+      metadata,
     });
 
     let sent = 0;

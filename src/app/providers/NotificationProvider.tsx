@@ -25,6 +25,10 @@ import {
   unregisterPushNotifications,
 } from "../../features/notifications/services/pushService";
 import { resolveNotificationActionUrl } from "../../features/notifications/utils/notificationLinks";
+import {
+  playSystemSound,
+  resolveSoundKindFromNotification,
+} from "../../lib/sounds/systemSounds";
 
 type PushPermissionState = NotificationPermission | "unsupported";
 
@@ -262,11 +266,20 @@ export function NotificationProvider({
           if (!incoming.is_read) {
             setUnreadCount((prev) => prev + 1);
 
+            const soundKind = resolveSoundKindFromNotification({
+              type: incoming.type,
+              metadata:
+                incoming.metadata && typeof incoming.metadata === "object"
+                  ? (incoming.metadata as Record<string, unknown>)
+                  : null,
+            });
+            void playSystemSound(soundKind);
+
             if (navigator.onLine) {
+              const targetUrl = resolveNotificationActionUrl(incoming);
               toast.info(incoming.message || incoming.title, {
                 onClick: () => {
-                  const targetUrl = resolveNotificationActionUrl(incoming);
-                  if (targetUrl) {
+                  if (targetUrl.startsWith("/")) {
                     window.location.assign(targetUrl);
                   }
                 },

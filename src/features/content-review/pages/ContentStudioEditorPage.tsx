@@ -2,6 +2,10 @@ import { ArrowLeft, Eye, GripVertical, Loader2, Save, Send, Trash2 } from "lucid
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../../../app/providers/AuthProvider";
+import {
+  ContentStudioImageCropFlow,
+  contentStudioCropFromAsset,
+} from "../components/ContentStudioCropEditor";
 import { ContentReviewRenderer } from "../components/ContentReviewRenderer";
 import {
   assertCanUseContentStudio,
@@ -348,7 +352,7 @@ export default function ContentStudioEditorPage() {
             </label>
             <TextArea label="Body text" value={form.body} onChange={(value) => updateForm("body", value)} rows={8} />
             <TextArea label="Main caption" value={form.captions} onChange={(value) => updateForm("captions", value)} rows={3} />
-            <div className="space-y-3 rounded-xl border border-white/10 bg-white/[0.03] p-3">
+            <div className="space-y-3 rounded-xl border border-white/10 bg-white/5">
               <div>
                 <h2 className="text-sm font-semibold">Media text</h2>
                 <p className="mt-1 text-xs text-white/45">
@@ -417,11 +421,6 @@ function AssetTextEditor({
 }) {
   const [heading, setHeading] = useState(asset.heading ?? "");
   const [caption, setCaption] = useState(asset.caption ?? "");
-  const [crop, setCrop] = useState({
-    crop_x: asset.crop_x ?? 50,
-    crop_y: asset.crop_y ?? 50,
-    crop_zoom: asset.crop_zoom ?? 1,
-  });
   const selected = asset.is_selected !== false;
   const isImage = asset.asset_type !== "video" && !asset.mime_type?.startsWith("video/");
 
@@ -429,14 +428,6 @@ function AssetTextEditor({
     setHeading(asset.heading ?? "");
     setCaption(asset.caption ?? "");
   }, [asset.heading, asset.caption]);
-
-  useEffect(() => {
-    setCrop({
-      crop_x: asset.crop_x ?? 50,
-      crop_y: asset.crop_y ?? 50,
-      crop_zoom: asset.crop_zoom ?? 1,
-    });
-  }, [asset.crop_x, asset.crop_y, asset.crop_zoom]);
 
   return (
     <div
@@ -472,6 +463,16 @@ function AssetTextEditor({
           Use
         </label>
       </div>
+      {isImage ? (
+        <ContentStudioImageCropFlow
+          imageUrl={asset.file_url}
+          alt={asset.caption ?? asset.file_name}
+          savedCrop={contentStudioCropFromAsset(asset)}
+          saving={saving}
+          onSave={(crop) => onUpdate(asset, crop)}
+          className="mt-3"
+        />
+      ) : null}
       <input
         value={heading}
         onChange={(event) => setHeading(event.target.value)}
@@ -493,82 +494,7 @@ function AssetTextEditor({
       >
         Save heading and paragraph
       </button>
-      {isImage ? (
-        <div className="mt-4 space-y-3 rounded-lg border border-white/10 bg-black/20 p-3">
-          <RangeControl
-            label="Crop X"
-            min={0}
-            max={100}
-            step={1}
-            value={crop.crop_x}
-            onChange={(value) => setCrop((current) => ({ ...current, crop_x: value }))}
-          />
-          <RangeControl
-            label="Crop Y"
-            min={0}
-            max={100}
-            step={1}
-            value={crop.crop_y}
-            onChange={(value) => setCrop((current) => ({ ...current, crop_y: value }))}
-          />
-          <RangeControl
-            label="Zoom"
-            min={1}
-            max={2}
-            step={0.05}
-            value={crop.crop_zoom}
-            onChange={(value) => setCrop((current) => ({ ...current, crop_zoom: value }))}
-          />
-          <button
-            type="button"
-            disabled={
-              saving ||
-              (crop.crop_x === (asset.crop_x ?? 50) &&
-                crop.crop_y === (asset.crop_y ?? 50) &&
-                crop.crop_zoom === (asset.crop_zoom ?? 1))
-            }
-            onClick={() => onUpdate(asset, crop)}
-            className="rounded-lg border border-orange-500/20 px-3 py-2 text-xs font-semibold text-orange-200 hover:bg-orange-500/10 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            Save crop
-          </button>
-        </div>
-      ) : null}
     </div>
-  );
-}
-
-function RangeControl({
-  label,
-  min,
-  max,
-  step,
-  value,
-  onChange,
-}: {
-  label: string;
-  min: number;
-  max: number;
-  step: number;
-  value: number;
-  onChange: (value: number) => void;
-}) {
-  return (
-    <label className="block">
-      <span className="mb-1 flex items-center justify-between text-xs text-white/45">
-        <span>{label}</span>
-        <span>{value}</span>
-      </span>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={(event) => onChange(Number(event.target.value))}
-        className="w-full accent-orange-500"
-      />
-    </label>
   );
 }
 

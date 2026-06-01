@@ -3,6 +3,7 @@ type NotificationLinkSource = {
   type?: string | null;
   entity_type?: string | null;
   entity_id?: string | null;
+  category?: string | null;
   metadata?: Record<string, unknown> | null;
 };
 
@@ -12,6 +13,8 @@ const TASK_NOTIFICATION_TYPES = new Set([
   "task_comment",
   "task_collaboration_invite",
 ]);
+
+const CONTENT_REVIEW_LIST_PATH = "/admin/content-studio/reviews";
 
 function readMetadataString(
   metadata: Record<string, unknown> | null | undefined,
@@ -36,6 +39,34 @@ export function parseTaskIdFromActionUrl(actionUrl?: string | null) {
 }
 
 /** Prefer board deep link; fall back to /tasks/:id redirect route. */
+export function buildContentReviewDraftUrl(draftId: string) {
+  return `/admin/content-studio/editor/${draftId.trim()}`;
+}
+
+export function isContentReviewNotification(
+  notification: NotificationLinkSource,
+) {
+  if (notification.category === "content_review") return true;
+  if (notification.entity_type === "content_review_draft") return true;
+  return notification.action_url?.startsWith(CONTENT_REVIEW_LIST_PATH) ?? false;
+}
+
+export function resolveContentReviewDraftId(
+  notification: NotificationLinkSource,
+) {
+  const metadata =
+    notification.metadata && typeof notification.metadata === "object"
+      ? notification.metadata
+      : null;
+
+  return (
+    readMetadataString(metadata, ["draftId", "draft_id"]) ??
+    (notification.entity_type === "content_review_draft"
+      ? notification.entity_id
+      : null)
+  );
+}
+
 export function buildTaskNotificationUrl(
   taskId: string,
   boardId?: string | null,
@@ -65,6 +96,11 @@ export function resolveNotificationActionUrl(
 
   const boardId =
     readMetadataString(metadata, ["boardId", "board_id", "clientId", "client_id"]);
+
+  const contentDraftId = resolveContentReviewDraftId(notification);
+  if (contentDraftId && isContentReviewNotification(notification)) {
+    return buildContentReviewDraftUrl(contentDraftId);
+  }
 
   if (taskId && boardId) {
     return buildTaskNotificationUrl(taskId, boardId);

@@ -265,7 +265,6 @@ return [
           children: [
             { to: "/timesheet", label: "My Timesheet", icon: Clock3, featureKey: "timesheets" },
             { to: "/timesheets/team", label: "Team Timesheet", icon: Clock3, featureKey: "timesheets" },
-            { to: "/timesheets/submissions", label: "Weekly Submissions", icon: FileText, featureKey: "timesheets" },
             { to: "/time-approvals", label: "Time Approvals", icon: ShieldCheck, featureKey: "timesheets" },
             { to: "/timesheets/reports", label: "Reports", icon: BarChart3, featureKey: "reports" },
             {

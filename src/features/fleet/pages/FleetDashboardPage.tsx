@@ -1,7 +1,24 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useLocation } from "react-router-dom";
+import {
+  addMonths,
+  eachDayOfInterval,
+  endOfMonth,
+  endOfWeek,
+  format,
+  isSameDay,
+  isSameMonth,
+  parseISO,
+  startOfMonth,
+  startOfWeek,
+  subMonths,
+} from "date-fns";
 import {
   AlertTriangle,
+  CalendarDays,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Fuel,
   Gauge,
   Loader2,
@@ -20,6 +37,7 @@ import {
   resolveVehicleServiceDefaults,
   type CreateFuelPurchaseInput,
   type CreateMaintenanceRecordInput,
+  type FleetDailySummary,
   type FleetDashboardData,
   type FleetServiceResolution,
   type FleetVehicle,
@@ -85,6 +103,15 @@ function formatDate(value?: string | null) {
     month: "short",
     year: "numeric",
   }).format(date);
+}
+
+function formatDuration(seconds?: number | null) {
+  const total = Math.max(0, Math.round(Number(seconds ?? 0)));
+  if (total === 0) return "-";
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
 }
 
 function inputClassName() {
@@ -183,8 +210,11 @@ function EmptyState({ title, message }: { title: string; message: string }) {
 
 export default function FleetDashboardPage() {
   const auth = useAuth();
+  const location = useLocation();
+  const dailyImportsRef = useRef<HTMLElement | null>(null);
   const organizationId = auth.profile?.organization_id ?? null;
   const userId = auth.user?.id ?? null;
+  const isImportsView = location.pathname.startsWith("/fleet/imports");
   const [data, setData] = useState<FleetDashboardData>(EMPTY_DATA);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -240,6 +270,21 @@ export default function FleetDashboardPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!isImportsView || loading) return;
+    dailyImportsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [isImportsView, loading]);
+
+  const dailySummaries = useMemo(
+    () =>
+      [...data.summaries].sort((a, b) => {
+        const byDate = b.summary_date.localeCompare(a.summary_date);
+        if (byDate !== 0) return byDate;
+        return vehicleName(b.vehicle).localeCompare(vehicleName(a.vehicle));
+      }),
+    [data.summaries],
+  );
 
   useEffect(() => {
     async function resolveDefaults() {
@@ -428,9 +473,13 @@ export default function FleetDashboardPage() {
               <p className="text-xs uppercase tracking-[0.3em] text-orange-500">
                 Fleet Management
               </p>
-              <h1 className="mt-2 text-3xl font-bold">Service Tracking</h1>
+              <h1 className="mt-2 text-3xl font-bold">
+                {isImportsView ? "EziTrack Daily Imports" : "Service Tracking"}
+              </h1>
               <p className="mt-2 text-sm text-white/50">
-                EziTrack odometer readings now drive service defaults automatically.
+                {isImportsView
+                  ? "Daily report fields from EziTrack imports — route, speeds, fuel, and odometer."
+                  : "EziTrack odometer readings now drive service defaults automatically."}
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -603,8 +652,12 @@ export default function FleetDashboardPage() {
             </Panel>
           </section>
 
+          <section ref={dailyImportsRef} id="fleet-daily-imports" className="mt-8">
+            <DailyImportsPanel summaries={dailySummaries} />
+          </section>
+
           <section className="mt-8">
-            <Panel title="Recent EziTrack Imports">
+            <Panel title="Recent Import Batches">
               {data.batches.length === 0 ? (
                 <p className="text-sm text-white/50">No import batches yet.</p>
               ) : (
@@ -655,6 +708,268 @@ function Panel({ title, children }: { title: string; children: ReactNode }) {
     <section className="rounded-2xl border border-white/10 bg-white/5 p-5">
       <h2 className="mb-4 text-xl font-semibold">{title}</h2>
       {children}
+    </section>
+  );
+}
+
+function DailyImportsPanel({ summaries }: { summaries: FleetDailySummary[] }) {
+  const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  const [calendarOpen, setCalendarOpen] = useState(false);
+  const [viewMonth, setViewMonth] = useState(() => startOfMonth(new Date()));
+  const filterRef = useRef<HTMLDivElement | null>(null);
+
+  const daysWithReports = useMemo(
+    () => new Set(summaries.map((summary) => summary.summary_date.slice(0, 10))),
+    [summaries],
+  );
+
+  const filteredSummaries = useMemo(() => {
+    if (!selectedDay) return summaries;
+    return summaries.filter((summary) => summary.summary_date.slice(0, 10) === selectedDay);
+  }, [summaries, selectedDay]);
+
+  const calendarDays = useMemo(() => {
+    const monthStart = startOfMonth(viewMonth);
+    const monthEnd = endOfMonth(viewMonth);
+    return eachDayOfInterval({
+      start: startOfWeek(monthStart, { weekStartsOn: 1 }),
+      end: endOfWeek(monthEnd, { weekStartsOn: 1 }),
+    });
+  }, [viewMonth]);
+
+  useEffect(() => {
+    if (!calendarOpen) return;
+    function handlePointerDown(event: MouseEvent) {
+      if (!filterRef.current?.contains(event.target as Node)) {
+        setCalendarOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, [calendarOpen]);
+
+  function openCalendar() {
+    if (selectedDay) {
+      setViewMonth(startOfMonth(parseISO(selectedDay)));
+    } else if (summaries[0]?.summary_date) {
+      setViewMonth(startOfMonth(parseISO(summaries[0].summary_date.slice(0, 10))));
+    }
+    setCalendarOpen((open) => !open);
+  }
+
+  function selectDay(day: Date) {
+    const key = format(day, "yyyy-MM-dd");
+    setSelectedDay(key);
+    setCalendarOpen(false);
+  }
+
+  function clearDayFilter() {
+    setSelectedDay(null);
+    setCalendarOpen(false);
+  }
+
+  return (
+    <section className="overflow-hidden rounded-2xl border border-white/10 bg-white/5">
+      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-white/10 px-4 py-3 sm:px-5">
+        <div>
+          <h2 className="text-xl font-semibold text-white">Daily EziTrack Reports</h2>
+          <p className="mt-1 text-xs text-white/45">
+            Imported daily rows — same fields as the EziTrack email report (last 90 days).
+            {selectedDay ? (
+              <span className="ml-1 text-orange-300">
+                Showing {formatDate(selectedDay)} ({filteredSummaries.length} row
+                {filteredSummaries.length === 1 ? "" : "s"}).
+              </span>
+            ) : null}
+          </p>
+        </div>
+        <div ref={filterRef} className="relative flex items-center gap-2">
+          {selectedDay ? (
+            <button
+              type="button"
+              onClick={clearDayFilter}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-orange-400/40 bg-orange-500/15 px-3 py-2 text-xs font-semibold text-orange-100 hover:bg-orange-500/25"
+              title="Clear date filter"
+            >
+              {formatDate(selectedDay)}
+              <X size={14} />
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={openCalendar}
+            className={`inline-flex h-10 w-10 items-center justify-center rounded-xl border transition ${
+              calendarOpen || selectedDay
+                ? "border-orange-400/60 bg-orange-500/20 text-orange-200"
+                : "border-white/10 bg-black text-white/70 hover:border-white/20 hover:bg-white/5 hover:text-white"
+            }`}
+            title="Filter by day"
+            aria-label="Filter daily reports by calendar day"
+            aria-expanded={calendarOpen}
+          >
+            <CalendarDays size={18} />
+          </button>
+          {calendarOpen ? (
+            <div className="absolute right-0 top-full z-30 mt-2 w-[min(100vw-2rem,20rem)] rounded-2xl border border-white/10 bg-neutral-950 p-4 shadow-2xl shadow-black/60">
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <button
+                  type="button"
+                  onClick={() => setViewMonth((month) => subMonths(month, 1))}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 text-white/70 hover:bg-white/5"
+                  aria-label="Previous month"
+                >
+                  <ChevronLeft size={16} />
+                </button>
+                <p className="text-sm font-semibold text-white">{format(viewMonth, "MMMM yyyy")}</p>
+                <button
+                  type="button"
+                  onClick={() => setViewMonth((month) => addMonths(month, 1))}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 text-white/70 hover:bg-white/5"
+                  aria-label="Next month"
+                >
+                  <ChevronRight size={16} />
+                </button>
+              </div>
+              <div className="mb-2 grid grid-cols-7 gap-1 text-center text-[10px] font-semibold uppercase tracking-wide text-white/35">
+                {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((label) => (
+                  <span key={label}>{label}</span>
+                ))}
+              </div>
+              <div className="grid grid-cols-7 gap-1">
+                {calendarDays.map((day) => {
+                  const dayKey = format(day, "yyyy-MM-dd");
+                  const inMonth = isSameMonth(day, viewMonth);
+                  const isSelected = selectedDay ? dayKey === selectedDay : false;
+                  const hasReport = daysWithReports.has(dayKey);
+                  const isToday = isSameDay(day, new Date());
+
+                  return (
+                    <button
+                      key={dayKey}
+                      type="button"
+                      onClick={() => selectDay(day)}
+                      className={`relative flex h-9 flex-col items-center justify-center rounded-lg text-xs font-medium transition ${
+                        !inMonth
+                          ? "text-white/20 hover:bg-white/5"
+                          : isSelected
+                            ? "bg-orange-500 text-black"
+                            : hasReport
+                              ? "bg-white/10 text-white hover:bg-orange-500/20"
+                              : "text-white/70 hover:bg-white/5"
+                      } ${isToday && !isSelected ? "ring-1 ring-orange-400/50" : ""}`}
+                      title={
+                        hasReport
+                          ? `${format(day, "d MMM yyyy")} — has import data`
+                          : format(day, "d MMM yyyy")
+                      }
+                    >
+                      {format(day, "d")}
+                      {hasReport && inMonth && !isSelected ? (
+                        <span className="absolute bottom-1 h-1 w-1 rounded-full bg-orange-400" />
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </div>
+              <button
+                type="button"
+                onClick={clearDayFilter}
+                className="mt-3 w-full rounded-xl border border-white/10 py-2 text-xs font-semibold text-white/60 hover:bg-white/5 hover:text-white"
+              >
+                Show all days
+              </button>
+            </div>
+          ) : null}
+        </div>
+      </div>
+      {summaries.length === 0 ? (
+        <div className="p-8 text-center text-sm text-white/50">
+          No daily summaries yet. Run an EziTrack import to populate route, speed, and fuel data.
+        </div>
+      ) : filteredSummaries.length === 0 ? (
+        <div className="p-8 text-center text-sm text-white/50">
+          No reports for {formatDate(selectedDay)}. Pick another day on the calendar or clear the filter.
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="min-w-[1100px] w-full text-left text-sm">
+            <thead className="bg-black/40 text-xs uppercase tracking-wide text-white/40">
+              <tr>
+                <th className="px-4 py-3 font-semibold">Date</th>
+                <th className="px-4 py-3 font-semibold">Vehicle</th>
+                <th className="px-4 py-3 font-semibold">Driver</th>
+                <th className="px-4 py-3 font-semibold">Route km</th>
+                <th className="px-4 py-3 font-semibold">Top speed</th>
+                <th className="px-4 py-3 font-semibold">Avg speed</th>
+                <th className="px-4 py-3 font-semibold">Overspeed</th>
+                <th className="px-4 py-3 font-semibold">Stops</th>
+                <th className="px-4 py-3 font-semibold">Moving</th>
+                <th className="px-4 py-3 font-semibold">Stopped</th>
+                <th className="px-4 py-3 font-semibold">Fuel L</th>
+                <th className="px-4 py-3 font-semibold">L/100km</th>
+                <th className="px-4 py-3 font-semibold">Fuel cost</th>
+                <th className="px-4 py-3 font-semibold">Odometer</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredSummaries.map((summary) => (
+                <tr key={summary.id} className="border-t border-white/10 hover:bg-white/3">
+                  <td className="px-4 py-3 text-white/70">{formatDate(summary.summary_date)}</td>
+                  <td className="px-4 py-3 font-medium text-white">
+                    {vehicleName(summary.vehicle)}
+                  </td>
+                  <td className="px-4 py-3 text-white/65">{summary.driver_name || "-"}</td>
+                  <td className="px-4 py-3 text-white/65">
+                    {formatNumber(summary.route_length_km, 1)} km
+                  </td>
+                  <td className="px-4 py-3 text-white/65">
+                    {summary.top_speed_kmh === null
+                      ? "-"
+                      : `${formatNumber(summary.top_speed_kmh, 0)} km/h`}
+                  </td>
+                  <td className="px-4 py-3 text-white/65">
+                    {summary.average_speed_kmh === null
+                      ? "-"
+                      : `${formatNumber(summary.average_speed_kmh, 0)} km/h`}
+                  </td>
+                  <td className="px-4 py-3 text-white/65">
+                    {summary.overspeed_count > 0 ? (
+                      <span className="rounded-full border border-orange-400/40 bg-orange-500/15 px-2 py-0.5 text-xs font-semibold text-orange-100">
+                        {summary.overspeed_count}
+                      </span>
+                    ) : (
+                      formatNumber(summary.overspeed_count, 0)
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-white/65">{formatNumber(summary.stop_count, 0)}</td>
+                  <td className="px-4 py-3 text-white/65">
+                    {formatDuration(summary.move_duration_seconds)}
+                  </td>
+                  <td className="px-4 py-3 text-white/65">
+                    {formatDuration(summary.stop_duration_seconds)}
+                  </td>
+                  <td className="px-4 py-3 text-white/65">
+                    {formatNumber(summary.fuel_consumption_litres, 2)}
+                  </td>
+                  <td className="px-4 py-3 text-white/65">
+                    {formatNumber(summary.average_fuel_consumption_per_100km, 1)}
+                  </td>
+                  <td className="px-4 py-3 text-white/65">
+                    {summary.fuel_cost === null
+                      ? "-"
+                      : `${summary.currency} ${formatNumber(summary.fuel_cost, 2)}`}
+                  </td>
+                  <td className="px-4 py-3 text-white/65">
+                    {summary.odometer_km === null
+                      ? "-"
+                      : `${formatNumber(summary.odometer_km, 0)} km`}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </section>
   );
 }

@@ -3,6 +3,10 @@ import { CalendarDays, CheckCircle2, Copy, GripVertical, Image, Loader2, Message
 import { Link, useLocation } from "react-router-dom";
 import Sidebar from "../../../components/dashboard/components/Sidebar";
 import { useAuth } from "../../../app/providers/AuthProvider";
+import {
+  ContentStudioImageCropFlow,
+  contentStudioCropFromAsset,
+} from "../components/ContentStudioCropEditor";
 import { ContentReviewRenderer } from "../components/ContentReviewRenderer";
 import {
   addInternalContentReviewComment,
@@ -95,7 +99,7 @@ function MediaPreview({ asset }: { asset: ContentReviewAsset }) {
         alt={asset.caption ?? asset.file_name}
         loading="lazy"
         decoding="async"
-        className="h-full w-full object-contain [object-position:var(--crop-position)] [transform-origin:var(--crop-origin)] sm:object-cover sm:[transform:var(--crop-transform)]"
+        className="h-full w-full object-contain object-(--crop-position) origin-(--crop-origin) sm:object-cover sm:transform-(--crop-transform)"
         style={cropStyle}
       />
     </div>
@@ -1156,11 +1160,6 @@ function AssetReviewCard({
 }) {
   const [heading, setHeading] = useState(asset.heading ?? "");
   const [caption, setCaption] = useState(asset.caption ?? "");
-  const [crop, setCrop] = useState({
-    crop_x: asset.crop_x ?? 50,
-    crop_y: asset.crop_y ?? 50,
-    crop_zoom: asset.crop_zoom ?? 1,
-  });
   const selected = asset.is_selected !== false;
   const isImage = asset.asset_type !== "video" && !asset.mime_type?.startsWith("video/");
 
@@ -1168,14 +1167,6 @@ function AssetReviewCard({
     setHeading(asset.heading ?? "");
     setCaption(asset.caption ?? "");
   }, [asset.heading, asset.caption]);
-
-  useEffect(() => {
-    setCrop({
-      crop_x: asset.crop_x ?? 50,
-      crop_y: asset.crop_y ?? 50,
-      crop_zoom: asset.crop_zoom ?? 1,
-    });
-  }, [asset.crop_x, asset.crop_y, asset.crop_zoom]);
 
   return (
     <div
@@ -1193,7 +1184,17 @@ function AssetReviewCard({
       className={`group rounded-xl border p-3 ${selected ? "border-white/10 bg-black/30" : "border-white/10 bg-black/20 opacity-70"}`}
     >
       <div className="relative">
-        <MediaPreview asset={asset} />
+        {isImage ? (
+          <ContentStudioImageCropFlow
+            imageUrl={asset.file_url}
+            alt={asset.caption ?? asset.file_name}
+            savedCrop={contentStudioCropFromAsset(asset)}
+            saving={saving}
+            onSave={(crop) => onUpdate(asset, crop)}
+          />
+        ) : (
+          <MediaPreview asset={asset} />
+        )}
         <button
           type="button"
           disabled={saving}
@@ -1262,82 +1263,7 @@ function AssetReviewCard({
           />
         </label>
       ) : null}
-      {isImage ? (
-        <div className="mt-4 space-y-3 rounded-lg border border-white/10 bg-black/20 p-3">
-          <RangeControl
-            label="Crop X"
-            min={0}
-            max={100}
-            step={1}
-            value={crop.crop_x}
-            onChange={(value) => setCrop((current) => ({ ...current, crop_x: value }))}
-          />
-          <RangeControl
-            label="Crop Y"
-            min={0}
-            max={100}
-            step={1}
-            value={crop.crop_y}
-            onChange={(value) => setCrop((current) => ({ ...current, crop_y: value }))}
-          />
-          <RangeControl
-            label="Zoom"
-            min={1}
-            max={2}
-            step={0.05}
-            value={crop.crop_zoom}
-            onChange={(value) => setCrop((current) => ({ ...current, crop_zoom: value }))}
-          />
-          <button
-            type="button"
-            disabled={
-              saving ||
-              (crop.crop_x === (asset.crop_x ?? 50) &&
-                crop.crop_y === (asset.crop_y ?? 50) &&
-                crop.crop_zoom === (asset.crop_zoom ?? 1))
-            }
-            onClick={() => onUpdate(asset, crop)}
-            className="rounded-lg border border-orange-500/20 px-3 py-2 text-xs font-semibold text-orange-200 hover:bg-orange-500/10 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            Save crop
-          </button>
-        </div>
-      ) : null}
     </div>
-  );
-}
-
-function RangeControl({
-  label,
-  min,
-  max,
-  step,
-  value,
-  onChange,
-}: {
-  label: string;
-  min: number;
-  max: number;
-  step: number;
-  value: number;
-  onChange: (value: number) => void;
-}) {
-  return (
-    <label className="block">
-      <span className="mb-1 flex items-center justify-between text-xs text-white/45">
-        <span>{label}</span>
-        <span>{value}</span>
-      </span>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={(event) => onChange(Number(event.target.value))}
-        className="w-full accent-orange-500"
-      />
-    </label>
   );
 }
 

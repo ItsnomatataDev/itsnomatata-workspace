@@ -134,7 +134,7 @@ export async function createMeeting(
       }
     }
 
-    if (participantUserIds.length > 0) {
+    if (participantUserIds.length > 0 && input.notifyParticipants !== false) {
       const { data: hostProfile, error: hostError } = await supabase
         .from("profiles")
         .select("full_name, email")
@@ -153,13 +153,18 @@ export async function createMeeting(
             timeStyle: "short",
           })
         : "now";
+      const isInstant = !scheduledStart;
 
       await notifyAndEmailUsers({
         organizationId: input.organization_id,
         userIds: participantUserIds,
         type: "meeting",
-        title: `Meeting Scheduled: ${input.title}`,
-        message: `${hostName} scheduled "${input.title}" for ${scheduledLabel}. Join when ready.`,
+        title: isInstant
+          ? `${hostName} invited you to join: ${input.title}`
+          : `Meeting Scheduled: ${input.title}`,
+        message: isInstant
+          ? `${hostName} started "${input.title}". Join now.`
+          : `${hostName} scheduled "${input.title}" for ${scheduledLabel}. Join when ready.`,
         actionUrl: `/meetings/${meeting.id}`,
         priority: "high",
         entityType: "meeting",

@@ -1,5 +1,6 @@
 import { MessageSquare, Plus, Trash2, Users } from "lucide-react";
 import type { ChatConversation } from "../types/chat";
+import { formatMessagePreview } from "../utils/parseMessageContent";
 
 function formatConversationTime(value?: string | null) {
   if (!value) return "";
@@ -44,7 +45,7 @@ function getMessagePreview(
     return `${prefix}This message was deleted.`;
   }
 
-  return `${prefix}${conversation.last_message.body || "Sent a message"}`;
+  return `${prefix}${formatMessagePreview(conversation.last_message.body)}`;
 }
 
 function getInitials(value?: string | null) {

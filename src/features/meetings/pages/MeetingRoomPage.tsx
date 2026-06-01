@@ -17,6 +17,7 @@ import type { RoomOptions } from "livekit-client";
 import { useNavigate, useParams } from "react-router-dom";
 
 import { useAuth } from "../../../app/providers/AuthProvider";
+import FormattedMessageBody from "../../chat/components/FormattedMessageBody";
 import {
   endMeeting,
   getMeetingById,
@@ -642,7 +643,12 @@ export default function MeetingRoomPage() {
                         {isMe ? "You" : message.sender?.full_name || message.sender?.email || "User"}
                       </p>
 
-                      <p className="mt-1 text-sm leading-5">{message.body}</p>
+                      <div className="mt-1 text-sm leading-5">
+                        <FormattedMessageBody
+                          text={message.body}
+                          tone={isMe ? "mine" : "theirs"}
+                        />
+                      </div>
 
                       <p className={["mt-2 text-[11px]", isMe ? "text-black/60" : "text-white/30"].join(" ")}>
                         {new Date(message.created_at).toLocaleString()}

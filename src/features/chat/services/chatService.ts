@@ -324,6 +324,8 @@ async function notifyConversationMembers(params: {
       actionUrl: `/chat?conversationId=${conversation.id}&messageId=${params.messageId}`,
       priority: "medium" as const,
       metadata: {
+        type: "chat_message",
+        sound: "message",
         conversationId: conversation.id,
         conversationType: conversation.type,
         conversationTitle: conversation.title,

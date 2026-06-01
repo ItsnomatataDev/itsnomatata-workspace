@@ -190,10 +190,6 @@ export const ROUTE_ACCESS: Record<string, RouteAccessRule> = {
     permissions: ["timesheets.view_own"],
   },
 
-  "/timesheets/submissions": {
-    permissions: ["timesheets.view_own"],
-  },
-
   "/time-approvals": {
     roles: ["admin", "org_admin", "manager"],
   },

@@ -4,6 +4,10 @@ import { Link } from "react-router-dom";
 import { useNotifications } from "../../../lib/hooks/useNotifications";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import { createNotification } from "../../../lib/supabase/mutations/notifications";
+import {
+  getPushConfigurationError,
+  getPushSupportError,
+} from "../services/pushService";
 import { resolveNotificationActionUrl } from "../utils/notificationLinks";
 
 function timeAgo(dateString: string) {
@@ -41,10 +45,15 @@ export default function NotificationBell() {
     pushLoading,
     pushError,
     enablePushNotifications,
+    disablePushNotifications,
     markOneAsRead,
     markEverythingAsRead,
     reload,
   } = useNotifications();
+
+  const pushSupportError = getPushSupportError();
+  const pushConfigError = pushSupportError ? "" : getPushConfigurationError();
+  const canEnableBrowserPush = !pushSupportError && !pushConfigError;
 
   const latest = notifications.slice(0, 6);
 
@@ -192,25 +201,49 @@ export default function NotificationBell() {
           </div>
 
           <div className="space-y-3 border-t border-white/10 px-4 py-3">
-            {pushSupported && pushPermission !== "denied" ? (
-              <button
-                type="button"
-                onClick={() => void enablePushNotifications()}
-                disabled={pushLoading || pushEnabled}
-                className={[
-                  "flex w-full items-center justify-center gap-2 rounded-xl border px-4 py-3 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-70",
-                  pushEnabled
-                    ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
-                    : "border-white/10 bg-white/5 text-white/70 hover:bg-white/10 hover:text-white",
-                ].join(" ")}
-              >
-                {pushEnabled ? <CheckCircle2 size={15} /> : <Smartphone size={15} />}
-                {pushLoading
-                  ? "Enabling browser alerts..."
-                  : pushEnabled
-                    ? "Browser alerts enabled"
-                    : "Enable browser alerts"}
-              </button>
+            {pushConfigError ? (
+              <p className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs leading-5 text-amber-200">
+                Browser push is not configured. Set{" "}
+                <span className="font-mono">VITE_VAPID_PUBLIC_KEY</span> in{" "}
+                <span className="font-mono">.env</span>, add matching secrets in
+                Supabase, then redeploy{" "}
+                <span className="font-mono">send-push-notification</span>. See{" "}
+                <span className="font-mono">.env.example</span>.
+              </p>
+            ) : null}
+
+            {canEnableBrowserPush && pushPermission !== "denied" ? (
+              <div className="flex flex-col gap-2">
+                <button
+                  type="button"
+                  onClick={() => void enablePushNotifications()}
+                  disabled={pushLoading || pushEnabled}
+                  className={[
+                    "flex w-full items-center justify-center gap-2 rounded-xl border px-4 py-3 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-70",
+                    pushEnabled
+                      ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
+                      : "border-white/10 bg-white/5 text-white/70 hover:bg-white/10 hover:text-white",
+                  ].join(" ")}
+                >
+                  {pushEnabled ? <CheckCircle2 size={15} /> : <Smartphone size={15} />}
+                  {pushLoading
+                    ? "Enabling browser alerts..."
+                    : pushEnabled
+                      ? "Browser alerts enabled"
+                      : "Enable browser alerts"}
+                </button>
+
+                {pushEnabled ? (
+                  <button
+                    type="button"
+                    onClick={() => void disablePushNotifications()}
+                    disabled={pushLoading}
+                    className="w-full rounded-xl border border-white/10 px-4 py-2 text-xs font-medium text-white/55 hover:bg-white/5 hover:text-white/80 disabled:opacity-60"
+                  >
+                    Disable browser alerts on this device
+                  </button>
+                ) : null}
+              </div>
             ) : null}
 
             {pushError && pushPermission === "denied" ? (

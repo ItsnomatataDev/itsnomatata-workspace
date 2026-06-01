@@ -118,6 +118,113 @@ function isMissingRpcError(error: unknown) {
   );
 }
 
+function formatSupabaseError(error: unknown): string {
+  if (!error || typeof error !== "object") return String(error);
+  const record = error as Record<string, unknown>;
+  return [
+    record.message,
+    record.code ? `code=${record.code}` : null,
+    record.details ? `details=${record.details}` : null,
+    record.hint ? `hint=${record.hint}` : null,
+  ]
+    .filter(Boolean)
+    .join(" | ");
+}
+
+function isMissingColumnError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const record = error as Record<string, unknown>;
+  const message = String(record.message ?? "");
+  const details = String(record.details ?? "");
+  return (
+    record.code === "42703" ||
+    message.includes("does not exist") ||
+    details.includes("does not exist")
+  );
+}
+
+const PROFILE_WITH_RELATIONS_SELECT = `
+  *,
+  organization:organizations!profiles_organization_id_fkey(
+    id,
+    name,
+    slug,
+    timezone,
+    is_active,
+    settings,
+    is_system_organization,
+    access_status,
+    social_media_enabled,
+    social_media_settings,
+    leave_settings,
+    created_at,
+    updated_at
+  ),
+  office:company_offices!profiles_office_id_fkey(
+    id,
+    name,
+    slug,
+    is_primary
+  )
+`;
+
+const PROFILE_WITH_RELATIONS_LEGACY_SELECT = `
+  *,
+  organization:organizations!profiles_organization_id_fkey(
+    id,
+    name,
+    slug,
+    timezone,
+    is_active,
+    settings,
+    created_at,
+    updated_at
+  ),
+  office:company_offices!profiles_office_id_fkey(
+    id,
+    name,
+    slug,
+    is_primary
+  )
+`;
+
+async function fetchProfileWithRelations(userId: string) {
+  const full = await supabase
+    .from("profiles")
+    .select(PROFILE_WITH_RELATIONS_SELECT)
+    .eq("id", userId)
+    .maybeSingle();
+
+  if (!full.error) return full;
+
+  if (!isMissingColumnError(full.error)) return full;
+
+  console.warn(
+    "PROFILE SELECT FALLBACK (remote DB missing organization columns):",
+    formatSupabaseError(full.error),
+  );
+
+  const legacy = await supabase
+    .from("profiles")
+    .select(PROFILE_WITH_RELATIONS_LEGACY_SELECT)
+    .eq("id", userId)
+    .maybeSingle();
+
+  if (legacy.data?.organization && !Array.isArray(legacy.data.organization)) {
+    const org = legacy.data.organization as Record<string, unknown>;
+    legacy.data.organization = {
+      ...org,
+      access_status: org.access_status ?? "active",
+      is_system_organization: org.is_system_organization ?? false,
+      social_media_enabled: org.social_media_enabled ?? false,
+      social_media_settings: org.social_media_settings ?? {},
+      leave_settings: org.leave_settings ?? null,
+    };
+  }
+
+  return legacy;
+}
+
 function toProfileCompatibleRole(roleKey?: string | null): AppRole {
   const role = roleKey?.trim();
   if (
@@ -294,37 +401,8 @@ async function ensureProfile(user: User): Promise<AuthProfile | null> {
     }
   }
 
-  // FIXED RELATIONSHIP QUERY
-  const { data: refreshed, error: refreshedError } = await supabase
-    .from("profiles")
-    .select(
-      `
-      *,
-      organization:organizations!profiles_organization_id_fkey(
-        id,
-        name,
-        slug,
-        timezone,
-        is_active,
-        settings,
-        is_system_organization,
-        access_status,
-        social_media_enabled,
-        social_media_settings,
-        leave_settings,
-        created_at,
-        updated_at
-      ),
-      office:company_offices!profiles_office_id_fkey(
-        id,
-        name,
-        slug,
-        is_primary
-      )
-    `,
-    )
-    .eq("id", user.id)
-    .maybeSingle();
+  const { data: refreshed, error: refreshedError } =
+    await fetchProfileWithRelations(user.id);
 
   if (refreshedError) throw refreshedError;
 
@@ -557,7 +635,11 @@ export function AuthProvider({
 
       setProfile(safeProfile);
     } catch (err) {
-      console.error("LOAD USER PROFILE ERROR:", err);
+      console.error(
+        "LOAD USER PROFILE ERROR:",
+        formatSupabaseError(err),
+        err,
+      );
 
       setProfile(null);
       setMemberships([]);

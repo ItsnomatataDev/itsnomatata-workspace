@@ -8,6 +8,7 @@ import {
   saveGlobalNotificationPreferences,
   type GlobalNotificationPreferences,
 } from "../features/notifications/services/advancedNotificationService";
+import SoundPreferencesPanel from "../features/settings/components/SoundPreferencesPanel";
 
 type PreferenceKey =
   | "in_app_enabled"
@@ -318,10 +319,24 @@ export default function SettingsPage() {
                   </div>
 
                   {!pushSupported ? (
-                    <p className="mt-3 text-xs text-white/40">
-                      Push is unavailable until VITE_VAPID_PUBLIC_KEY is set in
-                      your frontend environment and the app is served over HTTPS.
-                    </p>
+                    <div className="mt-3 space-y-2 text-xs leading-5 text-white/40">
+                      <p>
+                        Push is unavailable until{" "}
+                        <span className="font-mono text-white/55">
+                          VITE_VAPID_PUBLIC_KEY
+                        </span>{" "}
+                        is set in <span className="font-mono">.env</span> and the
+                        app is served over HTTPS (or localhost).
+                      </p>
+                      <ol className="list-decimal space-y-1 pl-4 text-white/45">
+                        <li>Run: npm run generate:vapid-keys</li>
+                        <li>Copy public key to .env and Supabase secrets</li>
+                        <li>
+                          Deploy: supabase functions deploy send-push-notification
+                        </li>
+                        <li>Click Enable on this device below</li>
+                      </ol>
+                    </div>
                   ) : null}
                 </div>
 
@@ -404,6 +419,8 @@ export default function SettingsPage() {
               </div>
             ) : null}
           </section>
+
+          <SoundPreferencesPanel />
         </main>
       </div>
     </div>
