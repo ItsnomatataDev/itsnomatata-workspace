@@ -1029,7 +1029,12 @@ export async function submitPublicContentReviewFeedback(params: {
     feedback_body: params.comment,
     decision: params.decision,
   });
-  if (error) throw error;
+  if (error) {
+    const details = [error.message, error.details, error.hint]
+      .filter(Boolean)
+      .join(" | ");
+    throw new Error(details || "submit_content_review_feedback failed");
+  }
   return data as { ok: boolean; error?: string; status?: ContentReviewStatus };
 }
 
@@ -1122,7 +1127,12 @@ export async function submitContentClientReviewFeedback(params: {
     feedback_body: params.comment,
     decision: params.decision,
   });
-  if (error) throw error;
+  if (error) {
+    const details = [error.message, error.details, error.hint]
+      .filter(Boolean)
+      .join(" | ");
+    throw new Error(details || "submit_content_client_review_feedback failed");
+  }
   return data as {
     ok: boolean;
     error?:
