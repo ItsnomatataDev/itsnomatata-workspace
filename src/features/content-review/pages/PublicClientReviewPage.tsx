@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useParams } from "react-router-dom";
 import { ContentReviewRenderer } from "../components/ContentReviewRenderer";
-import RequestChangesModal from "../components/RequestChangesModal";
+import { groupAssetsByDisplaySlot } from "../utils/assetDisplaySlots";
 import {
   getPublicContentReview,
   submitPublicContentReviewFeedback,
@@ -23,7 +23,7 @@ export default function PublicClientReviewPage() {
   const [error, setError] = useState("");
   const [submittedStatus, setSubmittedStatus] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [requestChangesOpen, setRequestChangesOpen] = useState(false);
+  const [slideComments, setSlideComments] = useState<Record<number, string>>({});
   const [client, setClient] = useState({
     name: "",
     email: token ? localStorage.getItem(`content-review-email:${token}`) ?? "" : "",
@@ -69,11 +69,11 @@ export default function PublicClientReviewPage() {
     : false;
 
   async function submit(
-    decision: "comment" | "approved" | "changes_requested",
-    suppliedComment?: string,
+    decision: "approved" | "changes_requested",
+    suppliedComment: string,
   ) {
     if (!draft) return;
-    const commentToUse = suppliedComment ?? client.comment;
+    const commentToUse = suppliedComment;
     if (!client.name.trim() || !client.email.trim()) {
       setError("Please enter your name and email.");
       return;
@@ -137,9 +137,8 @@ export default function PublicClientReviewPage() {
           },
         ]);
       }
-      setRequestChangesOpen(false);
+      setSlideComments({});
       setSubmittedStatus(result.status ?? decision);
-      setClient((current) => ({ ...current, comment: "" }));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to submit feedback.");
     } finally {
@@ -147,9 +146,26 @@ export default function PublicClientReviewPage() {
     }
   }
 
-  function handleSubmit(event: FormEvent) {
-    event.preventDefault();
-    void submit("comment");
+  const slideSlots = groupAssetsByDisplaySlot(assets);
+
+  async function submitSlideDecision(
+    slotIndex: number,
+    decision: "approved" | "changes_requested",
+  ) {
+    const slotComment = (slideComments[slotIndex] ?? "").trim();
+    const slot = slideSlots.find((item) => item.slot === slotIndex);
+    const slotLabel = `Slide ${slotIndex + 1}`;
+    const sectionTitle = slot?.primary.heading?.trim() || slot?.primary.file_name || "";
+
+    const compiled = [
+      `[${slotLabel}]`,
+      sectionTitle ? `Section: ${sectionTitle}` : null,
+      slotComment || (decision === "approved" ? "Approved for this slide." : "Changes requested for this slide."),
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+    await submit(decision, compiled);
   }
 
   if (loading) {
@@ -232,11 +248,8 @@ export default function PublicClientReviewPage() {
             </div>
           </div>
 
-          <form
-            onSubmit={handleSubmit}
-            className="rounded-3xl border border-neutral-200 bg-white p-6 shadow-xl"
-          >
-            <h2 className="text-xl font-bold">Your review</h2>
+          <div className="rounded-3xl border border-neutral-200 bg-white p-6 shadow-xl">
+            <h2 className="text-xl font-bold">Slide feedback</h2>
             {error ? (
               <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
                 {error}
@@ -265,54 +278,59 @@ export default function PublicClientReviewPage() {
               <textarea
                 value={client.comment}
                 onChange={(event) => setClient({ ...client, comment: event.target.value })}
-                placeholder="Comments or requested changes"
+                placeholder="Default comment (optional)"
                 rows={5}
                 disabled={readOnly || submitting}
                 className={`${inputClassName()} disabled:opacity-60`}
               />
             </div>
-            <div className="mt-5 grid gap-2">
-              <button
-                type="button"
-                disabled={readOnly || submitting}
-                onClick={() => void submit("approved")}
-                className="rounded-xl bg-orange-500 px-4 py-3 text-sm font-bold text-black hover:bg-orange-400 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Approve
-              </button>
-              <button
-                type="button"
-                disabled={readOnly || submitting}
-                onClick={() => setRequestChangesOpen(true)}
-                className="rounded-xl border border-orange-500/40 px-4 py-3 text-sm font-bold text-orange-700 hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Request changes
-              </button>
-              <button
-                type="submit"
-                disabled={readOnly || submitting}
-                className="rounded-xl border border-neutral-200 px-4 py-3 text-sm font-bold text-neutral-700 hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Leave comment
-              </button>
+            <div className="mt-5 space-y-3">
+              {slideSlots.map((slot) => (
+                <div key={slot.slot} className="rounded-2xl border border-neutral-200 bg-neutral-50 p-3">
+                  <p className="text-sm font-semibold text-neutral-900">
+                    Slide {slot.slot + 1} {slot.primary.heading ? `- ${slot.primary.heading}` : ""}
+                  </p>
+                  <textarea
+                    value={slideComments[slot.slot] ?? client.comment}
+                    onChange={(event) =>
+                      setSlideComments((current) => ({ ...current, [slot.slot]: event.target.value }))
+                    }
+                    placeholder="Suggestion for this slide..."
+                    rows={3}
+                    disabled={readOnly || submitting}
+                    className={`${inputClassName()} mt-2 disabled:opacity-60`}
+                  />
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      disabled={readOnly || submitting}
+                      onClick={() => void submitSlideDecision(slot.slot, "approved")}
+                      className="rounded-xl bg-orange-500 px-3 py-2 text-sm font-bold text-black hover:bg-orange-400 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Approve slide
+                    </button>
+                    <button
+                      type="button"
+                      disabled={readOnly || submitting}
+                      onClick={() => void submitSlideDecision(slot.slot, "changes_requested")}
+                      className="rounded-xl border border-orange-500/40 px-3 py-2 text-sm font-bold text-orange-700 hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Request changes
+                    </button>
+                  </div>
+                </div>
+              ))}
+              {slideSlots.length === 0 ? (
+                <p className="text-sm text-neutral-500">No slides available on this post.</p>
+              ) : null}
               {readOnly ? (
                 <p className="text-center text-xs text-neutral-500">
                   This review is read-only.
                 </p>
               ) : null}
             </div>
-          </form>
+          </div>
         </section>
-        <RequestChangesModal
-          open={requestChangesOpen}
-          title={draft.title}
-          assets={assets}
-          submitting={submitting}
-          onClose={() => setRequestChangesOpen(false)}
-          onSubmit={async (compiledSuggestion) => {
-            await submit("changes_requested", compiledSuggestion);
-          }}
-        />
       </div>
     </main>
   );

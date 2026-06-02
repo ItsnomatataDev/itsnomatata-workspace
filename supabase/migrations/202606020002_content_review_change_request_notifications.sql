@@ -6,10 +6,13 @@ set search_path = public
 as $$
 declare
   draft_record public.content_review_drafts%rowtype;
+  client_record public.content_clients%rowtype;
   recipient_id uuid;
   dedupe text;
+  notification_title text;
+  notification_message text;
 begin
-  if new.comment_type is distinct from 'change_request' then
+  if new.comment_type not in ('change_request', 'approval_note') then
     return new;
   end if;
 
@@ -27,6 +30,25 @@ begin
     return new;
   end if;
 
+  if new.client_id is not null then
+    select *
+    into client_record
+    from public.content_clients
+    where id = new.client_id
+    limit 1;
+  end if;
+
+  notification_title := case
+    when new.comment_type = 'approval_note' then 'Content slide approved'
+    else 'Content changes requested'
+  end;
+
+  notification_message := coalesce(new.author_name, 'Client')
+    || coalesce(' (' || nullif(client_record.company_name, '') || ')', '')
+    || case when new.comment_type = 'approval_note' then ' approved slide feedback on "' else ' requested changes on "' end
+    || draft_record.title
+    || '".';
+
   for recipient_id in
     (
       select distinct user_id
@@ -43,7 +65,7 @@ begin
       where user_id is not null
     )
   loop
-    dedupe := concat('content-change-request:', new.id::text, ':', recipient_id::text);
+    dedupe := concat('content-client-feedback:', new.id::text, ':', recipient_id::text);
 
     insert into public.notifications (
       organization_id,
@@ -64,8 +86,8 @@ begin
       draft_record.organization_id,
       recipient_id,
       'system_alert',
-      'Content changes requested',
-      coalesce(new.author_name, 'Client') || ' requested changes on "' || draft_record.title || '".',
+      notification_title,
+      notification_message,
       'content_review_draft',
       draft_record.id,
       '/admin/content-studio/editor/' || draft_record.id::text,
@@ -76,7 +98,10 @@ begin
         'comment_id', new.id,
         'author_name', new.author_name,
         'author_email', new.author_email,
-        'comment_type', new.comment_type
+        'comment_type', new.comment_type,
+        'client_id', new.client_id,
+        'client_company', client_record.company_name,
+        'draft_title', draft_record.title
       ),
       dedupe,
       false
