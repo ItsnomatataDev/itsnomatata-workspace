@@ -355,6 +355,37 @@ export type ProfileRosterUserRow = {
   office_id?: string | null;
 };
 
+export type LocationPlannerOfficeRow = {
+  id: string;
+  organization_id: string;
+  name: string;
+  slug: string;
+  is_primary: boolean;
+};
+
+export type LocationPlannerUserRow = {
+  id: string;
+  organization_id: string | null;
+  office_id: string | null;
+  full_name: string | null;
+  email: string | null;
+  primary_role: string | null;
+  department: string | null;
+  account_status?: string | null;
+  is_active?: boolean | null;
+};
+
+export type LocationPlannerAssignmentRow = {
+  id: string;
+  organization_id: string;
+  week_start: string;
+  user_id: string;
+  location_office_id: string;
+  assigned_by: string | null;
+  assigned_at: string;
+  notes: string | null;
+};
+
 export type DutyType = "weekly_rotating" | "single_day";
 
 export type DutyDefinitionRow = {
@@ -1689,6 +1720,81 @@ export async function getOrganizationUsersForRoster(
   const { data, error } = await query;
   if (error) throw error;
   return (data ?? []) as ProfileRosterUserRow[];
+}
+
+export async function getOrganizationLocationsForPlanner(organizationId: string) {
+  const { data, error } = await supabase
+    .from("company_offices")
+    .select("id, organization_id, name, slug, is_primary")
+    .eq("organization_id", organizationId)
+    .order("is_primary", { ascending: false })
+    .order("name", { ascending: true });
+
+  if (error) throw error;
+  return (data ?? []) as LocationPlannerOfficeRow[];
+}
+
+export async function getOrganizationUsersForPlanner(organizationId: string) {
+  const { data, error } = await supabase
+    .from("profiles")
+    .select(
+      "id, organization_id, office_id, full_name, email, primary_role, department, account_status, is_active",
+    )
+    .eq("organization_id", organizationId)
+    .neq("account_status", "deleted")
+    .order("full_name", { ascending: true });
+
+  if (error) throw error;
+  return (data ?? []) as LocationPlannerUserRow[];
+}
+
+export async function getLocationPlannerAssignments(params: {
+  organizationId: string;
+  weekStart: string;
+}) {
+  const { data, error } = await supabase
+    .from("location_planner_assignments")
+    .select(
+      "id, organization_id, week_start, user_id, location_office_id, assigned_by, assigned_at, notes",
+    )
+    .eq("organization_id", params.organizationId)
+    .eq("week_start", params.weekStart);
+
+  if (error) throw error;
+  return (data ?? []) as LocationPlannerAssignmentRow[];
+}
+
+export async function upsertLocationPlannerAssignment(params: {
+  organizationId: string;
+  weekStart: string;
+  userId: string;
+  locationOfficeId: string;
+  assignedBy?: string | null;
+  notes?: string | null;
+}) {
+  const { data, error } = await supabase
+    .from("location_planner_assignments")
+    .upsert(
+      {
+        organization_id: params.organizationId,
+        week_start: params.weekStart,
+        user_id: params.userId,
+        location_office_id: params.locationOfficeId,
+        assigned_by: params.assignedBy ?? null,
+        assigned_at: new Date().toISOString(),
+        notes: params.notes ?? null,
+      },
+      {
+        onConflict: "organization_id,week_start,user_id",
+      },
+    )
+    .select(
+      "id, organization_id, week_start, user_id, location_office_id, assigned_by, assigned_at, notes",
+    )
+    .single();
+
+  if (error) throw error;
+  return data as LocationPlannerAssignmentRow;
 }
 
 export async function getITsNomatataUsersForRoster(organizationId: string) {

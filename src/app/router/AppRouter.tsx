@@ -38,6 +38,7 @@ import DutyRosterViewPage from "../../features/admin/pages/DutyRosterViewPage";
 import AdminEmployeesPage from "../../features/admin/pages/AdminEmployeesPage";
 import AdminEmployeeDetailsPage from "../../features/admin/pages/AdminEmployeeDetailsPage";
 import AdminNotificationsPage from "../../features/admin/pages/AdminNotificationsPage";
+import AdminLocationPlannerPage from "../../features/admin/pages/AdminLocationPlannerPage";
 import NotificationsPage from "../../features/notifications/pages/NotificationsPage";
 import ChatPage from "../../features/chat/pages/ChatPage";
 import MeetingsPage from "../../features/meetings/pages/MeetingsPage";
@@ -789,6 +790,24 @@ const AppRouter = () => {
               <RoleRoute roles={["admin", "org_admin", "super_admin"]}>
                 <FeatureRoute feature="timesheets"><EverhourAdminPage /></FeatureRoute>
               </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/admin/location-planner"
+          element={
+            <ProtectedRoute>
+              <AdminLocationPlannerPage />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/location-planner"
+          element={
+            <ProtectedRoute>
+              <AdminLocationPlannerPage />
             </ProtectedRoute>
           }
         />

@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useParams } from "react-router-dom";
 import { ContentReviewRenderer } from "../components/ContentReviewRenderer";
+import RequestChangesModal from "../components/RequestChangesModal";
 import {
   getPublicContentReview,
   submitPublicContentReviewFeedback,
@@ -21,6 +22,8 @@ export default function PublicClientReviewPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [submittedStatus, setSubmittedStatus] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [requestChangesOpen, setRequestChangesOpen] = useState(false);
   const [client, setClient] = useState({
     name: "",
     email: token ? localStorage.getItem(`content-review-email:${token}`) ?? "" : "",
@@ -65,25 +68,30 @@ export default function PublicClientReviewPage() {
     ? ["approved", "archived", "published"].includes(draft.status)
     : false;
 
-  async function submit(decision: "comment" | "approved" | "changes_requested") {
+  async function submit(
+    decision: "comment" | "approved" | "changes_requested",
+    suppliedComment?: string,
+  ) {
     if (!draft) return;
+    const commentToUse = suppliedComment ?? client.comment;
     if (!client.name.trim() || !client.email.trim()) {
       setError("Please enter your name and email.");
       return;
     }
-    if (decision !== "approved" && !client.comment.trim()) {
+    if (decision !== "approved" && !commentToUse.trim()) {
       setError("Please add a comment before submitting.");
       return;
     }
 
     try {
+      setSubmitting(true);
       setError("");
       const result = await submitPublicContentReviewFeedback({
         token,
         name: client.name,
         email: client.email,
         company: client.company,
-        comment: client.comment,
+        comment: commentToUse,
         decision,
       });
       if (!result.ok) {
@@ -105,7 +113,7 @@ export default function PublicClientReviewPage() {
         return;
       }
       localStorage.setItem(`content-review-email:${token}`, client.email.trim().toLowerCase());
-      if (client.comment.trim()) {
+      if (commentToUse.trim()) {
         setComments((current) => [
           ...current,
           {
@@ -114,7 +122,7 @@ export default function PublicClientReviewPage() {
             author_name: client.name.trim(),
             author_email: client.email.trim(),
             author_company: client.company.trim() || null,
-            body: client.comment.trim(),
+            body: commentToUse.trim(),
             source: "client",
             client_visible: true,
             visibility: "client_visible",
@@ -129,9 +137,13 @@ export default function PublicClientReviewPage() {
           },
         ]);
       }
+      setRequestChangesOpen(false);
       setSubmittedStatus(result.status ?? decision);
+      setClient((current) => ({ ...current, comment: "" }));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to submit feedback.");
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -255,13 +267,14 @@ export default function PublicClientReviewPage() {
                 onChange={(event) => setClient({ ...client, comment: event.target.value })}
                 placeholder="Comments or requested changes"
                 rows={5}
-                className={inputClassName()}
+                disabled={readOnly || submitting}
+                className={`${inputClassName()} disabled:opacity-60`}
               />
             </div>
             <div className="mt-5 grid gap-2">
               <button
                 type="button"
-                disabled={readOnly}
+                disabled={readOnly || submitting}
                 onClick={() => void submit("approved")}
                 className="rounded-xl bg-orange-500 px-4 py-3 text-sm font-bold text-black hover:bg-orange-400 disabled:cursor-not-allowed disabled:opacity-50"
               >
@@ -269,15 +282,15 @@ export default function PublicClientReviewPage() {
               </button>
               <button
                 type="button"
-                disabled={readOnly}
-                onClick={() => void submit("changes_requested")}
+                disabled={readOnly || submitting}
+                onClick={() => setRequestChangesOpen(true)}
                 className="rounded-xl border border-orange-500/40 px-4 py-3 text-sm font-bold text-orange-700 hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Request changes
               </button>
               <button
                 type="submit"
-                disabled={readOnly}
+                disabled={readOnly || submitting}
                 className="rounded-xl border border-neutral-200 px-4 py-3 text-sm font-bold text-neutral-700 hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Leave comment
@@ -290,6 +303,16 @@ export default function PublicClientReviewPage() {
             </div>
           </form>
         </section>
+        <RequestChangesModal
+          open={requestChangesOpen}
+          title={draft.title}
+          assets={assets}
+          submitting={submitting}
+          onClose={() => setRequestChangesOpen(false)}
+          onSubmit={async (compiledSuggestion) => {
+            await submit("changes_requested", compiledSuggestion);
+          }}
+        />
       </div>
     </main>
   );

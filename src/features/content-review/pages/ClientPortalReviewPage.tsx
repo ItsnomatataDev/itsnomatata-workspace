@@ -2,6 +2,7 @@ import { ArrowLeft } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ContentReviewRenderer } from "../components/ContentReviewRenderer";
+import RequestChangesModal from "../components/RequestChangesModal";
 import { contentClientSessionKey } from "./ClientPortalLoginPage";
 import {
   getContentClientReview,
@@ -52,6 +53,8 @@ export default function ClientPortalReviewPage() {
   const [submittedStatus, setSubmittedStatus] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [requestChangesOpen, setRequestChangesOpen] = useState(false);
 
   const load = useCallback(async () => {
     const raw = localStorage.getItem(contentClientSessionKey(clientToken));
@@ -103,20 +106,25 @@ export default function ClientPortalReviewPage() {
     [draft, feedbackLimits.has_approved],
   );
 
-  async function submit(decision: "comment" | "approved" | "changes_requested") {
+  async function submit(
+    decision: "comment" | "approved" | "changes_requested",
+    suppliedComment?: string,
+  ) {
     if (!session || !draft) return;
-    if (decision !== "approved" && !comment.trim()) {
+    const commentToUse = suppliedComment ?? comment;
+    if (decision !== "approved" && !commentToUse.trim()) {
       setError("Please add a comment before submitting.");
       return;
     }
     try {
+      setSubmitting(true);
       setError("");
       const result = await submitContentClientReviewFeedback({
         clientToken,
         sessionToken: session.sessionToken,
         email: session.email,
         draftId: draft.id,
-        comment,
+        comment: commentToUse,
         decision,
       });
       if (!result.ok) {
@@ -126,7 +134,7 @@ export default function ClientPortalReviewPage() {
       if (result.feedback) {
         setFeedbackLimits(result.feedback);
       }
-      if (comment.trim()) {
+      if (commentToUse.trim()) {
         setComments((current) => [
           ...current,
           {
@@ -136,7 +144,7 @@ export default function ClientPortalReviewPage() {
             author_name: session.client.contact_name,
             author_email: session.email,
             author_company: session.client.company_name,
-            body: comment.trim(),
+            body: commentToUse.trim(),
             source: "client",
             client_visible: true,
             visibility: "client_visible",
@@ -152,10 +160,13 @@ export default function ClientPortalReviewPage() {
         ]);
       }
       setComment("");
+      setRequestChangesOpen(false);
       setSubmittedStatus(result.status ?? decision);
       setDraft({ ...draft, status: (result.status ?? draft.status) as ContentReviewDraft["status"] });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to submit feedback.");
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -199,15 +210,15 @@ export default function ClientPortalReviewPage() {
             </p>
             {submittedStatus ? <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">Status updated: {submittedStatus.replace(/_/g, " ")}.</div> : null}
             {error ? <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div> : null}
-            <textarea value={comment} onChange={(event) => setComment(event.target.value)} placeholder="Comments or requested changes" rows={5} disabled={readOnly} className={`${inputClassName()} mt-4 disabled:opacity-60`} />
+            <textarea value={comment} onChange={(event) => setComment(event.target.value)} placeholder="Comments or requested changes" rows={5} disabled={readOnly || submitting} className={`${inputClassName()} mt-4 disabled:opacity-60`} />
             <div className="mt-5 grid gap-2">
-              <button type="button" disabled={readOnly || feedbackLimits.has_approved} onClick={() => void submit("approved")} className="rounded-xl bg-orange-500 px-4 py-3 text-sm font-bold text-black hover:bg-orange-400 disabled:opacity-50">
+              <button type="button" disabled={readOnly || feedbackLimits.has_approved || submitting} onClick={() => void submit("approved")} className="rounded-xl bg-orange-500 px-4 py-3 text-sm font-bold text-black hover:bg-orange-400 disabled:opacity-50">
                 {feedbackLimits.has_approved ? "Already approved" : "Approve"}
               </button>
-              <button type="button" disabled={readOnly || feedbackLimits.has_requested_changes} onClick={() => void submit("changes_requested")} className="rounded-xl border border-orange-500/40 px-4 py-3 text-sm font-bold text-orange-700 hover:bg-orange-50 disabled:opacity-50">
+              <button type="button" disabled={readOnly || feedbackLimits.has_requested_changes || submitting} onClick={() => setRequestChangesOpen(true)} className="rounded-xl border border-orange-500/40 px-4 py-3 text-sm font-bold text-orange-700 hover:bg-orange-50 disabled:opacity-50">
                 {feedbackLimits.has_requested_changes ? "Changes already requested" : "Request changes"}
               </button>
-              <button type="submit" disabled={readOnly || feedbackLimits.has_commented} className="rounded-xl border border-neutral-200 px-4 py-3 text-sm font-bold text-neutral-700 hover:bg-neutral-100 disabled:opacity-50">
+              <button type="submit" disabled={readOnly || feedbackLimits.has_commented || submitting} className="rounded-xl border border-neutral-200 px-4 py-3 text-sm font-bold text-neutral-700 hover:bg-neutral-100 disabled:opacity-50">
                 {feedbackLimits.has_commented ? "Comment already submitted" : "Leave comment"}
               </button>
               {readOnly ? <p className="text-center text-xs text-neutral-500">This review is read-only.</p> : null}
@@ -215,6 +226,16 @@ export default function ClientPortalReviewPage() {
           </form>
         </section>
       </div>
+      <RequestChangesModal
+        open={requestChangesOpen}
+        title={draft.title}
+        assets={assets}
+        submitting={submitting}
+        onClose={() => setRequestChangesOpen(false)}
+        onSubmit={async (compiledSuggestion) => {
+          await submit("changes_requested", compiledSuggestion);
+        }}
+      />
     </main>
   );
 }

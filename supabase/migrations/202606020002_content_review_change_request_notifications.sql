@@ -1,0 +1,96 @@
+create or replace function public.notify_content_review_change_request()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  draft_record public.content_review_drafts%rowtype;
+  recipient_id uuid;
+  dedupe text;
+begin
+  if new.comment_type is distinct from 'change_request' then
+    return new;
+  end if;
+
+  if new.author_type is distinct from 'client' then
+    return new;
+  end if;
+
+  select *
+  into draft_record
+  from public.content_review_drafts
+  where id = new.draft_id
+  limit 1;
+
+  if not found then
+    return new;
+  end if;
+
+  for recipient_id in
+    (
+      select distinct user_id
+      from (
+        select draft_record.created_by as user_id
+        union all
+        select draft_record.assigned_to as user_id
+        union all
+        select p.id as user_id
+        from public.profiles p
+        where p.organization_id = draft_record.organization_id
+          and p.primary_role in ('admin', 'org_admin', 'super_admin', 'superadmin')
+      ) recipients
+      where user_id is not null
+    )
+  loop
+    dedupe := concat('content-change-request:', new.id::text, ':', recipient_id::text);
+
+    insert into public.notifications (
+      organization_id,
+      user_id,
+      type,
+      title,
+      message,
+      entity_type,
+      entity_id,
+      action_url,
+      priority,
+      category,
+      metadata,
+      dedupe_key,
+      is_read
+    )
+    values (
+      draft_record.organization_id,
+      recipient_id,
+      'system_alert',
+      'Content changes requested',
+      coalesce(new.author_name, 'Client') || ' requested changes on "' || draft_record.title || '".',
+      'content_review_draft',
+      draft_record.id,
+      '/admin/content-studio/editor/' || draft_record.id::text,
+      'high',
+      'content_review',
+      jsonb_build_object(
+        'draft_id', draft_record.id,
+        'comment_id', new.id,
+        'author_name', new.author_name,
+        'author_email', new.author_email,
+        'comment_type', new.comment_type
+      ),
+      dedupe,
+      false
+    )
+    on conflict do nothing;
+  end loop;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_notify_content_review_change_request on public.content_review_comments;
+
+create trigger trg_notify_content_review_change_request
+after insert on public.content_review_comments
+for each row
+execute function public.notify_content_review_change_request();
