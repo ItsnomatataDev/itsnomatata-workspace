@@ -1,8 +1,8 @@
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ContentReviewRenderer } from "../components/ContentReviewRenderer";
-import { groupAssetsByDisplaySlot } from "../utils/assetDisplaySlots";
+import { type ContentReviewDisplaySlot } from "../utils/assetDisplaySlots";
 import { contentClientSessionKey } from "./ClientPortalLoginPage";
 import {
   getContentClientReview,
@@ -49,7 +49,8 @@ export default function ClientPortalReviewPage() {
     has_commented: false,
     has_requested_changes: false,
   });
-  const [slideComments, setSlideComments] = useState<Record<number, string>>({});
+  const [requestingSlot, setRequestingSlot] = useState<ContentReviewDisplaySlot | null>(null);
+  const [requestText, setRequestText] = useState("");
   const [submittedStatus, setSubmittedStatus] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -158,7 +159,8 @@ export default function ClientPortalReviewPage() {
           },
         ]);
       }
-      setSlideComments({});
+      setRequestingSlot(null);
+      setRequestText("");
       setSubmittedStatus(result.status ?? decision);
       setDraft({ ...draft, status: (result.status ?? draft.status) as ContentReviewDraft["status"] });
     } catch (err) {
@@ -168,15 +170,13 @@ export default function ClientPortalReviewPage() {
     }
   }
 
-  const slideSlots = useMemo(() => groupAssetsByDisplaySlot(assets), [assets]);
-
-  async function submitSlideDecision(
-    slotIndex: number,
+  async function submitSectionDecision(
+    slot: ContentReviewDisplaySlot,
     decision: "approved" | "changes_requested",
+    sectionComment?: string,
   ) {
-    const slotComment = (slideComments[slotIndex] ?? "").trim();
-    const slot = slideSlots.find((item) => item.slot === slotIndex);
-    const slotLabel = `Slide ${slotIndex + 1}`;
+    const slotComment = (sectionComment ?? "").trim();
+    const slotLabel = `Slide ${slot.slot + 1}`;
     const sectionTitle = slot?.primary.heading?.trim() || slot?.primary.file_name || "";
 
     const compiled = [
@@ -204,71 +204,100 @@ export default function ClientPortalReviewPage() {
         <Link to={`/client-portal/${clientToken}`} className="mb-5 inline-flex items-center gap-2 rounded-xl border border-neutral-200 bg-white px-4 py-3 text-sm font-semibold text-neutral-700 hover:bg-neutral-50">
           <ArrowLeft size={16} /> Back to portal
         </Link>
-        <ContentReviewRenderer draft={draft} assets={assets} theme="public" />
-        <section className="mt-6 grid gap-6 lg:grid-cols-[1fr_380px]">
-          <div className="rounded-3xl border border-neutral-200 bg-white p-6 shadow-xl">
-            <h2 className="text-xl font-bold">Your comments</h2>
-            <div className="mt-4 space-y-3">
-              {comments.map((item) => (
-                <div key={item.id} className="rounded-2xl bg-neutral-100 p-4">
-                  <p className="font-semibold">{item.author_name}</p>
-                  <p className="mt-2 text-neutral-700">{item.body}</p>
-                </div>
-              ))}
-              {comments.length === 0 ? <p className="text-neutral-500">Your submitted comments will appear here.</p> : null}
+        <ContentReviewRenderer
+          draft={draft}
+          assets={assets}
+          theme="public"
+          renderSectionActions={(slot) => (
+            <div className="space-y-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
+                Slide {slot.slot + 1} feedback
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  disabled={readOnly || feedbackLimits.has_approved || submitting}
+                  onClick={() => void submitSectionDecision(slot, "approved")}
+                  className="rounded-xl bg-orange-500 px-3 py-2 text-sm font-bold text-black hover:bg-orange-400 disabled:opacity-50"
+                >
+                  Approve
+                </button>
+                <button
+                  type="button"
+                  disabled={readOnly || feedbackLimits.has_requested_changes || submitting}
+                  onClick={() => {
+                    setRequestingSlot(slot);
+                    setRequestText("");
+                  }}
+                  className="rounded-xl border border-orange-500/40 px-3 py-2 text-sm font-bold text-orange-700 hover:bg-orange-50 disabled:opacity-50"
+                >
+                  Request changes
+                </button>
+              </div>
             </div>
+          )}
+        />
+        <section className="mt-6 rounded-3xl border border-neutral-200 bg-white p-6 shadow-xl">
+          <h2 className="text-xl font-bold">Your comments</h2>
+          {submittedStatus ? <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">Status updated: {submittedStatus.replace(/_/g, " ")}.</div> : null}
+          {error ? <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div> : null}
+          <div className="mt-4 space-y-3">
+            {comments.map((item) => (
+              <div key={item.id} className="rounded-2xl bg-neutral-100 p-4">
+                <p className="font-semibold">{item.author_name}</p>
+                <p className="mt-2 whitespace-pre-wrap text-neutral-700">{item.body}</p>
+              </div>
+            ))}
+            {comments.length === 0 ? <p className="text-neutral-500">Your submitted comments will appear here.</p> : null}
           </div>
-          <div className="rounded-3xl border border-neutral-200 bg-white p-6 shadow-xl">
-            <h2 className="text-xl font-bold">Slide feedback</h2>
-            <p className="mt-2 text-sm text-neutral-500">
-              Approve or request changes on each slide with a specific note.
-            </p>
-            {submittedStatus ? <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">Status updated: {submittedStatus.replace(/_/g, " ")}.</div> : null}
-            {error ? <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div> : null}
-            <div className="mt-4 space-y-3">
-              {slideSlots.map((slot) => (
-                <div key={slot.slot} className="rounded-2xl border border-neutral-200 bg-neutral-50 p-3">
-                  <p className="text-sm font-semibold text-neutral-900">
-                    Slide {slot.slot + 1} {slot.primary.heading ? `- ${slot.primary.heading}` : ""}
-                  </p>
-                  <textarea
-                    value={slideComments[slot.slot] ?? ""}
-                    onChange={(event) =>
-                      setSlideComments((current) => ({ ...current, [slot.slot]: event.target.value }))
-                    }
-                    placeholder="Suggestion for this slide..."
-                    rows={3}
-                    disabled={readOnly || submitting}
-                    className={`${inputClassName()} mt-2 disabled:opacity-60`}
-                  />
-                  <div className="mt-2 grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      disabled={readOnly || feedbackLimits.has_approved || submitting}
-                      onClick={() => void submitSlideDecision(slot.slot, "approved")}
-                      className="rounded-xl bg-orange-500 px-3 py-2 text-sm font-bold text-black hover:bg-orange-400 disabled:opacity-50"
-                    >
-                      Approve slide
-                    </button>
-                    <button
-                      type="button"
-                      disabled={readOnly || feedbackLimits.has_requested_changes || submitting}
-                      onClick={() => void submitSlideDecision(slot.slot, "changes_requested")}
-                      className="rounded-xl border border-orange-500/40 px-3 py-2 text-sm font-bold text-orange-700 hover:bg-orange-50 disabled:opacity-50"
-                    >
-                      Request changes
-                    </button>
-                  </div>
-                </div>
-              ))}
-              {slideSlots.length === 0 ? (
-                <p className="text-sm text-neutral-500">No slides available on this post.</p>
-              ) : null}
-              {readOnly ? <p className="text-center text-xs text-neutral-500">This review is read-only.</p> : null}
-            </div>
-          </div>
+          {readOnly ? <p className="mt-4 text-center text-xs text-neutral-500">This review is read-only.</p> : null}
         </section>
       </div>
+      {requestingSlot ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-xl rounded-2xl border border-neutral-200 bg-white p-5 shadow-2xl">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs uppercase tracking-[0.25em] text-orange-500">Request changes</p>
+                <h3 className="mt-1 text-lg font-bold text-neutral-950">
+                  Slide {requestingSlot.slot + 1} {requestingSlot.primary.heading ? `- ${requestingSlot.primary.heading}` : ""}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRequestingSlot(null)}
+                className="rounded-full border border-neutral-300 p-2 text-neutral-600 hover:bg-neutral-100"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <textarea
+              value={requestText}
+              onChange={(event) => setRequestText(event.target.value)}
+              rows={5}
+              placeholder="Tell the team exactly what needs to change on this section..."
+              className={`${inputClassName()} mt-4`}
+            />
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setRequestingSlot(null)}
+                className="rounded-xl border border-neutral-300 px-4 py-2 text-sm font-semibold text-neutral-700 hover:bg-neutral-100"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={submitting || !requestText.trim()}
+                onClick={() => void submitSectionDecision(requestingSlot, "changes_requested", requestText)}
+                className="rounded-xl bg-orange-500 px-4 py-2 text-sm font-bold text-black hover:bg-orange-400 disabled:opacity-50"
+              >
+                Submit changes
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }

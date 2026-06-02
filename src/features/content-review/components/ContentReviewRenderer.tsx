@@ -1,5 +1,5 @@
 import { Maximize2, X } from "lucide-react";
-import { useMemo, useState, type CSSProperties } from "react";
+import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import {
   type ContentReviewAsset,
   type ContentReviewDraft,
@@ -160,11 +160,16 @@ export function ContentReviewRenderer({
   assets,
   theme = "public",
   viewport = "responsive",
+  renderSectionActions,
 }: {
   draft: ContentReviewDraft;
   assets: ContentReviewAsset[];
   theme?: PreviewTheme;
   viewport?: PreviewViewport;
+  renderSectionActions?: (
+    slot: ContentReviewDisplaySlot,
+    index: number,
+  ) => ReactNode;
 }) {
   const [expandedVideo, setExpandedVideo] = useState<ContentReviewAsset | null>(null);
   const displaySlots = useMemo(() => groupAssetsByDisplaySlot(assets), [assets]);
@@ -222,6 +227,9 @@ export function ContentReviewRenderer({
         >
           {draft.cta_label}
         </a>
+      ) : null}
+      {slot && renderSectionActions ? (
+        <div className="mt-4">{renderSectionActions(slot, index)}</div>
       ) : null}
     </div>
   );
