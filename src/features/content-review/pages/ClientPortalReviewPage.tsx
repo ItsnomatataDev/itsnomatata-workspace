@@ -10,7 +10,6 @@ import {
   type ContentClientFeedbackLimits,
   type ContentClientPortalSession,
   type ContentReviewAsset,
-  type ContentReviewComment,
   type ContentReviewDraft,
 } from "../services/contentReviewService";
 
@@ -43,7 +42,6 @@ export default function ClientPortalReviewPage() {
   const [session, setSession] = useState<ContentClientPortalSession | null>(null);
   const [draft, setDraft] = useState<ContentReviewDraft | null>(null);
   const [assets, setAssets] = useState<ContentReviewAsset[]>([]);
-  const [comments, setComments] = useState<ContentReviewComment[]>([]);
   const [feedbackLimits, setFeedbackLimits] = useState<ContentClientFeedbackLimits>({
     has_approved: false,
     has_commented: false,
@@ -78,7 +76,6 @@ export default function ClientPortalReviewPage() {
       setSession({ ...parsed, client: result.client ?? parsed.client });
       setDraft(result.draft);
       setAssets(result.assets ?? []);
-      setComments(result.comments ?? []);
       setFeedbackLimits(
         result.feedback ?? {
           has_approved: false,
@@ -133,31 +130,6 @@ export default function ClientPortalReviewPage() {
       }
       if (result.feedback) {
         setFeedbackLimits(result.feedback);
-      }
-      if (commentToUse.trim()) {
-        setComments((current) => [
-          ...current,
-          {
-            id: `local-${Date.now()}`,
-            draft_id: draft.id,
-            client_id: session.client.id,
-            author_name: session.client.contact_name,
-            author_email: session.email,
-            author_company: session.client.company_name,
-            body: commentToUse.trim(),
-            source: "client",
-            client_visible: true,
-            visibility: "client_visible",
-            author_type: "client",
-            comment_type:
-              decision === "approved"
-                ? "approval_note"
-                : decision === "changes_requested"
-                  ? "change_request"
-                  : "client_comment",
-            created_at: new Date().toISOString(),
-          },
-        ]);
       }
       setRequestingSlot(null);
       setRequestText("");
@@ -216,7 +188,7 @@ export default function ClientPortalReviewPage() {
               <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
-                  disabled={readOnly || feedbackLimits.has_approved || submitting}
+                  disabled={readOnly || submitting}
                   onClick={() => void submitSectionDecision(slot, "approved")}
                   className="rounded-xl bg-orange-500 px-3 py-2 text-sm font-bold text-black hover:bg-orange-400 disabled:opacity-50"
                 >
@@ -224,7 +196,7 @@ export default function ClientPortalReviewPage() {
                 </button>
                 <button
                   type="button"
-                  disabled={readOnly || feedbackLimits.has_requested_changes || submitting}
+                  disabled={readOnly || submitting}
                   onClick={() => {
                     setRequestingSlot(slot);
                     setRequestText("");
@@ -237,21 +209,9 @@ export default function ClientPortalReviewPage() {
             </div>
           )}
         />
-        <section className="mt-6 rounded-3xl border border-neutral-200 bg-white p-6 shadow-xl">
-          <h2 className="text-xl font-bold">Your comments</h2>
-          {submittedStatus ? <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">Status updated: {submittedStatus.replace(/_/g, " ")}.</div> : null}
-          {error ? <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div> : null}
-          <div className="mt-4 space-y-3">
-            {comments.map((item) => (
-              <div key={item.id} className="rounded-2xl bg-neutral-100 p-4">
-                <p className="font-semibold">{item.author_name}</p>
-                <p className="mt-2 whitespace-pre-wrap text-neutral-700">{item.body}</p>
-              </div>
-            ))}
-            {comments.length === 0 ? <p className="text-neutral-500">Your submitted comments will appear here.</p> : null}
-          </div>
-          {readOnly ? <p className="mt-4 text-center text-xs text-neutral-500">This review is read-only.</p> : null}
-        </section>
+        {submittedStatus ? <div className="mt-6 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">Status updated: {submittedStatus.replace(/_/g, " ")}.</div> : null}
+        {error ? <div className="mt-6 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div> : null}
+        {readOnly ? <p className="mt-4 text-center text-xs text-neutral-500">This review is read-only.</p> : null}
       </div>
       {requestingSlot ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">

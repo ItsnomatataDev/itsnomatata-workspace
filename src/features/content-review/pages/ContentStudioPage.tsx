@@ -310,12 +310,6 @@ export default function ContentStudioPage() {
         });
         order += 1;
       }
-      await notifyContentReviewTeam({
-        draft: selectedDraft,
-        title: "Media uploaded",
-        message: `${Array.from(files).length} asset(s) were uploaded for ${selectedDraft.title}.`,
-        dedupeKey: `content-media:${selectedDraft.id}:${Date.now()}`,
-      });
       await loadDraftDetail(selectedDraft.id);
       setMessage(`${Array.from(files).length} asset(s) uploaded. Videos are compressed when the browser supports it.`);
     } catch (err) {

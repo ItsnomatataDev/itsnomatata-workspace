@@ -7,7 +7,6 @@ import {
   getPublicContentReview,
   submitPublicContentReviewFeedback,
   type ContentReviewAsset,
-  type ContentReviewComment,
   type ContentReviewDraft,
 } from "../services/contentReviewService";
 
@@ -19,18 +18,13 @@ export default function PublicClientReviewPage() {
   const { token = "" } = useParams();
   const [draft, setDraft] = useState<ContentReviewDraft | null>(null);
   const [assets, setAssets] = useState<ContentReviewAsset[]>([]);
-  const [comments, setComments] = useState<ContentReviewComment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [submittedStatus, setSubmittedStatus] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [requestingSlot, setRequestingSlot] = useState<ContentReviewDisplaySlot | null>(null);
   const [requestText, setRequestText] = useState("");
-  const [client, setClient] = useState({
-    name: "",
-    email: token ? localStorage.getItem(`content-review-email:${token}`) ?? "" : "",
-    company: "",
-  });
+  const [clientEmail] = useState(token ? localStorage.getItem(`content-review-email:${token}`) ?? "" : "");
 
   useEffect(() => {
     let mounted = true;
@@ -51,7 +45,6 @@ export default function PublicClientReviewPage() {
         }
         setDraft(result.draft ?? null);
         setAssets(result.assets ?? []);
-        setComments(result.comments ?? []);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to load review.");
       } finally {
@@ -75,10 +68,6 @@ export default function PublicClientReviewPage() {
   ) {
     if (!draft) return;
     const commentToUse = suppliedComment;
-    if (!client.name.trim() || !client.email.trim()) {
-      setError("Please enter your name and email.");
-      return;
-    }
     if (decision !== "approved" && !commentToUse.trim()) {
       setError("Please add a comment before submitting.");
       return;
@@ -89,9 +78,9 @@ export default function PublicClientReviewPage() {
       setError("");
       const result = await submitPublicContentReviewFeedback({
         token,
-        name: client.name,
-        email: client.email,
-        company: client.company,
+        name: "Client",
+        email: clientEmail || "client@review.local",
+        company: "",
         comment: commentToUse,
         decision,
       });
@@ -113,30 +102,8 @@ export default function PublicClientReviewPage() {
         );
         return;
       }
-      localStorage.setItem(`content-review-email:${token}`, client.email.trim().toLowerCase());
-      if (commentToUse.trim()) {
-        setComments((current) => [
-          ...current,
-          {
-            id: `local-${Date.now()}`,
-            draft_id: draft.id,
-            author_name: client.name.trim(),
-            author_email: client.email.trim(),
-            author_company: client.company.trim() || null,
-            body: commentToUse.trim(),
-            source: "client",
-            client_visible: true,
-            visibility: "client_visible",
-            author_type: "client",
-            comment_type:
-              decision === "approved"
-                ? "approval_note"
-                : decision === "changes_requested"
-                  ? "change_request"
-                  : "client_comment",
-            created_at: new Date().toISOString(),
-          },
-        ]);
+      if (clientEmail) {
+        localStorage.setItem(`content-review-email:${token}`, clientEmail.trim().toLowerCase());
       }
       setRequestingSlot(null);
       setRequestText("");
@@ -263,51 +230,15 @@ export default function PublicClientReviewPage() {
           )}
         />
 
-        <section className="mt-6 grid gap-6 lg:grid-cols-[1fr_380px]">
+        <section className="mt-6">
           <div className="rounded-3xl border border-neutral-200 bg-white p-6 shadow-xl">
-            <h2 className="text-xl font-bold">Your comments</h2>
-            <div className="mt-4 space-y-3">
-              {comments.length === 0 ? (
-                <p className="text-neutral-500">Your submitted comments will appear here.</p>
-              ) : (
-                comments.map((comment) => (
-                  <div key={comment.id} className="rounded-2xl bg-neutral-100 p-4">
-                    <p className="font-semibold">{comment.author_name}</p>
-                    <p className="mt-2 text-neutral-700">{comment.body}</p>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-
-          <div className="rounded-3xl border border-neutral-200 bg-white p-6 shadow-xl">
-            <h2 className="text-xl font-bold">Client details</h2>
+            <h2 className="text-xl font-bold">Feedback status</h2>
             {error ? (
               <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
                 {error}
               </div>
             ) : null}
-            <div className="mt-4 space-y-3">
-              <input
-                value={client.name}
-                onChange={(event) => setClient({ ...client, name: event.target.value })}
-                placeholder="Name"
-                className={inputClassName()}
-              />
-              <input
-                type="email"
-                value={client.email}
-                onChange={(event) => setClient({ ...client, email: event.target.value })}
-                placeholder="Email"
-                className={inputClassName()}
-              />
-              <input
-                value={client.company}
-                onChange={(event) => setClient({ ...client, company: event.target.value })}
-                placeholder="Company (optional)"
-                className={inputClassName()}
-              />
-            </div>
+            {submittedStatus ? <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">Status updated: {submittedStatus.replace(/_/g, " ")}.</div> : null}
             {readOnly ? (
               <p className="mt-4 text-center text-xs text-neutral-500">
                 This review is read-only.
