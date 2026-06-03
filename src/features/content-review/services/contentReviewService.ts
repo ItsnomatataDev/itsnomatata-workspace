@@ -198,6 +198,17 @@ export type ContentStudioImageAnalysis = {
 const BUCKET = "content-review-assets";
 const ASSET_RETENTION_DAYS = 60;
 const SCHEDULE_RETENTION_DAYS = 60;
+const MAINTENANCE_INTERVAL_MS = 5 * 60 * 1000;
+let lastContentReviewMaintenanceAt = 0;
+
+/** Runs storage/schedule cleanup at most once every five minutes per browser session. */
+export async function runContentReviewMaintenanceIfDue() {
+  const now = Date.now();
+  if (now - lastContentReviewMaintenanceAt < MAINTENANCE_INTERVAL_MS) return;
+  lastContentReviewMaintenanceAt = now;
+  await cleanupExpiredContentReviewAssets();
+  await purgeOldContentReviewSchedules();
+}
 export const CONTENT_REVIEW_UPLOAD_LIMIT_BYTES = 1024 * 1024 * 1024;
 const VIDEO_TARGET_BITS_PER_SECOND = 2_500_000;
 const AUDIO_TARGET_BITS_PER_SECOND = 128_000;
@@ -279,14 +290,18 @@ export async function purgeOldContentReviewSchedules(
   return (data ?? { ok: true, deleted: 0 }) as { ok: boolean; deleted: number };
 }
 
-export async function listContentReviewDrafts(params: {
-  organizationId: string;
-  officeId: string;
-  status?: ContentReviewStatus | "all";
-  clientId?: string;
-}) {
-  await cleanupExpiredContentReviewAssets();
-  await purgeOldContentReviewSchedules();
+export async function listContentReviewDrafts(
+  params: {
+    organizationId: string;
+    officeId: string;
+    status?: ContentReviewStatus | "all";
+    clientId?: string;
+  },
+  options?: { skipMaintenance?: boolean },
+) {
+  if (!options?.skipMaintenance) {
+    await runContentReviewMaintenanceIfDue();
+  }
 
   const retentionCutoff = new Date(
     Date.now() - SCHEDULE_RETENTION_DAYS * 86400000,
@@ -312,13 +327,83 @@ export async function listContentReviewDrafts(params: {
   return (data ?? []) as ContentReviewDraft[];
 }
 
+export async function listContentReviewAssetsForDrafts(params: {
+  organizationId: string;
+  officeId: string;
+  draftIds: string[];
+}) {
+  if (params.draftIds.length === 0) return [] as ContentReviewAsset[];
+
+  const expiresCutoff = new Date().toISOString();
+  const { data, error } = await supabase
+    .from("content_review_assets")
+    .select("*")
+    .eq("organization_id", params.organizationId)
+    .eq("office_id", params.officeId)
+    .in("draft_id", params.draftIds)
+    .gte("expires_at", expiresCutoff)
+    .order("display_slot", { ascending: true })
+    .order("sort_order", { ascending: true })
+    .order("created_at", { ascending: true });
+
+  if (error) throw error;
+  return (data ?? []) as ContentReviewAsset[];
+}
+
+/** Lightweight detail map for dashboards (draft + assets only, no comments/activity). */
+export function buildContentReviewDetailsIndex(
+  drafts: ContentReviewDraft[],
+  assets: ContentReviewAsset[],
+): Record<string, ContentReviewDetail> {
+  const assetsByDraftId = new Map<string, ContentReviewAsset[]>();
+  for (const asset of assets) {
+    const bucket = assetsByDraftId.get(asset.draft_id) ?? [];
+    bucket.push(asset);
+    assetsByDraftId.set(asset.draft_id, bucket);
+  }
+
+  const index: Record<string, ContentReviewDetail> = {};
+  for (const draft of drafts) {
+    index[draft.id] = {
+      draft,
+      assets: assetsByDraftId.get(draft.id) ?? [],
+      comments: [],
+      activity: [],
+    };
+  }
+  return index;
+}
+
+export async function loadContentStudioClientSnapshot(params: {
+  organizationId: string;
+  officeId: string;
+  clientId: string;
+}) {
+  const clientDrafts = await listContentReviewDrafts(
+    {
+      organizationId: params.organizationId,
+      officeId: params.officeId,
+      clientId: params.clientId,
+    },
+    { skipMaintenance: true },
+  );
+  const assets = await listContentReviewAssetsForDrafts({
+    organizationId: params.organizationId,
+    officeId: params.officeId,
+    draftIds: clientDrafts.map((draft) => draft.id),
+  });
+  return {
+    clientDrafts,
+    detailsByDraftId: buildContentReviewDetailsIndex(clientDrafts, assets),
+  };
+}
+
 export async function getContentReviewDetail(params: {
   organizationId: string;
   officeId: string;
   draftId: string;
 }): Promise<ContentReviewDetail> {
-  await cleanupExpiredContentReviewAssets();
-  await purgeOldContentReviewSchedules();
+  await runContentReviewMaintenanceIfDue();
   const [draftResult, assetsResult, commentsResult, activityResult] =
     await Promise.all([
       supabase
@@ -646,13 +731,17 @@ export async function listContentClientMedia(params: {
   officeId: string;
   clientId: string;
   uploadedBy?: string | null;
+  /** Post→library sync is expensive; enable on Media tab or after uploads. */
+  syncFromPosts?: boolean;
 }) {
-  await syncClientMediaFromPostAssets({
-    organizationId: params.organizationId,
-    officeId: params.officeId,
-    clientId: params.clientId,
-    uploadedBy: params.uploadedBy ?? null,
-  });
+  if (params.syncFromPosts) {
+    await syncClientMediaFromPostAssets({
+      organizationId: params.organizationId,
+      officeId: params.officeId,
+      clientId: params.clientId,
+      uploadedBy: params.uploadedBy ?? null,
+    });
+  }
 
   await deduplicateContentClientMediaLibrary({
     organizationId: params.organizationId,
@@ -678,11 +767,14 @@ export async function syncClientMediaFromPostAssets(params: {
   clientId: string;
   uploadedBy?: string | null;
 }) {
-  const drafts = await listContentReviewDrafts({
-    organizationId: params.organizationId,
-    officeId: params.officeId,
-    clientId: params.clientId,
-  });
+  const drafts = await listContentReviewDrafts(
+    {
+      organizationId: params.organizationId,
+      officeId: params.officeId,
+      clientId: params.clientId,
+    },
+    { skipMaintenance: true },
+  );
   if (drafts.length === 0) return [];
 
   const draftIds = drafts.map((draft) => draft.id);

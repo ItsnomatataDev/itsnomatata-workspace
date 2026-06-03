@@ -44,6 +44,7 @@ export default function ContentClientMediaLibrary({
   onUploaded,
   onDeleted,
   compact = false,
+  syncFromPostsOnLoad = false,
 }: {
   client: ContentClient;
   organizationId: string;
@@ -55,6 +56,8 @@ export default function ContentClientMediaLibrary({
   onUploaded?: () => void;
   onDeleted?: () => void;
   compact?: boolean;
+  /** Syncs post media into the library (slower). Use on the dedicated Media tab. */
+  syncFromPostsOnLoad?: boolean;
 }) {
   const [items, setItems] = useState<ContentClientMedia[]>([]);
   const [loading, setLoading] = useState(true);
@@ -71,6 +74,7 @@ export default function ContentClientMediaLibrary({
           officeId,
           clientId: client.id,
           uploadedBy: userId,
+          syncFromPosts: syncFromPostsOnLoad,
         }),
       );
     } catch (err) {
@@ -78,7 +82,7 @@ export default function ContentClientMediaLibrary({
     } finally {
       setLoading(false);
     }
-  }, [client.id, officeId, organizationId]);
+  }, [client.id, officeId, organizationId, syncFromPostsOnLoad, userId]);
 
   useEffect(() => {
     void load();
@@ -96,7 +100,15 @@ export default function ContentClientMediaLibrary({
           uploadedBy: userId,
         });
       }
-      await load();
+      setItems(
+        await listContentClientMedia({
+          organizationId,
+          officeId,
+          clientId: client.id,
+          uploadedBy: userId,
+          syncFromPosts: true,
+        }),
+      );
       onUploaded?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to upload media.");

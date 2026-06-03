@@ -9,17 +9,20 @@ import {
   analyzeContentStudioImage,
   assertCanUseContentStudio,
   buildClientPortalUrl,
+  buildContentReviewDetailsIndex,
   createContentClient,
   ensureClientPostSlots,
   deleteContentClient,
   deleteContentReviewDraft,
   generateContentStudioCaption,
   getContentClient,
-  getContentReviewDetail,
   listContentClients,
+  listContentReviewAssetsForDrafts,
   listContentReviewDrafts,
+  loadContentStudioClientSnapshot,
   regenerateContentClientPin,
   regenerateContentReviewLink,
+  runContentReviewMaintenanceIfDue,
   updateContentReviewDraft,
   type ContentReviewAsset,
   type ContentClient,
@@ -137,40 +140,38 @@ export default function ContentStudioClientsPage() {
     try {
       setLoading(true);
       setError("");
+      await runContentReviewMaintenanceIfDue();
       const office = await assertCanUseContentStudio({
         organizationId,
         officeId: profile?.office_id ?? null,
         role: profile?.primary_role ?? null,
       });
       setOfficeId(office.id);
-      const allClients = await listContentClients({ organizationId, officeId: office.id });
+
+      const [allClients, allDrafts] = await Promise.all([
+        listContentClients({ organizationId, officeId: office.id }),
+        listContentReviewDrafts(
+          { organizationId, officeId: office.id },
+          { skipMaintenance: true },
+        ),
+      ]);
       setClients(allClients);
 
-      const entries = await Promise.all(
-        allClients.map(async (entry) => {
-          const clientDrafts = await listContentReviewDrafts({
-            organizationId,
-            officeId: office.id,
-            clientId: entry.id,
-          });
-          return [entry.id, clientDrafts] as const;
-        }),
-      );
-      const draftMap = Object.fromEntries(entries);
+      const draftMap: Record<string, ContentReviewDraft[]> = {};
+      for (const draft of allDrafts) {
+        if (!draft.client_id) continue;
+        const bucket = draftMap[draft.client_id] ?? [];
+        bucket.push(draft);
+        draftMap[draft.client_id] = bucket;
+      }
       setAllClientDrafts(draftMap);
 
-      const allDraftIds = entries.flatMap(([, list]) => list.map((item) => item.id));
-      const detailEntries = await Promise.all(
-        allDraftIds.map(async (draftId) => {
-          const detail = await getContentReviewDetail({
-            organizationId,
-            officeId: office.id,
-            draftId,
-          });
-          return [draftId, detail] as const;
-        }),
-      );
-      setDetailsByDraftId(Object.fromEntries(detailEntries));
+      const assets = await listContentReviewAssetsForDrafts({
+        organizationId,
+        officeId: office.id,
+        draftIds: allDrafts.map((draft) => draft.id),
+      });
+      setDetailsByDraftId(buildContentReviewDetailsIndex(allDrafts, assets));
 
       if (clientId && userId) {
         const nextClient = await getContentClient({ organizationId, officeId: office.id, clientId });
@@ -181,14 +182,14 @@ export default function ContentStudioClientsPage() {
           clientId,
           createdBy: userId,
         });
-        const clientDrafts = await listContentReviewDrafts({
+        const snapshot = await loadContentStudioClientSnapshot({
           organizationId,
           officeId: office.id,
           clientId,
         });
-        draftMap[clientId] = clientDrafts;
-        setAllClientDrafts((current) => ({ ...current, [clientId]: clientDrafts }));
-        setDrafts(clientDrafts);
+        setAllClientDrafts((current) => ({ ...current, [clientId]: snapshot.clientDrafts }));
+        setDetailsByDraftId((current) => ({ ...current, ...snapshot.detailsByDraftId }));
+        setDrafts(snapshot.clientDrafts);
       } else if (clientId) {
         const nextClient = await getContentClient({ organizationId, officeId: office.id, clientId });
         setClient(nextClient);
@@ -728,6 +729,7 @@ export default function ContentStudioClientsPage() {
                       organizationId={organizationId}
                       officeId={officeId}
                       userId={userId}
+                      syncFromPostsOnLoad
                       onUploaded={() => setMessage("Client media library updated.")}
                     />
                   </div>

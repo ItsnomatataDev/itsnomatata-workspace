@@ -158,7 +158,6 @@ export default function ContentStudioEditorPage() {
         role: profile?.primary_role ?? null,
       });
       setOfficeId(office.id);
-      setClients(await listContentClients({ organizationId, officeId: office.id }));
       const nextDetail = await getContentReviewDetail({
         organizationId,
         officeId: office.id,
@@ -195,6 +194,23 @@ export default function ContentStudioEditorPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!organizationId || !officeId) return;
+    if (activeTab !== "details" && !libraryOpen) return;
+    if (clients.length > 0) return;
+    let cancelled = false;
+    void listContentClients({ organizationId, officeId })
+      .then((rows) => {
+        if (!cancelled) setClients(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setClients([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, clients.length, libraryOpen, officeId, organizationId]);
 
   useEffect(() => {
     if (!organizationId || !officeId || !form?.client_id) {
