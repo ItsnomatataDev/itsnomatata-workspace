@@ -573,12 +573,8 @@ export async function ensureClientMonthlySchedule(params: {
     });
   }
 
-  const deleteTargets = [
-    ...legacy.filter((draft) => draft.id !== schedule.id),
-    ...nonLegacy.filter(
-      (draft) => draft.id !== schedule.id && draftScheduleMonthKey(draft) === monthKey,
-    ),
-  ];
+  // Only remove duplicate legacy "Post N" slot rows — never delete other assigned schedules.
+  const deleteTargets = legacy.filter((draft) => draft.id !== schedule.id);
 
   for (const draft of deleteTargets) {
     try {

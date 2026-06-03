@@ -56,14 +56,20 @@ import {
 } from "../utils/contentStudioProgress";
 import {
   contentStudioCopy,
+  defaultScheduleTitle,
   formatScheduleMonthLabel,
   scheduleMonthKey,
 } from "../utils/contentStudioTerms";
 import {
   buildSchedulePostRows,
+  draftScheduleMonthKey,
   formatScheduleDate,
   getScheduleBatchReadiness,
+  isLegacyPostSlotDraft,
+  listClientScheduleDrafts,
   resolveClientScheduleDraft,
+  scheduleMonthStartIso,
+  schedulesForMonth,
 } from "../utils/contentStudioSchedule";
 import type { ContentStudioEditorFocusTab } from "../utils/contentStudioEditorNav";
 
@@ -146,8 +152,23 @@ function assetsForDraft(detail: ContentReviewDetail | undefined) {
   return detail?.assets?.filter((asset) => asset.is_selected !== false) ?? [];
 }
 
+const CONTENT_STUDIO_LAST_CLIENT_KEY = "content-studio:last-client-id";
+
+function contentStudioClientPath(clientId: string) {
+  return `/admin/content-studio/clients/${clientId}`;
+}
+
+function openClientWorkspaceExternally(clientId: string) {
+  window.open(
+    `${window.location.origin}${contentStudioClientPath(clientId)}`,
+    "_blank",
+    "noopener,noreferrer",
+  );
+}
+
 export default function ContentStudioClientsPage() {
   const { clientId } = useParams();
+  const isClientRoute = Boolean(clientId);
   const navigate = useNavigate();
   const auth = useAuth();
   const profile = auth.profile;
@@ -193,6 +214,9 @@ export default function ContentStudioClientsPage() {
   const [assignClientByDraftId, setAssignClientByDraftId] = useState<
     Record<string, string>
   >({});
+  const [selectedScheduleId, setSelectedScheduleId] = useState<string | null>(
+    null,
+  );
 
   const portalUrl = useMemo(
     () => (client ? buildClientPortalUrl(client.portal_token) : ""),
@@ -200,7 +224,10 @@ export default function ContentStudioClientsPage() {
   );
 
   const load = useCallback(async () => {
-    if (!organizationId) return;
+    if (!organizationId) {
+      if (clientId) setLoading(true);
+      return;
+    }
     try {
       setLoading(true);
       setError("");
@@ -313,7 +340,10 @@ export default function ContentStudioClientsPage() {
   }, [load]);
 
   useEffect(() => {
-    if (clientId) setActiveClientTab("schedule");
+    if (clientId) {
+      sessionStorage.setItem(CONTENT_STUDIO_LAST_CLIENT_KEY, clientId);
+      setActiveClientTab("schedule");
+    }
   }, [clientId]);
 
   function openPostEditor(
@@ -342,12 +372,18 @@ export default function ContentStudioClientsPage() {
   }
 
   const dashboardRows = useMemo<ClientProgress[]>(() => {
+    const dashboardMonth =
+      monthFilter !== "all" ? monthFilter : scheduleMonthKey();
     return clients.map((entry) => {
       const clientDraftList = allClientDrafts[entry.id] ?? [];
-      const scheduleDraft = resolveClientScheduleDraft(
-        clientDraftList,
-        monthFilter !== "all" ? monthFilter : scheduleMonthKey(),
-      );
+      const allSchedules = listClientScheduleDrafts(clientDraftList);
+      const monthSchedules =
+        monthFilter !== "all"
+          ? schedulesForMonth(clientDraftList, dashboardMonth)
+          : allSchedules;
+      const scheduleDraft =
+        monthSchedules[0] ??
+        resolveClientScheduleDraft(clientDraftList, dashboardMonth);
       const scheduleAssets = scheduleDraft
         ? assetsForDraft(detailsByDraftId[scheduleDraft.id])
         : [];
@@ -378,7 +414,12 @@ export default function ContentStudioClientsPage() {
 
       return {
         client: entry,
-        drafts: scheduleDraft ? [scheduleDraft] : [],
+        drafts:
+          monthSchedules.length > 0
+            ? monthSchedules
+            : scheduleDraft
+              ? [scheduleDraft]
+              : allSchedules,
         detailsByDraftId,
         batch,
         overallStatus,
@@ -391,10 +432,46 @@ export default function ContentStudioClientsPage() {
     return scheduleMonthKey();
   }, [monthFilter]);
 
-  const activeScheduleDraft = useMemo(
-    () => resolveClientScheduleDraft(drafts, activeScheduleMonth),
+  const clientScheduleDrafts = useMemo(
+    () => listClientScheduleDrafts(drafts),
+    [drafts],
+  );
+
+  const schedulesInActiveMonth = useMemo(
+    () => schedulesForMonth(drafts, activeScheduleMonth),
     [drafts, activeScheduleMonth],
   );
+
+  useEffect(() => {
+    if (!clientId) {
+      setSelectedScheduleId(null);
+      return;
+    }
+    const preferred =
+      schedulesInActiveMonth[0] ??
+      resolveClientScheduleDraft(drafts, activeScheduleMonth);
+    if (!preferred) {
+      setSelectedScheduleId(null);
+      return;
+    }
+    setSelectedScheduleId((current) => {
+      if (current && drafts.some((draft) => draft.id === current)) {
+        return current;
+      }
+      return preferred.id;
+    });
+  }, [clientId, drafts, activeScheduleMonth, schedulesInActiveMonth]);
+
+  const activeScheduleDraft = useMemo(() => {
+    if (selectedScheduleId) {
+      const selected = drafts.find((draft) => draft.id === selectedScheduleId);
+      if (selected && !isLegacyPostSlotDraft(selected)) return selected;
+    }
+    return (
+      schedulesInActiveMonth[0] ??
+      resolveClientScheduleDraft(drafts, activeScheduleMonth)
+    );
+  }, [drafts, activeScheduleMonth, schedulesInActiveMonth, selectedScheduleId]);
 
   const schedulePostRows = useMemo(() => {
     if (!activeScheduleDraft) return [];
@@ -420,13 +497,9 @@ export default function ContentStudioClientsPage() {
       if (statusFilter !== "all" && row.overallStatus !== statusFilter)
         return false;
       if (monthFilter !== "all") {
-        const hasMonth = row.drafts.some((draft) => {
-          if (!draft.scheduled_at) return false;
-          return (
-            new Date(draft.scheduled_at).toISOString().slice(0, 7) ===
-            monthFilter
-          );
-        });
+        const hasMonth = row.drafts.some(
+          (draft) => draftScheduleMonthKey(draft) === monthFilter,
+        );
         if (!hasMonth) return false;
       }
       return true;
@@ -637,9 +710,20 @@ export default function ContentStudioClientsPage() {
     try {
       setSaving(true);
       setError("");
-      await updateContentReviewDraft(draft, { client_id: targetClientId });
+      const monthKey = draftScheduleMonthKey(draft);
+      const updates: Partial<ContentReviewDraft> = {
+        client_id: targetClientId,
+        scheduled_at: draft.scheduled_at ?? scheduleMonthStartIso(monthKey),
+      };
+      if (isLegacyPostSlotDraft(draft)) {
+        updates.title = defaultScheduleTitle(monthKey);
+      }
+      if (draft.status === "draft") {
+        updates.status = "ready_for_review";
+      }
+      await updateContentReviewDraft(draft, updates);
       setMessage(
-        `Assigned "${draft.title}" to ${targetClient?.company_name ?? "client"}.`,
+        `Assigned "${updates.title ?? draft.title}" to ${targetClient?.company_name ?? "client"}. Open their workspace to view all schedules.`,
       );
       setAssignClientByDraftId((current) => {
         const next = { ...current };
@@ -714,7 +798,43 @@ export default function ContentStudioClientsPage() {
     return (
       <div className="flex min-h-screen items-center justify-center bg-black text-white">
         <Loader2 className="mr-2 animate-spin" size={18} />
-        Loading content studio dashboard...
+        {isClientRoute
+          ? "Loading client workspace..."
+          : "Loading content studio..."}
+      </div>
+    );
+  }
+
+  if (isClientRoute && !client) {
+    return (
+      <div className="flex min-h-screen flex-col bg-black text-white">
+        <div className="flex flex-1 flex-col lg:flex-row">
+          <Sidebar role={profile?.primary_role ?? null} />
+          <main className="flex min-w-0 flex-1 flex-col items-center justify-center px-6 py-12">
+            <p className="text-lg font-semibold text-white">
+              Could not open this client workspace
+            </p>
+            <p className="mt-2 max-w-md text-center text-sm text-white/55">
+              {error ||
+                "The client may have been removed or you may not have access. Try again or return to all clients."}
+            </p>
+            <div className="mt-6 flex flex-wrap justify-center gap-3">
+              <button
+                type="button"
+                onClick={() => void load()}
+                className="rounded-xl bg-orange-500 px-4 py-3 text-sm font-bold text-black"
+              >
+                Retry
+              </button>
+              <Link
+                to="/admin/content-studio/clients"
+                className="rounded-xl border border-white/10 px-4 py-3 text-sm font-semibold text-white/75"
+              >
+                All clients
+              </Link>
+            </div>
+          </main>
+        </div>
       </div>
     );
   }
@@ -776,7 +896,7 @@ export default function ContentStudioClientsPage() {
             </div>
           ) : null}
 
-          {!client ? (
+          {!isClientRoute ? (
             <div className="space-y-4">
               <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-white/10 bg-white/5 p-3">
                 <input
@@ -954,7 +1074,7 @@ export default function ContentStudioClientsPage() {
                     >
                       <div>
                         <Link
-                          to={`/admin/content-studio/clients/${row.client.id}`}
+                          to={contentStudioClientPath(row.client.id)}
                           className="font-semibold text-white hover:text-orange-200"
                         >
                           {row.client.company_name}
@@ -1001,16 +1121,17 @@ export default function ContentStudioClientsPage() {
                           : "-"}
                       </div>
                       <div>
-                        <a
-                          href={buildClientPortalUrl(row.client.portal_token)}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          title="Opens the client review portal in a new tab (email + PIN required)"
+                        <button
+                          type="button"
+                          onClick={() =>
+                            openClientWorkspaceExternally(row.client.id)
+                          }
+                          title="Opens this client's workspace in a new tab (same URL as the client page). Client portal link is under Links in that workspace."
                           className="inline-flex items-center gap-1.5 rounded-lg border border-orange-500/30 bg-orange-500/10 px-3 py-2 text-xs font-semibold text-orange-100 hover:bg-orange-500/20"
                         >
-                          Open portal
+                          Open client
                           <ExternalLink size={12} aria-hidden />
-                        </a>
+                        </button>
                       </div>
                     </div>
                   ))}
@@ -1333,6 +1454,37 @@ export default function ContentStudioClientsPage() {
 
               {activeClientTab === "schedule" ? (
                 <section className="rounded-2xl border border-white/10 bg-white/5 p-5">
+                  {clientScheduleDrafts.length > 1 ? (
+                    <label className="mb-4 block max-w-xl space-y-1.5">
+                      <span className="text-[11px] font-semibold uppercase tracking-wide text-white/40">
+                        Schedules for this client
+                      </span>
+                      <select
+                        className={inputClassName()}
+                        value={selectedScheduleId ?? activeScheduleDraft?.id ?? ""}
+                        onChange={(event) =>
+                          setSelectedScheduleId(event.target.value)
+                        }
+                      >
+                        {clientScheduleDrafts.map((draft) => (
+                          <option key={draft.id} value={draft.id}>
+                            {draft.title?.trim() ||
+                              formatScheduleMonthLabel(
+                                draftScheduleMonthKey(draft),
+                              )}{" "}
+                            · {formatScheduleMonthLabel(draftScheduleMonthKey(draft))}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="text-[11px] text-white/45">
+                        {schedulesInActiveMonth.length === 0
+                          ? `No schedule dated ${formatScheduleMonthLabel(activeScheduleMonth)} — showing another month. Change the month filter above or pick a schedule.`
+                          : schedulesInActiveMonth.length > 1
+                            ? `${schedulesInActiveMonth.length} schedules in ${formatScheduleMonthLabel(activeScheduleMonth)}.`
+                            : null}
+                      </p>
+                    </label>
+                  ) : null}
                   {activeScheduleDraft && clientBatch ? (
                     <>
                       <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">

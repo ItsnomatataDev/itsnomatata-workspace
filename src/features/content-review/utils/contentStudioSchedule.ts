@@ -39,16 +39,36 @@ export function formatScheduleDate(draft: Pick<ContentReviewDraft, "scheduled_at
   }).format(date);
 }
 
+/** All schedule-level drafts for a client (excludes legacy per-post "Post N" rows). */
+export function listClientScheduleDrafts(drafts: ContentReviewDraft[]) {
+  return drafts
+    .filter((draft) => !isLegacyPostSlotDraft(draft))
+    .sort((a, b) => {
+      const monthCmp = draftScheduleMonthKey(b).localeCompare(
+        draftScheduleMonthKey(a),
+      );
+      if (monthCmp !== 0) return monthCmp;
+      return b.updated_at.localeCompare(a.updated_at);
+    });
+}
+
+export function schedulesForMonth(
+  drafts: ContentReviewDraft[],
+  monthKey: string,
+) {
+  return listClientScheduleDrafts(drafts).filter(
+    (draft) => draftScheduleMonthKey(draft) === monthKey,
+  );
+}
+
 export function resolveClientScheduleDraft(
   drafts: ContentReviewDraft[],
   monthKey: string = scheduleMonthKey(),
 ) {
-  const nonLegacy = drafts.filter((draft) => !isLegacyPostSlotDraft(draft));
-  return (
-    nonLegacy.find((draft) => draftScheduleMonthKey(draft) === monthKey) ??
-    [...nonLegacy].sort((a, b) => b.updated_at.localeCompare(a.updated_at))[0] ??
-    null
-  );
+  const inMonth = schedulesForMonth(drafts, monthKey);
+  if (inMonth.length > 0) return inMonth[0];
+  const nonLegacy = listClientScheduleDrafts(drafts);
+  return nonLegacy[0] ?? null;
 }
 
 export type SchedulePostRow = {
