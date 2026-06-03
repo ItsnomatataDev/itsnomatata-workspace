@@ -76,6 +76,8 @@ import ContentStudioPage from "../../features/content-review/pages/ContentStudio
 import ContentStudioEditorPage from "../../features/content-review/pages/ContentStudioEditorPage";
 import ContentStudioClientsPage from "../../features/content-review/pages/ContentStudioClientsPage";
 import ContentStudioRoute from "./ContentStudioRoute";
+import CatchAllRedirect from "./CatchAllRedirect";
+import AuthReturnPathListener from "./AuthReturnPathListener";
 import PublicClientReviewPage from "../../features/content-review/pages/PublicClientReviewPage";
 import ClientPortalLoginPage from "../../features/content-review/pages/ClientPortalLoginPage";
 import ClientPortalPage from "../../features/content-review/pages/ClientPortalPage";
@@ -89,6 +91,7 @@ function ContentStudioClientLegacyRedirect() {
 const AppRouter = () => {
   return (
     <BrowserRouter>
+      <AuthReturnPathListener />
       <Routes>
         {/* Auth routes */}
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
@@ -1093,7 +1096,7 @@ const AppRouter = () => {
           }
         />
 
-        <Route path="*" element={<Navigate to="/dashboard" replace />} />
+        <Route path="*" element={<CatchAllRedirect />} />
       </Routes>
     </BrowserRouter>
   );

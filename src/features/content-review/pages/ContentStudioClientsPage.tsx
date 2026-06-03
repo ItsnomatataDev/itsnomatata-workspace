@@ -19,6 +19,7 @@ import {
 import { Link, useNavigate, useParams } from "react-router-dom";
 import Sidebar from "../../../components/dashboard/components/Sidebar";
 import { useAuth } from "../../../app/providers/AuthProvider";
+import { rememberAuthReturnPath } from "../../../lib/auth/returnPath";
 import ContentClientMediaLibrary from "../components/ContentClientMediaLibrary";
 import { ContentReviewRenderer } from "../components/ContentReviewRenderer";
 import {
@@ -158,14 +159,6 @@ function contentStudioClientPath(clientId: string) {
   return `/admin/content-studio/clients/${clientId}`;
 }
 
-function openClientWorkspaceExternally(clientId: string) {
-  window.open(
-    `${window.location.origin}${contentStudioClientPath(clientId)}`,
-    "_blank",
-    "noopener,noreferrer",
-  );
-}
-
 export default function ContentStudioClientsPage() {
   const { clientId } = useParams();
   const isClientRoute = Boolean(clientId);
@@ -236,6 +229,11 @@ export default function ContentStudioClientsPage() {
         organizationId,
         officeId: profile?.office_id ?? null,
         role: profile?.primary_role ?? null,
+        roles: [
+          profile?.primary_role,
+          profile?.organization_role_key,
+          auth?.currentOrganization?.role,
+        ],
       });
       setOfficeId(office.id);
 
@@ -338,6 +336,10 @@ export default function ContentStudioClientsPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    rememberAuthReturnPath();
+  }, [clientId]);
 
   useEffect(() => {
     if (clientId) {
@@ -1121,17 +1123,16 @@ export default function ContentStudioClientsPage() {
                           : "-"}
                       </div>
                       <div>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            openClientWorkspaceExternally(row.client.id)
-                          }
-                          title="Opens this client's workspace in a new tab (same URL as the client page). Client portal link is under Links in that workspace."
+                        <Link
+                          to={contentStudioClientPath(row.client.id)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title="Opens this client's workspace in a new tab. Client portal link is under Links in that workspace."
                           className="inline-flex items-center gap-1.5 rounded-lg border border-orange-500/30 bg-orange-500/10 px-3 py-2 text-xs font-semibold text-orange-100 hover:bg-orange-500/20"
                         >
                           Open client
                           <ExternalLink size={12} aria-hidden />
-                        </button>
+                        </Link>
                       </div>
                     </div>
                   ))}

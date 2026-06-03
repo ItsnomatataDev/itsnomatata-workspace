@@ -28,20 +28,23 @@ export default function RoleRoute({
     );
   }
 
-  const role =
-    auth.currentOrganization?.role ??
-    auth.profile?.organization_role_key ??
-    auth.profile?.primary_role ??
-    null;
+  const roleCandidates = [
+    auth.currentOrganization?.role,
+    auth.profile?.organization_role_key,
+    auth.profile?.primary_role,
+  ].filter((value): value is string => Boolean(value));
 
   if (!auth.user) {
     return <Navigate to="/login" replace />;
   }
 
   const roleAllowed =
-    !roles || (role ? roles.includes(role as AppRole) : false);
+    !roles ||
+    roleCandidates.some((role) => roles.includes(role as AppRole));
 
-  const permissionAllowed = !permissions || hasAnyPermission(role, permissions);
+  const permissionAllowed =
+    !permissions ||
+    roleCandidates.some((role) => hasAnyPermission(role, permissions));
 
   if (!roleAllowed || !permissionAllowed) {
     return <Navigate to={fallbackTo} replace />;

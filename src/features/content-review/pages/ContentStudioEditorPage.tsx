@@ -169,6 +169,11 @@ export default function ContentStudioEditorPage() {
         organizationId,
         officeId: profile?.office_id ?? null,
         role: profile?.primary_role ?? null,
+        roles: [
+          profile?.primary_role,
+          profile?.organization_role_key,
+          auth.currentOrganization?.role,
+        ],
       });
       setOfficeId(office.id);
       const nextDetail = await getContentReviewDetail({

@@ -10,6 +10,7 @@ import {
   scheduleMonthStartIso,
 } from "../utils/contentStudioSchedule";
 import { scheduleMonthKey } from "../utils/contentStudioTerms";
+import { CONTENT_STUDIO_ROLES } from "../../../lib/auth/contentStudioAccess";
 
 export type ContentReviewStatus =
   | "draft"
@@ -287,8 +288,14 @@ export async function assertCanUseContentStudio(params: {
   organizationId: string;
   officeId?: string | null;
   role?: string | null;
+  roles?: Array<string | null | undefined>;
 }) {
-  if (!["admin", "social_media", "media_team"].includes(String(params.role ?? ""))) {
+  const roleCandidates = [
+    ...(params.roles ?? []),
+    params.role,
+  ].filter((value): value is string => Boolean(value));
+
+  if (!roleCandidates.some((role) => CONTENT_STUDIO_ROLES.has(role))) {
     throw new Error("You do not have access to Content Studio.");
   }
 

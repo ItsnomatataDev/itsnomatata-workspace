@@ -81,6 +81,9 @@ function isTrustedCompanySignup(
 }
 
 export function getDefaultAuthenticatedPath(role?: string | null) {
+  if (role === "social_media" || role === "media_team") {
+    return "/admin/content-studio/clients";
+  }
   return role && ADMIN_PORTAL_ROLES.has(role) ? "/admin/dashboard" : "/dashboard";
 }
 
@@ -121,7 +124,7 @@ async function getProfileRoleForUser(userId: string) {
   );
 }
 
-async function getDefaultPathForUser(userId: string, email?: string | null) {
+export async function getDefaultPathForUser(userId: string, email?: string | null) {
   const inviteRole = email ? await getInviteRoleForEmail(email) : null;
   const profileRole = await getProfileRoleForUser(userId);
   return getDefaultAuthenticatedPath(inviteRole ?? profileRole);
@@ -252,7 +255,7 @@ export async function signInWithGoogle() {
         queryParams: {
           prompt: "select_account",
         },
-        redirectTo: `${window.location.origin}/dashboard`,
+        redirectTo: `${window.location.origin}${window.location.pathname}${window.location.search}${window.location.hash}`,
       },
     });
 

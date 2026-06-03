@@ -237,6 +237,7 @@ function toProfileCompatibleRole(roleKey?: string | null): AppRole {
       "manager",
       "hr",
       "it",
+      "it-superadmin",
       "social_media",
       "media_team",
       "seo_specialist",
@@ -575,7 +576,14 @@ export function AuthProvider({
           }
         : nextCurrentOrganization;
 
-      const safeRole = toProfileCompatibleRole(effectiveCurrentOrganization?.role);
+      const membershipRole = toProfileCompatibleRole(
+        effectiveCurrentOrganization?.role,
+      );
+      const profilePrimaryRole = nextProfile
+        ? toProfileCompatibleRole(
+            nextProfile.primary_role ?? nextProfile.organization_role_key,
+          )
+        : ("user" as AppRole);
       const safeProfile = nextProfile
         ? {
             ...nextProfile,
@@ -583,11 +591,12 @@ export function AuthProvider({
               effectiveCurrentOrganization?.organization_id ??
               nextProfile.organization_id ??
               null,
-            primary_role: safeRole,
+            primary_role:
+              profilePrimaryRole !== "user" ? profilePrimaryRole : membershipRole,
             organization_role_key:
               effectiveCurrentOrganization?.role ??
               nextProfile.organization_role_key ??
-              safeRole,
+              membershipRole,
             active_membership:
               nextMemberships.find(
                 (membership) =>

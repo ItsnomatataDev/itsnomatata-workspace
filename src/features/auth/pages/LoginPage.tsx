@@ -1,7 +1,17 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Eye, EyeOff } from "lucide-react";
-import { signInUser, signInWithGoogle } from "../../../lib/supabase/auth";
+import { supabase } from "../../../lib/supabase/client";
+import {
+  getDefaultPathForUser,
+  signInUser,
+  signInWithGoogle,
+} from "../../../lib/supabase/auth";
+import {
+  consumeAuthReturnPath,
+  peekAuthReturnPath,
+  rememberAuthReturnPath,
+} from "../../../lib/auth/returnPath";
 import { useOrganizationBranding } from "../../../app/providers/OrganizationBrandingProvider";
 
 export default function LoginPage() {
@@ -24,6 +34,25 @@ export default function LoginPage() {
     }
   }, []);
 
+  useEffect(() => {
+    rememberAuthReturnPath();
+    void supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (!session?.user) return;
+
+      const stored = peekAuthReturnPath();
+      if (stored) {
+        navigate(consumeAuthReturnPath("/dashboard"), { replace: true });
+        return;
+      }
+
+      const defaultPath = await getDefaultPathForUser(
+        session.user.id,
+        session.user.email,
+      );
+      navigate(defaultPath, { replace: true });
+    });
+  }, [navigate]);
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
@@ -37,7 +66,10 @@ export default function LoginPage() {
         password,
       });
 
-      navigate(result.defaultPath ?? "/dashboard", { replace: true });
+      const returnTo = consumeAuthReturnPath(
+        result.defaultPath ?? "/dashboard",
+      );
+      navigate(returnTo, { replace: true });
     } catch (err) {
       console.error("LOGIN ERROR:", err);
       setError(err instanceof Error ? err.message : "Failed to login");
@@ -52,6 +84,7 @@ export default function LoginPage() {
 
     try {
       setGoogleBusy(true);
+      rememberAuthReturnPath();
       await signInWithGoogle();
     } catch (err) {
       console.error("GOOGLE LOGIN ERROR:", err);

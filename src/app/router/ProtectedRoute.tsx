@@ -1,5 +1,6 @@
 import { Navigate } from "react-router-dom";
 import { useAuth } from "../providers/AuthProvider";
+import { rememberAuthReturnPath } from "../../lib/auth/returnPath";
 
 function AccountGateMessage({
   title,
@@ -90,6 +91,7 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   }
 
   if (!user) {
+    rememberAuthReturnPath();
     return <Navigate to="/login" replace />;
   }
 
