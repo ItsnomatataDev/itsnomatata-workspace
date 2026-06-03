@@ -13,6 +13,7 @@ import {
   TimerReset,
   Pause,
   Play,
+  X,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../app/providers/AuthProvider";
@@ -20,7 +21,11 @@ import { useOrganizationBranding } from "../app/providers/OrganizationBrandingPr
 import Sidebar from "../components/dashboard/components/Sidebar";
 import TimeTrackerCard from "../components/dashboard/components/TimeTrackerCard";
 import AttendanceClockCard from "../features/attendance/components/AttendanceClockCard";
-import { useDashboard } from "../lib/hooks/useDashboard";
+import {
+  useDashboard,
+  type DashboardTask,
+  type DashboardTaskBucketKey,
+} from "../lib/hooks/useDashboard";
 import { useOrganizationFeatures } from "../lib/hooks/useOrganizationFeatures";
 import { getAdminTimeSummary } from "../lib/supabase/queries/adminTime";
 import { canManageAllOffices, canUseDetailedTimeTracking } from "../lib/offices";
@@ -36,19 +41,51 @@ function formatDuration(totalSeconds: number) {
 }
 
 
+const TASK_STAT_MODAL_META: Record<
+  DashboardTaskBucketKey,
+  { title: string; description: string }
+> = {
+  open: {
+    title: "Open tasks",
+    description: "To do, backlog, and blocked — overdue tasks are hidden",
+  },
+  in_progress: {
+    title: "In progress",
+    description: "Tasks you are actively working on — overdue tasks are hidden",
+  },
+  review: {
+    title: "In review",
+    description: "Tasks awaiting review — overdue tasks are hidden",
+  },
+};
+
+function getTaskBoardId(task: DashboardTask) {
+  return task.client_id ?? task.project_id ?? null;
+}
+
 function StatCard({
   title,
   value,
   icon: Icon,
   subtitle,
+  onClick,
+  clickable,
 }: {
   title: string;
   value: string | number;
   icon: React.ComponentType<{ size?: number }>;
   subtitle?: string;
+  onClick?: () => void;
+  clickable?: boolean;
 }) {
-  return (
-    <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+  const className = `w-full rounded-2xl border border-white/10 bg-white/5 p-5 text-left transition ${
+    clickable
+      ? "cursor-pointer hover:border-orange-500/35 hover:bg-white/[0.07] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-500"
+      : ""
+  }`;
+
+  const content = (
+    <>
       <div className="flex items-center justify-between">
         <p className="text-sm text-white/60">{title}</p>
         <div className="rounded-xl bg-orange-500/15 p-2 text-orange-500">
@@ -61,6 +98,108 @@ function StatCard({
       {subtitle ? (
         <p className="mt-2 text-xs text-white/40">{subtitle}</p>
       ) : null}
+      {clickable ? (
+        <p className="mt-2 text-xs text-orange-400/80">Click to view tasks</p>
+      ) : null}
+    </>
+  );
+
+  if (onClick) {
+    return (
+      <button type="button" onClick={onClick} className={className}>
+        {content}
+      </button>
+    );
+  }
+
+  return <div className={className}>{content}</div>;
+}
+
+function DashboardTaskStatModal({
+  bucket,
+  tasks,
+  onClose,
+  onOpenTask,
+}: {
+  bucket: DashboardTaskBucketKey;
+  tasks: DashboardTask[];
+  onClose: () => void;
+  onOpenTask: (task: DashboardTask) => void;
+}) {
+  const meta = TASK_STAT_MODAL_META[bucket];
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="dashboard-task-stat-modal-title"
+      onClick={onClose}
+    >
+      <div
+        className="flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-white/10 bg-neutral-950 shadow-2xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-3 border-b border-white/10 px-5 py-4">
+          <div>
+            <p className="text-xs uppercase tracking-wide text-orange-400">Your tasks</p>
+            <h2 id="dashboard-task-stat-modal-title" className="text-lg font-semibold text-white">
+              {meta.title}
+            </h2>
+            <p className="mt-1 text-sm text-white/50">{meta.description}</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg border border-white/10 p-2 text-white/60 hover:bg-white/5 hover:text-white"
+            aria-label="Close"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="overflow-y-auto px-5 py-4">
+          {tasks.length === 0 ? (
+            <p className="rounded-xl border border-dashed border-white/15 bg-black/30 px-4 py-8 text-center text-sm text-white/50">
+              No tasks in this group right now.
+            </p>
+          ) : (
+            <ul className="space-y-2">
+              {tasks.map((task) => {
+                const boardId = getTaskBoardId(task);
+                return (
+                  <li key={task.id}>
+                    <button
+                      type="button"
+                      disabled={!boardId}
+                      onClick={() => onOpenTask(task)}
+                      className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-left transition hover:border-orange-500/30 hover:bg-black/60 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <p className="font-medium text-white">{task.title}</p>
+                      <p className="mt-1 text-xs text-white/45">
+                        <span className="uppercase tracking-wide">
+                          {task.status.replaceAll("_", " ")}
+                        </span>
+                        <span> · </span>
+                        <span className="capitalize">{task.priority}</span>
+                        {task.due_date ? (
+                          <>
+                            <span> · </span>
+                            <span>Due {new Date(task.due_date).toLocaleDateString()}</span>
+                          </>
+                        ) : null}
+                      </p>
+                      {!boardId ? (
+                        <p className="mt-1 text-xs text-amber-300/80">No board link for this task</p>
+                      ) : null}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -82,6 +221,7 @@ export default function DashboardPage() {
     longitude: null,
   });
   const [approvalMessage, setApprovalMessage] = useState("");
+  const [taskStatModal, setTaskStatModal] = useState<DashboardTaskBucketKey | null>(null);
 
   useEffect(() => {
     navigator.geolocation?.getCurrentPosition(
@@ -108,6 +248,7 @@ export default function DashboardPage() {
     error,
     stats,
     tasks,
+    taskBuckets,
     taskTodaySeconds,
     announcements,
     weather,
@@ -134,6 +275,13 @@ export default function DashboardPage() {
     if (!activeTimer?.task_id) return null;
     return tasks.find((task) => task.id === activeTimer.task_id)?.title ?? null;
   }, [activeTimer?.task_id, tasks]);
+
+  const openTaskBoard = (task: DashboardTask) => {
+    const boardId = getTaskBoardId(task);
+    if (!boardId) return;
+    setTaskStatModal(null);
+    navigate(`/boards/${boardId}?cardId=${task.id}`);
+  };
 
   const organizationId = profile?.organization_id ?? null;
   const isAdminView =
@@ -262,16 +410,34 @@ export default function DashboardPage() {
                   title="Open Tasks"
                   value={canSeeTasks ? (stats?.openTasks ?? 0) : "Off"}
                   icon={ClipboardList}
+                  clickable={canSeeTasks}
+                  onClick={
+                    canSeeTasks
+                      ? () => setTaskStatModal("open")
+                      : undefined
+                  }
                 />
                 <StatCard
                   title="In Progress"
                   value={canSeeTasks ? (stats?.inProgressTasks ?? 0) : "Off"}
                   icon={CheckSquare}
+                  clickable={canSeeTasks}
+                  onClick={
+                    canSeeTasks
+                      ? () => setTaskStatModal("in_progress")
+                      : undefined
+                  }
                 />
                 <StatCard
                   title="Review"
                   value={canSeeTasks ? (stats?.reviewTasks ?? 0) : "Off"}
                   icon={ShieldCheck}
+                  clickable={canSeeTasks}
+                  onClick={
+                    canSeeTasks
+                      ? () => setTaskStatModal("review")
+                      : undefined
+                  }
                 />
                 <StatCard
                   title="Unread Alerts"
@@ -291,9 +457,9 @@ export default function DashboardPage() {
                 <div className="rounded-2xl border border-white/10 bg-white/5 p-5 xl:col-span-2">
                   <div className="flex items-center justify-between">
                     <div>
-                      <h2 className="text-lg font-semibold">My Tasks</h2>
+                      <h2 className="text-lg font-semibold">My active tasks</h2>
                       <p className="mt-1 text-sm text-white/50">
-                        Click a task to open its card details
+                        In progress and review only — overdue tasks are hidden
                       </p>
                     </div>
 
@@ -305,7 +471,7 @@ export default function DashboardPage() {
                   <div className="mt-4 space-y-3">
                     {tasks.length === 0 ? (
                       <p className="text-sm text-white/50">
-                        No assigned tasks found.
+                        No in-progress or review tasks assigned to you right now.
                       </p>
                     ) : (
                       tasks.map((task) => {
@@ -381,44 +547,11 @@ export default function DashboardPage() {
                             key={task.id}
                             role="button"
                             tabIndex={0}
-                            onClick={() => {
-                              const cardTask = task as typeof task & {
-                                client_id?: string | null;
-                                board_id?: string | null;
-                                project_id?: string | null;
-                              };
-
-                              const boardId =
-                                cardTask.client_id ??
-                                cardTask.board_id ??
-                                cardTask.project_id ??
-                                null;
-
-                              if (!boardId) return;
-
-                              navigate(`/boards/${boardId}?cardId=${task.id}`);
-                            }}
+                            onClick={() => openTaskBoard(task)}
                             onKeyDown={(event) => {
                               if (event.key === "Enter" || event.key === " ") {
                                 event.preventDefault();
-
-                                const cardTask = task as typeof task & {
-                                  client_id?: string | null;
-                                  board_id?: string | null;
-                                  project_id?: string | null;
-                                };
-
-                                const boardId =
-                                  cardTask.client_id ??
-                                  cardTask.board_id ??
-                                  cardTask.project_id ??
-                                  null;
-
-                                if (!boardId) return;
-
-                                navigate(
-                                  `/boards/${boardId}?cardId=${task.id}`,
-                                );
+                                openTaskBoard(task);
                               }
                             }}
                             className={`group flex cursor-pointer flex-col gap-3 rounded-2xl border px-4 py-4 transition-all hover:border-orange-500/30 hover:bg-black/60 hover:shadow-lg hover:shadow-orange-500/5 md:flex-row md:items-center md:justify-between ${
@@ -832,6 +965,15 @@ export default function DashboardPage() {
           )}
         </main>
       </div>
+
+      {taskStatModal ? (
+        <DashboardTaskStatModal
+          bucket={taskStatModal}
+          tasks={taskBuckets[taskStatModal]}
+          onClose={() => setTaskStatModal(null)}
+          onOpenTask={openTaskBoard}
+        />
+      ) : null}
     </div>
   );
 }

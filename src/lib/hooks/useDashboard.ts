@@ -67,6 +67,68 @@ type RoleNewsItem = {
 
 type ActiveTimer = TimeEntryItem | null;
 
+export type DashboardTaskBucketKey = "open" | "in_progress" | "review";
+
+export type DashboardTaskBuckets = Record<DashboardTaskBucketKey, DashboardTask[]>;
+
+const OPEN_TASK_STATUSES = new Set(["todo", "backlog", "blocked"]);
+
+export function isDashboardTaskOverdue(dueDate: string | null) {
+  if (!dueDate) return false;
+  const due = new Date(dueDate);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  due.setHours(0, 0, 0, 0);
+  return due.getTime() < today.getTime();
+}
+
+function excludeOverdueTasks(tasks: DashboardTask[]) {
+  return tasks.filter((task) => !isDashboardTaskOverdue(task.due_date));
+}
+
+function mapDashboardTaskRow(task: Record<string, unknown>): DashboardTask {
+  const profiles = task.profiles as { full_name?: string | null; email?: string | null } | null;
+  return {
+    id: task.id as string,
+    title: task.title as string,
+    status: task.status as string,
+    priority: task.priority as string,
+    due_date: (task.due_date as string | null) ?? null,
+    created_at: task.created_at as string,
+    created_by: (task.created_by as string | null) ?? null,
+    client_id: (task.client_id as string | null) ?? null,
+    office_id: (task.office_id as string | null) ?? null,
+    project_id: (task.project_id as string | null) ?? null,
+    created_by_full_name: profiles?.full_name ?? null,
+    created_by_email: profiles?.email ?? null,
+  };
+}
+
+function buildDashboardTaskBuckets(tasks: DashboardTask[]): DashboardTaskBuckets {
+  const open: DashboardTask[] = [];
+  const inProgress: DashboardTask[] = [];
+  const review: DashboardTask[] = [];
+
+  for (const task of tasks) {
+    if (OPEN_TASK_STATUSES.has(task.status)) open.push(task);
+    else if (task.status === "in_progress") inProgress.push(task);
+    else if (task.status === "review") review.push(task);
+  }
+
+  const byDueThenUpdated = (a: DashboardTask, b: DashboardTask) => {
+    const aDue = a.due_date ? new Date(a.due_date).getTime() : Number.MAX_SAFE_INTEGER;
+    const bDue = b.due_date ? new Date(b.due_date).getTime() : Number.MAX_SAFE_INTEGER;
+    if (aDue !== bDue) return aDue - bDue;
+    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+  };
+
+  open.sort(byDueThenUpdated);
+  inProgress.sort(byDueThenUpdated);
+  review.sort(byDueThenUpdated);
+
+  return { open, in_progress: inProgress, review };
+}
+
 export function useDashboard(params: {
   userId?: string;
   organizationId?: string | null;
@@ -92,6 +154,11 @@ export function useDashboard(params: {
 
   const [baseStats, setBaseStats] = useState<Omit<DashboardStats, "todaySeconds"> | null>(null);
   const [tasks, setTasks] = useState<DashboardTask[]>([]);
+  const [taskBuckets, setTaskBuckets] = useState<DashboardTaskBuckets>({
+    open: [],
+    in_progress: [],
+    review: [],
+  });
   const [todayTimeEntries, setTodayTimeEntries] = useState<TimeEntryItem[]>([]);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [weather, setWeather] = useState<WeatherData | null>(null);
@@ -285,18 +352,34 @@ export function useDashboard(params: {
       }
       setError("");
 
-      const { data: taskAssignments, error: taskAssignmentsError } =
-        await supabase
-          .from("task_assignees")
-          .select("task_id")
-          .eq("user_id", userId);
+      const [{ data: taskAssignments, error: taskAssignmentsError }, { data: directAssignments, error: directAssignmentsError }] =
+        await Promise.all([
+          supabase.from("task_assignees").select("task_id").eq("user_id", userId),
+          (() => {
+            let query = supabase
+              .from("tasks")
+              .select("id")
+              .eq("organization_id", organizationId)
+              .eq("assigned_to", userId)
+              .is("archived_at", null);
+            if (!includeAllOffices && officeId) {
+              query = query.eq("office_id", officeId);
+            }
+            return query;
+          })(),
+        ]);
 
       if (taskAssignmentsError) throw taskAssignmentsError;
+      if (directAssignmentsError) throw directAssignmentsError;
 
-      const assignedTaskIds =
-        taskAssignments
-          ?.map((assignment: any) => assignment.task_id)
-          .filter(Boolean) || [];
+      const assignedTaskIds = Array.from(
+        new Set(
+          [
+            ...(taskAssignments?.map((assignment: { task_id: string }) => assignment.task_id) ?? []),
+            ...(directAssignments?.map((row: { id: string }) => row.id) ?? []),
+          ].filter(Boolean),
+        ),
+      );
 
       let timeEntryTasksQuery = supabase
           .from("time_entries")
@@ -404,10 +487,11 @@ export function useDashboard(params: {
         throw baseErrors[0];
       }
 
-      let dashboardTasks: DashboardTask[] = [];
-      let openTasks = 0;
-      let inProgressTasks = 0;
-      let reviewTasks = 0;
+      let buckets: DashboardTaskBuckets = {
+        open: [],
+        in_progress: [],
+        review: [],
+      };
       let doneTasks = 0;
 
       if (allTaskIds.length > 0) {
@@ -431,52 +515,29 @@ export function useDashboard(params: {
           `)
           .eq("organization_id", organizationId)
           .in("id", allTaskIds)
-          .order("updated_at", { ascending: false })
-          .limit(10);
+          .is("archived_at", null)
+          .not("status", "eq", "cancelled");
 
         if (!includeAllOffices && officeId) {
           taskRowsQuery = taskRowsQuery.eq("office_id", officeId);
         }
 
         const { data: taskRows, error: taskRowsError } = await taskRowsQuery;
-
         if (taskRowsError) throw taskRowsError;
 
-        dashboardTasks = ((taskRows ?? []) as any[]).map((task) => ({
-          id: task.id,
-          title: task.title,
-          status: task.status,
-          priority: task.priority,
-          due_date: task.due_date,
-          created_at: task.created_at,
-          created_by: task.created_by,
-          client_id: task.client_id ?? null,
-          office_id: task.office_id ?? null,
-          project_id: task.project_id ?? null,
-          created_by_full_name: task.profiles?.full_name ?? null,
-          created_by_email: task.profiles?.email ?? null,
-        }));
+        const allMapped = ((taskRows ?? []) as Record<string, unknown>[]).map(mapDashboardTaskRow);
+        doneTasks = allMapped.filter((task) => task.status === "done").length;
 
-        openTasks = dashboardTasks.filter((task) =>
-          ["todo", "backlog", "blocked"].includes(task.status),
-        ).length;
-
-        inProgressTasks = dashboardTasks.filter(
-          (task) => task.status === "in_progress",
-        ).length;
-
-        reviewTasks = dashboardTasks.filter(
-          (task) => task.status === "review",
-        ).length;
-
-        doneTasks = dashboardTasks.filter((task) => task.status === "done")
-          .length;
+        const activeMapped = excludeOverdueTasks(
+          allMapped.filter((task) => task.status !== "done"),
+        );
+        buckets = buildDashboardTaskBuckets(activeMapped);
       }
 
       setBaseStats({
-        openTasks,
-        inProgressTasks,
-        reviewTasks,
+        openTasks: buckets.open.length,
+        inProgressTasks: buckets.in_progress.length,
+        reviewTasks: buckets.review.length,
         doneTasks,
         unreadNotifications: notificationsRes.count ?? 0,
         pendingApprovals: approvalsRes.count ?? 0,
@@ -484,7 +545,8 @@ export function useDashboard(params: {
         completedProjects: completedProjectsRes.count ?? 0,
       });
 
-      setTasks(dashboardTasks);
+      setTaskBuckets(buckets);
+      setTasks([...buckets.in_progress, ...buckets.review]);
       setTodayTimeEntries((timeEntriesRes.data ?? []) as TimeEntryItem[]);
       setAnnouncements((announcementsRes.data ?? []) as Announcement[]);
       setActiveTimer((activeTimerRes as ActiveTimer) ?? null);
@@ -596,6 +658,7 @@ export function useDashboard(params: {
     error,
     stats,
     tasks,
+    taskBuckets,
     taskTodaySeconds,
     announcements,
     weather,

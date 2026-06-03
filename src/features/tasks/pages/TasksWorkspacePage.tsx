@@ -945,7 +945,7 @@ export default function TasksWorkspacePage({
                             : "border border-white/10 bg-white/5 text-white/70"
                         }`}
                       >
-                        My Tasks
+                        My open tasks
                       </button>
                     </>
                   ) : null}

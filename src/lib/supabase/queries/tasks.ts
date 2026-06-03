@@ -309,6 +309,34 @@ export const getBoardColumns = async (
    TASKS
 ---------------------------------------- */
 
+async function getTaskIdsAssignedToUser(params: {
+  userId: string;
+  organizationId?: string;
+}) {
+  const [{ data: assigneeRows, error: assigneeError }, { data: directRows, error: directError }] =
+    await Promise.all([
+      supabase.from("task_assignees").select("task_id").eq("user_id", params.userId),
+      (() => {
+        let query = supabase.from("tasks").select("id").eq("assigned_to", params.userId);
+        if (params.organizationId) {
+          query = query.eq("organization_id", params.organizationId);
+        }
+        return query;
+      })(),
+    ]);
+
+  if (assigneeError) throw assigneeError;
+  if (directError) throw directError;
+
+  return Array.from(
+    new Set(
+      [...(assigneeRows ?? []), ...(directRows ?? [])]
+        .map((row) => ("task_id" in row ? row.task_id : row.id) as string)
+        .filter(Boolean),
+    ),
+  );
+}
+
 export const getTasks = async ({
   assignedTo,
   organizationId,
@@ -324,7 +352,14 @@ export const getTasks = async ({
     .order("position", { ascending: true })
     .order("created_at", { ascending: false });
 
-  if (assignedTo) query = query.eq("assigned_to", assignedTo);
+  if (assignedTo) {
+    const assignedTaskIds = await getTaskIdsAssignedToUser({
+      userId: assignedTo,
+      organizationId,
+    });
+    if (assignedTaskIds.length === 0) return [];
+    query = query.in("id", assignedTaskIds);
+  }
   if (organizationId) query = query.eq("organization_id", organizationId);
   if (archiveMode === "active") query = query.is("archived_at", null);
   if (archiveMode === "archived") query = query.not("archived_at", "is", null);
