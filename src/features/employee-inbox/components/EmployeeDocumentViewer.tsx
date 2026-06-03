@@ -15,6 +15,18 @@ function formatDate(value: string | null) {
   return new Date(value).toLocaleString();
 }
 
+function isPdfDocument(document: MyEmployeeDocument["document"]) {
+  if (document.mime_type?.includes("pdf")) return true;
+  const name = document.file_name?.toLowerCase() ?? "";
+  return name.endsWith(".pdf");
+}
+
+function isImageDocument(document: MyEmployeeDocument["document"]) {
+  if (document.mime_type?.startsWith("image/")) return true;
+  const name = document.file_name?.toLowerCase() ?? "";
+  return /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(name);
+}
+
 export default function EmployeeDocumentViewer({
   item,
   onClose,
@@ -34,17 +46,14 @@ export default function EmployeeDocumentViewer({
     setSignedUrl(null);
     setError("");
 
-    void markDocumentRead(item)
-      .catch((err) => {
-        if (mounted) {
-          setError(err instanceof Error ? err.message : "Failed to mark as read.");
-        }
-      })
-      .finally(onChanged);
-
     void getSignedDocumentUrl(item.document)
       .then((url) => {
-        if (mounted) setSignedUrl(url);
+        if (!mounted) return;
+        if (!url) {
+          setError("This document has no file attached.");
+          return;
+        }
+        setSignedUrl(url);
       })
       .catch((err) => {
         if (mounted) {
@@ -55,10 +64,20 @@ export default function EmployeeDocumentViewer({
     return () => {
       mounted = false;
     };
-  }, [item, onChanged]);
+  }, [item.document.file_bucket, item.document.file_path, item.document.id]);
 
-  const canPreviewPdf = item.document.mime_type?.includes("pdf") && signedUrl;
-  const canPreviewImage = item.document.mime_type?.startsWith("image/") && signedUrl;
+  useEffect(() => {
+    if (item.status !== "unread") return;
+
+    void markDocumentRead(item)
+      .then(() => onChanged())
+      .catch((err) => {
+        setError(err instanceof Error ? err.message : "Failed to mark as read.");
+      });
+  }, [item.id, item.status, onChanged]);
+
+  const canPreviewPdf = isPdfDocument(item.document) && Boolean(signedUrl);
+  const canPreviewImage = isImageDocument(item.document) && Boolean(signedUrl);
   const acknowledged = item.status === "acknowledged" || Boolean(item.acknowledged_at);
 
   async function handleAcknowledge() {
@@ -101,7 +120,7 @@ export default function EmployeeDocumentViewer({
   }
 
   return (
-    <div className="fixed inset-0 z-[60] overflow-y-auto bg-black/80 px-4 py-4 backdrop-blur sm:px-6">
+    <div className="fixed inset-0 z-60 overflow-y-auto bg-black/80 px-4 py-4 backdrop-blur sm:px-6">
       <div className="mx-auto max-w-5xl rounded-3xl border border-white/10 bg-neutral-950 shadow-2xl">
         <div className="flex flex-wrap items-start justify-between gap-4 border-b border-white/10 p-4 sm:p-6">
           <div className="min-w-0">
@@ -120,7 +139,7 @@ export default function EmployeeDocumentViewer({
                 </span>
               ) : null}
             </div>
-            <h2 className="mt-3 break-words text-2xl font-bold text-white">
+            <h2 className="mt-3 wrap-break-word text-2xl font-bold text-white">
               {item.document.title}
             </h2>
             <p className="mt-1 text-sm text-white/45">
@@ -142,14 +161,14 @@ export default function EmployeeDocumentViewer({
           <div className="min-h-[420px] overflow-hidden rounded-2xl border border-white/10 bg-black/60">
             {canPreviewPdf ? (
               <iframe
-                src={signedUrl}
+                src={signedUrl ?? undefined}
                 className="h-[70vh] min-h-[420px] w-full"
                 title={item.document.title}
               />
             ) : canPreviewImage ? (
               <div className="flex min-h-[420px] items-center justify-center p-4">
                 <img
-                  src={signedUrl}
+                  src={signedUrl ?? undefined}
                   alt={item.document.title}
                   className="max-h-[70vh] max-w-full rounded-xl object-contain"
                 />

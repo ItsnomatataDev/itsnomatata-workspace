@@ -52,23 +52,36 @@ export default function EmployeeInboxPage() {
   const [error, setError] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
 
-  const loadDocuments = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError("");
-      const rows = await getMyDocuments();
-      setItems(rows);
-      const documentId = searchParams.get("documentId");
-      if (documentId && !selected) {
-        const match = rows.find((row) => row.document_id === documentId);
-        if (match) setSelected(match);
+  const loadDocuments = useCallback(
+    async (options?: { showLoading?: boolean }) => {
+      try {
+        if (options?.showLoading !== false) {
+          setLoading(true);
+        }
+        setError("");
+        const rows = await getMyDocuments();
+        setItems(rows);
+        const documentId = searchParams.get("documentId");
+        setSelected((current) => {
+          if (documentId) {
+            return rows.find((row) => row.document_id === documentId) ?? current;
+          }
+          return current;
+        });
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to load inbox.");
+      } finally {
+        if (options?.showLoading !== false) {
+          setLoading(false);
+        }
       }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load inbox.");
-    } finally {
-      setLoading(false);
-    }
-  }, [searchParams, selected]);
+    },
+    [searchParams],
+  );
+
+  const handleDocumentChanged = useCallback(() => {
+    void loadDocuments({ showLoading: false });
+  }, [loadDocuments]);
 
   useEffect(() => {
     void loadDocuments();
@@ -253,7 +266,7 @@ export default function EmployeeInboxPage() {
                           }}
                           className="mt-3 block w-full text-left"
                         >
-                          <h2 className="break-words text-lg font-semibold text-white">
+                          <h2 className="wrap-break-word text-lg font-semibold text-white">
                             {item.document.title}
                           </h2>
                           <p className="mt-1 line-clamp-2 text-sm text-white/50">
@@ -311,7 +324,7 @@ export default function EmployeeInboxPage() {
             setSelected(null);
             setSearchParams({});
           }}
-          onChanged={() => void loadDocuments()}
+          onChanged={handleDocumentChanged}
         />
       ) : null}
     </div>

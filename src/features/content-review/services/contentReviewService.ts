@@ -2,6 +2,7 @@ import { supabase } from "../../../lib/supabase/client";
 import { OFFICE_SLUGS } from "../../../lib/offices";
 import { getCompanyOfficeBySlug } from "../../../lib/supabase/queries/offices";
 import { createNotification } from "../../../lib/supabase/mutations/notifications";
+import { askAssistant, buildAssistantContext } from "../../../lib/api/ai";
 
 export type ContentReviewStatus =
   | "draft"
@@ -59,6 +60,7 @@ export type ContentReviewAsset = {
   draft_id: string;
   organization_id?: string;
   office_id?: string;
+  library_media_id?: string | null;
   file_name: string;
   file_url: string;
   storage_path: string | null;
@@ -76,6 +78,26 @@ export type ContentReviewAsset = {
   original_size_bytes?: number | null;
   stored_size_bytes?: number | null;
   compression_status?: "compressed" | "stored_original" | "not_applicable";
+  uploaded_by?: string | null;
+  created_at: string;
+};
+
+export type ContentClientMedia = {
+  id: string;
+  client_id: string;
+  organization_id: string;
+  office_id: string;
+  uploaded_by: string | null;
+  file_name: string;
+  file_url: string;
+  storage_path: string | null;
+  mime_type: string | null;
+  asset_type: string;
+  label: string | null;
+  original_size_bytes?: number | null;
+  stored_size_bytes?: number | null;
+  compression_status?: "compressed" | "stored_original" | "not_applicable";
+  expires_at?: string | null;
   created_at: string;
 };
 
@@ -145,6 +167,32 @@ export type ContentReviewDetail = {
   assets: ContentReviewAsset[];
   comments: ContentReviewComment[];
   activity: ContentReviewActivity[];
+};
+
+export type ContentStudioCaptionGenerateInput = {
+  clientName: string;
+  postTitle: string;
+  existingCaption?: string;
+  mediaDescription?: string;
+  platform?: string;
+  tone?: string;
+  instruction?: string;
+};
+
+export type ContentStudioCaptionGenerateOutput = {
+  generatedCaption: string;
+  hashtags: string[];
+  shortAlternative: string;
+};
+
+export type ContentStudioImageAnalysis = {
+  mood: string;
+  sceneDescription: string;
+  generatedCaption: string;
+  hashtags: string[];
+  shortAlternative: string;
+  instagramCaption?: string;
+  facebookCaption?: string;
 };
 
 const BUCKET = "content-review-assets";
@@ -346,6 +394,38 @@ export async function createContentReviewDraft(params: {
   return data as ContentReviewDraft;
 }
 
+export async function ensureClientPostSlots(params: {
+  organizationId: string;
+  officeId: string;
+  clientId: string;
+  createdBy: string;
+  expectedCount?: number;
+}) {
+  const expectedCount = params.expectedCount ?? 10;
+  const existing = await listContentReviewDrafts({
+    organizationId: params.organizationId,
+    officeId: params.officeId,
+    clientId: params.clientId,
+  });
+  if (existing.length >= expectedCount) {
+    return existing;
+  }
+
+  const created: ContentReviewDraft[] = [];
+  for (let index = existing.length; index < expectedCount; index += 1) {
+    const draft = await createContentReviewDraft({
+      organizationId: params.organizationId,
+      officeId: params.officeId,
+      createdBy: params.createdBy,
+      clientId: params.clientId,
+      title: `Post ${index + 1}`,
+    });
+    created.push(draft);
+  }
+
+  return [...existing, ...created];
+}
+
 export async function listContentClients(params: {
   organizationId: string;
   officeId: string;
@@ -408,19 +488,45 @@ export async function regenerateContentClientPin(clientId: string) {
   return data as { ok: boolean; pin: string; client: ContentClient };
 }
 
+/** Rotates the per-post public preview token. Old `/client-review/:token` URLs stop working. No PIN required on the new link. */
+export async function regenerateContentReviewLink(draft: ContentReviewDraft) {
+  const token = generateReviewToken();
+  const updated = await updateContentReviewDraft(draft, {
+    review_token: token,
+    review_url: buildReviewUrl(token),
+  });
+  await recordActivity({
+    draft: updated,
+    type: "review_link_regenerated",
+    metadata: { access: "public_preview" },
+  });
+  return updated;
+}
+
 export async function deleteContentClient(clientId: string) {
   const { data: assets, error: assetsError } = await supabase
     .from("content_review_assets")
-    .select("storage_path, draft:content_review_drafts!inner(client_id)")
+    .select("storage_path, library_media_id, draft:content_review_drafts!inner(client_id)")
     .eq("draft.client_id", clientId);
   if (assetsError) {
     throw new Error(assetsError.message || "Failed to load client media for deletion.");
   }
 
+  const { data: libraryMedia, error: libraryError } = await supabase
+    .from("content_client_media")
+    .select("storage_path")
+    .eq("client_id", clientId);
+  if (libraryError) {
+    throw new Error(libraryError.message || "Failed to load client library media for deletion.");
+  }
+
   await removeStoragePaths(
-    (assets ?? [])
-      .map((asset) => asset.storage_path as string | null)
-      .filter((path): path is string => Boolean(path)),
+    [
+      ...(assets ?? [])
+        .filter((asset) => !asset.library_media_id)
+        .map((asset) => asset.storage_path as string | null),
+      ...(libraryMedia ?? []).map((item) => item.storage_path as string | null),
+    ].filter((path): path is string => Boolean(path)),
   );
 
   const { data, error } = await supabase.rpc("delete_content_client", {
@@ -521,7 +627,7 @@ export async function setContentReviewAssetsSelected(assetIds: string[], isSelec
 }
 
 export async function deleteContentReviewAsset(asset: ContentReviewAsset) {
-  if (asset.storage_path) {
+  if (asset.storage_path && !asset.library_media_id) {
     await removeStoragePaths([asset.storage_path]);
   }
 
@@ -532,6 +638,299 @@ export async function deleteContentReviewAsset(asset: ContentReviewAsset) {
 
   if (error) {
     throw new Error(error.message || "Failed to delete media.");
+  }
+}
+
+export async function listContentClientMedia(params: {
+  organizationId: string;
+  officeId: string;
+  clientId: string;
+  uploadedBy?: string | null;
+}) {
+  await syncClientMediaFromPostAssets({
+    organizationId: params.organizationId,
+    officeId: params.officeId,
+    clientId: params.clientId,
+    uploadedBy: params.uploadedBy ?? null,
+  });
+
+  const { data, error } = await supabase
+    .from("content_client_media")
+    .select("*")
+    .eq("organization_id", params.organizationId)
+    .eq("office_id", params.officeId)
+    .eq("client_id", params.clientId)
+    .order("created_at", { ascending: false });
+
+  if (error) throw error;
+  return (data ?? []) as ContentClientMedia[];
+}
+
+export async function syncClientMediaFromPostAssets(params: {
+  organizationId: string;
+  officeId: string;
+  clientId: string;
+  uploadedBy?: string | null;
+}) {
+  const drafts = await listContentReviewDrafts({
+    organizationId: params.organizationId,
+    officeId: params.officeId,
+    clientId: params.clientId,
+  });
+  if (drafts.length === 0) return [];
+
+  const draftIds = drafts.map((draft) => draft.id);
+  const { data: assets, error } = await supabase
+    .from("content_review_assets")
+    .select("*")
+    .in("draft_id", draftIds)
+    .order("created_at", { ascending: false });
+
+  if (error) throw error;
+
+  const synced: ContentClientMedia[] = [];
+  for (const asset of (assets ?? []) as ContentReviewAsset[]) {
+    const libraryItem = await registerPostAssetInClientLibrary({
+      asset,
+      clientId: params.clientId,
+      organizationId: params.organizationId,
+      officeId: params.officeId,
+      uploadedBy: params.uploadedBy ?? asset.uploaded_by ?? null,
+    });
+    if (libraryItem) synced.push(libraryItem);
+  }
+  return synced;
+}
+
+async function registerPostAssetInClientLibrary(params: {
+  asset: ContentReviewAsset;
+  clientId: string;
+  organizationId: string;
+  officeId: string;
+  uploadedBy: string | null;
+}): Promise<ContentClientMedia | null> {
+  if (!params.asset.file_url) return null;
+
+  if (params.asset.library_media_id) {
+    const { data: linked } = await supabase
+      .from("content_client_media")
+      .select("*")
+      .eq("id", params.asset.library_media_id)
+      .maybeSingle();
+    if (linked) return linked as ContentClientMedia;
+  }
+
+  let existingQuery = supabase
+    .from("content_client_media")
+    .select("*")
+    .eq("client_id", params.clientId)
+    .limit(1);
+
+  if (params.asset.storage_path) {
+    existingQuery = existingQuery.eq("storage_path", params.asset.storage_path);
+  } else {
+    existingQuery = existingQuery.eq("file_url", params.asset.file_url);
+  }
+
+  const { data: existing, error: existingError } = await existingQuery.maybeSingle();
+  if (existingError) throw existingError;
+
+  if (existing) {
+    if (params.asset.library_media_id !== existing.id) {
+      await supabase
+        .from("content_review_assets")
+        .update({ library_media_id: existing.id })
+        .eq("id", params.asset.id);
+    }
+    return existing as ContentClientMedia;
+  }
+
+  const { data: created, error: insertError } = await supabase
+    .from("content_client_media")
+    .insert({
+      client_id: params.clientId,
+      organization_id: params.organizationId,
+      office_id: params.officeId,
+      uploaded_by: params.uploadedBy,
+      file_name: params.asset.file_name,
+      file_url: params.asset.file_url,
+      storage_path: params.asset.storage_path,
+      mime_type: params.asset.mime_type,
+      asset_type: params.asset.asset_type,
+      label: "From post",
+      expires_at: params.asset.expires_at ?? new Date(Date.now() + ASSET_RETENTION_DAYS * 86400000).toISOString(),
+      original_size_bytes: params.asset.original_size_bytes ?? null,
+      stored_size_bytes: params.asset.stored_size_bytes ?? null,
+      compression_status: params.asset.compression_status ?? "not_applicable",
+    })
+    .select("*")
+    .single();
+
+  if (insertError) throw insertError;
+
+  await supabase
+    .from("content_review_assets")
+    .update({ library_media_id: created.id })
+    .eq("id", params.asset.id);
+
+  return created as ContentClientMedia;
+}
+
+export async function uploadContentClientMedia(params: {
+  client: ContentClient;
+  file: File;
+  uploadedBy: string;
+  label?: string;
+}) {
+  await cleanupExpiredContentClientMedia();
+  const uploadFile = await compressMediaFile(params.file);
+  if (uploadFile.file.size > CONTENT_REVIEW_UPLOAD_LIMIT_BYTES) {
+    throw new Error(
+      `Media is still too large after compression. Please keep uploads under ${formatContentReviewFileSize(CONTENT_REVIEW_UPLOAD_LIMIT_BYTES)}.`,
+    );
+  }
+  const safeName = uploadFile.file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+  const path = `${params.client.organization_id}/clients/${params.client.id}/${Date.now()}-${safeName || `asset${fileExtension(uploadFile.file)}`}`;
+  const { error: uploadError } = await supabase.storage
+    .from(BUCKET)
+    .upload(path, uploadFile.file, {
+      contentType: uploadFile.file.type || undefined,
+      upsert: false,
+    });
+
+  if (uploadError) throw uploadError;
+
+  const { data: publicUrl } = supabase.storage.from(BUCKET).getPublicUrl(path);
+  const { data, error } = await supabase
+    .from("content_client_media")
+    .insert({
+      client_id: params.client.id,
+      organization_id: params.client.organization_id,
+      office_id: params.client.office_id,
+      uploaded_by: params.uploadedBy,
+      file_name: uploadFile.file.name,
+      file_url: publicUrl.publicUrl,
+      storage_path: path,
+      mime_type: uploadFile.file.type || null,
+      asset_type: uploadFile.file.type.startsWith("video/") ? "video" : "image",
+      label: params.label?.trim() || null,
+      expires_at: new Date(Date.now() + ASSET_RETENTION_DAYS * 86400000).toISOString(),
+      original_size_bytes: uploadFile.originalSize,
+      stored_size_bytes: uploadFile.storedSize,
+      compression_status: uploadFile.compressionStatus,
+    })
+    .select("*")
+    .single();
+
+  if (error) throw error;
+  return data as ContentClientMedia;
+}
+
+export async function deleteContentClientMedia(media: ContentClientMedia) {
+  const filters = [
+    media.id ? `library_media_id.eq.${media.id}` : null,
+    media.storage_path ? `storage_path.eq.${media.storage_path}` : null,
+  ].filter(Boolean);
+
+  let assetRefCount = 0;
+  if (filters.length > 0) {
+    const { count, error: countError } = await supabase
+      .from("content_review_assets")
+      .select("id", { count: "exact", head: true })
+      .or(filters.join(","));
+
+    if (countError) {
+      throw new Error(countError.message || "Failed to check post media references.");
+    }
+    assetRefCount = count ?? 0;
+  }
+
+  if (media.storage_path && assetRefCount === 0) {
+    await removeStoragePaths([media.storage_path]);
+  }
+
+  await supabase
+    .from("content_review_assets")
+    .update({ library_media_id: null })
+    .eq("library_media_id", media.id);
+
+  const { error } = await supabase.from("content_client_media").delete().eq("id", media.id);
+  if (error) {
+    throw new Error(error.message || "Failed to delete client media.");
+  }
+}
+
+export async function attachContentClientMediaToDraft(params: {
+  media: ContentClientMedia;
+  targetDraft: ContentReviewDraft;
+  uploadedBy: string;
+  sortOrder: number;
+}) {
+  const { data, error } = await supabase
+    .from("content_review_assets")
+    .insert({
+      draft_id: params.targetDraft.id,
+      organization_id: params.targetDraft.organization_id,
+      office_id: params.targetDraft.office_id,
+      uploaded_by: params.uploadedBy,
+      library_media_id: params.media.id,
+      file_name: params.media.file_name,
+      file_url: params.media.file_url,
+      storage_path: params.media.storage_path,
+      mime_type: params.media.mime_type,
+      asset_type: params.media.asset_type,
+      heading: null,
+      caption: null,
+      is_selected: true,
+      crop_x: 50,
+      crop_y: 50,
+      crop_zoom: 1,
+      sort_order: params.sortOrder,
+      display_slot: params.sortOrder,
+      expires_at: params.media.expires_at ?? new Date(Date.now() + ASSET_RETENTION_DAYS * 86400000).toISOString(),
+      original_size_bytes: params.media.original_size_bytes ?? null,
+      stored_size_bytes: params.media.stored_size_bytes ?? null,
+      compression_status: params.media.compression_status ?? "not_applicable",
+    })
+    .select("*")
+    .single();
+
+  if (error) throw error;
+  await recordActivity({
+    draft: params.targetDraft,
+    type: "media_uploaded",
+    actorUserId: params.uploadedBy,
+    metadata: {
+      fileName: params.media.file_name,
+      source: "client_library",
+      libraryMediaId: params.media.id,
+    },
+  });
+  return data as ContentReviewAsset;
+}
+
+async function cleanupExpiredContentClientMedia() {
+  const { data: expired, error: loadError } = await supabase
+    .from("content_client_media")
+    .select("id, storage_path")
+    .lt("expires_at", new Date().toISOString());
+  if (loadError) {
+    console.warn("Expired client media cleanup skipped.", loadError.message);
+    return;
+  }
+
+  await removeStoragePaths(
+    (expired ?? [])
+      .map((item) => item.storage_path as string | null)
+      .filter((path): path is string => Boolean(path)),
+  );
+
+  const ids = (expired ?? []).map((item) => item.id as string);
+  if (ids.length > 0) {
+    const { error: deleteError } = await supabase.from("content_client_media").delete().in("id", ids);
+    if (deleteError) {
+      console.warn("Expired client media row cleanup skipped.", deleteError.message);
+    }
   }
 }
 
@@ -801,6 +1200,28 @@ export async function uploadContentReviewAsset(params: {
     .single();
 
   if (error) throw error;
+
+  let asset = data as ContentReviewAsset;
+  if (params.draft.client_id) {
+    try {
+      await registerPostAssetInClientLibrary({
+        asset,
+        clientId: params.draft.client_id,
+        organizationId: params.draft.organization_id,
+        officeId: params.draft.office_id,
+        uploadedBy: params.uploadedBy,
+      });
+      const { data: refreshed } = await supabase
+        .from("content_review_assets")
+        .select("*")
+        .eq("id", asset.id)
+        .single();
+      if (refreshed) asset = refreshed as ContentReviewAsset;
+    } catch (syncError) {
+      console.warn("Post media library sync skipped.", syncError);
+    }
+  }
+
   await recordActivity({
     draft: params.draft,
     type: "media_uploaded",
@@ -812,8 +1233,48 @@ export async function uploadContentReviewAsset(params: {
       originalSizeBytes: uploadFile.originalSize,
       storedSizeBytes: uploadFile.storedSize,
       expiresInDays: ASSET_RETENTION_DAYS,
+      librarySynced: Boolean(params.draft.client_id),
     },
   });
+  return asset;
+}
+
+export async function duplicateContentReviewAssetToDraft(params: {
+  sourceAsset: ContentReviewAsset;
+  targetDraft: ContentReviewDraft;
+  uploadedBy: string;
+  sortOrder: number;
+}) {
+  const { data, error } = await supabase
+    .from("content_review_assets")
+    .insert({
+      draft_id: params.targetDraft.id,
+      organization_id: params.targetDraft.organization_id,
+      office_id: params.targetDraft.office_id,
+      uploaded_by: params.uploadedBy,
+      library_media_id: params.sourceAsset.library_media_id ?? null,
+      file_name: params.sourceAsset.file_name,
+      file_url: params.sourceAsset.file_url,
+      storage_path: params.sourceAsset.storage_path,
+      mime_type: params.sourceAsset.mime_type,
+      asset_type: params.sourceAsset.asset_type,
+      heading: params.sourceAsset.heading ?? null,
+      caption: params.sourceAsset.caption ?? null,
+      is_selected: true,
+      crop_x: params.sourceAsset.crop_x ?? 50,
+      crop_y: params.sourceAsset.crop_y ?? 50,
+      crop_zoom: params.sourceAsset.crop_zoom ?? 1,
+      sort_order: params.sortOrder,
+      display_slot: params.sortOrder,
+      expires_at: params.sourceAsset.expires_at ?? new Date(Date.now() + ASSET_RETENTION_DAYS * 86400000).toISOString(),
+      original_size_bytes: params.sourceAsset.original_size_bytes ?? null,
+      stored_size_bytes: params.sourceAsset.stored_size_bytes ?? null,
+      compression_status: params.sourceAsset.compression_status ?? "not_applicable",
+    })
+    .select("*")
+    .single();
+
+  if (error) throw error;
   return data as ContentReviewAsset;
 }
 
@@ -1146,4 +1607,185 @@ export async function submitContentClientReviewFeedback(params: {
     status?: ContentReviewStatus;
     feedback?: ContentClientFeedbackLimits;
   };
+}
+
+export async function generateContentStudioCaption(
+  input: ContentStudioCaptionGenerateInput,
+): Promise<ContentStudioCaptionGenerateOutput> {
+  try {
+    const routeResponse = await fetch("/api/content-studio/generate-caption", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+    if (routeResponse.ok) {
+      const data = await routeResponse.json();
+      return {
+        generatedCaption: String(data.generatedCaption ?? ""),
+        hashtags: Array.isArray(data.hashtags) ? data.hashtags.map(String) : [],
+        shortAlternative: String(data.shortAlternative ?? ""),
+      };
+    }
+  } catch {
+    // fallback to edge function / assistant below
+  }
+
+  try {
+    const { data, error } = await supabase.functions.invoke(
+      "content-studio-generate-caption",
+      {
+        body: input,
+      },
+    );
+    if (!error && data) {
+      return {
+        generatedCaption: String(data.generatedCaption ?? ""),
+        hashtags: Array.isArray(data.hashtags) ? data.hashtags.map(String) : [],
+        shortAlternative: String(data.shortAlternative ?? ""),
+      };
+    }
+  } catch {
+    // fallback below
+  }
+
+  const prompt = [
+    `Client: ${input.clientName}`,
+    `Post: ${input.postTitle}`,
+    input.platform ? `Platform: ${input.platform}` : null,
+    input.tone ? `Tone: ${input.tone}` : null,
+    input.mediaDescription ? `Media notes: ${input.mediaDescription}` : null,
+    input.existingCaption ? `Existing caption: ${input.existingCaption}` : null,
+    input.instruction ? `Instruction: ${input.instruction}` : null,
+    "",
+    "Return JSON with keys: generatedCaption (string), hashtags (array), shortAlternative (string).",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const response = await askAssistant({
+    message: prompt,
+    context: buildAssistantContext({
+      userId: "content-studio-system",
+      organizationId: "content-studio",
+      currentModule: "content-studio",
+      currentRoute: "/admin/content-studio",
+      role: "social_media",
+      timezone: "Africa/Harare",
+    }),
+    metadata: {
+      source: "content_studio_caption",
+    },
+  });
+
+  let generatedCaption = response.message || "";
+  let hashtags: string[] = [];
+  let shortAlternative = "";
+
+  if (response.message) {
+    const trimmed = response.message.trim();
+    if (trimmed.startsWith("{")) {
+      try {
+        const parsed = JSON.parse(trimmed) as Record<string, unknown>;
+        generatedCaption = String(parsed.generatedCaption ?? generatedCaption);
+        hashtags = Array.isArray(parsed.hashtags)
+          ? parsed.hashtags.map((item) => String(item))
+          : [];
+        shortAlternative = String(parsed.shortAlternative ?? "");
+      } catch {
+        // keep text fallback
+      }
+    }
+  }
+
+  return {
+    generatedCaption,
+    hashtags,
+    shortAlternative,
+  };
+}
+
+function parseImageAnalysisPayload(raw: string): ContentStudioImageAnalysis {
+  const fallback: ContentStudioImageAnalysis = {
+    mood: "Professional",
+    sceneDescription: raw.trim() || "No scene description returned.",
+    generatedCaption: raw.trim(),
+    hashtags: [],
+    shortAlternative: "",
+  };
+
+  const trimmed = raw.trim();
+  if (!trimmed.startsWith("{")) return fallback;
+
+  try {
+    const parsed = JSON.parse(trimmed) as Record<string, unknown>;
+    return {
+      mood: String(parsed.mood ?? parsed.Mood ?? "Professional"),
+      sceneDescription: String(
+        parsed.sceneDescription ?? parsed.scene ?? parsed.scene_description ?? "",
+      ),
+      generatedCaption: String(
+        parsed.generatedCaption ?? parsed.caption ?? parsed.captionSuggestion ?? "",
+      ),
+      hashtags: Array.isArray(parsed.hashtags)
+        ? parsed.hashtags.map((item) => String(item))
+        : [],
+      shortAlternative: String(parsed.shortAlternative ?? parsed.shortCaption ?? ""),
+      instagramCaption: parsed.instagramCaption
+        ? String(parsed.instagramCaption)
+        : undefined,
+      facebookCaption: parsed.facebookCaption
+        ? String(parsed.facebookCaption)
+        : undefined,
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+/** Image + caption analysis via existing n8n / AI assistant (no auto-save). */
+export async function analyzeContentStudioImage(input: {
+  clientName: string;
+  postTitle: string;
+  existingCaption?: string;
+  imageUrl: string;
+  fileName?: string;
+  userId?: string;
+  organizationId?: string;
+}): Promise<ContentStudioImageAnalysis> {
+  const prompt = [
+    `Client: ${input.clientName}`,
+    `Post: ${input.postTitle}`,
+    input.existingCaption ? `Existing caption: ${input.existingCaption}` : null,
+    "",
+    "Analyze the attached image for social content.",
+    "Return strict JSON only with keys:",
+    "mood, sceneDescription, generatedCaption, hashtags (array), shortAlternative, instagramCaption, facebookCaption",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const response = await askAssistant({
+    message: prompt,
+    context: buildAssistantContext({
+      userId: input.userId ?? "content-studio-system",
+      organizationId: input.organizationId ?? "content-studio",
+      currentModule: "content-studio",
+      currentRoute: "/admin/content-studio/clients",
+      role: "social_media",
+      timezone: "Africa/Harare",
+    }),
+    attachments: [
+      {
+        name: input.fileName ?? "post-image",
+        type: "image",
+        url: input.imageUrl,
+        mimeType: "image/jpeg",
+      },
+    ],
+    metadata: {
+      source: "content_studio_image_analysis",
+    },
+  });
+
+  return parseImageAnalysisPayload(response.message || "");
 }

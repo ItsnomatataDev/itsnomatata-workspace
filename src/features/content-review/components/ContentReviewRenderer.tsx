@@ -6,6 +6,7 @@ import {
   type ContentReviewLayout,
 } from "../services/contentReviewService";
 import { groupAssetsByDisplaySlot, type ContentReviewDisplaySlot } from "../utils/assetDisplaySlots";
+import { shouldUseUnifiedPostCopy } from "../utils/postCopyLayout";
 import MediaCarousel, { carouselCropStyle } from "./MediaCarousel";
 
 type PreviewTheme = "public" | "internal";
@@ -160,12 +161,14 @@ export function ContentReviewRenderer({
   assets,
   theme = "public",
   viewport = "responsive",
+  unifiedPostCopy,
   renderSectionActions,
 }: {
   draft: ContentReviewDraft;
   assets: ContentReviewAsset[];
   theme?: PreviewTheme;
   viewport?: PreviewViewport;
+  unifiedPostCopy?: boolean;
   renderSectionActions?: (
     slot: ContentReviewDisplaySlot,
     index: number,
@@ -173,7 +176,11 @@ export function ContentReviewRenderer({
 }) {
   const [expandedVideo, setExpandedVideo] = useState<ContentReviewAsset | null>(null);
   const displaySlots = useMemo(() => groupAssetsByDisplaySlot(assets), [assets]);
-  const layout = useMemo(() => resolveLayout(draft, displaySlots), [draft, displaySlots]);
+  const useUnifiedCopy = unifiedPostCopy ?? shouldUseUnifiedPostCopy(assets);
+  const layout = useMemo(() => {
+    if (useUnifiedCopy && displaySlots.length > 0) return "media_showcase" as ContentReviewLayout;
+    return resolveLayout(draft, displaySlots);
+  }, [draft, displaySlots, useUnifiedCopy]);
   const primarySlot = displaySlots[0] ?? null;
   const extraSlots = displaySlots.slice(1);
 
@@ -190,6 +197,43 @@ export function ContentReviewRenderer({
   const status = theme === "internal" ? "bg-orange-500 text-black" : "bg-orange-500 text-black";
   const galleryGrid =
     extraSlots.length <= 1 ? "md:grid-cols-1" : extraSlots.length <= 2 ? "md:grid-cols-2" : "md:grid-cols-2 xl:grid-cols-3";
+
+  const unifiedTextBlock = () => (
+    <div className={`flex min-w-0 flex-col justify-center ${viewport === "mobile" ? "p-6" : "p-6 sm:p-8"}`}>
+      <h2 className={`font-bold ${viewport === "mobile" ? "text-3xl" : "text-3xl sm:text-4xl"}`}>{draft.title}</h2>
+      {draft.subtitle ? <p className={`mt-3 ${viewport === "mobile" ? "text-base" : "text-lg"} ${muted}`}>{draft.subtitle}</p> : null}
+      <div className="mt-5 flex flex-wrap gap-2 text-sm">
+        <span className={`rounded-full px-3 py-1 font-semibold capitalize ${status}`}>
+          {formatStatus(draft.status)}
+        </span>
+        {draft.scheduled_at ? (
+          <span className={`rounded-full border px-3 py-1 ${theme === "internal" ? "border-white/10 text-white/65" : "border-neutral-200 text-neutral-600"}`}>
+            Scheduled {new Date(draft.scheduled_at).toLocaleString()}
+          </span>
+        ) : null}
+      </div>
+      {draft.summary ? <p className={`mt-6 font-medium ${viewport === "mobile" ? "text-base leading-7" : "text-lg leading-8"} ${body}`}>{draft.summary}</p> : null}
+      {draft.body ? (
+        <p className={`mt-5 whitespace-pre-wrap ${viewport === "mobile" ? "leading-7" : "leading-8"} ${body}`}>{draft.body}</p>
+      ) : null}
+      {draft.captions ? (
+        <p className={`mt-5 whitespace-pre-wrap rounded-2xl border p-4 text-sm ${theme === "internal" ? "border-white/10 bg-white/5 text-white/80" : "border-neutral-200 bg-neutral-50 text-neutral-800"}`}>
+          {draft.captions}
+        </p>
+      ) : null}
+      {draft.notes ? <div className={`mt-6 rounded-2xl border p-4 text-sm ${note}`}>{draft.notes}</div> : null}
+      {draft.cta_label && draft.cta_url ? (
+        <a
+          href={draft.cta_url}
+          target="_blank"
+          rel="noreferrer"
+          className="mt-6 inline-flex w-fit rounded-xl bg-orange-500 px-4 py-3 text-sm font-bold text-black hover:bg-orange-400"
+        >
+          {draft.cta_label}
+        </a>
+      ) : null}
+    </div>
+  );
 
   const textBlock = (slot?: ContentReviewDisplaySlot, index = 0) => (
     <div className={`flex min-w-0 flex-col justify-center ${viewport === "mobile" ? "p-6" : "p-6 sm:p-8"}`}>
@@ -255,7 +299,23 @@ export function ContentReviewRenderer({
   return (
     <>
       <article className={shell}>
-        {layout === "split_media_text" && displaySlots.length > 0 ? (
+        {useUnifiedCopy && displaySlots.length > 0 ? (
+          <>
+            <div className={`space-y-4 ${theme === "internal" ? "p-4 sm:p-5" : "p-4 sm:p-6"}`}>
+              {displaySlots.map((slot) => (
+                <MediaFrame
+                  key={`slot-${slot.slot}`}
+                  slot={slot}
+                  theme={theme}
+                  viewport={viewport}
+                  showText={false}
+                  onViewLarger={setExpandedVideo}
+                />
+              ))}
+            </div>
+            {unifiedTextBlock()}
+          </>
+        ) : layout === "split_media_text" && displaySlots.length > 0 ? (
           displaySlots.map((slot, index) => splitBlock(slot, index))
         ) : (
           <>

@@ -1,4 +1,4 @@
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes, useParams } from "react-router-dom";
 import LoginPage from "../../features/auth/pages/LoginPage";
 import SignupPage from "../../features/auth/pages/SignupPage";
 import ForgotPasswordPage from "../../features/auth/pages/ForgotPasswordPage";
@@ -79,6 +79,11 @@ import PublicClientReviewPage from "../../features/content-review/pages/PublicCl
 import ClientPortalLoginPage from "../../features/content-review/pages/ClientPortalLoginPage";
 import ClientPortalPage from "../../features/content-review/pages/ClientPortalPage";
 import ClientPortalReviewPage from "../../features/content-review/pages/ClientPortalReviewPage";
+
+function ContentStudioClientLegacyRedirect() {
+  const { clientId } = useParams();
+  return <Navigate to={`/admin/content-studio/clients/${clientId ?? ""}`} replace />;
+}
 
 const AppRouter = () => {
   return (
@@ -395,8 +400,12 @@ const AppRouter = () => {
           }
         />
 
+        <Route
+          path="/admin/content-studio"
+          element={<Navigate to="/admin/content-studio/clients" replace />}
+        />
+
         {[
-          "/admin/content-studio",
           "/admin/content-studio/drafts",
           "/admin/content-studio/uploads",
           "/admin/content-studio/reviews",
@@ -416,6 +425,23 @@ const AppRouter = () => {
             }
           />
         ))}
+
+        <Route
+          path="/content-studio"
+          element={<Navigate to="/admin/content-studio/clients" replace />}
+        />
+        <Route
+          path="/content-studio/:clientId"
+          element={
+            <ProtectedRoute>
+              <RoleRoute roles={["admin", "social_media", "media_team"]}>
+                <FeatureRoute feature="content_review">
+                  <ContentStudioClientLegacyRedirect />
+                </FeatureRoute>
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
 
         {[
           "/admin/content-studio/clients",

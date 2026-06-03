@@ -130,7 +130,7 @@ function getRoleNav(role?: string | null, counts?: SidebarCounts): NavItem[] {
               featureKey: "social_media",
             },
             { to: "/social-posts", label: "Social Posts", icon: Megaphone, featureKey: "social_media" },
-            { to: "/admin/content-studio", label: "Content Studio", icon: FileText, featureKey: "content_review" },
+            { to: "/admin/content-studio/clients", label: "Content Studio", icon: FileText, featureKey: "content_review" },
           ],
         },
       ];
@@ -246,7 +246,7 @@ return [
     { to: "/admin/attendance", label: "Attendance", icon: Timer, featureKey: "attendance" },
     { to: "/organization/settings", label: "Org Settings", icon: Settings },
     { to: "/admin/documents", label: "Documents", icon: FileText, featureKey: "knowledge_base" },
-    { to: "/admin/content-studio", label: "Content Studio", icon: FileText, featureKey: "content_review" },
+    { to: "/admin/content-studio/clients", label: "Content Studio", icon: FileText, featureKey: "content_review" },
     { to: "/admin/payslips", label: "Payslips", icon: ClipboardList, featureKey: "finance" },
     {type: "group", label: "Assets", icon: Package, color: "text-blue-400",activePaths: ["/assets", "/scan", "/fleet"],
           children: [

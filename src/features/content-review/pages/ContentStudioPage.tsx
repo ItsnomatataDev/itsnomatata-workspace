@@ -479,7 +479,7 @@ export default function ContentStudioPage() {
   async function copyReviewLink() {
     if (!selectedDraft?.review_url) return;
     await navigator.clipboard.writeText(selectedDraft.review_url);
-    setMessage("Review link copied.");
+    setMessage("Post preview link copied. No PIN is required for this link.");
   }
 
   async function handleInternalComment(event: FormEvent) {
@@ -730,7 +730,7 @@ export default function ContentStudioPage() {
                       className="inline-flex items-center justify-center gap-2 rounded-xl border border-orange-500/20 bg-orange-500/10 px-4 py-3 text-sm font-semibold text-orange-200 hover:bg-orange-500/15"
                     >
                       <Copy size={16} />
-                      Copy review link
+                      Copy post preview link
                     </button>
                     <button
                       type="button"
