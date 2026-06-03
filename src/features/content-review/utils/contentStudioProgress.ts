@@ -1,6 +1,11 @@
 import type { ContentReviewAsset, ContentReviewDraft } from "../services/contentReviewService";
 
-export const CONTENT_STUDIO_POSTS_PER_CLIENT = 10;
+import {
+  CONTENT_STUDIO_POSTS_PER_SCHEDULE,
+  CONTENT_STUDIO_POSTS_PER_CLIENT,
+} from "./contentStudioTerms";
+
+export { CONTENT_STUDIO_POSTS_PER_SCHEDULE, CONTENT_STUDIO_POSTS_PER_CLIENT };
 
 export type StageLabel = "Missing" | "Ready" | "Pending" | "Approved" | "Not sent" | "Sent" | "Awaiting" | "Reviewed" | "Changes";
 
@@ -37,19 +42,36 @@ export type ClientBatchReadiness = {
 };
 
 const INTERNAL_APPROVED = new Set<ContentReviewDraft["status"]>(["approved", "published"]);
-const SENT_TO_CLIENT = new Set<ContentReviewDraft["status"]>([
-  "sent_to_client",
-  "viewed",
-  "changes_requested",
-  "approved",
-  "published",
-]);
-const CLIENT_REVIEWED = new Set<ContentReviewDraft["status"]>([
-  "viewed",
-  "approved",
-  "changes_requested",
-  "published",
-]);
+
+type DraftDeliveryState = Pick<
+  ContentReviewDraft,
+  "status" | "last_viewed_at" | "changes_requested_at"
+>;
+
+/** True once the client portal or public review link has been used, or the draft was explicitly sent. */
+export function hasBeenSentToClient(draft: DraftDeliveryState) {
+  if (
+    draft.status === "sent_to_client" ||
+    draft.status === "viewed" ||
+    draft.status === "changes_requested"
+  ) {
+    return true;
+  }
+  if (draft.status === "approved" || draft.status === "published") {
+    return Boolean(draft.last_viewed_at || draft.changes_requested_at);
+  }
+  return false;
+}
+
+function isClientReviewed(draft: DraftDeliveryState) {
+  if (draft.status === "viewed" || draft.status === "changes_requested") {
+    return true;
+  }
+  if (draft.status === "approved" || draft.status === "published") {
+    return hasBeenSentToClient(draft);
+  }
+  return false;
+}
 
 type PostCaptionDraft = Pick<ContentReviewDraft, "captions" | "body" | "summary">;
 type PostCaptionAsset = Pick<ContentReviewAsset, "caption" | "heading" | "is_selected">;
@@ -78,8 +100,8 @@ export function getPostReadiness(
   const hasMedia = assetCount > 0;
   const hasCaption = hasPostCaption(draft, assets);
   const internallyApproved = INTERNAL_APPROVED.has(draft.status);
-  const sentToClient = SENT_TO_CLIENT.has(draft.status);
-  const clientReviewed = CLIENT_REVIEWED.has(draft.status);
+  const sentToClient = hasBeenSentToClient(draft);
+  const clientReviewed = isClientReviewed(draft);
   const clientChangesRequested = draft.status === "changes_requested";
 
   return {
@@ -107,7 +129,7 @@ export function getPostReadiness(
 export function getClientBatchReadiness(
   drafts: ContentReviewDraft[],
   assetCountByDraftId: Record<string, number>,
-  expectedPosts = CONTENT_STUDIO_POSTS_PER_CLIENT,
+  expectedPosts = CONTENT_STUDIO_POSTS_PER_SCHEDULE,
   assetsByDraftId: Record<string, ContentReviewAsset[]> = {},
 ): ClientBatchReadiness {
   const sorted = [...drafts].sort(
@@ -196,6 +218,42 @@ export function stageBadgeClass(label: StageLabel) {
   return "border-white/10 bg-white/5 text-white/55";
 }
 
+const STAFF_RECALL_STATUSES = new Set<ContentReviewDraft["status"]>([
+  "sent_to_client",
+  "viewed",
+  "changes_requested",
+]);
+
+/** Staff can pull a schedule back from review (internal approve, mistaken send, or client feedback). */
+export function canRevokeScheduleApproval(
+  draft: Pick<ContentReviewDraft, "status">,
+  readiness?: PostReadiness,
+) {
+  if (draft.status === "published" || draft.status === "archived") return false;
+  if (INTERNAL_APPROVED.has(draft.status)) return true;
+  if (STAFF_RECALL_STATUSES.has(draft.status)) return true;
+  if (readiness?.internallyApproved && !readiness.sentToClient) return true;
+  return false;
+}
+
+/** @deprecated Prefer canRevokeScheduleApproval(draft, readiness). */
+export function canRevokeInternalApproval(
+  readiness: PostReadiness,
+  draft?: Pick<ContentReviewDraft, "status">,
+) {
+  if (draft) return canRevokeScheduleApproval(draft, readiness);
+  return readiness.internallyApproved && !readiness.sentToClient;
+}
+
+export function revokeScheduleApprovalLabel(
+  draft: Pick<ContentReviewDraft, "status">,
+) {
+  if (STAFF_RECALL_STATUSES.has(draft.status) || draft.status === "changes_requested") {
+    return "Recall from client";
+  }
+  return "Unapprove schedule";
+}
+
 export function sendGateHint(readiness: PostReadiness) {
   const missing: string[] = [];
   if (!readiness.hasMedia) missing.push("media");
@@ -207,17 +265,20 @@ export function sendGateHint(readiness: PostReadiness) {
 }
 
 export function batchSendGateHint(batch: ClientBatchReadiness) {
-  if (batch.actualPosts < batch.expectedPosts) {
-    return `Need ${batch.expectedPosts} posts (${batch.actualPosts}/${batch.expectedPosts} created).`;
+  if (batch.mediaComplete < batch.expectedPosts) {
+    return `Add media to each post in the schedule (${batch.mediaComplete}/${batch.expectedPosts} ready).`;
+  }
+  if (batch.captionsComplete < batch.expectedPosts) {
+    return `Add captions to each post in the schedule (${batch.captionsComplete}/${batch.expectedPosts} ready).`;
   }
   if (!batch.allPostsInternallyReady) {
-    return "All 10 posts need media, captions, and internal approval.";
+    return "All posts in the schedule need media, captions, and internal approval.";
   }
   if (batch.sentToClient >= batch.expectedPosts && !batch.canSendBatchToClient) {
-    return "All posts already sent to client.";
+    return "Every post in this schedule was already sent to the client.";
   }
   if (batch.canSendBatchToClient) {
-    return "Send all approved posts to the client review portal.";
+    return "Send the full schedule to the client review portal.";
   }
-  return "Some posts are already with the client.";
+  return "Some posts in this schedule are already with the client.";
 }

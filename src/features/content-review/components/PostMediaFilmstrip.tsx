@@ -1,5 +1,8 @@
 import { FolderOpen, GripVertical, Plus, Trash2, Upload } from "lucide-react";
+import { useEffect, useRef } from "react";
 import type { ContentReviewAsset } from "../services/contentReviewService";
+import { assetDisplaySlot } from "../utils/assetDisplaySlots";
+import { contentStudioCopy, postLabel } from "../utils/contentStudioTerms";
 
 function Thumb({ asset }: { asset: ContentReviewAsset }) {
   const isVideo = asset.asset_type === "video" || asset.mime_type?.startsWith("video/");
@@ -14,6 +17,7 @@ function Thumb({ asset }: { asset: ContentReviewAsset }) {
 export default function PostMediaFilmstrip({
   assets,
   selectedAssetId,
+  activeDisplaySlot = null,
   saving,
   canUseLibrary,
   onSelect,
@@ -24,6 +28,7 @@ export default function PostMediaFilmstrip({
 }: {
   assets: ContentReviewAsset[];
   selectedAssetId: string | null;
+  activeDisplaySlot?: number | null;
   saving: boolean;
   canUseLibrary: boolean;
   onSelect: (assetId: string) => void;
@@ -32,10 +37,22 @@ export default function PostMediaFilmstrip({
   onUpload: (files: FileList | null) => void;
   onOpenLibrary: () => void;
 }) {
+  const stripRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (activeDisplaySlot == null || !stripRef.current) return;
+    const thumb = stripRef.current.querySelector<HTMLElement>(
+      `[data-display-slot="${activeDisplaySlot}"]`,
+    );
+    thumb?.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+  }, [activeDisplaySlot, assets]);
+
   return (
     <div className="shrink-0 border-t border-white/10 bg-black px-3 py-3 sm:px-4">
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-        <p className="text-[11px] font-semibold uppercase tracking-wide text-white/45">Post sequence</p>
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-white/45">
+          {contentStudioCopy.editorFilmstrip}
+        </p>
         <div className="flex flex-wrap gap-2">
           {canUseLibrary ? (
             <button
@@ -65,7 +82,7 @@ export default function PostMediaFilmstrip({
           </label>
         </div>
       </div>
-      <div className="flex gap-2 overflow-x-auto pb-1">
+      <div ref={stripRef} className="flex gap-2 overflow-x-auto pb-1">
         {assets.length === 0 ? (
           <button
             type="button"
@@ -89,7 +106,12 @@ export default function PostMediaFilmstrip({
                 const draggedId = event.dataTransfer.getData("text/plain");
                 if (draggedId) onReorder(draggedId, asset.id);
               }}
-              className={`group relative shrink-0 ${selectedAssetId === asset.id ? "ring-2 ring-orange-500 ring-offset-2 ring-offset-black" : ""}`}
+              data-display-slot={assetDisplaySlot(asset, index)}
+              className={`group relative shrink-0 ${
+                selectedAssetId === asset.id || activeDisplaySlot === assetDisplaySlot(asset, index)
+                  ? "ring-2 ring-orange-500 ring-offset-2 ring-offset-black"
+                  : ""
+              }`}
             >
               <button
                 type="button"
@@ -99,7 +121,7 @@ export default function PostMediaFilmstrip({
                 <Thumb asset={asset} />
               </button>
               <span className="absolute left-1 top-1 rounded bg-black/75 px-1.5 py-0.5 text-[10px] font-bold text-white/80">
-                {index + 1}
+                {postLabel(asset.display_slot ?? index)}
               </span>
               <GripVertical
                 size={12}

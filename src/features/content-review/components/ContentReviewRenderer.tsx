@@ -5,7 +5,12 @@ import {
   type ContentReviewDraft,
   type ContentReviewLayout,
 } from "../services/contentReviewService";
-import { groupAssetsByDisplaySlot, type ContentReviewDisplaySlot } from "../utils/assetDisplaySlots";
+import {
+  contentReviewSlotAnchorId,
+  groupAssetsByDisplaySlot,
+  type ContentReviewDisplaySlot,
+} from "../utils/assetDisplaySlots";
+import { postLabel } from "../utils/contentStudioTerms";
 import { shouldUseUnifiedPostCopy } from "../utils/postCopyLayout";
 import MediaCarousel, { carouselCropStyle } from "./MediaCarousel";
 
@@ -128,7 +133,7 @@ function MediaFrame({
             {displayHeading ? <strong className="block text-current">{displayHeading}</strong> : null}
             {asset.caption ? <span className="block">{asset.caption}</span> : null}
             {slot.assets.length > 1 ? (
-              <span className="block text-xs opacity-80">{slot.assets.length} images in this slide</span>
+              <span className="block text-xs opacity-80">{slot.assets.length} images in this post</span>
             ) : null}
           </figcaption>
         ) : (
@@ -156,12 +161,51 @@ function MediaFrame({
   );
 }
 
+function SlotSection({
+  slot,
+  theme,
+  highlightDisplaySlot,
+  children,
+  className = "",
+}: {
+  slot: number;
+  theme: PreviewTheme;
+  highlightDisplaySlot?: number | null;
+  children: ReactNode;
+  className?: string;
+}) {
+  const highlighted = highlightDisplaySlot === slot;
+  const ring =
+    theme === "internal"
+      ? "ring-orange-400/80 ring-offset-black"
+      : "ring-orange-500/70 ring-offset-white";
+
+  return (
+    <div
+      id={contentReviewSlotAnchorId(slot)}
+      className={`scroll-mt-6 ${highlighted ? `rounded-2xl ring-2 ring-offset-2 ${ring}` : ""} ${className}`}
+    >
+      {highlighted ? (
+        <p
+          className={`px-4 pt-3 text-[11px] font-bold uppercase tracking-wide ${
+            theme === "internal" ? "text-orange-300" : "text-orange-600"
+          }`}
+        >
+          {postLabel(slot)}
+        </p>
+      ) : null}
+      {children}
+    </div>
+  );
+}
+
 export function ContentReviewRenderer({
   draft,
   assets,
   theme = "public",
   viewport = "responsive",
   unifiedPostCopy,
+  highlightDisplaySlot = null,
   renderSectionActions,
 }: {
   draft: ContentReviewDraft;
@@ -169,6 +213,7 @@ export function ContentReviewRenderer({
   theme?: PreviewTheme;
   viewport?: PreviewViewport;
   unifiedPostCopy?: boolean;
+  highlightDisplaySlot?: number | null;
   renderSectionActions?: (
     slot: ContentReviewDisplaySlot,
     index: number,
@@ -279,8 +324,11 @@ export function ContentReviewRenderer({
   );
 
   const splitBlock = (slot: ContentReviewDisplaySlot, index = 0) => (
-    <div
+    <SlotSection
       key={`slot-${slot.slot}`}
+      slot={slot.slot}
+      theme={theme}
+      highlightDisplaySlot={highlightDisplaySlot}
       className={`grid gap-0 ${viewport === "mobile" ? "" : "lg:grid-cols-[minmax(0,1.05fr)_minmax(320px,0.95fr)]"} ${index > 0 ? "border-t border-inherit" : ""}`}
     >
       <div className={theme === "internal" ? "p-4 sm:p-5" : "p-4 sm:p-6"}>
@@ -293,7 +341,7 @@ export function ContentReviewRenderer({
         />
       </div>
       {textBlock(slot, index)}
-    </div>
+    </SlotSection>
   );
 
   return (
@@ -303,14 +351,20 @@ export function ContentReviewRenderer({
           <>
             <div className={`space-y-4 ${theme === "internal" ? "p-4 sm:p-5" : "p-4 sm:p-6"}`}>
               {displaySlots.map((slot) => (
-                <MediaFrame
+                <SlotSection
                   key={`slot-${slot.slot}`}
-                  slot={slot}
+                  slot={slot.slot}
                   theme={theme}
-                  viewport={viewport}
-                  showText={false}
-                  onViewLarger={setExpandedVideo}
-                />
+                  highlightDisplaySlot={highlightDisplaySlot}
+                >
+                  <MediaFrame
+                    slot={slot}
+                    theme={theme}
+                    viewport={viewport}
+                    showText={false}
+                    onViewLarger={setExpandedVideo}
+                  />
+                </SlotSection>
               ))}
             </div>
             {unifiedTextBlock()}
@@ -320,14 +374,20 @@ export function ContentReviewRenderer({
         ) : (
           <>
             {primarySlot ? (
-              <div className={theme === "internal" ? "p-4 sm:p-5" : "p-4 sm:p-6"}>
-                <MediaFrame
-                  slot={primarySlot}
-                  theme={theme}
-                  viewport={viewport}
-                  onViewLarger={setExpandedVideo}
-                />
-              </div>
+              <SlotSection
+                slot={primarySlot.slot}
+                theme={theme}
+                highlightDisplaySlot={highlightDisplaySlot}
+              >
+                <div className={theme === "internal" ? "p-4 sm:p-5" : "p-4 sm:p-6"}>
+                  <MediaFrame
+                    slot={primarySlot}
+                    theme={theme}
+                    viewport={viewport}
+                    onViewLarger={setExpandedVideo}
+                  />
+                </div>
+              </SlotSection>
             ) : null}
             {textBlock(primarySlot ?? undefined)}
           </>
@@ -337,13 +397,19 @@ export function ContentReviewRenderer({
       {layout !== "split_media_text" && extraSlots.length > 0 ? (
         <section className={`mt-6 grid gap-4 ${galleryGrid}`}>
           {extraSlots.map((slot) => (
-            <MediaFrame
+            <SlotSection
               key={`slot-${slot.slot}`}
-              slot={slot}
+              slot={slot.slot}
               theme={theme}
-              viewport={viewport}
-              onViewLarger={setExpandedVideo}
-            />
+              highlightDisplaySlot={highlightDisplaySlot}
+            >
+              <MediaFrame
+                slot={slot}
+                theme={theme}
+                viewport={viewport}
+                onViewLarger={setExpandedVideo}
+              />
+            </SlotSection>
           ))}
         </section>
       ) : null}

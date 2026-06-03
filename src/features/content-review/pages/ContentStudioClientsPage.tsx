@@ -1,4 +1,4 @@
-import { AlertCircle, Copy, KeyRound, Loader2, Plus, Send, Sparkles, Trash2, X } from "lucide-react";
+import { AlertCircle, CalendarDays, Copy, KeyRound, Loader2, Plus, Send, Sparkles, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import Sidebar from "../../../components/dashboard/components/Sidebar";
@@ -11,9 +11,8 @@ import {
   buildClientPortalUrl,
   buildContentReviewDetailsIndex,
   createContentClient,
-  ensureClientPostSlots,
+  ensureClientMonthlySchedule,
   deleteContentClient,
-  deleteContentReviewDraft,
   generateContentStudioCaption,
   getContentClient,
   listContentClients,
@@ -32,12 +31,25 @@ import {
 } from "../services/contentReviewService";
 import {
   batchSendGateHint,
-  CONTENT_STUDIO_POSTS_PER_CLIENT,
+  CONTENT_STUDIO_POSTS_PER_SCHEDULE,
+  canRevokeScheduleApproval,
+  revokeScheduleApprovalLabel,
   getClientBatchReadiness,
   getPostReadiness,
   stageBadgeClass,
   type StageLabel,
 } from "../utils/contentStudioProgress";
+import {
+  contentStudioCopy,
+  formatScheduleMonthLabel,
+  scheduleMonthKey,
+} from "../utils/contentStudioTerms";
+import {
+  buildSchedulePostRows,
+  formatScheduleDate,
+  getScheduleBatchReadiness,
+  resolveClientScheduleDraft,
+} from "../utils/contentStudioSchedule";
 
 type ClientProgress = {
   client: ContentClient;
@@ -128,10 +140,11 @@ export default function ContentStudioClientsPage() {
   >({});
   const [selectedAiDraftId, setSelectedAiDraftId] = useState("");
   const [activeClientTab, setActiveClientTab] = useState<
-    "overview" | "posts" | "media" | "captions" | "review-link" | "settings"
-  >(clientId ? "posts" : "overview");
+    "overview" | "schedule" | "media" | "captions" | "review-link" | "settings"
+  >(clientId ? "schedule" : "overview");
   const [previewDraft, setPreviewDraft] = useState<ContentReviewDraft | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewTheme, setPreviewTheme] = useState<"internal" | "public">("internal");
   const [unassignedDrafts, setUnassignedDrafts] = useState<ContentReviewDraft[]>([]);
   const [assignClientByDraftId, setAssignClientByDraftId] = useState<Record<string, string>>({});
 
@@ -194,11 +207,12 @@ export default function ContentStudioClientsPage() {
       if (clientId && userId) {
         const nextClient = await getContentClient({ organizationId, officeId: office.id, clientId });
         setClient(nextClient);
-        await ensureClientPostSlots({
+        await ensureClientMonthlySchedule({
           organizationId,
           officeId: office.id,
           clientId,
           createdBy: userId,
+          monthKey: monthFilter !== "all" ? monthFilter : scheduleMonthKey(),
         });
         const snapshot = await loadContentStudioClientSnapshot({
           organizationId,
@@ -221,38 +235,49 @@ export default function ContentStudioClientsPage() {
     } finally {
       setLoading(false);
     }
-  }, [clientId, organizationId, profile?.office_id, profile?.primary_role, userId]);
+  }, [clientId, monthFilter, organizationId, profile?.office_id, profile?.primary_role, userId]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
   useEffect(() => {
-    if (clientId) setActiveClientTab("posts");
+    if (clientId) setActiveClientTab("schedule");
   }, [clientId]);
 
-  function openPostEditor(draftId: string, options?: { suggestedCaption?: string }) {
-    navigate(`/admin/content-studio/editor/${draftId}`, {
-      state: options?.suggestedCaption ? { suggestedCaption: options.suggestedCaption } : undefined,
-    });
+  function openPostEditor(
+    draftId: string,
+    options?: { suggestedCaption?: string; displaySlot?: number },
+  ) {
+    const state =
+      options?.suggestedCaption || options?.displaySlot != null
+        ? {
+            ...(options.suggestedCaption ? { suggestedCaption: options.suggestedCaption } : {}),
+            ...(options.displaySlot != null ? { displaySlot: options.displaySlot } : {}),
+          }
+        : undefined;
+    navigate(`/admin/content-studio/editor/${draftId}`, { state });
   }
 
   const dashboardRows = useMemo<ClientProgress[]>(() => {
     return clients.map((entry) => {
       const clientDraftList = allClientDrafts[entry.id] ?? [];
-      const assetCountByDraftId = Object.fromEntries(
-        clientDraftList.map((draft) => [draft.id, assetCountForDraft(detailsByDraftId[draft.id])]),
+      const scheduleDraft = resolveClientScheduleDraft(
+        clientDraftList,
+        monthFilter !== "all" ? monthFilter : scheduleMonthKey(),
       );
-      const assetsByDraftId = Object.fromEntries(
-        clientDraftList.map((draft) => [draft.id, assetsForDraft(detailsByDraftId[draft.id])]),
-      );
-      const batch = getClientBatchReadiness(clientDraftList, assetCountByDraftId, CONTENT_STUDIO_POSTS_PER_CLIENT, assetsByDraftId);
+      const scheduleAssets = scheduleDraft
+        ? assetsForDraft(detailsByDraftId[scheduleDraft.id])
+        : [];
+      const batch = scheduleDraft
+        ? getScheduleBatchReadiness(scheduleDraft, scheduleAssets)
+        : getClientBatchReadiness([], {}, CONTENT_STUDIO_POSTS_PER_SCHEDULE, {});
       const overallAverage = Math.round(
         (batch.mediaProgress + batch.captionsProgress + batch.internalProgress + batch.sentProgress + batch.clientReviewProgress) / 5,
       );
       const overallStatus: ClientProgress["overallStatus"] = overallAverage === 0
         ? "Not Started"
-        : batch.sentToClient >= CONTENT_STUDIO_POSTS_PER_CLIENT
+        : batch.sentToClient >= CONTENT_STUDIO_POSTS_PER_SCHEDULE
         ? "Done"
         : batch.allPostsInternallyReady
         ? "Ready For Review"
@@ -260,28 +285,39 @@ export default function ContentStudioClientsPage() {
 
       return {
         client: entry,
-        drafts: clientDraftList,
+        drafts: scheduleDraft ? [scheduleDraft] : [],
         detailsByDraftId,
         batch,
         overallStatus,
       };
     });
-  }, [allClientDrafts, clients, detailsByDraftId]);
+  }, [allClientDrafts, clients, detailsByDraftId, monthFilter]);
+
+  const activeScheduleMonth = useMemo(() => {
+    if (monthFilter !== "all") return monthFilter;
+    return scheduleMonthKey();
+  }, [monthFilter]);
+
+  const activeScheduleDraft = useMemo(
+    () => resolveClientScheduleDraft(drafts, activeScheduleMonth),
+    [drafts, activeScheduleMonth],
+  );
+
+  const schedulePostRows = useMemo(() => {
+    if (!activeScheduleDraft) return [];
+    return buildSchedulePostRows(
+      activeScheduleDraft,
+      assetsForDraft(detailsByDraftId[activeScheduleDraft.id]),
+    );
+  }, [activeScheduleDraft, detailsByDraftId]);
 
   const clientBatch = useMemo(() => {
-    if (!client) return null;
-    const assetCountByDraftId = Object.fromEntries(
-      drafts.map((draft) => [draft.id, assetCountForDraft(detailsByDraftId[draft.id])]),
+    if (!activeScheduleDraft) return null;
+    return getScheduleBatchReadiness(
+      activeScheduleDraft,
+      assetsForDraft(detailsByDraftId[activeScheduleDraft.id]),
     );
-    const assetsByDraftId = Object.fromEntries(
-      drafts.map((draft) => [draft.id, assetsForDraft(detailsByDraftId[draft.id])]),
-    );
-    return getClientBatchReadiness(drafts, assetCountByDraftId, CONTENT_STUDIO_POSTS_PER_CLIENT, assetsByDraftId);
-  }, [client, drafts, detailsByDraftId]);
-
-  const sortedClientPosts = useMemo(() => {
-    return [...drafts].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()).slice(0, CONTENT_STUDIO_POSTS_PER_CLIENT);
-  }, [drafts]);
+  }, [activeScheduleDraft, detailsByDraftId]);
 
   const filteredRows = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -315,14 +351,14 @@ export default function ContentStudioClientsPage() {
       setLastPin(result.pin);
       setForm({ company: "", contact: "", email: "", phone: "" });
       if (userId) {
-        await ensureClientPostSlots({
+        await ensureClientMonthlySchedule({
           organizationId,
           officeId,
           clientId: result.client.id,
           createdBy: userId,
         });
       }
-      setMessage("Client created with 10 post slots. Copy the PIN now; it is only shown once.");
+      setMessage("Client created with this month's schedule. Copy the PIN now; it is only shown once.");
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create client.");
@@ -371,23 +407,14 @@ export default function ContentStudioClientsPage() {
   async function handleSendBatchToClient() {
     if (!clientBatch?.canSendBatchToClient) return;
     const confirmed = window.confirm(
-      `Send all ${CONTENT_STUDIO_POSTS_PER_CLIENT} approved posts to ${client?.company_name} for client review?`,
+      `Send this month's schedule (${CONTENT_STUDIO_POSTS_PER_SCHEDULE} posts) to ${client?.company_name} for client review?`,
     );
     if (!confirmed) return;
     try {
       setSaving(true);
-      let sent = 0;
-      for (const draft of sortedClientPosts) {
-        const readiness = getPostReadiness(
-          draft,
-          assetCountForDraft(detailsByDraftId[draft.id]),
-          assetsForDraft(detailsByDraftId[draft.id]),
-        );
-        if (!readiness.canSendToClient) continue;
-        await updateContentReviewDraft(draft, { status: "sent_to_client" });
-        sent += 1;
-      }
-      setMessage(`${sent} post(s) sent to client for review.`);
+      if (!activeScheduleDraft) return;
+      await updateContentReviewDraft(activeScheduleDraft, { status: "sent_to_client" });
+      setMessage("Schedule sent to client for review.");
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to send posts to client.");
@@ -396,16 +423,17 @@ export default function ContentStudioClientsPage() {
     }
   }
 
-  async function handleDeleteDraft(draft: ContentReviewDraft) {
-    const confirmed = window.confirm(`Delete "${draft.title}" and its uploaded media? A replacement post slot will be created on refresh.`);
-    if (!confirmed) return;
+  async function handleScheduleDateChange(value: string) {
+    if (!activeScheduleDraft) return;
     try {
       setSaving(true);
-      await deleteContentReviewDraft(draft.id);
-      setMessage("Draft and attached media deleted.");
+      await updateContentReviewDraft(activeScheduleDraft, {
+        scheduled_at: value ? new Date(value).toISOString() : null,
+      });
+      setMessage("Schedule date updated.");
       await load();
     } catch (err) {
-      setError(`Failed to delete draft: ${err instanceof Error ? err.message : "Unknown error"}`);
+      setError(err instanceof Error ? err.message : "Failed to update schedule date.");
     } finally {
       setSaving(false);
     }
@@ -496,6 +524,7 @@ export default function ContentStudioClientsPage() {
 
   function openPreviewModal(draft: ContentReviewDraft) {
     setPreviewDraft(draft);
+    setPreviewTheme("internal");
     setPreviewOpen(true);
   }
 
@@ -526,7 +555,11 @@ export default function ContentStudioClientsPage() {
     }
   }
 
-  async function updateDraftStatus(draft: ContentReviewDraft, status: ContentReviewDraft["status"]) {
+  async function updateDraftStatus(
+    draft: ContentReviewDraft,
+    status: ContentReviewDraft["status"],
+    options?: { skipConfirm?: boolean },
+  ) {
     const readiness = getPostReadiness(
       draft,
       assetCountForDraft(detailsByDraftId[draft.id]),
@@ -536,10 +569,34 @@ export default function ContentStudioClientsPage() {
       setError("Add media and caption before internal approval.");
       return;
     }
+    if (status === "ready_for_review") {
+      if (!canRevokeScheduleApproval(draft, readiness)) {
+        setError("This schedule cannot be recalled or unapproved.");
+        return;
+      }
+      if (
+        !options?.skipConfirm &&
+        !window.confirm(
+          `Recall "${draft.title || "this schedule"}" from client review? It will return to ready for review and clear client approval markers.`,
+        )
+      ) {
+        return;
+      }
+    }
     try {
       setSaving(true);
-      await updateContentReviewDraft(draft, { status });
-      setMessage(`Post marked as ${formatStatus(status)}.`);
+      const updates: Partial<ContentReviewDraft> = { status };
+      if (status === "ready_for_review") {
+        updates.approved_at = null;
+        updates.approved_by_name = null;
+        updates.approved_by_email = null;
+      }
+      await updateContentReviewDraft(draft, updates);
+      setMessage(
+        status === "ready_for_review"
+          ? "Schedule recalled. It is ready for review again."
+          : `Post marked as ${formatStatus(status)}.`,
+      );
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to update status.");
@@ -570,8 +627,8 @@ export default function ContentStudioClientsPage() {
               <h1 className="mt-2 text-3xl font-bold">{client ? client.company_name : "Content Studio"}</h1>
               <p className="mt-2 text-sm text-white/50">
                 {client
-                  ? "Manage posts, media, captions, approvals, and review links."
-                  : "Manage client content, media, captions, approvals, and review links."}
+                  ? "Manage this client's monthly schedule, posts, media, captions, and review links."
+                  : `${contentStudioCopy.hierarchyLine} Assign clients, then build each schedule.`}
               </p>
             </div>
             {client ? (
@@ -635,11 +692,10 @@ export default function ContentStudioClientsPage() {
                       </span>
                       <div>
                         <h2 className="text-lg font-semibold text-amber-50">
-                          Unassigned posts ({unassignedDrafts.length})
+                          {contentStudioCopy.unassignedHeading} ({unassignedDrafts.length})
                         </h2>
                         <p className="mt-1 max-w-2xl text-sm text-amber-100/70">
-                          These posts are in Content Studio but not linked to a client yet. Create the
-                          client if needed, then assign each post from the dropdown below.
+                          {contentStudioCopy.unassignedHelp}
                         </p>
                       </div>
                     </div>
@@ -734,20 +790,21 @@ export default function ContentStudioClientsPage() {
               ) : null}
 
               <div className="overflow-hidden rounded-2xl border border-white/10 bg-white/5">
-                <div className="grid grid-cols-[1.1fr_repeat(8,minmax(90px,1fr))] gap-2 border-b border-white/10 px-4 py-3 text-xs uppercase tracking-wide text-white/45">
+                <div className="grid grid-cols-[1.1fr_1fr_repeat(8,minmax(90px,1fr))] gap-2 border-b border-white/10 px-4 py-3 text-xs uppercase tracking-wide text-white/45">
                   <span>Client</span>
-                  <span>Posts</span>
+                  <span>Email</span>
+                  <span>Schedule posts</span>
                   <span>Media</span>
                   <span>Captions</span>
                   <span>Internal Review</span>
                   <span>Sent</span>
                   <span>Client Review</span>
-                  <span>Last Updated</span>
+                  <span>Schedule date</span>
                   <span>Actions</span>
                 </div>
                 <div className="max-h-[460px] overflow-auto">
                   {filteredRows.map((row) => (
-                    <div key={row.client.id} className="grid grid-cols-[1.1fr_repeat(8,minmax(90px,1fr))] gap-2 border-b border-white/10 px-4 py-4 text-sm">
+                    <div key={row.client.id} className="grid grid-cols-[1.1fr_1fr_repeat(8,minmax(90px,1fr))] gap-2 border-b border-white/10 px-4 py-4 text-sm">
                       <div>
                         <Link
                           to={`/admin/content-studio/clients/${row.client.id}`}
@@ -757,14 +814,24 @@ export default function ContentStudioClientsPage() {
                         </Link>
                         <p className="text-xs text-white/50">{row.overallStatus}</p>
                       </div>
-                      <div className="text-xs">{row.batch.actualPosts}/{CONTENT_STUDIO_POSTS_PER_CLIENT}</div>
+                      <div className="min-w-0 text-xs">
+                        <a
+                          href={`mailto:${row.client.email}`}
+                          className="block truncate text-orange-200/90 hover:text-orange-100"
+                          title={row.client.email}
+                        >
+                          {row.client.email}
+                        </a>
+                        <p className="truncate text-white/45">{row.client.contact_name}</p>
+                      </div>
+                      <div className="text-xs">{row.batch.actualPosts}/{CONTENT_STUDIO_POSTS_PER_SCHEDULE}</div>
                       <div className="text-xs font-medium text-white/80">{row.batch.mediaProgress}%</div>
                       <div className="text-xs font-medium text-white/80">{row.batch.captionsProgress}%</div>
                       <div className="text-xs font-medium text-white/80">{row.batch.internalProgress}%</div>
-                      <div className="text-xs">{row.batch.sentToClient}/{CONTENT_STUDIO_POSTS_PER_CLIENT}</div>
+                      <div className="text-xs">{row.batch.sentToClient}/{CONTENT_STUDIO_POSTS_PER_SCHEDULE}</div>
                       <div className="text-xs">{row.batch.clientReviewProgress}%</div>
                       <div className="text-xs text-white/60">
-                        {row.drafts[0]?.updated_at ? new Date(row.drafts[0].updated_at).toLocaleDateString() : "-"}
+                        {row.drafts[0] ? formatScheduleDate(row.drafts[0]) : "-"}
                       </div>
                       <div>
                         <Link
@@ -800,10 +867,10 @@ export default function ContentStudioClientsPage() {
                 <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="flex flex-wrap gap-4 text-sm">
-                      <span><strong className="text-white">{clientBatch.actualPosts}/{CONTENT_STUDIO_POSTS_PER_CLIENT}</strong> <span className="text-white/50">Posts</span></span>
-                      <span><strong className="text-orange-200">{clientBatch.internalApproved}/{CONTENT_STUDIO_POSTS_PER_CLIENT}</strong> <span className="text-white/50">Internally approved</span></span>
-                      <span><strong className="text-white">{clientBatch.sentToClient}/{CONTENT_STUDIO_POSTS_PER_CLIENT}</strong> <span className="text-white/50">Sent to client</span></span>
-                      <span><strong className="text-white">{clientBatch.clientReviewed}/{CONTENT_STUDIO_POSTS_PER_CLIENT}</strong> <span className="text-white/50">Client reviewed</span></span>
+                      <span><strong className="text-white">{clientBatch.actualPosts}/{CONTENT_STUDIO_POSTS_PER_SCHEDULE}</strong> <span className="text-white/50">Posts in schedule</span></span>
+                      <span><strong className="text-orange-200">{clientBatch.internalApproved}/{CONTENT_STUDIO_POSTS_PER_SCHEDULE}</strong> <span className="text-white/50">Internally approved</span></span>
+                      <span><strong className="text-white">{clientBatch.sentToClient}/{CONTENT_STUDIO_POSTS_PER_SCHEDULE}</strong> <span className="text-white/50">Sent to client</span></span>
+                      <span><strong className="text-white">{clientBatch.clientReviewed}/{CONTENT_STUDIO_POSTS_PER_SCHEDULE}</strong> <span className="text-white/50">Client reviewed</span></span>
                     </div>
                     <div className="flex flex-wrap gap-2">
                       <button
@@ -829,7 +896,7 @@ export default function ContentStudioClientsPage() {
               <div className="flex flex-wrap gap-2 border-b border-white/10">
                 {[
                   ["overview", "Overview"],
-                  ["posts", "Posts"],
+                  ["schedule", "Schedule"],
                   ["media", "Media Library"],
                   ["captions", "AI & Captions"],
                   ["review-link", "Links"],
@@ -839,7 +906,7 @@ export default function ContentStudioClientsPage() {
                     key={id}
                     type="button"
                     onClick={() =>
-                      setActiveClientTab(id as "overview" | "posts" | "media" | "captions" | "review-link" | "settings")
+                      setActiveClientTab(id as "overview" | "schedule" | "media" | "captions" | "review-link" | "settings")
                     }
                     className={`border-b-2 px-4 py-3 text-sm font-semibold ${
                       activeClientTab === id ? "border-orange-500 text-white" : "border-transparent text-white/55 hover:text-white"
@@ -850,22 +917,78 @@ export default function ContentStudioClientsPage() {
                 ))}
               </div>
 
-              {activeClientTab === "overview" && clientBatch ? (
+              {activeClientTab === "overview" && client ? (
                 <section className="rounded-2xl border border-white/10 bg-white/5 p-5">
-                  <p className="text-sm text-white/55">{client.contact_name} · {client.email}</p>
-                  <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-                    <MiniStat label="Post slots" value={`${clientBatch.actualPosts}/${CONTENT_STUDIO_POSTS_PER_CLIENT}`} />
-                    <MiniStat label="Internally approved" value={`${clientBatch.internalApproved}/${CONTENT_STUDIO_POSTS_PER_CLIENT}`} />
-                    <MiniStat label="Sent to client" value={`${clientBatch.sentToClient}/${CONTENT_STUDIO_POSTS_PER_CLIENT}`} />
-                    <MiniStat label="Client reviewed" value={`${clientBatch.clientReviewed}/${CONTENT_STUDIO_POSTS_PER_CLIENT}`} />
-                  </div>
-                  <div className="mt-5 grid gap-3 md:grid-cols-2">
-                    <ProgressPill label="Media" value={clientBatch.mediaProgress} />
-                    <ProgressPill label="Captions" value={clientBatch.captionsProgress} />
-                    <ProgressPill label="Internal approval" value={clientBatch.internalProgress} />
-                    <ProgressPill label="Sent to client" value={clientBatch.sentProgress} />
-                    <ProgressPill label="Client review" value={clientBatch.clientReviewProgress} />
-                  </div>
+                  <h2 className="text-lg font-semibold text-white">Client contact</h2>
+                  <dl className="mt-4 grid gap-3 sm:grid-cols-2">
+                    <div className="rounded-xl border border-white/10 bg-black/30 px-4 py-3">
+                      <dt className="text-[11px] font-semibold uppercase tracking-wide text-white/40">Company</dt>
+                      <dd className="mt-1 font-semibold text-white">{client.company_name}</dd>
+                    </div>
+                    <div className="rounded-xl border border-white/10 bg-black/30 px-4 py-3">
+                      <dt className="text-[11px] font-semibold uppercase tracking-wide text-white/40">Contact</dt>
+                      <dd className="mt-1 text-white">{client.contact_name}</dd>
+                    </div>
+                    <div className="rounded-xl border border-white/10 bg-black/30 px-4 py-3 sm:col-span-2">
+                      <dt className="text-[11px] font-semibold uppercase tracking-wide text-white/40">Email</dt>
+                      <dd className="mt-1">
+                        <a href={`mailto:${client.email}`} className="font-medium text-orange-200 hover:text-orange-100">
+                          {client.email}
+                        </a>
+                      </dd>
+                    </div>
+                    {client.phone ? (
+                      <div className="rounded-xl border border-white/10 bg-black/30 px-4 py-3 sm:col-span-2">
+                        <dt className="text-[11px] font-semibold uppercase tracking-wide text-white/40">Phone</dt>
+                        <dd className="mt-1 text-white/80">{client.phone}</dd>
+                      </div>
+                    ) : null}
+                  </dl>
+                  {clientBatch && activeScheduleDraft && canApprove(profile?.primary_role) &&
+                  canRevokeScheduleApproval(
+                    activeScheduleDraft,
+                    getPostReadiness(
+                      activeScheduleDraft,
+                      clientBatch.mediaComplete,
+                      assetsForDraft(detailsByDraftId[activeScheduleDraft.id]),
+                    ),
+                  ) ? (
+                    <div className="mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3">
+                      <p className="text-sm text-amber-100">
+                        Recall this schedule from review if it was approved or sent by mistake. Status:{" "}
+                        <span className="font-semibold capitalize text-amber-50">
+                          {formatStatus(activeScheduleDraft.status)}
+                        </span>
+                      </p>
+                      <button
+                        type="button"
+                        disabled={saving}
+                        onClick={() => void updateDraftStatus(activeScheduleDraft, "ready_for_review")}
+                        className="shrink-0 rounded-xl border border-amber-500/40 bg-amber-500/15 px-4 py-2 text-sm font-semibold text-amber-50 hover:bg-amber-500/25 disabled:opacity-60"
+                      >
+                        {revokeScheduleApprovalLabel(activeScheduleDraft)}
+                      </button>
+                    </div>
+                  ) : null}
+                  {clientBatch ? (
+                    <>
+                      <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                        <MiniStat label="Posts in schedule" value={`${clientBatch.actualPosts}/${CONTENT_STUDIO_POSTS_PER_SCHEDULE}`} />
+                        <MiniStat label="Internally approved" value={`${clientBatch.internalApproved}/${CONTENT_STUDIO_POSTS_PER_SCHEDULE}`} />
+                        <MiniStat label="Sent to client" value={`${clientBatch.sentToClient}/${CONTENT_STUDIO_POSTS_PER_SCHEDULE}`} />
+                        <MiniStat label="Client reviewed" value={`${clientBatch.clientReviewed}/${CONTENT_STUDIO_POSTS_PER_SCHEDULE}`} />
+                      </div>
+                      <div className="mt-5 grid gap-3 md:grid-cols-2">
+                        <ProgressPill label="Media" value={clientBatch.mediaProgress} />
+                        <ProgressPill label="Captions" value={clientBatch.captionsProgress} />
+                        <ProgressPill label="Internal approval" value={clientBatch.internalProgress} />
+                        <ProgressPill label="Sent to client" value={clientBatch.sentProgress} />
+                        <ProgressPill label="Client review" value={clientBatch.clientReviewProgress} />
+                      </div>
+                    </>
+                  ) : (
+                    <p className="mt-4 text-sm text-white/50">No schedule for this month yet.</p>
+                  )}
                 </section>
               ) : null}
 
@@ -888,88 +1011,172 @@ export default function ContentStudioClientsPage() {
                 </section>
               ) : null}
 
-              {activeClientTab === "posts" ? (
+              {activeClientTab === "schedule" ? (
                 <section className="rounded-2xl border border-white/10 bg-white/5 p-5">
-                  <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <h2 className="text-xl font-semibold">Posts</h2>
-                      <p className="mt-1 text-xs text-white/45">{CONTENT_STUDIO_POSTS_PER_CLIENT} post slots per client. Complete media, captions, and internal approval before sending.</p>
-                    </div>
-                  </div>
-                  <div className="overflow-hidden rounded-xl border border-white/10">
-                    <div className="grid grid-cols-[1.2fr_90px_90px_110px_120px_100px_1fr] gap-2 border-b border-white/10 bg-black/30 px-4 py-3 text-[11px] uppercase tracking-wide text-white/45">
-                      <span>Post</span>
-                      <span>Media</span>
-                      <span>Captions</span>
-                      <span>Internal</span>
-                      <span>Client review</span>
-                      <span>Updated</span>
-                      <span>Actions</span>
-                    </div>
-                    {sortedClientPosts.map((draft, index) => {
-                      const readiness = getPostReadiness(
-          draft,
-          assetCountForDraft(detailsByDraftId[draft.id]),
-          assetsForDraft(detailsByDraftId[draft.id]),
-        );
-                      return (
-                        <div key={draft.id} className="grid grid-cols-[1.2fr_90px_90px_110px_120px_100px_1fr] gap-2 border-b border-white/10 px-4 py-3 text-sm">
-                          <div>
-                            <p className="font-semibold">{draft.title || `Post ${index + 1}`}</p>
-                            <p className="text-[11px] capitalize text-white/40">{formatStatus(draft.status)}</p>
+                  {activeScheduleDraft && clientBatch ? (
+                    <>
+                      <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                        <div>
+                          <h2 className="text-xl font-semibold text-white">
+                            {activeScheduleDraft.title || formatScheduleMonthLabel(activeScheduleMonth)}
+                          </h2>
+                          <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-white/60">
+                            <span className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-black/40 px-3 py-2">
+                              <CalendarDays size={16} className="text-orange-300" />
+                              <span>
+                                Schedule date:{" "}
+                                <strong className="text-white">{formatScheduleDate(activeScheduleDraft)}</strong>
+                              </span>
+                            </span>
+                            <span className="capitalize text-white/45">{formatStatus(activeScheduleDraft.status)}</span>
                           </div>
-                          <div className="flex items-center"><StatusBadge label={readiness.mediaLabel} /></div>
-                          <div className="flex items-center"><StatusBadge label={readiness.captionLabel} /></div>
-                          <div className="flex items-center"><StatusBadge label={readiness.internalLabel} /></div>
-                          <div className="flex items-center"><StatusBadge label={readiness.clientReviewLabel} /></div>
-                          <div className="flex items-center text-xs text-white/55">{new Date(draft.updated_at).toLocaleDateString()}</div>
-                          <div className="flex flex-wrap items-center gap-1">
-                            <button type="button" onClick={() => openPreviewModal(draft)} className="rounded-lg border border-white/20 px-2 py-1 text-xs">Preview</button>
-                            {draft.review_url ? (
-                              <button
-                                type="button"
-                                onClick={() => void copy(draft.review_url!, "Post preview link")}
-                                className="rounded-lg border border-white/20 px-2 py-1 text-xs"
-                              >
-                                Copy link
-                              </button>
-                            ) : null}
-                            {draft.review_url ? (
-                              <button
-                                type="button"
-                                onClick={() => void handleRevokePostLink(draft)}
-                                className="rounded-lg border border-amber-500/30 px-2 py-1 text-xs text-amber-200"
-                              >
-                                Revoke link
-                              </button>
-                            ) : null}
-                            <Link to={`/admin/content-studio/editor/${draft.id}`} className="rounded-lg border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-xs font-semibold text-orange-100">Open Editor</Link>
-                            {canApprove(profile?.primary_role) && readiness.canApproveInternally ? (
-                              <button type="button" onClick={() => void updateDraftStatus(draft, "approved")} className="rounded-lg border border-emerald-500/30 px-2 py-1 text-xs text-emerald-200">Approve</button>
-                            ) : null}
-                          </div>
+                          <label className="mt-3 block max-w-xs space-y-1.5">
+                            <span className="text-[11px] font-semibold uppercase tracking-wide text-white/40">
+                              Change schedule date
+                            </span>
+                            <input
+                              type="date"
+                              className={inputClassName()}
+                              value={
+                                activeScheduleDraft.scheduled_at
+                                  ? activeScheduleDraft.scheduled_at.slice(0, 10)
+                                  : `${activeScheduleMonth}-01`
+                              }
+                              disabled={saving}
+                              onChange={(event) => void handleScheduleDateChange(event.target.value)}
+                            />
+                          </label>
+                          <p className="mt-3 max-w-2xl text-xs text-white/45">{contentStudioCopy.hierarchyLine}</p>
                         </div>
-                      );
-                    })}
-                    {sortedClientPosts.length === 0 ? <p className="p-4 text-sm text-white/50">No posts yet. They are created automatically when you open this client.</p> : null}
-                  </div>
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() => openPreviewModal(activeScheduleDraft)}
+                            className="rounded-xl border border-white/15 px-3 py-2 text-xs font-semibold text-white/80 hover:bg-white/5"
+                          >
+                            Preview schedule
+                          </button>
+                          {activeScheduleDraft.review_url ? (
+                            <button
+                              type="button"
+                              onClick={() => void copy(activeScheduleDraft.review_url!, "Schedule preview link")}
+                              className="rounded-xl border border-white/15 px-3 py-2 text-xs font-semibold text-white/80 hover:bg-white/5"
+                            >
+                              Copy link
+                            </button>
+                          ) : null}
+                          <Link
+                            to={`/admin/content-studio/editor/${activeScheduleDraft.id}`}
+                            className="rounded-xl bg-orange-500 px-4 py-2 text-sm font-bold text-black hover:bg-orange-400"
+                          >
+                            Open schedule
+                          </Link>
+                          {canApprove(profile?.primary_role) ? (
+                            <>
+                              {(() => {
+                                const scheduleReadiness = getPostReadiness(
+                                  activeScheduleDraft,
+                                  clientBatch.mediaComplete,
+                                  assetsForDraft(detailsByDraftId[activeScheduleDraft.id]),
+                                );
+                                return (
+                                  <>
+                                    {scheduleReadiness.canApproveInternally ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => void updateDraftStatus(activeScheduleDraft, "approved")}
+                                        className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-200"
+                                      >
+                                        Approve schedule
+                                      </button>
+                                    ) : null}
+                                    {canRevokeScheduleApproval(activeScheduleDraft, scheduleReadiness) ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => void updateDraftStatus(activeScheduleDraft, "ready_for_review")}
+                                        className="rounded-xl border border-amber-500/40 bg-amber-500/15 px-3 py-2 text-xs font-semibold text-amber-50 hover:bg-amber-500/25"
+                                      >
+                                        {revokeScheduleApprovalLabel(activeScheduleDraft)}
+                                      </button>
+                                    ) : null}
+                                  </>
+                                );
+                              })()}
+                            </>
+                          ) : null}
+                        </div>
+                      </div>
+                      <div className="overflow-hidden rounded-xl border border-white/10">
+                        <div className="grid grid-cols-[1fr_80px_80px_auto] gap-2 border-b border-white/10 bg-black/30 px-4 py-3 text-[11px] uppercase tracking-wide text-white/45">
+                          <span>Post (slide in schedule)</span>
+                          <span>Media</span>
+                          <span>Caption</span>
+                          <span>Action</span>
+                        </div>
+                        {schedulePostRows.map((row) => (
+                          <div
+                            key={row.slot}
+                            role="button"
+                            tabIndex={0}
+                            onClick={() =>
+                              openPostEditor(activeScheduleDraft.id, { displaySlot: row.slot })
+                            }
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter" || event.key === " ") {
+                                event.preventDefault();
+                                openPostEditor(activeScheduleDraft.id, { displaySlot: row.slot });
+                              }
+                            }}
+                            className="grid cursor-pointer grid-cols-[1fr_80px_80px_auto] gap-2 border-b border-white/10 px-4 py-3 text-sm transition hover:bg-white/[0.03]"
+                          >
+                            <div>
+                              <p className="font-semibold text-white">{row.label}</p>
+                              <p className="text-[11px] text-white/40">
+                                {row.assetCount > 0
+                                  ? `${row.assetCount} media file${row.assetCount === 1 ? "" : "s"}`
+                                  : "Empty — add in editor"}
+                              </p>
+                            </div>
+                            <div className="flex items-center">
+                              <StatusBadge label={row.hasMedia ? "Ready" : "Missing"} />
+                            </div>
+                            <div className="flex items-center">
+                              <StatusBadge label={row.hasCaption ? "Ready" : "Missing"} />
+                            </div>
+                            <div className="flex items-center">
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  openPostEditor(activeScheduleDraft.id, { displaySlot: row.slot });
+                                }}
+                                className="rounded-lg border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-xs font-semibold text-orange-100"
+                              >
+                                Edit post
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  ) : (
+                    <p className="text-sm text-white/50">
+                      No schedule for {formatScheduleMonthLabel(activeScheduleMonth)} yet. Refresh the page to create it.
+                    </p>
+                  )}
                 </section>
               ) : null}
 
-              {activeClientTab === "captions" ? (
+              {activeClientTab === "captions" && activeScheduleDraft ? (
                 <section className="rounded-2xl border border-white/10 bg-white/5 p-5">
                   <h2 className="text-xl font-semibold">AI & Captions</h2>
-                  <p className="mt-1 text-xs text-white/55">Suggestions only — apply manually, then Save. No auto-approve or auto-send.</p>
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    <select className={inputClassName()} value={selectedAiDraftId} onChange={(event) => setSelectedAiDraftId(event.target.value)}>
-                      <option value="">Select post</option>
-                      {drafts.map((draft) => (
-                        <option key={draft.id} value={draft.id}>{draft.title}</option>
-                      ))}
-                    </select>
-                  </div>
-                  {drafts.map((draft) => (
-                    <div key={draft.id} className="mt-4 rounded-xl border border-white/10 bg-black/30 p-4">
+                  <p className="mt-1 text-xs text-white/55">
+                    Suggestions for the {formatScheduleMonthLabel(activeScheduleMonth)} schedule. Apply in the editor, then save each post.
+                  </p>
+                  {(() => {
+                    const draft = activeScheduleDraft;
+                    return (
+                    <div className="mt-4 rounded-xl border border-white/10 bg-black/30 p-4">
                       <p className="font-semibold">{draft.title}</p>
                       <div className="mt-3 flex flex-wrap gap-2">
                         {[
@@ -1023,17 +1230,36 @@ export default function ContentStudioClientsPage() {
                         />
                       ) : null}
                     </div>
-                  ))}
+                    );
+                  })()}
                 </section>
               ) : null}
 
               {activeClientTab === "review-link" ? (
                 <section className="space-y-5">
                   <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-                    <h2 className="text-xl font-semibold">Post preview links</h2>
+                    <h2 className="text-xl font-semibold">Schedule preview link</h2>
                     <p className="mt-2 text-sm text-white/55">
-                      Share a post&apos;s direct link from the Posts tab. Clients open it without a PIN. Use Revoke link on a post to invalidate an old URL and generate a new one.
+                      Copy the schedule link from the Schedule tab. Clients open it without a PIN and approve each post (slide) inside the schedule.
                     </p>
+                    {activeScheduleDraft?.review_url ? (
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => void copy(activeScheduleDraft.review_url!, "Schedule preview link")}
+                          className="rounded-xl border border-white/15 px-3 py-2 text-xs font-semibold text-white/80"
+                        >
+                          Copy schedule link
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleRevokePostLink(activeScheduleDraft)}
+                          className="rounded-xl border border-amber-500/30 px-3 py-2 text-xs font-semibold text-amber-200"
+                        >
+                          Revoke link
+                        </button>
+                      </div>
+                    ) : null}
                     <p className="mt-3 text-xs text-white/45">
                       Example format: <span className="text-orange-200/90">/client-review/…</span>
                     </p>
@@ -1046,9 +1272,10 @@ export default function ContentStudioClientsPage() {
                     <div className="mt-4 grid gap-3 md:grid-cols-2">
                       <div className="rounded-xl border border-white/10 bg-black/40 p-3 text-xs break-all text-white/70">{portalUrl}</div>
                       <div className="space-y-2 text-sm text-white/70">
-                        <p>Review status: {drafts.some((draft) => isClientReviewedStatus(draft.status)) ? "In progress / reviewed" : "Awaiting client"}</p>
-                        <p>Expiry date: {drafts[0]?.expires_at ? new Date(drafts[0].expires_at).toLocaleString() : "N/A"}</p>
-                        <p>Client feedback status: {clientBatch?.clientReviewed ?? 0}/{CONTENT_STUDIO_POSTS_PER_CLIENT} reviewed</p>
+                        <p>Review status: {activeScheduleDraft && isClientReviewedStatus(activeScheduleDraft.status) ? "In progress / reviewed" : "Awaiting client"}</p>
+                        <p>Schedule date: {activeScheduleDraft ? formatScheduleDate(activeScheduleDraft) : "—"}</p>
+                        <p>Expiry date: {activeScheduleDraft?.expires_at ? new Date(activeScheduleDraft.expires_at).toLocaleString() : "N/A"}</p>
+                        <p>Client feedback status: {clientBatch?.clientReviewed ?? 0}/{CONTENT_STUDIO_POSTS_PER_SCHEDULE} reviewed</p>
                       </div>
                     </div>
                     <div className="mt-4 flex flex-wrap gap-2">
@@ -1076,20 +1303,46 @@ export default function ContentStudioClientsPage() {
           {previewOpen && previewDraft && previewDraftModel ? (
             <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/75 p-4">
               <div className="flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-white/10 bg-neutral-950">
-                <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
                   <div>
                     <p className="text-xs uppercase tracking-wide text-orange-400">Read-only preview</p>
                     <h3 className="font-semibold">{previewDraft.title}</h3>
                   </div>
-                  <button type="button" onClick={() => setPreviewOpen(false)} className="rounded-lg border border-white/15 p-2 text-white/80">
-                    <X size={18} />
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <div className="inline-flex rounded-xl border border-white/10 bg-white/5 p-0.5" role="group" aria-label="Preview mode">
+                      <button
+                        type="button"
+                        onClick={() => setPreviewTheme("internal")}
+                        className={`rounded-[10px] px-2.5 py-1.5 text-xs font-semibold ${
+                          previewTheme === "internal" ? "bg-orange-500 text-black" : "text-white/60 hover:text-white"
+                        }`}
+                      >
+                        Non-review
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPreviewTheme("public")}
+                        className={`rounded-[10px] px-2.5 py-1.5 text-xs font-semibold ${
+                          previewTheme === "public" ? "bg-orange-500 text-black" : "text-white/60 hover:text-white"
+                        }`}
+                      >
+                        Client review
+                      </button>
+                    </div>
+                    <button type="button" onClick={() => setPreviewOpen(false)} className="rounded-lg border border-white/15 p-2 text-white/80">
+                      <X size={18} />
+                    </button>
+                  </div>
                 </div>
-                <div className="overflow-auto bg-neutral-100 p-4 text-neutral-950">
+                <div
+                  className={`overflow-auto p-4 ${
+                    previewTheme === "public" ? "bg-neutral-100 text-neutral-950" : "bg-neutral-950 text-white"
+                  }`}
+                >
                   <ContentReviewRenderer
                     draft={previewDraftModel}
                     assets={detailsByDraftId[previewDraft.id]?.assets ?? []}
-                    theme="public"
+                    theme={previewTheme}
                     viewport="responsive"
                     unifiedPostCopy
                   />

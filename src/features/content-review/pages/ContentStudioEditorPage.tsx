@@ -43,17 +43,23 @@ import {
   type ContentReviewDraft,
   type ContentReviewLayout,
 } from "../services/contentReviewService";
+import {
+  assetDisplaySlot,
+  assetsInDisplaySlot,
+  contentReviewSlotAnchorId,
+} from "../utils/assetDisplaySlots";
+import { parseContentStudioEditorLocationState } from "../utils/contentStudioEditorNav";
 import { shouldUseUnifiedPostCopy } from "../utils/postCopyLayout";
 import {
+  canRevokeScheduleApproval,
+  revokeScheduleApprovalLabel,
   getPostReadiness,
   sendGateHint,
 } from "../utils/contentStudioProgress";
-
-type ContentStudioEditorLocationState = {
-  suggestedCaption?: string;
-};
+import { contentStudioCopy, postLabel } from "../utils/contentStudioTerms";
 
 type PreviewMode = "desktop" | "mobile";
+type PreviewTheme = "internal" | "public";
 type EditorTab = "media" | "copy" | "ai" | "details";
 
 const layouts: ContentReviewLayout[] = [
@@ -135,9 +141,13 @@ export default function ContentStudioEditorPage() {
   const [form, setForm] = useState<ReturnType<typeof draftToForm> | null>(null);
   const [savedForm, setSavedForm] = useState<ReturnType<typeof draftToForm> | null>(null);
   const [previewMode, setPreviewMode] = useState<PreviewMode>("mobile");
+  const [previewTheme, setPreviewTheme] = useState<PreviewTheme>("internal");
+  const [activeDisplaySlot, setActiveDisplaySlot] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<EditorTab>("copy");
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
+  const previewScrollRef = useRef<HTMLDivElement>(null);
+  const pendingNavSlotRef = useRef<number | null>(null);
   const [aiMenuOpen, setAiMenuOpen] = useState(false);
   const aiMenuRef = useRef<HTMLDivElement>(null);
   const [loading, setLoading] = useState(true);
@@ -176,10 +186,16 @@ export default function ContentStudioEditorPage() {
         setEditorClient(null);
       }
       const baseForm = draftToForm(nextDetail.draft);
-      const suggestedCaption = (location.state as ContentStudioEditorLocationState | null)?.suggestedCaption?.trim();
+      const navState = parseContentStudioEditorLocationState(location.state);
+      const suggestedCaption = navState.suggestedCaption?.trim();
       const nextForm = suggestedCaption ? { ...baseForm, captions: suggestedCaption } : baseForm;
       setForm(nextForm);
       setSavedForm(baseForm);
+      if (typeof navState.displaySlot === "number") {
+        pendingNavSlotRef.current = navState.displaySlot;
+        setActiveDisplaySlot(navState.displaySlot);
+        setActiveTab("media");
+      }
       if (suggestedCaption) {
         setMessage("AI caption loaded. Save when ready.");
         setActiveTab("copy");
@@ -333,6 +349,56 @@ export default function ContentStudioEditorPage() {
 
   const selectedAsset = orderedAssets.find((asset) => asset.id === selectedAssetId) ?? null;
 
+  const previewDisplaySlots = useMemo(() => {
+    const slots = new Set<number>();
+    for (const asset of orderedAssets) {
+      slots.add(assetDisplaySlot(asset));
+    }
+    return slots;
+  }, [orderedAssets]);
+
+  const scrollToDisplaySlot = useCallback((slot: number) => {
+    window.setTimeout(() => {
+      previewScrollRef.current
+        ?.querySelector(`#${contentReviewSlotAnchorId(slot)}`)
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 200);
+  }, []);
+
+  const focusDisplaySlot = useCallback(
+    (slot: number) => {
+      setActiveDisplaySlot(slot);
+      const inSlot = assetsInDisplaySlot(orderedAssets, slot);
+      setSelectedAssetId(inSlot[0]?.id ?? null);
+      setActiveTab("media");
+    },
+    [orderedAssets],
+  );
+
+  useEffect(() => {
+    if (loading || pendingNavSlotRef.current == null) return;
+    const slot = pendingNavSlotRef.current;
+    pendingNavSlotRef.current = null;
+    focusDisplaySlot(slot);
+    scrollToDisplaySlot(slot);
+  }, [focusDisplaySlot, loading, orderedAssets, scrollToDisplaySlot]);
+
+  function resolveTargetDisplaySlot() {
+    if (activeDisplaySlot != null) return activeDisplaySlot;
+    if (selectedAsset) return assetDisplaySlot(selectedAsset);
+    return detail?.assets.length ?? 0;
+  }
+
+  function selectFilmstripAsset(assetId: string) {
+    const asset = orderedAssets.find((item) => item.id === assetId);
+    setSelectedAssetId(assetId);
+    if (asset) {
+      const slot = assetDisplaySlot(asset);
+      setActiveDisplaySlot(slot);
+      scrollToDisplaySlot(slot);
+    }
+  }
+
   function updateForm<K extends keyof NonNullable<typeof form>>(key: K, value: NonNullable<typeof form>[K]) {
     setForm((current) => (current ? { ...current, [key]: value } : current));
   }
@@ -342,6 +408,7 @@ export default function ContentStudioEditorPage() {
     try {
       setSaving(true);
       let order = detail.assets.length;
+      const targetSlot = resolveTargetDisplaySlot();
       const added: ContentReviewAsset[] = [];
       for (const file of Array.from(files)) {
         const uploaded = await uploadContentReviewAsset({
@@ -349,13 +416,16 @@ export default function ContentStudioEditorPage() {
           file,
           uploadedBy: userId,
           sortOrder: order,
-          displaySlot: order,
+          displaySlot: targetSlot,
         });
         added.push(uploaded);
         order += 1;
       }
       setDetail({ ...detail, assets: [...detail.assets, ...added] });
-      if (added[0]) setSelectedAssetId(added[0].id);
+      if (added[0]) {
+        setSelectedAssetId(added[0].id);
+        setActiveDisplaySlot(assetDisplaySlot(added[0]));
+      }
       setActiveTab("media");
       setMessage(`${added.length} file(s) added.`);
     } catch (err) {
@@ -370,14 +440,17 @@ export default function ContentStudioEditorPage() {
     try {
       setSaving(true);
       const order = detail.assets.length;
+      const targetSlot = resolveTargetDisplaySlot();
       const attached = await attachContentClientMediaToDraft({
         media,
         targetDraft: detail.draft,
         uploadedBy: userId,
         sortOrder: order,
+        displaySlot: targetSlot,
       });
       setDetail({ ...detail, assets: [...detail.assets, attached] });
       setSelectedAssetId(attached.id);
+      setActiveDisplaySlot(assetDisplaySlot(attached));
       setMessage("Added from library.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to add library media.");
@@ -501,6 +574,19 @@ export default function ContentStudioEditorPage() {
       setError("Add media and social caption before internal approval.");
       return;
     }
+    if (nextStatus === "ready_for_review") {
+      if (!canRevokeScheduleApproval(detail.draft, editorReadiness)) {
+        setError("This schedule cannot be recalled or unapproved.");
+        return;
+      }
+      if (
+        !window.confirm(
+          `Recall "${form.title.trim() || "this schedule"}" from client review? It will return to ready for review.`,
+        )
+      ) {
+        return;
+      }
+    }
     try {
       setSaving(true);
       const updated = await updateContentReviewDraft(detail.draft, {
@@ -515,7 +601,16 @@ export default function ContentStudioEditorPage() {
         cta_label: form.cta_label,
         cta_url: form.cta_url,
         client_id: form.client_id || null,
-        ...(nextStatus ? { status: nextStatus } : {}),
+        ...(nextStatus === "ready_for_review"
+          ? {
+              status: nextStatus,
+              approved_at: null,
+              approved_by_name: null,
+              approved_by_email: null,
+            }
+          : nextStatus
+            ? { status: nextStatus }
+            : {}),
       });
       setDetail({ ...detail, draft: updated });
       const persisted = draftToForm(updated);
@@ -526,9 +621,11 @@ export default function ContentStudioEditorPage() {
           ? "Saved and sent for client review."
           : nextStatus === "approved"
             ? "Post internally approved."
-            : "All changes saved.",
+            : nextStatus === "ready_for_review"
+              ? "Schedule recalled. Ready for review again."
+              : "All changes saved.",
       );
-      if (nextStatus === "sent_to_client" || nextStatus === "ready_for_review") {
+      if (nextStatus === "sent_to_client") {
         await notifyContentReviewTeam({
           draft: updated,
           title: "Content review ready",
@@ -603,14 +700,21 @@ export default function ContentStudioEditorPage() {
             <p className="truncate text-[11px] text-white/45">
               {editorClient ? editorClient.company_name : "Content Studio"}
               <span className="mx-1.5 text-white/25">/</span>
-              Post editor
+              {contentStudioCopy.scheduleSingular} editor
             </p>
-            <input
-              value={form.title}
-              onChange={(event) => updateForm("title", event.target.value)}
-              className="mt-0.5 w-full max-w-xl truncate bg-transparent text-base font-semibold text-white outline-none placeholder:text-white/30 focus:border-b focus:border-orange-500/50"
-              placeholder="Post title"
-            />
+            <div className="mt-0.5 flex flex-wrap items-center gap-2">
+              <input
+                value={form.title}
+                onChange={(event) => updateForm("title", event.target.value)}
+                className="min-w-0 flex-1 truncate bg-transparent text-base font-semibold text-white outline-none placeholder:text-white/30 focus:border-b focus:border-orange-500/50"
+                placeholder={`${contentStudioCopy.scheduleSingular} title`}
+              />
+              {activeDisplaySlot != null ? (
+                <span className="shrink-0 rounded-full bg-orange-500/15 px-2.5 py-0.5 text-[11px] font-bold text-orange-200">
+                  {postLabel(activeDisplaySlot)}
+                </span>
+              ) : null}
+            </div>
           </div>
           <div className="hidden items-center gap-3 text-[11px] font-medium text-white/50 sm:flex">
             <span className={editorReadiness?.hasMedia ? "text-orange-300" : ""}>
@@ -653,6 +757,36 @@ export default function ContentStudioEditorPage() {
                 </button>
               </>
             ) : null}
+            <div
+              className="inline-flex rounded-xl border border-white/10 bg-white/5 p-0.5"
+              role="group"
+              aria-label="Preview mode"
+            >
+              <button
+                type="button"
+                onClick={() => setPreviewTheme("internal")}
+                title="Studio editing view — not what the client sees"
+                className={`rounded-[10px] px-2.5 py-1.5 text-xs font-semibold transition ${
+                  previewTheme === "internal"
+                    ? "bg-orange-500 text-black"
+                    : "text-white/60 hover:text-white"
+                }`}
+              >
+                Non-review
+              </button>
+              <button
+                type="button"
+                onClick={() => setPreviewTheme("public")}
+                title="Preview the public client review page"
+                className={`rounded-[10px] px-2.5 py-1.5 text-xs font-semibold transition ${
+                  previewTheme === "public"
+                    ? "bg-orange-500 text-black"
+                    : "text-white/60 hover:text-white"
+                }`}
+              >
+                Client review
+              </button>
+            </div>
             <button
               type="button"
               onClick={() => setPreviewMode(previewMode === "mobile" ? "desktop" : "mobile")}
@@ -679,6 +813,20 @@ export default function ContentStudioEditorPage() {
               >
                 <CheckCircle2 size={14} />
                 Approve
+              </button>
+            ) : null}
+            {canApproveRole(profile?.primary_role) &&
+            detail &&
+            editorReadiness &&
+            canRevokeScheduleApproval(detail.draft, editorReadiness) ? (
+              <button
+                type="button"
+                onClick={() => void saveDraft("ready_for_review")}
+                disabled={saving}
+                title="Recall schedule from client review or undo internal approval"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-amber-500/40 bg-amber-500/15 px-2.5 py-2 text-xs font-semibold text-amber-50 hover:bg-amber-500/25 disabled:opacity-60"
+              >
+                {revokeScheduleApprovalLabel(detail.draft)}
               </button>
             ) : null}
             <button
@@ -740,21 +888,63 @@ export default function ContentStudioEditorPage() {
         </nav>
 
         <div className="flex min-w-0 flex-1 flex-col">
-          <section className="relative flex min-h-0 flex-1 flex-col bg-neutral-200/95">
-            <div className="flex-1 overflow-auto p-4 sm:p-6">
+          <section
+            className={`relative flex min-h-0 flex-1 flex-col ${
+              previewTheme === "public" ? "bg-neutral-200/95" : "bg-neutral-950"
+            }`}
+          >
+            {previewTheme === "internal" ? (
+              <p className="shrink-0 border-b border-white/10 bg-black/40 px-4 py-2 text-center text-[11px] text-white/50">
+                Non-review preview — switch to Client review to see the public link layout.
+              </p>
+            ) : null}
+            <div ref={previewScrollRef} className="flex-1 overflow-auto p-4 sm:p-6">
               <div
                 className={`mx-auto transition-all ${
-                  previewMode === "mobile"
-                    ? "max-w-[390px] rounded-4xl border-10 border-neutral-800 bg-neutral-100 shadow-2xl"
-                    : "max-w-4xl rounded-2xl border border-neutral-300/80 bg-white shadow-xl"
+                  previewTheme === "public"
+                    ? previewMode === "mobile"
+                      ? "max-w-[390px] rounded-4xl border-10 border-neutral-800 bg-neutral-100 shadow-2xl"
+                      : "max-w-4xl rounded-2xl border border-neutral-300/80 bg-white shadow-xl"
+                    : previewMode === "mobile"
+                      ? "max-w-[390px] rounded-4xl border border-white/10 bg-black shadow-2xl"
+                      : "max-w-4xl"
                 }`}
               >
-                <div className={previewMode === "mobile" ? "overflow-hidden rounded-[1.4rem]" : "overflow-hidden rounded-xl"}>
+                <div
+                  className={
+                    previewTheme === "public" && previewMode === "mobile"
+                      ? "overflow-hidden rounded-[1.4rem]"
+                      : previewTheme === "public"
+                        ? "overflow-hidden rounded-xl"
+                        : previewMode === "mobile"
+                          ? "overflow-hidden rounded-[1.35rem]"
+                          : ""
+                  }
+                >
                   {orderedAssets.length === 0 && !form.body?.trim() && !form.captions?.trim() ? (
-                    <div className="flex min-h-[320px] flex-col items-center justify-center bg-white p-8 text-center text-neutral-600">
+                    <div
+                      id={
+                        activeDisplaySlot != null
+                          ? contentReviewSlotAnchorId(activeDisplaySlot)
+                          : undefined
+                      }
+                      className={`flex min-h-[320px] flex-col items-center justify-center p-8 text-center ${
+                        previewTheme === "public"
+                          ? "bg-white text-neutral-600"
+                          : "rounded-2xl border border-white/10 bg-black text-white/70"
+                      } ${activeDisplaySlot != null ? "ring-2 ring-orange-500/60 ring-offset-2 ring-offset-neutral-950" : ""}`}
+                    >
                       <ImageIcon className="text-orange-400" size={32} />
-                      <p className="mt-3 text-sm font-medium">Start with media</p>
-                      <p className="mt-1 max-w-xs text-xs text-neutral-500">
+                      <p className="mt-3 text-sm font-medium">
+                        {activeDisplaySlot != null
+                          ? `${postLabel(activeDisplaySlot)} — add media`
+                          : "Start with media"}
+                      </p>
+                      <p
+                        className={`mt-1 max-w-xs text-xs ${
+                          previewTheme === "public" ? "text-neutral-500" : "text-white/45"
+                        }`}
+                      >
                         Open the library or upload files in the filmstrip below.
                       </p>
                       {editorClient ? (
@@ -768,13 +958,31 @@ export default function ContentStudioEditorPage() {
                       ) : null}
                     </div>
                   ) : (
-                    <ContentReviewRenderer
-                      draft={draftPreview}
-                      assets={detail.assets as ContentReviewAsset[]}
-                      theme="public"
-                      viewport={previewMode === "mobile" ? "mobile" : "responsive"}
-                      unifiedPostCopy={unifiedPreview}
-                    />
+                    <>
+                      {activeDisplaySlot != null && !previewDisplaySlots.has(activeDisplaySlot) ? (
+                        <div
+                          id={contentReviewSlotAnchorId(activeDisplaySlot)}
+                          className={`mb-4 flex min-h-[200px] flex-col items-center justify-center rounded-2xl border border-dashed p-6 text-center ${
+                            previewTheme === "public"
+                              ? "border-orange-300/80 bg-orange-50/50 text-neutral-600"
+                              : "border-orange-500/35 bg-orange-500/5 text-white/65"
+                          } ring-2 ring-orange-500/60 ring-offset-2 ring-offset-neutral-950`}
+                        >
+                          <p className="text-sm font-semibold">{postLabel(activeDisplaySlot)}</p>
+                          <p className="mt-1 max-w-xs text-xs opacity-80">
+                            No media for this post yet. Upload or pick from the library in the filmstrip.
+                          </p>
+                        </div>
+                      ) : null}
+                      <ContentReviewRenderer
+                        draft={draftPreview}
+                        assets={detail.assets as ContentReviewAsset[]}
+                        theme={previewTheme}
+                        viewport={previewMode === "mobile" ? "mobile" : "responsive"}
+                        unifiedPostCopy={unifiedPreview}
+                        highlightDisplaySlot={activeDisplaySlot}
+                      />
+                    </>
                   )}
                 </div>
               </div>
@@ -782,9 +990,10 @@ export default function ContentStudioEditorPage() {
             <PostMediaFilmstrip
               assets={orderedAssets}
               selectedAssetId={selectedAssetId}
+              activeDisplaySlot={activeDisplaySlot}
               saving={saving}
               canUseLibrary={Boolean(editorClient)}
-              onSelect={setSelectedAssetId}
+              onSelect={selectFilmstripAsset}
               onReorder={(from, to) => void reorderAssets(from, to)}
               onRemove={(asset) => void removePostAsset(asset)}
               onUpload={(files) => void handleUploadToPost(files)}
@@ -1010,7 +1219,7 @@ function EditorSidePanel({
     <div className="space-y-4">
       <div>
         <h2 className="text-sm font-semibold">Details</h2>
-        <p className="mt-1 text-xs text-white/45">Client, schedule, and feedback.</p>
+        <p className="mt-1 text-xs text-white/45">Client, publish date, and feedback.</p>
       </div>
       <label className="block space-y-2">
         <span className="text-xs font-semibold uppercase tracking-wide text-white/40">Client</span>
@@ -1028,7 +1237,7 @@ function EditorSidePanel({
         </select>
       </label>
       <Field
-        label="Schedule"
+        label={contentStudioCopy.publishDate}
         type="datetime-local"
         value={form.scheduled_at}
         onChange={(value) => onUpdateForm("scheduled_at", value)}

@@ -58,18 +58,17 @@ export default function PublicClientReviewPage() {
     };
   }, [token]);
 
-  const readOnly = draft
-    ? ["approved", "archived", "published"].includes(draft.status)
-    : false;
+  const readOnly = draft ? ["archived", "published"].includes(draft.status) : false;
+  const clientApproved = draft?.status === "approved";
 
   async function submit(
-    decision: "approved" | "changes_requested",
+    decision: "approved" | "changes_requested" | "revoke_approval",
     suppliedComment: string,
   ) {
     if (!draft) return;
     const commentToUse = suppliedComment;
     if (decision !== "approved" && !commentToUse.trim()) {
-      setError("Please add a comment before submitting.");
+      setError("Please add a short note before submitting.");
       return;
     }
 
@@ -92,7 +91,9 @@ export default function PublicClientReviewPage() {
               ? "This review is read-only."
               : result.error === "already_approved"
                 ? "You have already approved this post."
-                : result.error === "already_commented"
+                : result.error === "not_approved"
+                  ? "There is no approval to withdraw on this schedule."
+                  : result.error === "already_commented"
                   ? "You have already left your comment on this post."
                   : result.error === "already_requested_changes"
                     ? "You have already requested changes on this post."
@@ -121,13 +122,13 @@ export default function PublicClientReviewPage() {
     sectionComment?: string,
   ) {
     const slotComment = (sectionComment ?? "").trim();
-    const slotLabel = `Slide ${slot.slot + 1}`;
+    const slotLabel = `Post ${slot.slot + 1}`;
     const sectionTitle = slot?.primary.heading?.trim() || slot?.primary.file_name || "";
 
     const compiled = [
       `[${slotLabel}]`,
       sectionTitle ? `Section: ${sectionTitle}` : null,
-      slotComment || (decision === "approved" ? "Approved for this slide." : "Changes requested for this slide."),
+      slotComment || (decision === "approved" ? "Approved for this post." : "Changes requested for this post."),
     ]
       .filter(Boolean)
       .join("\n");
@@ -194,6 +195,31 @@ export default function PublicClientReviewPage() {
               </span>
             ) : null}
           </div>
+          {clientApproved ? (
+            <div className="mt-5 rounded-2xl border border-amber-400/40 bg-amber-500/10 p-4">
+              <p className="text-sm text-amber-100">
+                You approved this schedule. You can withdraw approval if you clicked approve by mistake.
+              </p>
+              <button
+                type="button"
+                disabled={submitting}
+                onClick={() => {
+                  const note = window.prompt(
+                    "Optional note for the content team (why you are withdrawing approval):",
+                    "Withdrawing approval — please review again.",
+                  );
+                  if (note === null) return;
+                  void submit(
+                    "revoke_approval",
+                    note.trim() || "Withdrawing approval — please review again.",
+                  );
+                }}
+                className="mt-3 rounded-xl border border-amber-300/50 bg-white/10 px-4 py-2 text-sm font-semibold text-amber-50 hover:bg-white/15 disabled:opacity-50"
+              >
+                Withdraw approval
+              </button>
+            </div>
+          ) : null}
         </header>
 
         <ContentReviewRenderer
@@ -203,7 +229,7 @@ export default function PublicClientReviewPage() {
           renderSectionActions={(slot) => (
             <div className="space-y-2">
               <p className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
-                Slide {slot.slot + 1} feedback
+                Post {slot.slot + 1} feedback
               </p>
               <div className="grid grid-cols-2 gap-2">
                 <button
@@ -254,7 +280,7 @@ export default function PublicClientReviewPage() {
               <div>
                 <p className="text-xs uppercase tracking-[0.25em] text-orange-500">Request changes</p>
                 <h3 className="mt-1 text-lg font-bold text-neutral-950">
-                  Slide {requestingSlot.slot + 1} {requestingSlot.primary.heading ? `- ${requestingSlot.primary.heading}` : ""}
+                  Post {requestingSlot.slot + 1} {requestingSlot.primary.heading ? `- ${requestingSlot.primary.heading}` : ""}
                 </h3>
               </div>
               <button

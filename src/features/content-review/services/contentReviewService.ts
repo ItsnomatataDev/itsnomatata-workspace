@@ -3,6 +3,13 @@ import { OFFICE_SLUGS } from "../../../lib/offices";
 import { getCompanyOfficeBySlug } from "../../../lib/supabase/queries/offices";
 import { createNotification } from "../../../lib/supabase/mutations/notifications";
 import { askAssistant, buildAssistantContext } from "../../../lib/api/ai";
+import {
+  defaultScheduleTitle,
+  draftScheduleMonthKey,
+  isLegacyPostSlotDraft,
+  scheduleMonthStartIso,
+} from "../utils/contentStudioSchedule";
+import { scheduleMonthKey } from "../utils/contentStudioTerms";
 
 export type ContentReviewStatus =
   | "draft"
@@ -479,6 +486,7 @@ export async function createContentReviewDraft(params: {
   return data as ContentReviewDraft;
 }
 
+/** @deprecated Use ensureClientMonthlySchedule */
 export async function ensureClientPostSlots(params: {
   organizationId: string;
   officeId: string;
@@ -486,29 +494,85 @@ export async function ensureClientPostSlots(params: {
   createdBy: string;
   expectedCount?: number;
 }) {
-  const expectedCount = params.expectedCount ?? 10;
-  const existing = await listContentReviewDrafts({
+  const schedule = await ensureClientMonthlySchedule({
     organizationId: params.organizationId,
     officeId: params.officeId,
     clientId: params.clientId,
+    createdBy: params.createdBy,
   });
-  if (existing.length >= expectedCount) {
-    return existing;
+  return [schedule];
+}
+
+export async function ensureClientMonthlySchedule(params: {
+  organizationId: string;
+  officeId: string;
+  clientId: string;
+  createdBy: string;
+  monthKey?: string;
+}) {
+  const monthKey = params.monthKey ?? scheduleMonthKey();
+
+  const existing = await listContentReviewDrafts(
+    {
+      organizationId: params.organizationId,
+      officeId: params.officeId,
+      clientId: params.clientId,
+    },
+    { skipMaintenance: true },
+  );
+
+  const legacy = existing.filter((draft) => isLegacyPostSlotDraft(draft));
+  const nonLegacy = existing.filter((draft) => !isLegacyPostSlotDraft(draft));
+
+  let schedule =
+    nonLegacy.find((draft) => draftScheduleMonthKey(draft) === monthKey) ??
+    [...nonLegacy].sort((a, b) => b.updated_at.localeCompare(a.updated_at))[0] ??
+    null;
+
+  if (!schedule && legacy.length > 0) {
+    const primary = [...legacy].sort(
+      (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+    )[0];
+    schedule = await updateContentReviewDraft(primary, {
+      title: defaultScheduleTitle(monthKey),
+      scheduled_at: primary.scheduled_at ?? scheduleMonthStartIso(monthKey),
+    });
   }
 
-  const created: ContentReviewDraft[] = [];
-  for (let index = existing.length; index < expectedCount; index += 1) {
-    const draft = await createContentReviewDraft({
+  if (!schedule) {
+    const created = await createContentReviewDraft({
       organizationId: params.organizationId,
       officeId: params.officeId,
       createdBy: params.createdBy,
       clientId: params.clientId,
-      title: `Post ${index + 1}`,
+      title: defaultScheduleTitle(monthKey),
     });
-    created.push(draft);
+    schedule = await updateContentReviewDraft(created, {
+      scheduled_at: scheduleMonthStartIso(monthKey),
+    });
+  } else if (!schedule.scheduled_at) {
+    schedule = await updateContentReviewDraft(schedule, {
+      scheduled_at: scheduleMonthStartIso(monthKey),
+      title: schedule.title?.trim() ? schedule.title : defaultScheduleTitle(monthKey),
+    });
   }
 
-  return [...existing, ...created];
+  const deleteTargets = [
+    ...legacy.filter((draft) => draft.id !== schedule.id),
+    ...nonLegacy.filter(
+      (draft) => draft.id !== schedule.id && draftScheduleMonthKey(draft) === monthKey,
+    ),
+  ];
+
+  for (const draft of deleteTargets) {
+    try {
+      await deleteContentReviewDraft(draft.id);
+    } catch (err) {
+      console.warn("Failed to remove legacy content studio draft", draft.id, err);
+    }
+  }
+
+  return schedule;
 }
 
 export async function listContentClients(params: {
@@ -1125,6 +1189,7 @@ export async function attachContentClientMediaToDraft(params: {
   targetDraft: ContentReviewDraft;
   uploadedBy: string;
   sortOrder: number;
+  displaySlot?: number;
 }) {
   const { data, error } = await supabase
     .from("content_review_assets")
@@ -1146,7 +1211,7 @@ export async function attachContentClientMediaToDraft(params: {
       crop_y: 50,
       crop_zoom: 1,
       sort_order: params.sortOrder,
-      display_slot: params.sortOrder,
+      display_slot: params.displaySlot ?? params.sortOrder,
       expires_at: params.media.expires_at ?? new Date(Date.now() + ASSET_RETENTION_DAYS * 86400000).toISOString(),
       original_size_bytes: params.media.original_size_bytes ?? null,
       stored_size_bytes: params.media.stored_size_bytes ?? null,
@@ -1740,7 +1805,7 @@ export async function submitPublicContentReviewFeedback(params: {
   email: string;
   company?: string;
   comment: string;
-  decision: "comment" | "approved" | "changes_requested";
+  decision: "comment" | "approved" | "changes_requested" | "revoke_approval";
 }) {
   const { data, error } = await supabase.rpc("submit_content_review_feedback", {
     target_token: params.token,
@@ -1838,7 +1903,7 @@ export async function submitContentClientReviewFeedback(params: {
   email: string;
   draftId: string;
   comment: string;
-  decision: "comment" | "approved" | "changes_requested";
+  decision: "comment" | "approved" | "changes_requested" | "revoke_approval";
 }) {
   const { data, error } = await supabase.rpc("submit_content_client_review_feedback", {
     client_token: params.clientToken,

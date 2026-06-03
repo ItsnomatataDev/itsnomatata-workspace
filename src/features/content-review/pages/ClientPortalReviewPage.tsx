@@ -21,6 +21,8 @@ function feedbackErrorMessage(error?: string) {
   switch (error) {
     case "already_approved":
       return "You have already approved this post.";
+    case "not_approved":
+      return "There is no approval to withdraw on this schedule.";
     case "already_commented":
       return "You have already left your comment on this post.";
     case "already_requested_changes":
@@ -95,16 +97,13 @@ export default function ClientPortalReviewPage() {
   }, [load]);
 
   const readOnly = useMemo(
-    () =>
-      draft
-        ? ["approved", "archived", "published"].includes(draft.status) ||
-          feedbackLimits.has_approved
-        : false,
-    [draft, feedbackLimits.has_approved],
+    () => (draft ? ["archived", "published"].includes(draft.status) : false),
+    [draft],
   );
+  const clientApproved = draft?.status === "approved";
 
   async function submit(
-    decision: "comment" | "approved" | "changes_requested",
+    decision: "comment" | "approved" | "changes_requested" | "revoke_approval",
     suppliedComment = "",
   ) {
     if (!session || !draft) return;
@@ -148,13 +147,13 @@ export default function ClientPortalReviewPage() {
     sectionComment?: string,
   ) {
     const slotComment = (sectionComment ?? "").trim();
-    const slotLabel = `Slide ${slot.slot + 1}`;
+    const slotLabel = `Post ${slot.slot + 1}`;
     const sectionTitle = slot?.primary.heading?.trim() || slot?.primary.file_name || "";
 
     const compiled = [
       `[${slotLabel}]`,
       sectionTitle ? `Section: ${sectionTitle}` : null,
-      slotComment || (decision === "approved" ? "Approved for this slide." : "Changes requested for this slide."),
+      slotComment || (decision === "approved" ? "Approved for this post." : "Changes requested for this post."),
     ]
       .filter(Boolean)
       .join("\n");
@@ -176,6 +175,31 @@ export default function ClientPortalReviewPage() {
         <Link to={`/client-portal/${clientToken}`} className="mb-5 inline-flex items-center gap-2 rounded-xl border border-neutral-200 bg-white px-4 py-3 text-sm font-semibold text-neutral-700 hover:bg-neutral-50">
           <ArrowLeft size={16} /> Back to portal
         </Link>
+        {clientApproved ? (
+          <div className="mb-5 rounded-2xl border border-amber-300 bg-amber-50 p-4">
+            <p className="text-sm text-amber-950">
+              You approved this schedule. Withdraw approval if that was a mistake.
+            </p>
+            <button
+              type="button"
+              disabled={submitting}
+              onClick={() => {
+                const note = window.prompt(
+                  "Optional note for the content team:",
+                  "Withdrawing approval — please review again.",
+                );
+                if (note === null) return;
+                void submit(
+                  "revoke_approval",
+                  note.trim() || "Withdrawing approval — please review again.",
+                );
+              }}
+              className="mt-3 rounded-xl border border-amber-400 bg-white px-4 py-2 text-sm font-semibold text-amber-900 hover:bg-amber-100 disabled:opacity-50"
+            >
+              Withdraw approval
+            </button>
+          </div>
+        ) : null}
         <ContentReviewRenderer
           draft={draft}
           assets={assets}
@@ -183,7 +207,7 @@ export default function ClientPortalReviewPage() {
           renderSectionActions={(slot) => (
             <div className="space-y-2">
               <p className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
-                Slide {slot.slot + 1} feedback
+                Post {slot.slot + 1} feedback
               </p>
               <div className="grid grid-cols-2 gap-2">
                 <button
@@ -220,7 +244,7 @@ export default function ClientPortalReviewPage() {
               <div>
                 <p className="text-xs uppercase tracking-[0.25em] text-orange-500">Request changes</p>
                 <h3 className="mt-1 text-lg font-bold text-neutral-950">
-                  Slide {requestingSlot.slot + 1} {requestingSlot.primary.heading ? `- ${requestingSlot.primary.heading}` : ""}
+                  Post {requestingSlot.slot + 1} {requestingSlot.primary.heading ? `- ${requestingSlot.primary.heading}` : ""}
                 </h3>
               </div>
               <button
