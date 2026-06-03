@@ -2,6 +2,7 @@ import {
   AlertCircle,
   CalendarDays,
   Copy,
+  ExternalLink,
   KeyRound,
   Loader2,
   Plus,
@@ -1000,12 +1001,16 @@ export default function ContentStudioClientsPage() {
                           : "-"}
                       </div>
                       <div>
-                        <Link
-                          to={`/admin/content-studio/clients/${row.client.id}`}
-                          className="rounded-lg border border-orange-500/30 bg-orange-500/10 px-3 py-2 text-xs font-semibold text-orange-100"
+                        <a
+                          href={buildClientPortalUrl(row.client.portal_token)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title="Opens the client review portal in a new tab (email + PIN required)"
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-orange-500/30 bg-orange-500/10 px-3 py-2 text-xs font-semibold text-orange-100 hover:bg-orange-500/20"
                         >
-                          Open Client
-                        </Link>
+                          Open portal
+                          <ExternalLink size={12} aria-hidden />
+                        </a>
                       </div>
                     </div>
                   ))}

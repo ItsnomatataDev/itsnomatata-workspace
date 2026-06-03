@@ -7,22 +7,21 @@ const FALLBACK_AI_WEBHOOK = import.meta.env.VITE_N8N_AI_WEBHOOK_URL as
   | string
   | undefined;
 
-function getContentStudioAiRequestUrl(route: string) {
-  if (import.meta.env.DEV) {
-    return route;
-  }
+function getContentStudioAiWebhookUrl() {
   const webhook = CONTENT_AI_WEBHOOK?.trim() || FALLBACK_AI_WEBHOOK?.trim();
   if (!webhook) {
     throw new Error(
       "Missing VITE_N8N_CONTENT_AI_WEBHOOK_URL or VITE_N8N_AI_WEBHOOK_URL.",
     );
   }
-  try {
-    const target = new URL(webhook);
-    return `${target.origin}${route}`;
-  } catch {
-    throw new Error("Invalid content studio AI webhook URL.");
+  return webhook;
+}
+
+function getContentStudioAiRequestUrl(route: string) {
+  if (import.meta.env.DEV) {
+    return route;
   }
+  return getContentStudioAiWebhookUrl();
 }
 
 async function postContentStudioRoute(
@@ -37,6 +36,13 @@ async function postContentStudioRoute(
     });
     if (!response.ok) {
       const text = await response.text();
+      if (response.status >= 500) {
+        throw new Error(
+          text
+            ? `n8n returned ${response.status}: ${text}`
+            : "The AI service returned an internal server error. Check your n8n workflow execution logs and webhook URL.",
+        );
+      }
       throw new Error(text || `Request failed (${response.status})`);
     }
     return response.json();
@@ -147,12 +153,22 @@ function parseJsonFromText<T>(raw: string, fallback: T): T {
 }
 
 /** Caption via dedicated proxy route → n8n (falls back to askAssistant). */
+const contentStudioAiContext = buildAssistantContext({
+  userId: "content-studio-system",
+  organizationId: "content-studio",
+  currentModule: "content-studio",
+  currentRoute: "/admin/content-studio",
+  role: "social_media",
+  timezone: "Africa/Harare",
+});
+
 export async function requestContentStudioCaption(
   input: ContentStudioCaptionApiInput,
 ): Promise<ContentStudioCaptionApiOutput> {
   const n8nPayload = {
     action: "sendMessage",
     chatInput: buildCaptionChatInput(input),
+    context: contentStudioAiContext,
     metadata: {
       source: "content_studio_caption",
       forceTextOnly: true,
@@ -219,6 +235,7 @@ export async function requestContentStudioAnalyzeMedia(
   const n8nPayload = {
     action: "sendMessage",
     chatInput: buildAnalyzeChatInput(input),
+    context: contentStudioAiContext,
     attachments: [
       {
         name: input.fileName ?? "post-media",

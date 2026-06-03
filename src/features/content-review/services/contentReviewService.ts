@@ -1986,6 +1986,11 @@ function formatContentStudioN8nFailure(
   if (/could not be reached|failed to fetch/i.test(msg)) {
     return `Could not reach n8n (${msg}). Check VITE_N8N_AI_WEBHOOK_URL and that the workflow is published.`;
   }
+  if (/error in workflow/i.test(msg)) {
+    return context === "caption"
+      ? "n8n workflow failed (Error in workflow). In n8n → Executions, open the latest failed run and check which node errored (often 06 Codex Main Agent or Image Analysis Tool). Ensure: (1) workflow is published, (2) re-import n8n/itsnomatata-codex-internal-ai.production.workflow.json for the content_studio router patch, (3) OpenAI credential works on the main model, (4) n8n Variables include OPENAI_API_KEY or Image Analysis Tool uses the OpenAI credential, (5) optional: supabase secrets set OPENAI_API_KEY for codex-process-input."
+      : "n8n workflow failed during image analysis. Check Executions for Image Analysis Tool or 06 Codex Main Agent. Set OPENAI_API_KEY in n8n Variables (or fix the OpenAI credential), ensure the post image URL is reachable (signed URL from storage), and re-import the updated Codex workflow JSON.";
+  }
   const label = context === "caption" ? "Caption assist" : "Image analysis";
   return `${label} failed via n8n: ${msg}`;
 }

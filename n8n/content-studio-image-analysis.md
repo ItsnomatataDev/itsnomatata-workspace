@@ -37,12 +37,23 @@ The app calls your existing chat webhook (`VITE_N8N_AI_WEBHOOK_URL`) with:
 ## n8n checklist
 
 1. **Workflow active** — ITsNomatata Codex Internal AI (or your chat webhook workflow) is published, not test-only.
-2. **OpenAI on Image Analysis Tool** — node uses `OPENAI_API_KEY` in **n8n Variables** (or credential), same as the rest of your workflow.
+2. **OpenAI credential** — **06 Codex Main Agent** and **Image Analysis Tool** must use the same working **OpenAI account** credential (re-import the workflow JSON if Image Analysis still references empty `$vars.OPENAI_API_KEY`).
 3. **Supabase storage (recommended)** — in n8n **Variables**, set:
    - `SUPABASE_URL`
-   - `SUPABASE_SERVICE_ROLE_KEY`  
-   So **04b Codex Process Input** can sign private image URLs and pass text into the agent.
-4. **Re-import router patch** — `itsnomatata-codex-internal-ai.production.workflow.json` includes `content_studio_image_analysis` so image requests route to vision reliably.
+   - `SUPABASE_SERVICE_ROLE_KEY`
+   - `INTERNAL_API_KEY` (same as app `.env`)  
+   So **04b Codex Process Input** can sign private image URLs. Also set on Supabase: `supabase secrets set OPENAI_API_KEY=sk-...` and redeploy `codex-process-input` (otherwise intake is skipped — workflow still runs, but private files are not pre-processed).
+4. **Re-import router patch** — `itsnomatata-codex-internal-ai.production.workflow.json` includes `content_studio_caption` / `content_studio_image_analysis` routing.
+
+## `{"message":"Error in workflow"}` (HTTP 500)
+
+This is n8n’s generic failure — the webhook was hit but a node crashed.
+
+1. n8n → **Executions** → latest failed run → note the **red node** (often **06 Codex Main Agent** or **Image Analysis Tool**).
+2. **Re-import + publish** `n8n/itsnomatata-codex-internal-ai.production.workflow.json` (router + Image Analysis credential fix).
+3. Confirm **OpenAI** works in n8n (test **OpenAI Main Reasoning Model** / chat in the workflow editor).
+4. For **Analyze image**, confirm the attachment URL opens in a browser (signed URL); OpenAI must be able to fetch it.
+5. Dev: restart `npm run dev` after `.env` changes so `/api/content-studio/*` proxies to `VITE_N8N_AI_WEBHOOK_URL`.
 
 ## Optional Supabase edge function
 

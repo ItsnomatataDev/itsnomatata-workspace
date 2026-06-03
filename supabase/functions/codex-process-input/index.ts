@@ -1085,7 +1085,16 @@ Deno.serve(async (req) => {
   const serviceRole = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   const openAiKey = Deno.env.get("OPENAI_API_KEY");
   if (!serviceRole || !openAiKey) {
-    return jsonResponse({ ok: false, error: "Server not configured" }, 500);
+    // 200 so n8n 04b (continueOnFail) does not surface a hard 500 in execution logs.
+    return jsonResponse({
+      ok: false,
+      skipped: true,
+      hasUsableContent: false,
+      intakeBlock: "",
+      items: [],
+      links: [],
+      error: "Server not configured (set OPENAI_API_KEY on Supabase for attachment intake)",
+    });
   }
 
   const bearer = getBearerToken(req);

@@ -650,13 +650,11 @@
         "toolDescription": "Analyze an uploaded image using OpenAI vision. Use this when the user sends a picture and asks what it is, what car/model/object appears, to read text from an image, or to extract visible details. Input must include an image URL from the current attachments and a focused question. Return observations, likely identification, visible text, confidence, and limits.",
         "method": "POST",
         "url": "https://api.openai.com/v1/responses",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            {
-              "name": "Authorization",
-              "value": "=Bearer {{ $vars.OPENAI_API_KEY }}"
-            },
             {
               "name": "Content-Type",
               "value": "application/json"
@@ -664,19 +662,15 @@
           ]
         },
         "sendBody": true,
-        "bodyParameters": {
-          "parameters": [
-            {
-              "name": "model",
-              "value": "gpt-4o-mini"
-            },
-            {
-              "name": "input",
-              "value": "={{ [{ role: 'user', content: [{ type: 'input_text', text: $fromAI('image_question', 'Analyze this image. Identify visible objects, text, brand/model clues, and important details. Be honest about uncertainty.', 'string') }, { type: 'input_image', image_url: $fromAI('image_url', ($json.attachments || []).find(a => a?.url)?.url || '', 'string') }] }] }}"
-            }
-          ]
-        },
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'gpt-4o-mini', input: [{ role: 'user', content: [{ type: 'input_text', text: $fromAI('image_question', 'Analyze this image. Identify visible objects, text, brand/model clues, and important details. Be honest about uncertainty.', 'string') }, { type: 'input_image', image_url: $fromAI('image_url', ($json.attachments || []).find(a => a?.url)?.url || '', 'string') }] }] }] }) }}",
         "options": {}
+      },
+      "credentials": {
+        "openAiApi": {
+          "id": "AMCuIhOcN1ffKYz9",
+          "name": "OpenAi account"
+        }
       }
     },
     {
