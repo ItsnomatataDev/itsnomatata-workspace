@@ -654,6 +654,12 @@ export async function listContentClientMedia(params: {
     uploadedBy: params.uploadedBy ?? null,
   });
 
+  await deduplicateContentClientMediaLibrary({
+    organizationId: params.organizationId,
+    officeId: params.officeId,
+    clientId: params.clientId,
+  });
+
   const { data, error } = await supabase
     .from("content_client_media")
     .select("*")
@@ -702,6 +708,164 @@ export async function syncClientMediaFromPostAssets(params: {
   return synced;
 }
 
+/** Same bytes/name from library upload vs post upload often land on different storage paths. */
+function clientMediaMergeKey(media: {
+  file_name: string;
+  stored_size_bytes?: number | null;
+  mime_type?: string | null;
+}) {
+  const name = media.file_name.trim().toLowerCase();
+  const size = media.stored_size_bytes ?? 0;
+  const mime = (media.mime_type ?? "").trim().toLowerCase();
+  return `${name}::${size}::${mime}`;
+}
+
+async function findExistingClientLibraryMedia(params: {
+  clientId: string;
+  libraryMediaId?: string | null;
+  storagePath?: string | null;
+  fileUrl?: string | null;
+  fileName?: string | null;
+  storedSizeBytes?: number | null;
+  mimeType?: string | null;
+}): Promise<ContentClientMedia | null> {
+  if (params.libraryMediaId) {
+    const { data: linked, error } = await supabase
+      .from("content_client_media")
+      .select("*")
+      .eq("id", params.libraryMediaId)
+      .maybeSingle();
+    if (error) throw error;
+    if (linked) return linked as ContentClientMedia;
+  }
+
+  if (params.storagePath) {
+    const { data, error } = await supabase
+      .from("content_client_media")
+      .select("*")
+      .eq("client_id", params.clientId)
+      .eq("storage_path", params.storagePath)
+      .maybeSingle();
+    if (error) throw error;
+    if (data) return data as ContentClientMedia;
+  }
+
+  if (params.fileUrl) {
+    const { data, error } = await supabase
+      .from("content_client_media")
+      .select("*")
+      .eq("client_id", params.clientId)
+      .eq("file_url", params.fileUrl)
+      .maybeSingle();
+    if (error) throw error;
+    if (data) return data as ContentClientMedia;
+  }
+
+  if (params.fileName && params.storedSizeBytes != null) {
+    const { data, error } = await supabase
+      .from("content_client_media")
+      .select("*")
+      .eq("client_id", params.clientId)
+      .eq("file_name", params.fileName)
+      .eq("stored_size_bytes", params.storedSizeBytes);
+    if (error) throw error;
+    if (data && data.length > 0) return data[0] as ContentClientMedia;
+  }
+
+  return null;
+}
+
+async function countPostAssetReferences(media: ContentClientMedia) {
+  const filters = [
+    media.id ? `library_media_id.eq.${media.id}` : null,
+    media.storage_path ? `storage_path.eq.${media.storage_path}` : null,
+  ].filter(Boolean);
+
+  if (filters.length === 0) return 0;
+
+  const { count, error } = await supabase
+    .from("content_review_assets")
+    .select("id", { count: "exact", head: true })
+    .or(filters.join(","));
+
+  if (error) throw error;
+  return count ?? 0;
+}
+
+async function pickCanonicalClientLibraryMedia(group: ContentClientMedia[]) {
+  const scored = await Promise.all(
+    group.map(async (item) => ({
+      item,
+      refs: await countPostAssetReferences(item),
+    })),
+  );
+  scored.sort((a, b) => {
+    if (b.refs !== a.refs) return b.refs - a.refs;
+    return new Date(a.item.created_at).getTime() - new Date(b.item.created_at).getTime();
+  });
+  return scored[0]?.item ?? group[0];
+}
+
+/** Merges duplicate library rows (same file synced from posts vs library uploads) and removes orphan storage. */
+async function deduplicateContentClientMediaLibrary(params: {
+  organizationId: string;
+  officeId: string;
+  clientId: string;
+}) {
+  const { data: rows, error } = await supabase
+    .from("content_client_media")
+    .select("*")
+    .eq("organization_id", params.organizationId)
+    .eq("office_id", params.officeId)
+    .eq("client_id", params.clientId)
+    .order("created_at", { ascending: true });
+
+  if (error) throw error;
+  if (!rows || rows.length < 2) return;
+
+  const groups = new Map<string, ContentClientMedia[]>();
+  for (const row of rows as ContentClientMedia[]) {
+    const key = clientMediaMergeKey(row);
+    const bucket = groups.get(key) ?? [];
+    bucket.push(row);
+    groups.set(key, bucket);
+  }
+
+  for (const group of groups.values()) {
+    if (group.length < 2) continue;
+
+    const canonical = await pickCanonicalClientLibraryMedia(group);
+    const duplicates = group.filter((item) => item.id !== canonical.id);
+
+    for (const duplicate of duplicates) {
+      await supabase
+        .from("content_review_assets")
+        .update({ library_media_id: canonical.id })
+        .eq("library_media_id", duplicate.id);
+
+      if (duplicate.storage_path && duplicate.storage_path !== canonical.storage_path) {
+        const refs = await countPostAssetReferences(duplicate);
+        if (refs === 0) {
+          await removeStoragePaths([duplicate.storage_path]);
+        }
+      }
+
+      const { error: deleteError } = await supabase
+        .from("content_client_media")
+        .delete()
+        .eq("id", duplicate.id);
+      if (deleteError) throw deleteError;
+    }
+  }
+}
+
+async function linkPostAssetToLibraryMedia(assetId: string, libraryMediaId: string) {
+  await supabase
+    .from("content_review_assets")
+    .update({ library_media_id: libraryMediaId })
+    .eq("id", assetId);
+}
+
 async function registerPostAssetInClientLibrary(params: {
   asset: ContentReviewAsset;
   clientId: string;
@@ -711,38 +875,21 @@ async function registerPostAssetInClientLibrary(params: {
 }): Promise<ContentClientMedia | null> {
   if (!params.asset.file_url) return null;
 
-  if (params.asset.library_media_id) {
-    const { data: linked } = await supabase
-      .from("content_client_media")
-      .select("*")
-      .eq("id", params.asset.library_media_id)
-      .maybeSingle();
-    if (linked) return linked as ContentClientMedia;
-  }
-
-  let existingQuery = supabase
-    .from("content_client_media")
-    .select("*")
-    .eq("client_id", params.clientId)
-    .limit(1);
-
-  if (params.asset.storage_path) {
-    existingQuery = existingQuery.eq("storage_path", params.asset.storage_path);
-  } else {
-    existingQuery = existingQuery.eq("file_url", params.asset.file_url);
-  }
-
-  const { data: existing, error: existingError } = await existingQuery.maybeSingle();
-  if (existingError) throw existingError;
+  const existing = await findExistingClientLibraryMedia({
+    clientId: params.clientId,
+    libraryMediaId: params.asset.library_media_id,
+    storagePath: params.asset.storage_path,
+    fileUrl: params.asset.file_url,
+    fileName: params.asset.file_name,
+    storedSizeBytes: params.asset.stored_size_bytes ?? null,
+    mimeType: params.asset.mime_type,
+  });
 
   if (existing) {
     if (params.asset.library_media_id !== existing.id) {
-      await supabase
-        .from("content_review_assets")
-        .update({ library_media_id: existing.id })
-        .eq("id", params.asset.id);
+      await linkPostAssetToLibraryMedia(params.asset.id, existing.id);
     }
-    return existing as ContentClientMedia;
+    return existing;
   }
 
   const { data: created, error: insertError } = await supabase
@@ -768,11 +915,7 @@ async function registerPostAssetInClientLibrary(params: {
 
   if (insertError) throw insertError;
 
-  await supabase
-    .from("content_review_assets")
-    .update({ library_media_id: created.id })
-    .eq("id", params.asset.id);
-
+  await linkPostAssetToLibraryMedia(params.asset.id, created.id);
   return created as ContentClientMedia;
 }
 
@@ -801,6 +944,22 @@ export async function uploadContentClientMedia(params: {
   if (uploadError) throw uploadError;
 
   const { data: publicUrl } = supabase.storage.from(BUCKET).getPublicUrl(path);
+
+  const existing = await findExistingClientLibraryMedia({
+    clientId: params.client.id,
+    storagePath: path,
+    fileUrl: publicUrl.publicUrl,
+    fileName: uploadFile.file.name,
+    storedSizeBytes: uploadFile.storedSize,
+    mimeType: uploadFile.file.type || null,
+  });
+  if (existing) {
+    if (existing.storage_path !== path) {
+      await removeStoragePaths([path]);
+    }
+    return existing;
+  }
+
   const { data, error } = await supabase
     .from("content_client_media")
     .insert({
@@ -827,36 +986,45 @@ export async function uploadContentClientMedia(params: {
 }
 
 export async function deleteContentClientMedia(media: ContentClientMedia) {
-  const filters = [
-    media.id ? `library_media_id.eq.${media.id}` : null,
-    media.storage_path ? `storage_path.eq.${media.storage_path}` : null,
-  ].filter(Boolean);
+  await deduplicateContentClientMediaLibrary({
+    organizationId: media.organization_id,
+    officeId: media.office_id,
+    clientId: media.client_id,
+  });
 
-  let assetRefCount = 0;
-  if (filters.length > 0) {
-    const { count, error: countError } = await supabase
+  const { data: allRows, error: siblingsError } = await supabase
+    .from("content_client_media")
+    .select("*")
+    .eq("client_id", media.client_id);
+
+  if (siblingsError) {
+    throw new Error(siblingsError.message || "Failed to load duplicate library media.");
+  }
+
+  const mergeKey = clientMediaMergeKey(media);
+  let targets = ((allRows ?? []) as ContentClientMedia[]).filter(
+    (row) => clientMediaMergeKey(row) === mergeKey,
+  );
+  if (targets.length === 0) {
+    targets = [media];
+  }
+
+  for (const target of targets) {
+    const assetRefCount = await countPostAssetReferences(target);
+
+    await supabase
       .from("content_review_assets")
-      .select("id", { count: "exact", head: true })
-      .or(filters.join(","));
+      .update({ library_media_id: null })
+      .eq("library_media_id", target.id);
 
-    if (countError) {
-      throw new Error(countError.message || "Failed to check post media references.");
+    if (target.storage_path && assetRefCount === 0) {
+      await removeStoragePaths([target.storage_path]);
     }
-    assetRefCount = count ?? 0;
-  }
 
-  if (media.storage_path && assetRefCount === 0) {
-    await removeStoragePaths([media.storage_path]);
-  }
-
-  await supabase
-    .from("content_review_assets")
-    .update({ library_media_id: null })
-    .eq("library_media_id", media.id);
-
-  const { error } = await supabase.from("content_client_media").delete().eq("id", media.id);
-  if (error) {
-    throw new Error(error.message || "Failed to delete client media.");
+    const { error } = await supabase.from("content_client_media").delete().eq("id", target.id);
+    if (error) {
+      throw new Error(error.message || "Failed to delete client media.");
+    }
   }
 }
 

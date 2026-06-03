@@ -126,7 +126,7 @@ export default function ContentClientMediaLibrary({
         <div>
           <h3 className={`font-semibold ${compact ? "text-sm" : "text-base"}`}>Client media library</h3>
           <p className="mt-1 text-xs text-white/45">
-            Includes uploads here and media already attached to this client&apos;s posts.
+            One entry per file. Post uploads are synced here automatically without creating duplicates.
           </p>
         </div>
         <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-orange-500 px-3 py-2 text-xs font-bold text-black hover:bg-orange-400">
