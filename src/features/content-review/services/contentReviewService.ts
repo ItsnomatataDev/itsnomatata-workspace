@@ -205,6 +205,22 @@ export type ContentStudioImageAnalysis = {
 const BUCKET = "content-review-assets";
 const ASSET_RETENTION_DAYS = 60;
 const SCHEDULE_RETENTION_DAYS = 60;
+/** Public schedule / client-review links stay open through the full review cycle. */
+export const CONTENT_REVIEW_LINK_VALID_DAYS = 90;
+
+export function contentReviewLinkExpiresAt(fromMs = Date.now()) {
+  return new Date(fromMs + CONTENT_REVIEW_LINK_VALID_DAYS * 86400000).toISOString();
+}
+
+/** Extends link expiry when missing or expiring soon (legacy 14-day drafts). */
+export async function refreshContentReviewLinkExpiry(draft: ContentReviewDraft) {
+  const minimumValidMs = Date.now() + 30 * 86400000;
+  const currentMs = draft.expires_at ? new Date(draft.expires_at).getTime() : 0;
+  if (currentMs >= minimumValidMs) return draft;
+  return updateContentReviewDraft(draft, {
+    expires_at: contentReviewLinkExpiresAt(),
+  });
+}
 const MAINTENANCE_INTERVAL_MS = 5 * 60 * 1000;
 let lastContentReviewMaintenanceAt = 0;
 
@@ -472,7 +488,7 @@ export async function createContentReviewDraft(params: {
       review_token: token,
       review_url: buildReviewUrl(token),
       status: "draft",
-      expires_at: new Date(Date.now() + 14 * 86400000).toISOString(),
+      expires_at: contentReviewLinkExpiresAt(),
     })
     .select("*")
     .single();
@@ -572,7 +588,7 @@ export async function ensureClientMonthlySchedule(params: {
     }
   }
 
-  return schedule;
+  return refreshContentReviewLinkExpiry(schedule);
 }
 
 export async function listContentClients(params: {
@@ -643,6 +659,7 @@ export async function regenerateContentReviewLink(draft: ContentReviewDraft) {
   const updated = await updateContentReviewDraft(draft, {
     review_token: token,
     review_url: buildReviewUrl(token),
+    expires_at: contentReviewLinkExpiresAt(),
   });
   await recordActivity({
     draft: updated,

@@ -187,7 +187,9 @@ begin
     return jsonb_build_object('ok', false, 'error', 'not_found');
   end if;
 
-  if draft_record.expires_at is not null and draft_record.expires_at < now() then
+  if draft_record.expires_at is not null
+     and draft_record.expires_at < now()
+     and draft_record.status in ('archived', 'published') then
     return jsonb_build_object('ok', false, 'error', 'expired');
   end if;
 

@@ -31,7 +31,9 @@ import {
   listContentClients,
   generateContentStudioCaption,
   notifyContentReviewTeam,
+  contentReviewLinkExpiresAt,
   regenerateContentReviewLink,
+  refreshContentReviewLinkExpiry,
   updateContentReviewAsset,
   updateContentReviewDraft,
   uploadContentReviewAsset,
@@ -589,7 +591,11 @@ export default function ContentStudioEditorPage() {
     }
     try {
       setSaving(true);
-      const updated = await updateContentReviewDraft(detail.draft, {
+      let workingDraft = detail.draft;
+      if (nextStatus === "sent_to_client") {
+        workingDraft = await refreshContentReviewLinkExpiry(workingDraft);
+      }
+      const updated = await updateContentReviewDraft(workingDraft, {
         title: form.title.trim() || "Untitled review",
         subtitle: form.subtitle,
         summary: form.summary,
@@ -608,9 +614,11 @@ export default function ContentStudioEditorPage() {
               approved_by_name: null,
               approved_by_email: null,
             }
-          : nextStatus
-            ? { status: nextStatus }
-            : {}),
+          : nextStatus === "sent_to_client"
+            ? { status: nextStatus, expires_at: contentReviewLinkExpiresAt() }
+            : nextStatus
+              ? { status: nextStatus }
+              : {}),
       });
       setDetail({ ...detail, draft: updated });
       const persisted = draftToForm(updated);
