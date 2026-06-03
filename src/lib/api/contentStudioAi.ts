@@ -219,17 +219,14 @@ export async function requestContentStudioAnalyzeMedia(
   const n8nPayload = {
     action: "sendMessage",
     chatInput: buildAnalyzeChatInput(input),
-    attachments:
-      input.mediaType === "image"
-        ? [
-            {
-              name: input.fileName ?? "post-media",
-              type: "image",
-              url: input.mediaUrl,
-              mimeType: input.mediaType === "video" ? "video/mp4" : "image/jpeg",
-            },
-          ]
-        : [],
+    attachments: [
+      {
+        name: input.fileName ?? "post-media",
+        type: input.mediaType === "video" ? "video" : "image",
+        url: input.mediaUrl,
+        mimeType: input.mediaType === "video" ? "video/mp4" : "image/jpeg",
+      },
+    ],
     metadata: {
       source: "content_studio_image_analysis",
       forceImageVision: true,
@@ -279,14 +276,18 @@ export async function requestContentStudioAnalyzeMedia(
 function normalizeAnalyzeOutput(raw: string): ContentStudioAnalyzeMediaOutput {
   const parsed = parseJsonFromText<Record<string, unknown>>(raw, {});
   const platformRaw = parsed.platformCaptions;
+  const platformRecord =
+    platformRaw && typeof platformRaw === "object" && !Array.isArray(platformRaw)
+      ? (platformRaw as Record<string, unknown>)
+      : null;
   const platformCaptions =
-    platformRaw && typeof platformRaw === "object"
+    platformRecord
       ? {
-          instagram: platformRaw.instagram
-            ? String(platformRaw.instagram)
+          instagram: platformRecord.instagram
+            ? String(platformRecord.instagram)
             : undefined,
-          facebook: platformRaw.facebook
-            ? String(platformRaw.facebook)
+          facebook: platformRecord.facebook
+            ? String(platformRecord.facebook)
             : undefined,
         }
       : {

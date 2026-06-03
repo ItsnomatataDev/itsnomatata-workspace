@@ -46,7 +46,15 @@ export const contentStudioCopy = {
   editorWorkflow:
     "Edit each post in the centre frames (media left, caption right). Save from the toolbar; use Client review to preview the link.",
   editorWriteHint:
-    "Per-post text (beside each image) appears when you select a post in the filmstrip. Story and social caption below apply to the whole schedule unless a post has its own caption.",
+    "Optional extras (CTA, internal notes). Post captions and media are edited in the centre frames.",
+  editorDefaultSocialCaption: "Default social caption (optional)",
+  editorDefaultSocialCaptionHelp:
+    "Fallback copy when a post has no caption in its frame. Most teams only use per-post captions in the frames.",
+  editorIntroAfterImages: "Intro paragraph after images (optional)",
+  editorIntroAfterImagesHelp:
+    "Only for Showcase/Gallery layouts: a short paragraph below all photos. Not the same as the client review headline above.",
+  editorHeadlineVsPosts:
+    "The headline is the page title on the client link. Each post’s caption is edited in the centre frames.",
   editorMediaHint:
     "Ten posts per schedule. Drop images onto each post, drag between posts, and reorder carousel images inside a post.",
   editorSetupHint:
@@ -58,7 +66,7 @@ export const contentStudioCopy = {
   editorPostCopySplitHint:
     "With Split layout, the caption below is the text shown beside this image. Add an image first, then write copy here.",
   editorPostCopyUnifiedNote:
-    "Leave empty to use the schedule story and social caption from Write — or type here for text specific to this post only.",
+    "Leave empty to use the default social caption from Setup — or type caption text for this post only.",
   editorPostCopyNoMedia:
     "Upload or pick an image in the filmstrip below the preview, then add text here.",
   editorSelectPostHint:

@@ -1027,7 +1027,10 @@ export default function ContentStudioEditorPage() {
         <EditorGettingStarted
           activeTab={activeTab}
           postsWithMedia={postsWithMediaCount}
-          hasCaption={Boolean(form.captions?.trim() || form.body?.trim())}
+          hasCaption={
+            Boolean(form.captions?.trim()) ||
+            schedulePostRows.some((row) => row.hasCaption)
+          }
           onSelectTab={setActiveTab}
           onDismiss={dismissEditorGuide}
         />
@@ -1122,27 +1125,6 @@ export default function ContentStudioEditorPage() {
                       Layout, client, and publish date are in the <strong className="text-orange-200">Setup</strong>{" "}
                       panel on the right. Posts below use that layout on the client link.
                     </div>
-                  ) : null}
-                  {activeTab === "write" ? (
-                    <section className="mx-auto max-w-5xl space-y-3 rounded-2xl border border-white/10 bg-black/50 p-4">
-                      <p className="text-[11px] font-semibold uppercase tracking-wide text-white/40">
-                        Whole schedule copy
-                      </p>
-                      <TextArea
-                        label="Story text"
-                        value={form.body}
-                        onChange={(value) => updateForm("body", value)}
-                        rows={4}
-                        hint="Shown after images on the client review link (when layout uses shared story)."
-                      />
-                      <TextArea
-                        label="Social caption (schedule-wide)"
-                        value={form.captions}
-                        onChange={(value) => updateForm("captions", value)}
-                        rows={3}
-                        hint="Used when a post has no per-post caption. Per-post captions are in each frame below."
-                      />
-                    </section>
                   ) : null}
                   <SchedulePostFrameEditor
                     rows={schedulePostRows}
@@ -1397,6 +1379,25 @@ function EditorSidePanel({
           placeholder="Optional tagline under the headline"
         />
         <p className="text-[11px] text-white/40">{contentStudioCopy.clientReviewSubtitleHelp}</p>
+        <p className="rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-[11px] leading-relaxed text-white/45">
+          {contentStudioCopy.editorHeadlineVsPosts}
+        </p>
+        <TextArea
+          label={contentStudioCopy.editorDefaultSocialCaption}
+          value={form.captions}
+          onChange={(value) => onUpdateForm("captions", value)}
+          rows={3}
+          hint={contentStudioCopy.editorDefaultSocialCaptionHelp}
+        />
+        {form.layout_type === "media_showcase" || form.layout_type === "gallery" ? (
+          <TextArea
+            label={contentStudioCopy.editorIntroAfterImages}
+            value={form.body}
+            onChange={(value) => onUpdateForm("body", value)}
+            rows={4}
+            hint={contentStudioCopy.editorIntroAfterImagesHelp}
+          />
+        ) : null}
       </section>
 
       <section className="rounded-xl border border-orange-500/25 bg-orange-500/5 p-3 sm:p-4">

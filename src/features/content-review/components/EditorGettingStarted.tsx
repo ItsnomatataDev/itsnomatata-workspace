@@ -24,7 +24,7 @@ const STEPS: Array<{
     id: "write",
     step: 3,
     title: "Write",
-    detail: "Story, social caption, and AI assist",
+    detail: "CTA, notes, and optional defaults in Setup",
   },
 ];
 
