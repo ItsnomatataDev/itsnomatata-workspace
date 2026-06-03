@@ -89,7 +89,7 @@ function MediaSlide({
     >
       <img
         src={asset.file_url}
-        alt={asset.heading ?? asset.caption ?? "Content review media"}
+        alt={asset.heading ?? asset.caption ?? asset.file_name ?? "Schedule image"}
         sizes={previewImageSizes(theme)}
         loading="lazy"
         decoding="async"
@@ -206,6 +206,7 @@ export function ContentReviewRenderer({
   viewport = "responsive",
   unifiedPostCopy,
   highlightDisplaySlot = null,
+  hideScheduleHeaderInBody = false,
   renderSectionActions,
 }: {
   draft: ContentReviewDraft;
@@ -214,6 +215,8 @@ export function ContentReviewRenderer({
   viewport?: PreviewViewport;
   unifiedPostCopy?: boolean;
   highlightDisplaySlot?: number | null;
+  /** When the page already shows title/status/date in an outer header (public review link). */
+  hideScheduleHeaderInBody?: boolean;
   renderSectionActions?: (
     slot: ContentReviewDisplaySlot,
     index: number,
@@ -222,10 +225,11 @@ export function ContentReviewRenderer({
   const [expandedVideo, setExpandedVideo] = useState<ContentReviewAsset | null>(null);
   const displaySlots = useMemo(() => groupAssetsByDisplaySlot(assets), [assets]);
   const useUnifiedCopy = unifiedPostCopy ?? shouldUseUnifiedPostCopy(assets);
-  const layout = useMemo(() => {
-    if (useUnifiedCopy && displaySlots.length > 0) return "media_showcase" as ContentReviewLayout;
-    return resolveLayout(draft, displaySlots);
-  }, [draft, displaySlots, useUnifiedCopy]);
+  const layout = useMemo(() => resolveLayout(draft, displaySlots), [draft, displaySlots]);
+  const useUnifiedShowcaseLayout =
+    useUnifiedCopy &&
+    displaySlots.length > 0 &&
+    (layout === "media_showcase" || layout === "gallery");
   const primarySlot = displaySlots[0] ?? null;
   const extraSlots = displaySlots.slice(1);
 
@@ -242,21 +246,27 @@ export function ContentReviewRenderer({
   const status = theme === "internal" ? "bg-orange-500 text-black" : "bg-orange-500 text-black";
   const galleryGrid =
     extraSlots.length <= 1 ? "md:grid-cols-1" : extraSlots.length <= 2 ? "md:grid-cols-2" : "md:grid-cols-2 xl:grid-cols-3";
+  const hideBodyScheduleHeader = hideScheduleHeaderInBody;
+  const hideInternalNotes = theme === "public";
 
   const unifiedTextBlock = () => (
     <div className={`flex min-w-0 flex-col justify-center ${viewport === "mobile" ? "p-6" : "p-6 sm:p-8"}`}>
-      <h2 className={`font-bold ${viewport === "mobile" ? "text-3xl" : "text-3xl sm:text-4xl"}`}>{draft.title}</h2>
-      {draft.subtitle ? <p className={`mt-3 ${viewport === "mobile" ? "text-base" : "text-lg"} ${muted}`}>{draft.subtitle}</p> : null}
-      <div className="mt-5 flex flex-wrap gap-2 text-sm">
-        <span className={`rounded-full px-3 py-1 font-semibold capitalize ${status}`}>
-          {formatStatus(draft.status)}
-        </span>
-        {draft.scheduled_at ? (
-          <span className={`rounded-full border px-3 py-1 ${theme === "internal" ? "border-white/10 text-white/65" : "border-neutral-200 text-neutral-600"}`}>
-            Scheduled {new Date(draft.scheduled_at).toLocaleString()}
-          </span>
-        ) : null}
-      </div>
+      {!hideBodyScheduleHeader ? (
+        <>
+          <h2 className={`font-bold ${viewport === "mobile" ? "text-3xl" : "text-3xl sm:text-4xl"}`}>{draft.title}</h2>
+          {draft.subtitle ? <p className={`mt-3 ${viewport === "mobile" ? "text-base" : "text-lg"} ${muted}`}>{draft.subtitle}</p> : null}
+          <div className="mt-5 flex flex-wrap gap-2 text-sm">
+            <span className={`rounded-full px-3 py-1 font-semibold capitalize ${status}`}>
+              {formatStatus(draft.status)}
+            </span>
+            {draft.scheduled_at ? (
+              <span className={`rounded-full border px-3 py-1 ${theme === "internal" ? "border-white/10 text-white/65" : "border-neutral-200 text-neutral-600"}`}>
+                Scheduled {new Date(draft.scheduled_at).toLocaleString()}
+              </span>
+            ) : null}
+          </div>
+        </>
+      ) : null}
       {draft.summary ? <p className={`mt-6 font-medium ${viewport === "mobile" ? "text-base leading-7" : "text-lg leading-8"} ${body}`}>{draft.summary}</p> : null}
       {draft.body ? (
         <p className={`mt-5 whitespace-pre-wrap ${viewport === "mobile" ? "leading-7" : "leading-8"} ${body}`}>{draft.body}</p>
@@ -266,7 +276,7 @@ export function ContentReviewRenderer({
           {draft.captions}
         </p>
       ) : null}
-      {draft.notes ? <div className={`mt-6 rounded-2xl border p-4 text-sm ${note}`}>{draft.notes}</div> : null}
+      {!hideInternalNotes && draft.notes ? <div className={`mt-6 rounded-2xl border p-4 text-sm ${note}`}>{draft.notes}</div> : null}
       {draft.cta_label && draft.cta_url ? (
         <a
           href={draft.cta_url}
@@ -280,15 +290,23 @@ export function ContentReviewRenderer({
     </div>
   );
 
-  const textBlock = (slot?: ContentReviewDisplaySlot, index = 0) => (
+  const textBlock = (slot?: ContentReviewDisplaySlot, index = 0) => {
+    const slotHeading = slot?.primary.heading?.trim();
+    const showTitleOnSlot =
+      Boolean(slotHeading) || (index === 0 && !hideBodyScheduleHeader);
+    const titleText = slotHeading || (index === 0 && !hideBodyScheduleHeader ? draft.title : "");
+
+    return (
     <div className={`flex min-w-0 flex-col justify-center ${viewport === "mobile" ? "p-6" : "p-6 sm:p-8"}`}>
-      {(slot?.primary.heading?.trim() || index === 0) ? (
+      {showTitleOnSlot && titleText ? (
         <h2 className={`font-bold ${viewport === "mobile" ? "text-3xl" : "text-3xl sm:text-4xl"}`}>
-          {slot?.primary.heading?.trim() || draft.title}
+          {titleText}
         </h2>
       ) : null}
-      {index === 0 && draft.subtitle ? <p className={`mt-3 ${viewport === "mobile" ? "text-base" : "text-lg"} ${muted}`}>{draft.subtitle}</p> : null}
-      {index === 0 ? (
+      {index === 0 && !hideBodyScheduleHeader && draft.subtitle ? (
+        <p className={`mt-3 ${viewport === "mobile" ? "text-base" : "text-lg"} ${muted}`}>{draft.subtitle}</p>
+      ) : null}
+      {index === 0 && !hideBodyScheduleHeader ? (
         <div className="mt-5 flex flex-wrap gap-2 text-sm">
           <span className={`rounded-full px-3 py-1 font-semibold capitalize ${status}`}>
             {formatStatus(draft.status)}
@@ -306,7 +324,20 @@ export function ContentReviewRenderer({
       ) : index === 0 && draft.body ? (
         <p className={`mt-5 whitespace-pre-wrap ${viewport === "mobile" ? "leading-7" : "leading-8"} ${body}`}>{draft.body}</p>
       ) : null}
-      {index === 0 && draft.notes ? <div className={`mt-6 rounded-2xl border p-4 text-sm ${note}`}>{draft.notes}</div> : null}
+      {index === 0 && useUnifiedCopy && draft.captions?.trim() && !slot?.primary.caption?.trim() ? (
+        <p
+          className={`mt-5 whitespace-pre-wrap rounded-2xl border p-4 text-sm ${
+            theme === "internal"
+              ? "border-white/10 bg-white/5 text-white/80"
+              : "border-neutral-200 bg-neutral-50 text-neutral-800"
+          } ${viewport === "mobile" ? "leading-7" : "leading-8"}`}
+        >
+          {draft.captions}
+        </p>
+      ) : null}
+      {index === 0 && !hideInternalNotes && draft.notes ? (
+        <div className={`mt-6 rounded-2xl border p-4 text-sm ${note}`}>{draft.notes}</div>
+      ) : null}
       {index === 0 && draft.cta_label && draft.cta_url ? (
         <a
           href={draft.cta_url}
@@ -322,6 +353,7 @@ export function ContentReviewRenderer({
       ) : null}
     </div>
   );
+  };
 
   const splitBlock = (slot: ContentReviewDisplaySlot, index = 0) => (
     <SlotSection
@@ -347,7 +379,7 @@ export function ContentReviewRenderer({
   return (
     <>
       <article className={shell}>
-        {useUnifiedCopy && displaySlots.length > 0 ? (
+        {useUnifiedShowcaseLayout ? (
           <>
             <div className={`space-y-4 ${theme === "internal" ? "p-4 sm:p-5" : "p-4 sm:p-6"}`}>
               {displaySlots.map((slot) => (

@@ -43,4 +43,20 @@ export const contentStudioCopy = {
   editorFilmstrip: "Posts in this schedule",
   publishDate: "Publish date",
   carouselInPost: "Add carousel image to this post",
+  editorWorkflow:
+    "Edit here first. The centre preview is what you are building; the client link only shows saved work.",
+  editorWriteHint:
+    "Social caption and story text apply to the whole schedule clients see on the review link.",
+  editorMediaHint:
+    "Ten posts per schedule. Drop images onto each post, drag between posts, and reorder carousel images inside a post.",
+  editorSetupHint:
+    "Start here: pick how photos and text are arranged on the client link, then assign the client and publish date.",
+  editorLayoutHint:
+    "Layouts control the client review page — not your editing screen. Showcase is the usual choice for monthly schedules.",
+  clientReviewHeadline: "Client review headline",
+  clientReviewHeadlineHelp:
+    "Shown once at the top of the client link (e.g. GOAT June 2026 SM Schedule). Replaces the auto month title like “June 2026 schedule”.",
+  clientReviewHeadlinePlaceholder: "e.g. GOAT June 2026 SM Schedule",
+  clientReviewSubtitle: "Optional line under headline",
+  clientReviewSubtitleHelp: "Leave empty if you only need the headline.",
 };

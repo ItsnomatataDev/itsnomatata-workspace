@@ -6,7 +6,6 @@ import {
   Loader2,
   Plus,
   Send,
-  Sparkles,
   X,
 } from "lucide-react";
 import {
@@ -22,7 +21,6 @@ import { useAuth } from "../../../app/providers/AuthProvider";
 import ContentClientMediaLibrary from "../components/ContentClientMediaLibrary";
 import { ContentReviewRenderer } from "../components/ContentReviewRenderer";
 import {
-  analyzeContentStudioImage,
   assertCanUseContentStudio,
   buildClientPortalUrl,
   buildContentReviewDetailsIndex,
@@ -30,7 +28,6 @@ import {
   createContentClient,
   ensureClientMonthlySchedule,
   deleteContentClient,
-  generateContentStudioCaption,
   getContentClient,
   listContentClients,
   listContentReviewAssetsForDrafts,
@@ -45,7 +42,6 @@ import {
   type ContentClient,
   type ContentReviewDetail,
   type ContentReviewDraft,
-  type ContentStudioImageAnalysis,
 } from "../services/contentReviewService";
 import {
   batchSendGateHint,
@@ -68,6 +64,7 @@ import {
   getScheduleBatchReadiness,
   resolveClientScheduleDraft,
 } from "../utils/contentStudioSchedule";
+import type { ContentStudioEditorFocusTab } from "../utils/contentStudioEditorNav";
 
 type ClientProgress = {
   client: ContentClient;
@@ -179,15 +176,8 @@ export default function ContentStudioClientsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [monthFilter, setMonthFilter] = useState("all");
-  const [captionSuggestions, setCaptionSuggestions] = useState<
-    Record<string, string>
-  >({});
-  const [imageAnalysisByDraftId, setImageAnalysisByDraftId] = useState<
-    Record<string, ContentStudioImageAnalysis>
-  >({});
-  const [selectedAiDraftId, setSelectedAiDraftId] = useState("");
   const [activeClientTab, setActiveClientTab] = useState<
-    "overview" | "schedule" | "media" | "captions" | "review-link" | "settings"
+    "overview" | "schedule" | "media" | "review-link" | "settings"
   >(clientId ? "schedule" : "overview");
   const [previewDraft, setPreviewDraft] = useState<ContentReviewDraft | null>(
     null,
@@ -327,10 +317,16 @@ export default function ContentStudioClientsPage() {
 
   function openPostEditor(
     draftId: string,
-    options?: { suggestedCaption?: string; displaySlot?: number },
+    options?: {
+      suggestedCaption?: string;
+      displaySlot?: number;
+      focusTab?: ContentStudioEditorFocusTab;
+    },
   ) {
     const state =
-      options?.suggestedCaption || options?.displaySlot != null
+      options?.suggestedCaption != null ||
+      options?.displaySlot != null ||
+      options?.focusTab != null
         ? {
             ...(options.suggestedCaption
               ? { suggestedCaption: options.suggestedCaption }
@@ -338,6 +334,7 @@ export default function ContentStudioClientsPage() {
             ...(options.displaySlot != null
               ? { displaySlot: options.displaySlot }
               : {}),
+            ...(options.focusTab ? { focusTab: options.focusTab } : {}),
           }
         : undefined;
     navigate(`/admin/content-studio/editor/${draftId}`, { state });
@@ -613,80 +610,6 @@ export default function ContentStudioClientsPage() {
     }
   }
 
-  async function handleCaptionAction(
-    draft: ContentReviewDraft,
-    instruction: string,
-  ) {
-    try {
-      setSaving(true);
-      const detail = detailsByDraftId[draft.id];
-      const mediaDescription = (detail?.assets ?? [])
-        .map((asset) => asset.heading || asset.file_name)
-        .filter(Boolean)
-        .join(", ");
-      const result = await generateContentStudioCaption({
-        clientName: client?.company_name ?? "Client",
-        postTitle: draft.title,
-        existingCaption: draft.captions ?? "",
-        mediaDescription,
-        platform: instruction.toLowerCase().includes("facebook")
-          ? "facebook"
-          : "instagram",
-        tone: instruction.toLowerCase().includes("professional")
-          ? "professional"
-          : "engaging",
-        instruction,
-      });
-      setCaptionSuggestions((prev) => ({
-        ...prev,
-        [draft.id]: result.generatedCaption,
-      }));
-      setMessage(
-        "AI suggestion ready. Review and apply manually — nothing is auto-saved.",
-      );
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Failed to generate caption suggestion.",
-      );
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function handleAnalyzeImage(draft: ContentReviewDraft) {
-    const firstImage = (detailsByDraftId[draft.id]?.assets ?? []).find(
-      (asset) =>
-        asset.asset_type === "image" || asset.mime_type?.startsWith("image/"),
-    );
-    if (!firstImage?.file_url) {
-      setError("Add an image to this post before running image analysis.");
-      return;
-    }
-    try {
-      setSaving(true);
-      const analysis = await analyzeContentStudioImage({
-        clientName: client?.company_name ?? "Client",
-        postTitle: draft.title,
-        existingCaption: draft.captions ?? "",
-        imageUrl: firstImage.file_url,
-        fileName: firstImage.file_name,
-        userId: userId ?? undefined,
-        organizationId: organizationId ?? undefined,
-      });
-      setImageAnalysisByDraftId((prev) => ({ ...prev, [draft.id]: analysis }));
-      setSelectedAiDraftId(draft.id);
-      setMessage(
-        "Image analysis ready. Use Apply buttons to copy into your draft, then Save.",
-      );
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to analyze image.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
   const previewDraftModel = useMemo(() => {
     if (!previewDraft) return null;
     return {
@@ -810,7 +733,7 @@ export default function ContentStudioClientsPage() {
               </h1>
               <p className="mt-2 text-sm text-white/50">
                 {client
-                  ? "Manage this client's monthly schedule, posts, media, captions, and review links."
+                  ? "Manage this client's monthly schedule, posts, media library, and review links. Write captions and run AI in the schedule editor."
                   : `${contentStudioCopy.hierarchyLine} Assign clients, then build each schedule.`}
               </p>
             </div>
@@ -1224,7 +1147,6 @@ export default function ContentStudioClientsPage() {
                   ["overview", "Overview"],
                   ["schedule", "Schedule"],
                   ["media", "Media Library"],
-                  ["captions", "AI & Captions"],
                   ["review-link", "Links"],
                   ["settings", "Settings"],
                 ].map(([id, label]) => (
@@ -1237,7 +1159,6 @@ export default function ContentStudioClientsPage() {
                           | "overview"
                           | "schedule"
                           | "media"
-                          | "captions"
                           | "review-link"
                           | "settings",
                       )
@@ -1456,7 +1377,7 @@ export default function ContentStudioClientsPage() {
                             />
                           </label>
                           <p className="mt-3 max-w-2xl text-xs text-white/45">
-                            {contentStudioCopy.hierarchyLine}
+                            {contentStudioCopy.hierarchyLine} {contentStudioCopy.editorWorkflow}
                           </p>
                         </div>
                         <div className="flex flex-wrap gap-2">
@@ -1482,12 +1403,17 @@ export default function ContentStudioClientsPage() {
                               Copy link
                             </button>
                           ) : null}
-                          <Link
-                            to={`/admin/content-studio/editor/${activeScheduleDraft.id}`}
+                          <button
+                            type="button"
+                            onClick={() =>
+                              openPostEditor(activeScheduleDraft.id, {
+                                focusTab: "write",
+                              })
+                            }
                             className="rounded-xl bg-orange-500 px-4 py-2 text-sm font-bold text-black hover:bg-orange-400"
                           >
-                            Open schedule
-                          </Link>
+                            Open schedule editor
+                          </button>
                           {canApprove(profile?.primary_role) ? (
                             <>
                               {(() => {
@@ -1555,6 +1481,11 @@ export default function ContentStudioClientsPage() {
                             onClick={() =>
                               openPostEditor(activeScheduleDraft.id, {
                                 displaySlot: row.slot,
+                                focusTab: !row.hasMedia
+                                  ? "media"
+                                  : !row.hasCaption
+                                    ? "write"
+                                    : undefined,
                               })
                             }
                             onKeyDown={(event) => {
@@ -1562,6 +1493,11 @@ export default function ContentStudioClientsPage() {
                                 event.preventDefault();
                                 openPostEditor(activeScheduleDraft.id, {
                                   displaySlot: row.slot,
+                                  focusTab: !row.hasMedia
+                                    ? "media"
+                                    : !row.hasCaption
+                                      ? "write"
+                                      : undefined,
                                 });
                               }
                             }}
@@ -1594,6 +1530,11 @@ export default function ContentStudioClientsPage() {
                                   event.stopPropagation();
                                   openPostEditor(activeScheduleDraft.id, {
                                     displaySlot: row.slot,
+                                    focusTab: !row.hasMedia
+                                      ? "media"
+                                      : !row.hasCaption
+                                        ? "write"
+                                        : undefined,
                                   });
                                 }}
                                 className="rounded-lg border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-xs font-semibold text-orange-100"
@@ -1612,109 +1553,6 @@ export default function ContentStudioClientsPage() {
                       Refresh the page to create it.
                     </p>
                   )}
-                </section>
-              ) : null}
-
-              {activeClientTab === "captions" && activeScheduleDraft ? (
-                <section className="rounded-2xl border border-white/10 bg-white/5 p-5">
-                  <h2 className="text-xl font-semibold">AI & Captions</h2>
-                  <p className="mt-1 text-xs text-white/55">
-                    Suggestions for the{" "}
-                    {formatScheduleMonthLabel(activeScheduleMonth)} schedule.
-                    Apply in the editor, then save each post.
-                  </p>
-                  {(() => {
-                    const draft = activeScheduleDraft;
-                    return (
-                      <div className="mt-4 rounded-xl border border-white/10 bg-black/30 p-4">
-                        <p className="font-semibold">{draft.title}</p>
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          {[
-                            ["Generate Caption", "Generate Caption"],
-                            ["Rewrite Caption", "Rewrite Caption"],
-                            ["Make Shorter", "Make Shorter"],
-                            ["Make Professional", "Make More Professional"],
-                            ["Instagram Version", "Create Instagram Caption"],
-                            ["Facebook Version", "Create Facebook Caption"],
-                            ["Generate Hashtags", "Add Hashtags"],
-                          ].map(([label, instruction]) => (
-                            <button
-                              key={label}
-                              type="button"
-                              onClick={() =>
-                                void handleCaptionAction(draft, instruction)
-                              }
-                              className="rounded-lg border border-white/15 px-3 py-2 text-xs text-white/80 hover:bg-white/5"
-                            >
-                              {label}
-                            </button>
-                          ))}
-                          <button
-                            type="button"
-                            onClick={() => void handleAnalyzeImage(draft)}
-                            className="rounded-lg border border-orange-500/30 bg-orange-500/10 px-3 py-2 text-xs font-semibold text-orange-100"
-                          >
-                            Analyze Image + Generate Caption
-                          </button>
-                        </div>
-                        {captionSuggestions[draft.id] ? (
-                          <div className="mt-3 rounded-lg border border-white/10 p-3">
-                            <p className="text-[11px] uppercase tracking-wide text-white/45">
-                              Suggested Caption
-                            </p>
-                            <p className="mt-1 whitespace-pre-wrap text-sm text-orange-100">
-                              {captionSuggestions[draft.id]}
-                            </p>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const caption = captionSuggestions[draft.id];
-                                if (!caption) return;
-                                setMessage(
-                                  "Opening editor with caption suggestion. Save when ready.",
-                                );
-                                openPostEditor(draft.id, {
-                                  suggestedCaption: caption,
-                                });
-                              }}
-                              className="mt-2 rounded-lg bg-orange-500 px-3 py-1.5 text-xs font-bold text-black"
-                            >
-                              Apply Caption
-                            </button>
-                          </div>
-                        ) : null}
-                        {imageAnalysisByDraftId[draft.id] ? (
-                          <ImageAnalysisPanel
-                            analysis={imageAnalysisByDraftId[draft.id]}
-                            onApplyCaption={(text) => {
-                              setMessage(
-                                "Opening editor with caption suggestion. Save when ready.",
-                              );
-                              openPostEditor(draft.id, {
-                                suggestedCaption: text,
-                              });
-                            }}
-                            onApplyHashtags={(tags) => {
-                              const suffix = tags
-                                .map((t) => (t.startsWith("#") ? t : `#${t}`))
-                                .join(" ");
-                              const base =
-                                imageAnalysisByDraftId[draft.id]
-                                  ?.generatedCaption ??
-                                draft.captions ??
-                                "";
-                              setMessage(
-                                "Opening editor with hashtags. Save when ready.",
-                              );
-                              openPostEditor(draft.id, {
-                                suggestedCaption: `${base}\n\n${suffix}`.trim(),
-                              });
-                            }}
-                          />
-                        ) : null}
-                      </div>
-                    );
-                  })()}
                 </section>
               ) : null}
 
@@ -1949,57 +1787,3 @@ function MiniStat({ label, value }: { label: string; value: string }) {
   );
 }
 
-function ImageAnalysisPanel({
-  analysis,
-  onApplyCaption,
-  onApplyHashtags,
-}: {
-  analysis: ContentStudioImageAnalysis;
-  onApplyCaption: (caption: string) => void;
-  onApplyHashtags: (tags: string[]) => void;
-}) {
-  return (
-    <div className="mt-3 space-y-2 rounded-lg border border-orange-500/20 bg-orange-500/5 p-3 text-sm">
-      <p>
-        <span className="text-white/50">Mood:</span> {analysis.mood}
-      </p>
-      <p>
-        <span className="text-white/50">Scene:</span>{" "}
-        {analysis.sceneDescription}
-      </p>
-      <p className="whitespace-pre-wrap">
-        <span className="text-white/50">Suggested caption:</span>{" "}
-        {analysis.generatedCaption}
-      </p>
-      {analysis.hashtags.length > 0 ? (
-        <p>
-          <span className="text-white/50">Hashtags:</span>{" "}
-          {analysis.hashtags.join(" ")}
-        </p>
-      ) : null}
-      {analysis.shortAlternative ? (
-        <p className="text-xs text-white/60">
-          Short: {analysis.shortAlternative}
-        </p>
-      ) : null}
-      <div className="flex flex-wrap gap-2 pt-1">
-        <button
-          type="button"
-          onClick={() => onApplyCaption(analysis.generatedCaption)}
-          className="rounded-lg bg-orange-500 px-3 py-1.5 text-xs font-bold text-black"
-        >
-          Apply Caption
-        </button>
-        {analysis.hashtags.length > 0 ? (
-          <button
-            type="button"
-            onClick={() => onApplyHashtags(analysis.hashtags)}
-            className="rounded-lg border border-white/15 px-3 py-1.5 text-xs text-white/85"
-          >
-            Apply Hashtags
-          </button>
-        ) : null}
-      </div>
-    </div>
-  );
-}

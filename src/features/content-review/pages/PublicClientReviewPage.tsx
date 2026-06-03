@@ -2,6 +2,10 @@ import { X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { ContentReviewRenderer } from "../components/ContentReviewRenderer";
+import {
+  clientReviewStatusLabel,
+  formatClientReviewDate,
+} from "../utils/contentReviewDisplay";
 import { type ContentReviewDisplaySlot } from "../utils/assetDisplaySlots";
 import {
   getPublicContentReview,
@@ -187,11 +191,11 @@ export default function PublicClientReviewPage() {
           ) : null}
           <div className="mt-5 flex flex-wrap gap-2 text-sm">
             <span className="rounded-full bg-orange-500 px-3 py-1 font-semibold text-black">
-              {draft.status.replace(/_/g, " ")}
+              {clientReviewStatusLabel(draft.status)}
             </span>
-            {draft.scheduled_at ? (
+            {formatClientReviewDate(draft.scheduled_at) ? (
               <span className="rounded-full border border-white/10 px-3 py-1 text-white/70">
-                Scheduled {new Date(draft.scheduled_at).toLocaleString()}
+                Publish {formatClientReviewDate(draft.scheduled_at)}
               </span>
             ) : null}
           </div>
@@ -226,6 +230,7 @@ export default function PublicClientReviewPage() {
           draft={draft}
           assets={assets}
           theme="public"
+          hideScheduleHeaderInBody
           renderSectionActions={(slot) => (
             <div className="space-y-2">
               <p className="text-xs font-semibold uppercase tracking-wide text-neutral-500">

@@ -1,7 +1,6 @@
 import {
   ArrowLeft,
   CheckCircle2,
-  ChevronDown,
   Copy,
   Eye,
   Image as ImageIcon,
@@ -19,9 +18,14 @@ import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import { supabase } from "../../../lib/supabase/client";
 import { ContentReviewRenderer } from "../components/ContentReviewRenderer";
+import ContentStudioImageAnalysisPanel from "../components/ContentStudioImageAnalysisPanel";
+import ContentStudioLayoutPicker from "../components/ContentStudioLayoutPicker";
+import EditorGettingStarted from "../components/EditorGettingStarted";
 import EditorLibraryDrawer from "../components/EditorLibraryDrawer";
 import PostMediaFilmstrip from "../components/PostMediaFilmstrip";
+import SchedulePostsWorkspace from "../components/SchedulePostsWorkspace";
 import {
+  analyzeContentStudioImage,
   assertCanUseContentStudio,
   attachContentClientMediaToDraft,
   deleteContentReviewAsset,
@@ -30,6 +34,7 @@ import {
   getContentReviewDetail,
   listContentClients,
   generateContentStudioCaption,
+  type ContentStudioImageAnalysis,
   notifyContentReviewTeam,
   contentReviewLinkExpiresAt,
   regenerateContentReviewLink,
@@ -50,7 +55,17 @@ import {
   assetsInDisplaySlot,
   contentReviewSlotAnchorId,
 } from "../utils/assetDisplaySlots";
-import { parseContentStudioEditorLocationState } from "../utils/contentStudioEditorNav";
+import {
+  assetUpdatesFromOrdered,
+  computeAssetReorder,
+  computeMoveToSlot,
+  nextSortOrderForSlot,
+} from "../utils/contentStudioAssetOrdering";
+import { buildSchedulePostRows, type SchedulePostRow } from "../utils/contentStudioSchedule";
+import {
+  parseContentStudioEditorLocationState,
+  type ContentStudioEditorFocusTab,
+} from "../utils/contentStudioEditorNav";
 import { shouldUseUnifiedPostCopy } from "../utils/postCopyLayout";
 import {
   canRevokeScheduleApproval,
@@ -62,17 +77,7 @@ import { contentStudioCopy, postLabel } from "../utils/contentStudioTerms";
 
 type PreviewMode = "desktop" | "mobile";
 type PreviewTheme = "internal" | "public";
-type EditorTab = "media" | "copy" | "ai" | "details";
-
-const layouts: ContentReviewLayout[] = [
-  "split_media_text",
-  "article",
-  "gallery",
-  "event_announcement",
-  "campaign_preview",
-  "testimonial",
-  "media_showcase",
-];
+type EditorTab = ContentStudioEditorFocusTab;
 
 const AI_ACTIONS: Array<{
   label: string;
@@ -90,11 +95,18 @@ const AI_ACTIONS: Array<{
   { label: "Facebook version", instruction: "Rewrite for Facebook", tone: "friendly", platform: "facebook" },
 ];
 
-const EDITOR_TABS: Array<{ id: EditorTab; label: string; icon: typeof ImageIcon }> = [
-  { id: "media", label: "Media", icon: ImageIcon },
-  { id: "copy", label: "Copy", icon: Type },
-  { id: "ai", label: "AI", icon: Sparkles },
-  { id: "details", label: "Details", icon: Settings2 },
+const EDITOR_GUIDE_KEY = "content-studio-editor-guide-dismissed";
+
+const EDITOR_TABS: Array<{
+  id: EditorTab;
+  label: string;
+  navLabel: string;
+  hint: string;
+  icon: typeof ImageIcon;
+}> = [
+  { id: "setup", label: "Setup", navLabel: "Setup", hint: "Layout, client, publish date", icon: Settings2 },
+  { id: "media", label: "Posts", navLabel: "Posts", hint: "Images for Post 1–10", icon: ImageIcon },
+  { id: "write", label: "Write", navLabel: "Write", hint: "Captions, story, AI", icon: Type },
 ];
 
 function inputClassName() {
@@ -145,18 +157,20 @@ export default function ContentStudioEditorPage() {
   const [previewMode, setPreviewMode] = useState<PreviewMode>("mobile");
   const [previewTheme, setPreviewTheme] = useState<PreviewTheme>("internal");
   const [activeDisplaySlot, setActiveDisplaySlot] = useState<number | null>(null);
-  const [activeTab, setActiveTab] = useState<EditorTab>("copy");
+  const [activeTab, setActiveTab] = useState<EditorTab>("setup");
+  const [showEditorGuide, setShowEditorGuide] = useState(
+    () => typeof window !== "undefined" && !window.localStorage.getItem(EDITOR_GUIDE_KEY),
+  );
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
   const previewScrollRef = useRef<HTMLDivElement>(null);
   const pendingNavSlotRef = useRef<number | null>(null);
-  const [aiMenuOpen, setAiMenuOpen] = useState(false);
-  const aiMenuRef = useRef<HTMLDivElement>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [captionAiLoading, setCaptionAiLoading] = useState(false);
+  const [imageAnalysis, setImageAnalysis] = useState<ContentStudioImageAnalysis | null>(null);
   const [editorClient, setEditorClient] = useState<ContentClient | null>(null);
 
   const load = useCallback(async () => {
@@ -193,14 +207,17 @@ export default function ContentStudioEditorPage() {
       const nextForm = suggestedCaption ? { ...baseForm, captions: suggestedCaption } : baseForm;
       setForm(nextForm);
       setSavedForm(baseForm);
+      if (navState.focusTab) {
+        setActiveTab(navState.focusTab);
+      }
       if (typeof navState.displaySlot === "number") {
         pendingNavSlotRef.current = navState.displaySlot;
         setActiveDisplaySlot(navState.displaySlot);
-        setActiveTab("media");
+        if (!navState.focusTab) setActiveTab("media");
       }
       if (suggestedCaption) {
         setMessage("AI caption loaded. Save when ready.");
-        setActiveTab("copy");
+        setActiveTab("write");
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load editor.");
@@ -215,7 +232,7 @@ export default function ContentStudioEditorPage() {
 
   useEffect(() => {
     if (!organizationId || !officeId) return;
-    if (activeTab !== "details" && !libraryOpen) return;
+    if (activeTab !== "setup" && !libraryOpen) return;
     if (clients.length > 0) return;
     let cancelled = false;
     void listContentClients({ organizationId, officeId })
@@ -243,17 +260,6 @@ export default function ContentStudioEditorPage() {
       .then(setEditorClient)
       .catch(() => setEditorClient(null));
   }, [form?.client_id, officeId, organizationId]);
-
-  useEffect(() => {
-    if (!aiMenuOpen) return;
-    function onPointerDown(event: MouseEvent) {
-      if (aiMenuRef.current && !aiMenuRef.current.contains(event.target as Node)) {
-        setAiMenuOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", onPointerDown);
-    return () => document.removeEventListener("mousedown", onPointerDown);
-  }, [aiMenuOpen]);
 
   const refreshFeedback = useCallback(async () => {
     if (!organizationId || !officeId || !draftId) return;
@@ -309,12 +315,10 @@ export default function ContentStudioEditorPage() {
 
   const draftPreview = useMemo(() => {
     if (!detail || !form) return null;
-    const unified = shouldUseUnifiedPostCopy(detail.assets);
-    const layoutType: ContentReviewLayout = unified ? "media_showcase" : form.layout_type;
     return {
       ...detail.draft,
       ...form,
-      layout_type: layoutType,
+      layout_type: form.layout_type,
       scheduled_at: form.scheduled_at ? new Date(form.scheduled_at).toISOString() : null,
     } satisfies ContentReviewDraft;
   }, [detail, form]);
@@ -367,14 +371,37 @@ export default function ContentStudioEditorPage() {
     }, 200);
   }, []);
 
+  const schedulePostRows = useMemo(() => {
+    if (!detail || !form) return [];
+    return buildSchedulePostRows(
+      { ...detail.draft, captions: form.captions, body: form.body, summary: form.summary },
+      orderedAssets,
+    );
+  }, [detail, form, orderedAssets]);
+
+  const postsWithMediaCount = useMemo(
+    () => schedulePostRows.filter((row) => row.hasMedia).length,
+    [schedulePostRows],
+  );
+
+  function dismissEditorGuide() {
+    setShowEditorGuide(false);
+    try {
+      window.localStorage.setItem(EDITOR_GUIDE_KEY, "1");
+    } catch {
+      // ignore
+    }
+  }
+
   const focusDisplaySlot = useCallback(
-    (slot: number) => {
+    (slot: number, tab: EditorTab = "media") => {
       setActiveDisplaySlot(slot);
       const inSlot = assetsInDisplaySlot(orderedAssets, slot);
       setSelectedAssetId(inSlot[0]?.id ?? null);
-      setActiveTab("media");
+      setActiveTab(tab);
+      scrollToDisplaySlot(slot);
     },
-    [orderedAssets],
+    [orderedAssets, scrollToDisplaySlot],
   );
 
   useEffect(() => {
@@ -388,7 +415,7 @@ export default function ContentStudioEditorPage() {
   function resolveTargetDisplaySlot() {
     if (activeDisplaySlot != null) return activeDisplaySlot;
     if (selectedAsset) return assetDisplaySlot(selectedAsset);
-    return detail?.assets.length ?? 0;
+    return 0;
   }
 
   function selectFilmstripAsset(assetId: string) {
@@ -401,16 +428,37 @@ export default function ContentStudioEditorPage() {
     }
   }
 
+  async function persistAssetOrder(nextAssets: ContentReviewAsset[]) {
+    if (!detail) return;
+    setDetail({ ...detail, assets: nextAssets });
+    try {
+      setSaving(true);
+      await Promise.all(
+        assetUpdatesFromOrdered(nextAssets).map((update) =>
+          updateContentReviewAsset(update.id, {
+            sort_order: update.sort_order,
+            display_slot: update.display_slot,
+          }),
+        ),
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update media order.");
+      await load();
+    } finally {
+      setSaving(false);
+    }
+  }
+
   function updateForm<K extends keyof NonNullable<typeof form>>(key: K, value: NonNullable<typeof form>[K]) {
     setForm((current) => (current ? { ...current, [key]: value } : current));
   }
 
-  async function handleUploadToPost(files: FileList | null) {
+  async function uploadToDisplaySlot(slot: number, files: FileList | null) {
     if (!files || !userId || !detail) return;
     try {
       setSaving(true);
-      let order = detail.assets.length;
-      const targetSlot = resolveTargetDisplaySlot();
+      setActiveDisplaySlot(slot);
+      let order = nextSortOrderForSlot(detail.assets, slot);
       const added: ContentReviewAsset[] = [];
       for (const file of Array.from(files)) {
         const uploaded = await uploadContentReviewAsset({
@@ -418,7 +466,7 @@ export default function ContentStudioEditorPage() {
           file,
           uploadedBy: userId,
           sortOrder: order,
-          displaySlot: targetSlot,
+          displaySlot: slot,
         });
         added.push(uploaded);
         order += 1;
@@ -426,15 +474,18 @@ export default function ContentStudioEditorPage() {
       setDetail({ ...detail, assets: [...detail.assets, ...added] });
       if (added[0]) {
         setSelectedAssetId(added[0].id);
-        setActiveDisplaySlot(assetDisplaySlot(added[0]));
       }
-      setActiveTab("media");
-      setMessage(`${added.length} file(s) added.`);
+      setMessage(`${added.length} file(s) added to ${postLabel(slot)}.`);
+      scrollToDisplaySlot(slot);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to upload media.");
     } finally {
       setSaving(false);
     }
+  }
+
+  async function handleUploadToPost(files: FileList | null) {
+    await uploadToDisplaySlot(resolveTargetDisplaySlot(), files);
   }
 
   async function attachLibraryMedia(media: ContentClientMedia) {
@@ -482,48 +533,64 @@ export default function ContentStudioEditorPage() {
   }
 
   async function reorderAssets(draggedId: string, targetId: string) {
-    if (!detail || draggedId === targetId) return;
-    const fromIndex = detail.assets.findIndex((asset) => asset.id === draggedId);
-    const toIndex = detail.assets.findIndex((asset) => asset.id === targetId);
-    if (fromIndex < 0 || toIndex < 0) return;
+    if (!detail) return;
+    const next = computeAssetReorder(detail.assets, draggedId, targetId);
+    if (!next) return;
+    await persistAssetOrder(next);
+    setMessage("Media order updated.");
+  }
 
-    const reordered = [...detail.assets];
-    const [dragged] = reordered.splice(fromIndex, 1);
-    reordered.splice(toIndex, 0, dragged);
-    const ordered = reordered.map((asset, index) => ({
-      ...asset,
-      sort_order: index,
-      display_slot: index,
-    }));
-    setDetail({ ...detail, assets: ordered });
+  async function moveAssetToSlot(assetId: string, slot: number) {
+    if (!detail) return;
+    const next = computeMoveToSlot(detail.assets, assetId, slot);
+    if (!next) return;
+    await persistAssetOrder(next);
+    focusDisplaySlot(slot, "media");
+    setMessage(`Moved to ${postLabel(slot)}.`);
+  }
 
+  async function updateSlotCopy(
+    slot: number,
+    field: "heading" | "caption",
+    value: string,
+    primaryAssetId: string | null,
+  ) {
+    if (!detail || !primaryAssetId) return;
+    const previous = detail.assets.find((asset) => asset.id === primaryAssetId);
+    if (!previous || previous[field] === value) return;
+    setDetail({
+      ...detail,
+      assets: detail.assets.map((asset) =>
+        asset.id === primaryAssetId ? { ...asset, [field]: value } : asset,
+      ),
+    });
     try {
-      setSaving(true);
-      await Promise.all(
-        ordered.map((asset) =>
-          updateContentReviewAsset(asset.id, {
-            sort_order: asset.sort_order,
-            display_slot: asset.display_slot,
-          }),
-        ),
-      );
+      await updateContentReviewAsset(primaryAssetId, { [field]: value });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to reorder media.");
+      setError(err instanceof Error ? err.message : "Failed to save post text.");
       await load();
-    } finally {
-      setSaving(false);
     }
   }
 
   async function applyAiCaptionInstruction(instruction: string, tone = "professional", platform = "instagram") {
     if (!form || !detail) return;
-    setAiMenuOpen(false);
     try {
       setCaptionAiLoading(true);
-      const mediaDescription = detail.assets.map((asset) => asset.file_name).join(", ");
+      setError("");
+      const slotAssets =
+        activeDisplaySlot != null
+          ? assetsInDisplaySlot(orderedAssets, activeDisplaySlot)
+          : orderedAssets;
+      const mediaDescription = slotAssets
+        .map((asset) => asset.heading?.trim() || asset.file_name)
+        .filter(Boolean)
+        .join(", ");
       const result = await generateContentStudioCaption({
         clientName: editorClient?.company_name ?? "Client",
-        postTitle: form.title,
+        postTitle:
+          activeDisplaySlot != null
+            ? `${form.title} — ${postLabel(activeDisplaySlot)}`
+            : form.title,
         existingCaption: form.captions,
         mediaDescription,
         platform,
@@ -531,13 +598,62 @@ export default function ContentStudioEditorPage() {
         instruction,
       });
       updateForm("captions", result.generatedCaption);
-      setActiveTab("copy");
-      setMessage("AI suggestion added to social caption. Save to persist.");
+      setActiveTab("write");
+      setMessage("AI suggestion added to social caption. Check the preview, then Save.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to generate caption.");
     } finally {
       setCaptionAiLoading(false);
     }
+  }
+
+  async function handleAnalyzeImage() {
+    if (!form || !detail) return;
+    const slotAssets =
+      activeDisplaySlot != null
+        ? assetsInDisplaySlot(orderedAssets, activeDisplaySlot)
+        : orderedAssets;
+    const firstImage = slotAssets.find(
+      (asset) => asset.asset_type === "image" || asset.mime_type?.startsWith("image/"),
+    );
+    if (!firstImage?.file_url) {
+      setError("Add an image to this post (filmstrip) before running image analysis.");
+      setActiveTab("media");
+      return;
+    }
+    try {
+      setCaptionAiLoading(true);
+      setError("");
+      const analysis = await analyzeContentStudioImage({
+        clientName: editorClient?.company_name ?? "Client",
+        postTitle: form.title,
+        existingCaption: form.captions,
+        imageUrl: firstImage.file_url,
+        fileName: firstImage.file_name,
+        userId: userId ?? undefined,
+        organizationId: organizationId ?? undefined,
+      });
+      setImageAnalysis(analysis);
+      setActiveTab("write");
+      setMessage("Image analysis ready. Use the buttons below to apply copy into the caption field.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to analyze image.");
+    } finally {
+      setCaptionAiLoading(false);
+    }
+  }
+
+  function applyCaptionToForm(caption: string) {
+    updateForm("captions", caption);
+    setActiveTab("write");
+    setMessage("Caption updated in the editor. Save to publish to the client link.");
+  }
+
+  function appendHashtagsToCaption(tags: string[]) {
+    if (!form) return;
+    const suffix = tags.map((tag) => (tag.startsWith("#") ? tag : `#${tag}`)).join(" ");
+    const next = [form.captions?.trim(), suffix].filter(Boolean).join("\n\n");
+    applyCaptionToForm(next);
   }
 
   async function copyPostPreviewLink() {
@@ -602,7 +718,7 @@ export default function ContentStudioEditorPage() {
         body: form.body,
         captions: form.captions,
         notes: form.notes,
-        layout_type: draftPreview.layout_type,
+        layout_type: form.layout_type,
         scheduled_at: form.scheduled_at ? new Date(form.scheduled_at).toISOString() : null,
         cta_label: form.cta_label,
         cta_url: form.cta_url,
@@ -715,7 +831,7 @@ export default function ContentStudioEditorPage() {
                 value={form.title}
                 onChange={(event) => updateForm("title", event.target.value)}
                 className="min-w-0 flex-1 truncate bg-transparent text-base font-semibold text-white outline-none placeholder:text-white/30 focus:border-b focus:border-orange-500/50"
-                placeholder={`${contentStudioCopy.scheduleSingular} title`}
+                placeholder={contentStudioCopy.clientReviewHeadlinePlaceholder}
               />
               {activeDisplaySlot != null ? (
                 <span className="shrink-0 rounded-full bg-orange-500/15 px-2.5 py-0.5 text-[11px] font-bold text-orange-200">
@@ -865,28 +981,47 @@ export default function ContentStudioEditorPage() {
         )}
       </header>
 
+      {showEditorGuide ? (
+        <EditorGettingStarted
+          activeTab={activeTab}
+          postsWithMedia={postsWithMediaCount}
+          hasCaption={Boolean(form.captions?.trim() || form.body?.trim())}
+          onSelectTab={setActiveTab}
+          onDismiss={dismissEditorGuide}
+        />
+      ) : null}
+
       <div className="flex min-h-0 flex-1">
-        <nav className="flex w-[72px] shrink-0 flex-col items-center gap-1 border-r border-white/10 bg-black py-3">
-          {EDITOR_TABS.map((tab) => {
+        <nav
+          className="flex w-[88px] shrink-0 flex-col gap-1 border-r border-white/10 bg-black px-1.5 py-3 sm:w-[96px]"
+          aria-label="Editor sections"
+        >
+          {EDITOR_TABS.map((tab, index) => {
             const Icon = tab.icon;
             const active = activeTab === tab.id;
             const badge =
-              tab.id === "details" && clientFeedback.length > 0 ? clientFeedback.length : null;
+              tab.id === "setup" && clientFeedback.length > 0 ? clientFeedback.length : null;
             return (
               <button
                 key={tab.id}
                 type="button"
+                title={tab.hint}
                 onClick={() => setActiveTab(tab.id)}
-                className={`relative flex w-14 flex-col items-center gap-1 rounded-xl px-2 py-2.5 text-[10px] font-semibold transition ${
+                className={`relative flex flex-col items-center gap-1 rounded-xl px-2 py-2.5 text-[10px] font-semibold transition ${
                   active
                     ? "bg-orange-500/15 text-orange-200"
                     : "text-white/45 hover:bg-white/5 hover:text-white/80"
                 }`}
               >
+                <span
+                  className={`text-[9px] font-bold ${active ? "text-orange-300" : "text-white/30"}`}
+                >
+                  {index + 1}
+                </span>
                 <Icon size={18} />
-                {tab.label}
+                {tab.navLabel}
                 {badge ? (
-                  <span className="absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-orange-500 px-1 text-[9px] font-bold text-black">
+                  <span className="absolute right-0.5 top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-orange-500 px-1 text-[9px] font-bold text-black">
                     {badge}
                   </span>
                 ) : null}
@@ -903,7 +1038,9 @@ export default function ContentStudioEditorPage() {
           >
             {previewTheme === "internal" ? (
               <p className="shrink-0 border-b border-white/10 bg-black/40 px-4 py-2 text-center text-[11px] text-white/50">
-                Non-review preview — switch to Client review to see the public link layout.
+                <strong className="text-white/70">Your draft</strong> — toggle{" "}
+                <span className="text-orange-200/90">Client review</span> in the toolbar to preview what
+                the client will see after you Save.
               </p>
             ) : null}
             <div ref={previewScrollRef} className="flex-1 overflow-auto p-4 sm:p-6">
@@ -1002,57 +1139,99 @@ export default function ContentStudioEditorPage() {
               saving={saving}
               canUseLibrary={Boolean(editorClient)}
               onSelect={selectFilmstripAsset}
+              onSelectSlot={(slot) => focusDisplaySlot(slot)}
               onReorder={(from, to) => void reorderAssets(from, to)}
+              onMoveToSlot={(assetId, slot) => void moveAssetToSlot(assetId, slot)}
               onRemove={(asset) => void removePostAsset(asset)}
               onUpload={(files) => void handleUploadToPost(files)}
-              onOpenLibrary={() => setLibraryOpen(true)}
+              onUploadToSlot={(slot, files) => void uploadToDisplaySlot(slot, files)}
+              onOpenLibrary={() => {
+                setLibraryOpen(true);
+              }}
             />
           </section>
         </div>
 
-        <aside className="hidden w-[min(100%,340px)] shrink-0 overflow-auto border-l border-white/10 bg-black p-4 lg:block xl:w-[360px]">
+        <aside className="hidden w-[min(100%,380px)] shrink-0 overflow-auto border-l border-white/10 bg-black p-4 lg:block xl:w-[400px]">
           <EditorSidePanel
             activeTab={activeTab}
+            activeDisplaySlot={activeDisplaySlot}
             form={form}
             clients={clients}
             editorClient={editorClient}
             selectedAsset={selectedAsset}
             clientFeedback={clientFeedback}
             captionAiLoading={captionAiLoading}
-            aiMenuOpen={aiMenuOpen}
-            aiMenuRef={aiMenuRef}
+            imageAnalysis={imageAnalysis}
+            unifiedPreview={unifiedPreview}
+            schedulePostRows={schedulePostRows}
             saving={saving}
             onUpdateForm={updateForm}
-            onSetAiMenuOpen={setAiMenuOpen}
-            onApplyAi={applyAiCaptionInstruction}
+            onApplyAi={(instruction, tone, platform) =>
+              void applyAiCaptionInstruction(instruction, tone, platform)
+            }
+            onAnalyzeImage={() => void handleAnalyzeImage()}
+            onApplyCaption={applyCaptionToForm}
+            onAppendHashtags={appendHashtagsToCaption}
             onOpenLibrary={() => setLibraryOpen(true)}
+            onSelectSlot={(slot) => focusDisplaySlot(slot)}
+            onUploadToSlot={(slot, files) => void uploadToDisplaySlot(slot, files)}
+            onReorderAssets={(from, to) => void reorderAssets(from, to)}
+            onMoveAssetToSlot={(assetId, slot) => void moveAssetToSlot(assetId, slot)}
+            onUpdateSlotCopy={(slot, field, value, assetId) =>
+              void updateSlotCopy(slot, field, value, assetId)
+            }
+            onSelectAsset={selectFilmstripAsset}
             onRemoveAsset={(asset) => void removePostAsset(asset)}
             onDeleteDraft={() => void deleteDraft()}
+            onGoToSetup={() => setActiveTab("setup")}
             clientDashboardPath={clientDashboardPath}
           />
         </aside>
       </div>
 
-      <div className="border-t border-white/10 bg-black p-3 lg:hidden">
-        <EditorSidePanel
+      <div className="border-t border-white/10 bg-black lg:hidden">
+        <EditorPanelTabs
           activeTab={activeTab}
-          form={form}
-          clients={clients}
-          editorClient={editorClient}
-          selectedAsset={selectedAsset}
-          clientFeedback={clientFeedback}
-          captionAiLoading={captionAiLoading}
-          aiMenuOpen={aiMenuOpen}
-          aiMenuRef={aiMenuRef}
-          saving={saving}
-          onUpdateForm={updateForm}
-          onSetAiMenuOpen={setAiMenuOpen}
-          onApplyAi={applyAiCaptionInstruction}
-          onOpenLibrary={() => setLibraryOpen(true)}
-          onRemoveAsset={(asset) => void removePostAsset(asset)}
-          onDeleteDraft={() => void deleteDraft()}
-          clientDashboardPath={clientDashboardPath}
+          onSelect={setActiveTab}
+          feedbackCount={clientFeedback.length}
         />
+        <div className="max-h-[min(60vh,520px)] overflow-auto p-3">
+          <EditorSidePanel
+            activeTab={activeTab}
+            activeDisplaySlot={activeDisplaySlot}
+            form={form}
+            clients={clients}
+            editorClient={editorClient}
+            selectedAsset={selectedAsset}
+            clientFeedback={clientFeedback}
+            captionAiLoading={captionAiLoading}
+            imageAnalysis={imageAnalysis}
+            unifiedPreview={unifiedPreview}
+            schedulePostRows={schedulePostRows}
+            saving={saving}
+            onUpdateForm={updateForm}
+            onApplyAi={(instruction, tone, platform) =>
+              void applyAiCaptionInstruction(instruction, tone, platform)
+            }
+            onAnalyzeImage={() => void handleAnalyzeImage()}
+            onApplyCaption={applyCaptionToForm}
+            onAppendHashtags={appendHashtagsToCaption}
+            onOpenLibrary={() => setLibraryOpen(true)}
+            onSelectSlot={(slot) => focusDisplaySlot(slot)}
+            onUploadToSlot={(slot, files) => void uploadToDisplaySlot(slot, files)}
+            onReorderAssets={(from, to) => void reorderAssets(from, to)}
+            onMoveAssetToSlot={(assetId, slot) => void moveAssetToSlot(assetId, slot)}
+            onUpdateSlotCopy={(slot, field, value, assetId) =>
+              void updateSlotCopy(slot, field, value, assetId)
+            }
+            onSelectAsset={selectFilmstripAsset}
+            onGoToSetup={() => setActiveTab("setup")}
+            onRemoveAsset={(asset) => void removePostAsset(asset)}
+            onDeleteDraft={() => void deleteDraft()}
+            clientDashboardPath={clientDashboardPath}
+          />
+        </div>
       </div>
 
       {editorClient ? (
@@ -1070,165 +1249,249 @@ export default function ContentStudioEditorPage() {
   );
 }
 
+function EditorPanelTabs({
+  activeTab,
+  onSelect,
+  feedbackCount,
+}: {
+  activeTab: EditorTab;
+  onSelect: (tab: EditorTab) => void;
+  feedbackCount: number;
+}) {
+  return (
+    <div className="grid grid-cols-3 gap-1 border-b border-white/10 p-2">
+      {EDITOR_TABS.map((tab, index) => {
+        const Icon = tab.icon;
+        const active = activeTab === tab.id;
+        const badge = tab.id === "setup" && feedbackCount > 0 ? feedbackCount : null;
+        return (
+          <button
+            key={tab.id}
+            type="button"
+            title={tab.hint}
+            onClick={() => onSelect(tab.id)}
+            className={`relative flex flex-col items-center gap-0.5 rounded-xl px-2 py-2 text-[10px] font-semibold ${
+              active ? "bg-orange-500/15 text-orange-200" : "text-white/45"
+            }`}
+          >
+            <span className={`text-[9px] font-bold ${active ? "text-orange-300" : "text-white/30"}`}>
+              {index + 1}
+            </span>
+            <Icon size={16} />
+            {tab.navLabel}
+            {badge ? (
+              <span className="absolute right-1 top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-orange-500 px-0.5 text-[8px] font-bold text-black">
+                {badge}
+              </span>
+            ) : null}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function EditorSidePanel({
   activeTab,
+  activeDisplaySlot,
   form,
   clients,
   editorClient,
   selectedAsset,
   clientFeedback,
   captionAiLoading,
-  aiMenuOpen,
-  aiMenuRef,
+  imageAnalysis,
+  unifiedPreview,
+  schedulePostRows,
   saving,
   onUpdateForm,
-  onSetAiMenuOpen,
   onApplyAi,
+  onAnalyzeImage,
+  onApplyCaption,
+  onAppendHashtags,
   onOpenLibrary,
+  onSelectSlot,
+  onUploadToSlot,
+  onReorderAssets,
+  onMoveAssetToSlot,
+  onUpdateSlotCopy,
+  onSelectAsset,
   onRemoveAsset,
   onDeleteDraft,
+  onGoToSetup,
   clientDashboardPath,
 }: {
   activeTab: EditorTab;
+  activeDisplaySlot: number | null;
   form: ReturnType<typeof draftToForm>;
   clients: ContentClient[];
   editorClient: ContentClient | null;
   selectedAsset: ContentReviewAsset | null;
   clientFeedback: ContentReviewComment[];
   captionAiLoading: boolean;
-  aiMenuOpen: boolean;
-  aiMenuRef: React.RefObject<HTMLDivElement | null>;
+  imageAnalysis: ContentStudioImageAnalysis | null;
+  unifiedPreview: boolean;
+  schedulePostRows: SchedulePostRow[];
   saving: boolean;
   onUpdateForm: <K extends keyof ReturnType<typeof draftToForm>>(key: K, value: ReturnType<typeof draftToForm>[K]) => void;
-  onSetAiMenuOpen: (open: boolean) => void;
   onApplyAi: (instruction: string, tone?: string, platform?: string) => void;
+  onAnalyzeImage: () => void;
+  onApplyCaption: (caption: string) => void;
+  onAppendHashtags: (tags: string[]) => void;
   onOpenLibrary: () => void;
+  onSelectSlot: (slot: number) => void;
+  onUploadToSlot: (slot: number, files: FileList | null) => void;
+  onReorderAssets: (draggedId: string, targetId: string) => void;
+  onMoveAssetToSlot: (assetId: string, slot: number) => void;
+  onUpdateSlotCopy: (
+    slot: number,
+    field: "heading" | "caption",
+    value: string,
+    primaryAssetId: string | null,
+  ) => void;
+  onSelectAsset: (assetId: string) => void;
   onRemoveAsset: (asset: ContentReviewAsset) => void;
   onDeleteDraft: () => void;
+  onGoToSetup: () => void;
   clientDashboardPath: string;
 }) {
   if (activeTab === "media") {
     return (
-      <div className="space-y-4">
-        <div>
-          <h2 className="text-sm font-semibold">Media</h2>
-          <p className="mt-1 text-xs text-white/45">
-            Use the filmstrip under the preview to order blocks. Pick files from the client library or upload directly.
-          </p>
-        </div>
-        {editorClient ? (
-          <button
-            type="button"
-            onClick={onOpenLibrary}
-            className="w-full rounded-xl bg-orange-500 px-4 py-3 text-sm font-bold text-black hover:bg-orange-400"
-          >
-            Open client library
-          </button>
-        ) : (
-          <p className="rounded-xl border border-white/10 bg-white/5 p-3 text-xs text-white/50">
-            Assign a client under Details to unlock the shared media library.
-          </p>
-        )}
-        {selectedAsset ? (
-          <div className="rounded-xl border border-white/10 bg-white/5 p-3">
-            <p className="text-xs font-semibold text-white/70">Selected block</p>
-            <p className="mt-1 truncate text-sm">{selectedAsset.file_name}</p>
-            <button
-              type="button"
-              disabled={saving}
-              onClick={() => onRemoveAsset(selectedAsset)}
-              className="mt-3 w-full rounded-lg border border-red-500/25 py-2 text-xs font-semibold text-red-200 hover:bg-red-500/10 disabled:opacity-60"
-            >
-              Remove from post
-            </button>
-          </div>
-        ) : null}
-      </div>
+      <SchedulePostsWorkspace
+        rows={schedulePostRows}
+        layoutType={form.layout_type}
+        unifiedScheduleCopy={unifiedPreview}
+        activeSlot={activeDisplaySlot}
+        saving={saving}
+        canUseLibrary={Boolean(editorClient)}
+        onSelectSlot={onSelectSlot}
+        onUploadToSlot={onUploadToSlot}
+        onOpenLibrary={onOpenLibrary}
+        onReorderAssets={onReorderAssets}
+        onMoveAssetToSlot={onMoveAssetToSlot}
+        onRemoveAsset={onRemoveAsset}
+        onUpdateSlotCopy={onUpdateSlotCopy}
+        onSelectAsset={onSelectAsset}
+        onGoToSetup={onGoToSetup}
+      />
     );
   }
 
-  if (activeTab === "copy") {
+  if (activeTab === "write") {
+    const captionLength = form.captions?.length ?? 0;
     return (
       <div className="space-y-4">
         <div>
-          <h2 className="text-sm font-semibold">Copy</h2>
-          <p className="mt-1 text-xs text-white/45">One story and one social caption for the whole post.</p>
+          <h2 className="text-sm font-semibold">Write & AI</h2>
+          <p className="mt-1 text-xs text-white/45">{contentStudioCopy.editorWriteHint}</p>
         </div>
+        {activeDisplaySlot != null ? (
+          <p className="text-xs text-white/45">
+            AI uses media from <span className="font-semibold text-orange-200">{postLabel(activeDisplaySlot)}</span> when
+            that post is selected in the filmstrip.
+          </p>
+        ) : (
+          <p className="text-xs text-amber-200/90">Select a post in the filmstrip so AI can reference its images.</p>
+        )}
         <TextArea
           label="Story text"
           value={form.body}
           onChange={(value) => onUpdateForm("body", value)}
-          rows={7}
-          hint="Shown after your images in the client review."
+          rows={6}
+          hint="Longer copy shown after images on the client review link."
         />
         <TextArea
           label="Social caption"
           value={form.captions}
           onChange={(value) => onUpdateForm("captions", value)}
           rows={5}
-          hint="Instagram / Facebook caption."
+          hint={`Instagram / Facebook. ${captionLength} characters — review in the centre preview, then Save.`}
         />
-        <Field label="Subtitle" value={form.subtitle} onChange={(value) => onUpdateForm("subtitle", value)} />
+        <div className="space-y-2 rounded-xl border border-orange-500/20 bg-orange-500/5 p-3">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs font-semibold text-orange-100">Caption assist</p>
+            {captionAiLoading ? <Loader2 size={14} className="animate-spin text-orange-200" /> : <Sparkles size={14} className="text-orange-200" />}
+          </div>
+          <p className="text-[11px] text-white/45">
+            Suggestions only — nothing is auto-sent or auto-approved. Always Save after you are happy.
+          </p>
+          <div className="grid grid-cols-2 gap-1.5">
+            {AI_ACTIONS.map((action) => (
+              <button
+                key={action.label}
+                type="button"
+                disabled={captionAiLoading}
+                onClick={() => onApplyAi(action.instruction, action.tone, action.platform)}
+                className="rounded-lg border border-white/10 px-2 py-2 text-left text-[11px] font-semibold text-white/80 hover:bg-white/5 disabled:opacity-60"
+              >
+                {action.label}
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            disabled={captionAiLoading}
+            onClick={onAnalyzeImage}
+            className="mt-1 w-full rounded-lg border border-orange-500/35 bg-orange-500/10 px-3 py-2 text-xs font-semibold text-orange-100 hover:bg-orange-500/15 disabled:opacity-60"
+          >
+            Analyze image for this post
+          </button>
+          {imageAnalysis ? (
+            <ContentStudioImageAnalysisPanel
+              analysis={imageAnalysis}
+              onApplyCaption={onApplyCaption}
+              onApplyHashtags={onAppendHashtags}
+            />
+          ) : null}
+        </div>
         <Field label="CTA label" value={form.cta_label} onChange={(value) => onUpdateForm("cta_label", value)} />
         <Field label="CTA URL" value={form.cta_url} onChange={(value) => onUpdateForm("cta_url", value)} />
       </div>
     );
   }
 
-  if (activeTab === "ai") {
-    return (
-      <div className="space-y-4">
-        <div>
-          <h2 className="text-sm font-semibold">AI assist</h2>
-          <p className="mt-1 text-xs text-white/45">
-            Suggestions only — review the social caption, then Save. Nothing is auto-sent or auto-approved.
-          </p>
-        </div>
-        <div className="relative" ref={aiMenuRef}>
-          <button
-            type="button"
-            disabled={captionAiLoading}
-            onClick={() => onSetAiMenuOpen(!aiMenuOpen)}
-            className="flex w-full items-center justify-between gap-2 rounded-xl border border-orange-500/30 bg-orange-500/10 px-4 py-3 text-sm font-semibold text-orange-100 disabled:opacity-60"
-          >
-            <span className="inline-flex items-center gap-2">
-              {captionAiLoading ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
-              Caption assist
-            </span>
-            <ChevronDown size={16} className={`transition ${aiMenuOpen ? "rotate-180" : ""}`} />
-          </button>
-          {aiMenuOpen ? (
-            <div className="absolute left-0 right-0 z-10 mt-2 overflow-hidden rounded-xl border border-white/10 bg-neutral-900 shadow-xl">
-              {AI_ACTIONS.map((action) => (
-                <button
-                  key={action.label}
-                  type="button"
-                  disabled={captionAiLoading}
-                  onClick={() => void onApplyAi(action.instruction, action.tone, action.platform)}
-                  className="block w-full border-b border-white/5 px-4 py-2.5 text-left text-sm text-white/85 last:border-0 hover:bg-white/5 disabled:opacity-60"
-                >
-                  {action.label}
-                </button>
-              ))}
-            </div>
-          ) : null}
-        </div>
-        {form.captions ? (
-          <div className="rounded-xl border border-white/10 bg-white/5 p-3">
-            <p className="text-[11px] uppercase tracking-wide text-white/40">Current caption</p>
-            <p className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap text-xs text-white/75">{form.captions}</p>
-          </div>
-        ) : null}
-      </div>
-    );
-  }
-
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       <div>
-        <h2 className="text-sm font-semibold">Details</h2>
-        <p className="mt-1 text-xs text-white/45">Client, publish date, and feedback.</p>
+        <h2 className="text-sm font-semibold">Setup</h2>
+        <p className="mt-1 text-xs leading-relaxed text-white/45">{contentStudioCopy.editorSetupHint}</p>
       </div>
+
+      <section className="space-y-3 rounded-xl border border-orange-500/25 bg-orange-500/5 p-3 sm:p-4">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-orange-200/90">
+            {contentStudioCopy.clientReviewHeadline}
+          </p>
+          <p className="mt-1 text-xs text-white/50">{contentStudioCopy.clientReviewHeadlineHelp}</p>
+        </div>
+        <Field
+          label={contentStudioCopy.clientReviewHeadline}
+          value={form.title}
+          onChange={(value) => onUpdateForm("title", value)}
+          placeholder={contentStudioCopy.clientReviewHeadlinePlaceholder}
+        />
+        <Field
+          label={contentStudioCopy.clientReviewSubtitle}
+          value={form.subtitle}
+          onChange={(value) => onUpdateForm("subtitle", value)}
+          placeholder="Optional tagline under the headline"
+        />
+        <p className="text-[11px] text-white/40">{contentStudioCopy.clientReviewSubtitleHelp}</p>
+      </section>
+
+      <section className="rounded-xl border border-orange-500/25 bg-orange-500/5 p-3 sm:p-4">
+        <p className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-orange-200/90">
+          Schedule layout
+        </p>
+        <p className="mb-3 text-xs text-white/50">{contentStudioCopy.editorLayoutHint}</p>
+        <ContentStudioLayoutPicker
+          value={form.layout_type}
+          onChange={(layout) => onUpdateForm("layout_type", layout)}
+        />
+      </section>
+
+      <section className="space-y-3 rounded-xl border border-white/10 bg-white/5 p-3 sm:p-4">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-white/40">Client & schedule</p>
       <label className="block space-y-2">
         <span className="text-xs font-semibold uppercase tracking-wide text-white/40">Client</span>
         <select
@@ -1251,21 +1514,9 @@ function EditorSidePanel({
         onChange={(value) => onUpdateForm("scheduled_at", value)}
       />
       <TextArea label="Internal notes" value={form.notes} onChange={(value) => onUpdateForm("notes", value)} rows={3} />
-      <label className="block space-y-2">
-        <span className="text-xs font-semibold uppercase tracking-wide text-white/40">Layout (advanced)</span>
-        <select
-          value={form.layout_type}
-          onChange={(event) => onUpdateForm("layout_type", event.target.value as ContentReviewLayout)}
-          className={inputClassName()}
-        >
-          {layouts.map((layout) => (
-            <option key={layout} value={layout}>
-              {formatStatus(layout)}
-            </option>
-          ))}
-        </select>
-      </label>
-      <div className="space-y-2 rounded-xl border border-white/10 bg-white/5 p-3">
+      </section>
+
+      <section className="space-y-2 rounded-xl border border-white/10 bg-white/5 p-3">
         <h3 className="text-xs font-semibold uppercase tracking-wide text-white/45">
           Client feedback {clientFeedback.length > 0 ? `(${clientFeedback.length})` : ""}
         </h3>
@@ -1278,7 +1529,9 @@ function EditorSidePanel({
             ))}
           </div>
         )}
-      </div>
+      </section>
+
+      <section className="space-y-2">
       {editorClient ? (
         <Link
           to={`/admin/content-studio/clients/${editorClient.id}`}
@@ -1299,8 +1552,9 @@ function EditorSidePanel({
         onClick={onDeleteDraft}
         className="w-full rounded-xl border border-red-500/20 bg-red-500/10 py-2.5 text-sm font-semibold text-red-200 disabled:opacity-60"
       >
-        Delete post
+        Delete schedule
       </button>
+      </section>
     </div>
   );
 }
@@ -1310,16 +1564,24 @@ function Field({
   value,
   onChange,
   type = "text",
+  placeholder,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   type?: string;
+  placeholder?: string;
 }) {
   return (
     <label className="block space-y-2">
       <span className="text-xs font-semibold uppercase tracking-wide text-white/40">{label}</span>
-      <input type={type} value={value} onChange={(event) => onChange(event.target.value)} className={inputClassName()} />
+      <input
+        type={type}
+        value={value}
+        placeholder={placeholder}
+        onChange={(event) => onChange(event.target.value)}
+        className={inputClassName()}
+      />
     </label>
   );
 }

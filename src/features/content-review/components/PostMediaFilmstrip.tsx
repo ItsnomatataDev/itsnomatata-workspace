@@ -1,8 +1,17 @@
 import { FolderOpen, GripVertical, Plus, Trash2, Upload } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ContentReviewAsset } from "../services/contentReviewService";
-import { assetDisplaySlot } from "../utils/assetDisplaySlots";
-import { contentStudioCopy, postLabel } from "../utils/contentStudioTerms";
+import { assetDisplaySlot, assetsInDisplaySlot } from "../utils/assetDisplaySlots";
+import {
+  CONTENT_REVIEW_ASSET_DRAG_TYPE,
+  readDraggedAssetId,
+  setDraggedAssetId,
+} from "../utils/contentStudioAssetOrdering";
+import {
+  CONTENT_STUDIO_POSTS_PER_SCHEDULE,
+  contentStudioCopy,
+  postLabel,
+} from "../utils/contentStudioTerms";
 
 function Thumb({ asset }: { asset: ContentReviewAsset }) {
   const isVideo = asset.asset_type === "video" || asset.mime_type?.startsWith("video/");
@@ -21,9 +30,12 @@ export default function PostMediaFilmstrip({
   saving,
   canUseLibrary,
   onSelect,
+  onSelectSlot,
   onReorder,
+  onMoveToSlot,
   onRemove,
   onUpload,
+  onUploadToSlot,
   onOpenLibrary,
 }: {
   assets: ContentReviewAsset[];
@@ -32,18 +44,27 @@ export default function PostMediaFilmstrip({
   saving: boolean;
   canUseLibrary: boolean;
   onSelect: (assetId: string) => void;
+  onSelectSlot: (slot: number) => void;
   onReorder: (draggedId: string, targetId: string) => void;
+  onMoveToSlot: (assetId: string, slot: number) => void;
   onRemove: (asset: ContentReviewAsset) => void;
   onUpload: (files: FileList | null) => void;
+  onUploadToSlot: (slot: number, files: FileList | null) => void;
   onOpenLibrary: () => void;
 }) {
   const stripRef = useRef<HTMLDivElement>(null);
+  const [dragOverSlot, setDragOverSlot] = useState<number | null>(null);
+
+  const postSlots = useMemo(() => {
+    return Array.from({ length: CONTENT_STUDIO_POSTS_PER_SCHEDULE }, (_, slot) => ({
+      slot,
+      assets: assetsInDisplaySlot(assets, slot),
+    }));
+  }, [assets]);
 
   useEffect(() => {
     if (activeDisplaySlot == null || !stripRef.current) return;
-    const thumb = stripRef.current.querySelector<HTMLElement>(
-      `[data-display-slot="${activeDisplaySlot}"]`,
-    );
+    const thumb = stripRef.current.querySelector<HTMLElement>(`[data-post-slot="${activeDisplaySlot}"]`);
     thumb?.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
   }, [activeDisplaySlot, assets]);
 
@@ -53,6 +74,7 @@ export default function PostMediaFilmstrip({
         <p className="text-[11px] font-semibold uppercase tracking-wide text-white/45">
           {contentStudioCopy.editorFilmstrip}
         </p>
+        <p className="text-[10px] text-white/35">Drag between posts · drop files on a post column</p>
         <div className="flex flex-wrap gap-2">
           {canUseLibrary ? (
             <button
@@ -67,7 +89,7 @@ export default function PostMediaFilmstrip({
           ) : null}
           <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-white/15 px-2.5 py-1.5 text-xs font-semibold text-white/80 hover:bg-white/5">
             <Upload size={13} />
-            Upload
+            Upload to selected post
             <input
               type="file"
               accept="image/*,video/*"
@@ -83,62 +105,113 @@ export default function PostMediaFilmstrip({
         </div>
       </div>
       <div ref={stripRef} className="flex gap-2 overflow-x-auto pb-1">
-        {assets.length === 0 ? (
-          <button
-            type="button"
-            onClick={canUseLibrary ? onOpenLibrary : undefined}
-            className="flex h-20 w-28 shrink-0 flex-col items-center justify-center rounded-xl border border-dashed border-orange-500/30 bg-orange-500/5 text-xs text-white/50"
-          >
-            <Plus size={18} className="text-orange-300/70" />
-            <span className="mt-1">Add media</span>
-          </button>
-        ) : (
-          assets.map((asset, index) => (
+        {postSlots.map(({ slot, assets: slotAssets }) => {
+          const isActivePost = activeDisplaySlot === slot;
+          return (
             <div
-              key={asset.id}
-              draggable
-              onDragStart={(event) => event.dataTransfer.setData("text/plain", asset.id)}
+              key={slot}
+              data-post-slot={slot}
               onDragOver={(event) => {
-                if (event.dataTransfer.types.includes("text/plain")) event.preventDefault();
+                if (
+                  event.dataTransfer.types.includes(CONTENT_REVIEW_ASSET_DRAG_TYPE) ||
+                  event.dataTransfer.types.includes("Files")
+                ) {
+                  event.preventDefault();
+                  setDragOverSlot(slot);
+                }
               }}
+              onDragLeave={() => setDragOverSlot((current) => (current === slot ? null : current))}
               onDrop={(event) => {
                 event.preventDefault();
-                const draggedId = event.dataTransfer.getData("text/plain");
-                if (draggedId) onReorder(draggedId, asset.id);
+                setDragOverSlot(null);
+                const draggedId = readDraggedAssetId(event);
+                if (draggedId) {
+                  onMoveToSlot(draggedId, slot);
+                  return;
+                }
+                if (event.dataTransfer.files?.length) {
+                  onUploadToSlot(slot, event.dataTransfer.files);
+                }
               }}
-              data-display-slot={assetDisplaySlot(asset, index)}
-              className={`group relative shrink-0 ${
-                selectedAssetId === asset.id || activeDisplaySlot === assetDisplaySlot(asset, index)
-                  ? "ring-2 ring-orange-500 ring-offset-2 ring-offset-black"
-                  : ""
+              className={`flex min-w-[92px] shrink-0 flex-col gap-1 rounded-xl border p-1.5 transition ${
+                isActivePost
+                  ? "border-orange-500/50 bg-orange-500/10"
+                  : dragOverSlot === slot
+                    ? "border-orange-400/50 bg-orange-500/15"
+                    : "border-white/10 bg-white/5"
               }`}
             >
               <button
                 type="button"
-                onClick={() => onSelect(asset.id)}
-                className="block h-20 w-20 overflow-hidden rounded-xl border border-white/15 bg-black/50"
+                onClick={() => onSelectSlot(slot)}
+                className="w-full rounded-md px-1 py-0.5 text-left text-[10px] font-bold text-white/75 hover:bg-white/5"
               >
-                <Thumb asset={asset} />
+                {postLabel(slot)}
               </button>
-              <span className="absolute left-1 top-1 rounded bg-black/75 px-1.5 py-0.5 text-[10px] font-bold text-white/80">
-                {postLabel(asset.display_slot ?? index)}
-              </span>
-              <GripVertical
-                size={12}
-                className="absolute bottom-1 left-1 text-white/40 opacity-0 transition group-hover:opacity-100"
-              />
-              <button
-                type="button"
-                disabled={saving}
-                onClick={() => onRemove(asset)}
-                className="absolute right-1 top-1 rounded bg-black/75 p-1 text-red-300 opacity-0 transition hover:bg-red-500/20 group-hover:opacity-100 disabled:opacity-40"
-                aria-label="Remove"
-              >
-                <Trash2 size={12} />
-              </button>
+              <div className="flex min-h-[72px] flex-col gap-1">
+                {slotAssets.length === 0 ? (
+                  <label className="flex flex-1 cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-white/15 px-1 py-2 text-[9px] text-white/40 hover:border-orange-500/30">
+                    <Plus size={14} />
+                    Drop
+                    <input
+                      type="file"
+                      accept="image/*,video/*"
+                      multiple
+                      className="hidden"
+                      disabled={saving}
+                      onChange={(event) => {
+                        onUploadToSlot(slot, event.target.files);
+                        event.target.value = "";
+                      }}
+                    />
+                  </label>
+                ) : (
+                  slotAssets.map((asset) => (
+                    <div
+                      key={asset.id}
+                      draggable
+                      onDragStart={(event) => setDraggedAssetId(event, asset.id)}
+                      onDragOver={(event) => {
+                        if (event.dataTransfer.types.includes(CONTENT_REVIEW_ASSET_DRAG_TYPE)) {
+                          event.preventDefault();
+                        }
+                      }}
+                      onDrop={(event) => {
+                        event.preventDefault();
+                        const draggedId = readDraggedAssetId(event);
+                        if (draggedId) onReorder(draggedId, asset.id);
+                      }}
+                      className={`group relative ${
+                        selectedAssetId === asset.id ? "ring-2 ring-orange-500 ring-offset-1 ring-offset-black" : ""
+                      }`}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => onSelect(asset.id)}
+                        className="block h-14 w-full overflow-hidden rounded-lg border border-white/15 bg-black/50"
+                      >
+                        <Thumb asset={asset} />
+                      </button>
+                      <GripVertical
+                        size={10}
+                        className="absolute bottom-0.5 left-0.5 text-white/40 opacity-0 group-hover:opacity-100"
+                      />
+                      <button
+                        type="button"
+                        disabled={saving}
+                        onClick={() => onRemove(asset)}
+                        className="absolute right-0.5 top-0.5 rounded bg-black/75 p-0.5 text-red-300 opacity-0 group-hover:opacity-100 disabled:opacity-40"
+                        aria-label="Remove"
+                      >
+                        <Trash2 size={10} />
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
-          ))
-        )}
+          );
+        })}
       </div>
     </div>
   );

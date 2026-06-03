@@ -1951,99 +1951,101 @@ export async function submitContentClientReviewFeedback(params: {
   };
 }
 
+function isImageGenerationMisroute(message: string) {
+  return /could not return a generated image|no visible image attachment was produced/i.test(
+    message,
+  );
+}
+
+function parseCaptionGeneratePayload(
+  raw: string,
+): ContentStudioCaptionGenerateOutput {
+  let generatedCaption = raw.trim();
+  let hashtags: string[] = [];
+  let shortAlternative = "";
+
+  if (generatedCaption.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(generatedCaption) as Record<string, unknown>;
+      generatedCaption = String(parsed.generatedCaption ?? generatedCaption);
+      hashtags = Array.isArray(parsed.hashtags)
+        ? parsed.hashtags.map((item) => String(item))
+        : [];
+      shortAlternative = String(parsed.shortAlternative ?? "");
+    } catch {
+      // keep text fallback
+    }
+  }
+
+  if (isImageGenerationMisroute(generatedCaption)) {
+    throw new Error(
+      "Caption assist hit image generation in n8n instead of text. Re-import and publish n8n/itsnomatata-codex-internal-ai.production.workflow.json (router patch for content_studio_caption). You do not need OpenAI on Supabase if your n8n workflow already has OpenAI.",
+    );
+  }
+
+  return { generatedCaption, hashtags, shortAlternative };
+}
+
 export async function generateContentStudioCaption(
   input: ContentStudioCaptionGenerateInput,
 ): Promise<ContentStudioCaptionGenerateOutput> {
-  try {
-    const routeResponse = await fetch("/api/content-studio/generate-caption", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(input),
-    });
-    if (routeResponse.ok) {
-      const data = await routeResponse.json();
-      return {
-        generatedCaption: String(data.generatedCaption ?? ""),
-        hashtags: Array.isArray(data.hashtags) ? data.hashtags.map(String) : [],
-        shortAlternative: String(data.shortAlternative ?? ""),
-      };
-    }
-  } catch {
-    // fallback to edge function / assistant below
-  }
-
-  try {
-    const { data, error } = await supabase.functions.invoke(
-      "content-studio-generate-caption",
-      {
-        body: input,
-      },
-    );
-    if (!error && data) {
-      return {
-        generatedCaption: String(data.generatedCaption ?? ""),
-        hashtags: Array.isArray(data.hashtags) ? data.hashtags.map(String) : [],
-        shortAlternative: String(data.shortAlternative ?? ""),
-      };
-    }
-  } catch {
-    // fallback below
-  }
-
-  const prompt = [
+  const captionTask = [
+    "Content Studio caption task — text only, not image generation.",
     `Client: ${input.clientName}`,
-    `Post: ${input.postTitle}`,
-    input.platform ? `Platform: ${input.platform}` : null,
-    input.tone ? `Tone: ${input.tone}` : null,
-    input.mediaDescription ? `Media notes: ${input.mediaDescription}` : null,
-    input.existingCaption ? `Existing caption: ${input.existingCaption}` : null,
-    input.instruction ? `Instruction: ${input.instruction}` : null,
+    `Schedule post: ${input.postTitle}`,
+    input.mediaDescription ? `Media: ${input.mediaDescription}` : null,
+    input.existingCaption ? `Current copy: ${input.existingCaption}` : null,
+    input.instruction?.trim() || "Write fresh caption copy",
+    input.platform ? `Channel (metadata): ${input.platform}` : null,
+    input.tone ? `Tone (metadata): ${input.tone}` : null,
     "",
-    "Return JSON with keys: generatedCaption (string), hashtags (array), shortAlternative (string).",
+    "Return strict JSON only: { \"generatedCaption\": string, \"hashtags\": string[], \"shortAlternative\": string }",
   ]
     .filter(Boolean)
     .join("\n");
 
-  const response = await askAssistant({
-    message: prompt,
-    context: buildAssistantContext({
-      userId: "content-studio-system",
-      organizationId: "content-studio",
-      currentModule: "content-studio",
-      currentRoute: "/admin/content-studio",
-      role: "social_media",
-      timezone: "Africa/Harare",
-    }),
-    metadata: {
-      source: "content_studio_caption",
-    },
-  });
+  try {
+    const response = await askAssistant({
+      message: captionTask,
+      context: buildAssistantContext({
+        userId: "content-studio-system",
+        organizationId: "content-studio",
+        currentModule: "content-studio",
+        currentRoute: "/admin/content-studio",
+        role: "social_media",
+        timezone: "Africa/Harare",
+      }),
+      metadata: {
+        source: "content_studio_caption",
+        forceTextOnly: true,
+        platform: input.platform,
+        tone: input.tone,
+      },
+    });
 
-  let generatedCaption = response.message || "";
-  let hashtags: string[] = [];
-  let shortAlternative = "";
-
-  if (response.message) {
-    const trimmed = response.message.trim();
-    if (trimmed.startsWith("{")) {
-      try {
-        const parsed = JSON.parse(trimmed) as Record<string, unknown>;
-        generatedCaption = String(parsed.generatedCaption ?? generatedCaption);
-        hashtags = Array.isArray(parsed.hashtags)
-          ? parsed.hashtags.map((item) => String(item))
-          : [];
-        shortAlternative = String(parsed.shortAlternative ?? "");
-      } catch {
-        // keep text fallback
+    return parseCaptionGeneratePayload(response.message || "");
+  } catch (n8nError) {
+    try {
+      const { data, error } = await supabase.functions.invoke(
+        "content-studio-generate-caption",
+        { body: input },
+      );
+      if (!error && data && !data.error) {
+        return parseCaptionGeneratePayload(
+          JSON.stringify({
+            generatedCaption: data.generatedCaption ?? "",
+            hashtags: data.hashtags ?? [],
+            shortAlternative: data.shortAlternative ?? "",
+          }),
+        );
       }
+    } catch {
+      // optional fallback only
     }
-  }
 
-  return {
-    generatedCaption,
-    hashtags,
-    shortAlternative,
-  };
+    if (n8nError instanceof Error) throw n8nError;
+    throw new Error("Caption assist failed. Check that your n8n workflow is active.");
+  }
 }
 
 function parseImageAnalysisPayload(raw: string): ContentStudioImageAnalysis {
@@ -2084,22 +2086,15 @@ function parseImageAnalysisPayload(raw: string): ContentStudioImageAnalysis {
   }
 }
 
-/** Image + caption analysis via existing n8n / AI assistant (no auto-save). */
-export async function analyzeContentStudioImage(input: {
-  clientName: string;
-  postTitle: string;
-  existingCaption?: string;
-  imageUrl: string;
-  fileName?: string;
-  userId?: string;
-  organizationId?: string;
-}): Promise<ContentStudioImageAnalysis> {
+async function analyzeContentStudioImageViaN8n(
+  input: Parameters<typeof analyzeContentStudioImage>[0],
+): Promise<ContentStudioImageAnalysis> {
   const prompt = [
     `Client: ${input.clientName}`,
     `Post: ${input.postTitle}`,
     input.existingCaption ? `Existing caption: ${input.existingCaption}` : null,
     "",
-    "Analyze the attached image for social content.",
+    "Analyze this image for social content. Describe what you see in the photo.",
     "Return strict JSON only with keys:",
     "mood, sceneDescription, generatedCaption, hashtags (array), shortAlternative, instagramCaption, facebookCaption",
   ]
@@ -2126,8 +2121,58 @@ export async function analyzeContentStudioImage(input: {
     ],
     metadata: {
       source: "content_studio_image_analysis",
+      forceImageVision: true,
     },
   });
 
   return parseImageAnalysisPayload(response.message || "");
+}
+
+async function analyzeContentStudioImageViaEdge(
+  input: Parameters<typeof analyzeContentStudioImage>[0],
+): Promise<ContentStudioImageAnalysis> {
+  const { data, error } = await supabase.functions.invoke("content-studio-analyze-image", {
+    body: input,
+  });
+  if (error) {
+    throw new Error(error.message || "content-studio-analyze-image failed");
+  }
+  if (data?.error) {
+    throw new Error(String(data.error));
+  }
+  if (!data) {
+    throw new Error("content-studio-analyze-image returned no data");
+  }
+  return parseImageAnalysisPayload(
+    JSON.stringify({
+      mood: data.mood,
+      sceneDescription: data.sceneDescription,
+      generatedCaption: data.generatedCaption,
+      hashtags: data.hashtags,
+      shortAlternative: data.shortAlternative,
+      instagramCaption: data.instagramCaption,
+      facebookCaption: data.facebookCaption,
+    }),
+  );
+}
+
+/**
+ * Image + caption analysis via n8n (Codex webhook + OpenAI in your workflow).
+ * Optional Supabase edge function only if n8n is down or not deployed.
+ */
+export async function analyzeContentStudioImage(input: {
+  clientName: string;
+  postTitle: string;
+  existingCaption?: string;
+  imageUrl: string;
+  fileName?: string;
+  userId?: string;
+  organizationId?: string;
+}): Promise<ContentStudioImageAnalysis> {
+  try {
+    return await analyzeContentStudioImageViaN8n(input);
+  } catch (n8nError) {
+    console.warn("Content studio image analysis via n8n failed, trying edge function.", n8nError);
+    return analyzeContentStudioImageViaEdge(input);
+  }
 }

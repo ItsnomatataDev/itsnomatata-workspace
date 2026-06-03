@@ -1,7 +1,10 @@
+export type ContentStudioEditorFocusTab = "write" | "media" | "setup";
+
 export type ContentStudioEditorLocationState = {
   suggestedCaption?: string;
   /** 0-based post index inside the schedule (Post 1 = 0). */
   displaySlot?: number;
+  focusTab?: ContentStudioEditorFocusTab;
 };
 
 export function parseContentStudioEditorLocationState(
@@ -18,5 +21,9 @@ export function parseContentStudioEditorLocationState(
     raw.displaySlot < 10
       ? raw.displaySlot
       : undefined;
-  return { suggestedCaption, displaySlot };
+  const focusTab =
+    raw.focusTab === "write" || raw.focusTab === "media" || raw.focusTab === "setup"
+      ? raw.focusTab
+      : undefined;
+  return { suggestedCaption, displaySlot, focusTab };
 }

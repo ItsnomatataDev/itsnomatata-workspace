@@ -1,0 +1,317 @@
+import { GripVertical, ImageIcon, Loader2, Plus, Trash2, Upload } from "lucide-react";
+import { useMemo, useState } from "react";
+import type { ContentReviewAsset, ContentReviewLayout } from "../services/contentReviewService";
+import { assetsInDisplaySlot } from "../utils/assetDisplaySlots";
+import {
+  CONTENT_REVIEW_ASSET_DRAG_TYPE,
+  readDraggedAssetId,
+  setDraggedAssetId,
+} from "../utils/contentStudioAssetOrdering";
+import type { SchedulePostRow } from "../utils/contentStudioSchedule";
+import { contentStudioCopy, postLabel } from "../utils/contentStudioTerms";
+import ContentStudioLayoutWireframe from "./ContentStudioLayoutWireframe";
+import { CONTENT_STUDIO_LAYOUT_OPTIONS } from "../utils/contentStudioLayouts";
+
+function MediaThumb({ asset }: { asset: ContentReviewAsset }) {
+  const isVideo = asset.asset_type === "video" || asset.mime_type?.startsWith("video/");
+  if (isVideo) {
+    return <video src={asset.file_url} className="h-full w-full object-cover" muted playsInline />;
+  }
+  return (
+    <img src={asset.file_url} alt={asset.file_name} loading="lazy" className="h-full w-full object-cover" />
+  );
+}
+
+function inputClass() {
+  return "w-full rounded-lg border border-white/10 bg-black px-3 py-2 text-sm text-white outline-none placeholder:text-white/25 focus:border-orange-400/70";
+}
+
+export default function SchedulePostsWorkspace({
+  rows,
+  layoutType,
+  unifiedScheduleCopy,
+  activeSlot,
+  saving,
+  canUseLibrary,
+  onSelectSlot,
+  onUploadToSlot,
+  onOpenLibrary,
+  onReorderAssets,
+  onMoveAssetToSlot,
+  onRemoveAsset,
+  onUpdateSlotCopy,
+  onSelectAsset,
+  onGoToSetup,
+}: {
+  rows: SchedulePostRow[];
+  layoutType: ContentReviewLayout;
+  unifiedScheduleCopy: boolean;
+  activeSlot: number | null;
+  saving: boolean;
+  canUseLibrary: boolean;
+  onSelectSlot: (slot: number) => void;
+  onUploadToSlot: (slot: number, files: FileList | null) => void;
+  onOpenLibrary: () => void;
+  onReorderAssets: (draggedId: string, targetId: string) => void;
+  onMoveAssetToSlot: (assetId: string, slot: number) => void;
+  onRemoveAsset: (asset: ContentReviewAsset) => void;
+  onUpdateSlotCopy: (
+    slot: number,
+    field: "heading" | "caption",
+    value: string,
+    primaryAssetId: string | null,
+  ) => void;
+  onSelectAsset: (assetId: string) => void;
+  onGoToSetup?: () => void;
+}) {
+  const [dragOverSlot, setDragOverSlot] = useState<number | null>(null);
+
+  const layoutMeta = useMemo(
+    () => CONTENT_STUDIO_LAYOUT_OPTIONS.find((entry) => entry.value === layoutType),
+    [layoutType],
+  );
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h2 className="text-sm font-semibold text-white">Posts & media</h2>
+        <p className="mt-1 text-xs text-white/45">{contentStudioCopy.editorMediaHint}</p>
+      </div>
+      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2">
+        <div className="w-16 shrink-0">
+          <ContentStudioLayoutWireframe layout={layoutType} compact active />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-[11px] text-white/45">Client link layout</p>
+          <p className="text-xs font-semibold text-white">{layoutMeta?.label ?? layoutType}</p>
+        </div>
+        {onGoToSetup ? (
+          <button
+            type="button"
+            onClick={onGoToSetup}
+            className="shrink-0 rounded-lg border border-orange-500/30 px-2.5 py-1 text-[11px] font-semibold text-orange-200 hover:bg-orange-500/10"
+          >
+            Change in Setup
+          </button>
+        ) : null}
+      </div>
+
+      <p className="text-[11px] leading-relaxed text-white/45">
+        {contentStudioCopy.hierarchyLine} Drag images between posts or reorder inside a post.{" "}
+        {unifiedScheduleCopy
+          ? "Story and social caption for the whole schedule are in Write & AI."
+          : "Add a headline and caption on each post below."}
+      </p>
+
+      <div className="space-y-2">
+        {rows.map((row) => {
+          const isActive = activeSlot === row.slot;
+          const primary = row.assets[0] ?? null;
+          const heading = primary?.heading ?? "";
+          const caption = primary?.caption ?? "";
+
+          return (
+            <article
+              key={row.slot}
+              className={`rounded-xl border transition ${
+                isActive
+                  ? "border-orange-500/40 bg-orange-500/5 ring-1 ring-orange-500/20"
+                  : dragOverSlot === row.slot
+                    ? "border-orange-400/50 bg-orange-500/10"
+                    : "border-white/10 bg-black/30"
+              }`}
+            >
+              <button
+                type="button"
+                onClick={() => onSelectSlot(row.slot)}
+                className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left"
+              >
+                <span className="text-sm font-semibold text-white">{row.label}</span>
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-white/40">
+                  {row.hasMedia ? `${row.assetCount} image${row.assetCount === 1 ? "" : "s"}` : "Empty"}
+                  {row.hasCaption ? " · copy" : ""}
+                </span>
+              </button>
+
+              <div
+                className={`grid gap-3 border-t border-white/10 p-3 ${
+                  layoutType === "split_media_text" && !unifiedScheduleCopy
+                    ? "md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]"
+                    : ""
+                }`}
+                onDragOver={(event) => {
+                  if (
+                    event.dataTransfer.types.includes(CONTENT_REVIEW_ASSET_DRAG_TYPE) ||
+                    event.dataTransfer.types.includes("Files")
+                  ) {
+                    event.preventDefault();
+                    setDragOverSlot(row.slot);
+                  }
+                }}
+                onDragLeave={() => setDragOverSlot((current) => (current === row.slot ? null : current))}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  setDragOverSlot(null);
+                  const draggedId = readDraggedAssetId(event);
+                  if (draggedId) {
+                    onMoveAssetToSlot(draggedId, row.slot);
+                    return;
+                  }
+                  if (event.dataTransfer.files?.length) {
+                    onUploadToSlot(row.slot, event.dataTransfer.files);
+                  }
+                }}
+              >
+                <div className="space-y-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-white/35">Images</p>
+                  {row.assets.length === 0 ? (
+                    <label
+                      className={`flex min-h-[88px] cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed px-3 py-4 text-center text-xs text-white/50 ${
+                        dragOverSlot === row.slot
+                          ? "border-orange-400/60 bg-orange-500/10"
+                          : "border-orange-500/25 bg-orange-500/5"
+                      }`}
+                    >
+                      <Upload size={18} className="text-orange-300/80" />
+                      <span className="mt-2">Drop images here or tap to upload</span>
+                      <input
+                        type="file"
+                        accept="image/*,video/*"
+                        multiple
+                        className="hidden"
+                        disabled={saving}
+                        onChange={(event) => {
+                          onUploadToSlot(row.slot, event.target.files);
+                          event.target.value = "";
+                        }}
+                      />
+                    </label>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {row.assets.map((asset) => (
+                        <div
+                          key={asset.id}
+                          draggable
+                          onDragStart={(event) => setDraggedAssetId(event, asset.id)}
+                          onDragOver={(event) => {
+                            if (event.dataTransfer.types.includes(CONTENT_REVIEW_ASSET_DRAG_TYPE)) {
+                              event.preventDefault();
+                            }
+                          }}
+                          onDrop={(event) => {
+                            event.preventDefault();
+                            const draggedId = readDraggedAssetId(event);
+                            if (draggedId) onReorderAssets(draggedId, asset.id);
+                          }}
+                          className="flex items-center gap-2 rounded-lg border border-white/10 bg-black/50 p-1.5"
+                        >
+                          <GripVertical size={14} className="shrink-0 text-white/30" />
+                          <button
+                            type="button"
+                            onClick={() => onSelectAsset(asset.id)}
+                            className="h-12 w-12 shrink-0 overflow-hidden rounded-md border border-white/10"
+                          >
+                            <MediaThumb asset={asset} />
+                          </button>
+                          <p className="min-w-0 flex-1 truncate text-[11px] text-white/70">{asset.file_name}</p>
+                          <button
+                            type="button"
+                            disabled={saving}
+                            onClick={() => onRemoveAsset(asset)}
+                            className="rounded p-1 text-red-300 hover:bg-red-500/10 disabled:opacity-50"
+                            aria-label="Remove"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      ))}
+                      <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-white/15 px-2 py-1 text-[11px] font-semibold text-white/70 hover:bg-white/5">
+                        <Plus size={12} />
+                        Add more
+                        <input
+                          type="file"
+                          accept="image/*,video/*"
+                          multiple
+                          className="hidden"
+                          disabled={saving}
+                          onChange={(event) => {
+                            onUploadToSlot(row.slot, event.target.files);
+                            event.target.value = "";
+                          }}
+                        />
+                      </label>
+                    </div>
+                  )}
+                  {canUseLibrary ? (
+                    <button
+                      type="button"
+                      disabled={saving}
+                      onClick={() => {
+                        onSelectSlot(row.slot);
+                        onOpenLibrary();
+                      }}
+                      className="text-[11px] font-semibold text-orange-200 hover:text-orange-100 disabled:opacity-50"
+                    >
+                      Pick from client library
+                    </button>
+                  ) : null}
+                </div>
+
+                <div className="space-y-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-white/35">Text for this post</p>
+                  <ContentStudioLayoutWireframe layout={layoutType} compact active={isActive} />
+                  {unifiedScheduleCopy && row.slot > 0 ? (
+                    <p className="text-[11px] text-white/40">
+                      Schedule story and social caption are shared — edit them under Write & AI.
+                    </p>
+                  ) : (
+                    <>
+                      <label className="block space-y-1">
+                        <span className="text-[10px] text-white/40">Headline on image</span>
+                        <input
+                          type="text"
+                          value={heading}
+                          disabled={!primary || saving}
+                          placeholder={primary ? "Optional headline" : "Add an image first"}
+                          className={inputClass()}
+                          onChange={(event) =>
+                            onUpdateSlotCopy(row.slot, "heading", event.target.value, primary?.id ?? null)
+                          }
+                        />
+                      </label>
+                      <label className="block space-y-1">
+                        <span className="text-[10px] text-white/40">Post caption</span>
+                        <textarea
+                          value={caption}
+                          disabled={!primary || saving}
+                          rows={3}
+                          placeholder={primary ? "Caption for this slide" : "Add an image first"}
+                          className={inputClass()}
+                          onChange={(event) =>
+                            onUpdateSlotCopy(row.slot, "caption", event.target.value, primary?.id ?? null)
+                          }
+                        />
+                      </label>
+                    </>
+                  )}
+                  {unifiedScheduleCopy && row.slot === 0 && !primary ? (
+                    <p className="flex items-start gap-2 text-[11px] text-white/45">
+                      <ImageIcon size={14} className="mt-0.5 shrink-0" />
+                      Upload Post 1 media, then set the schedule story and social caption in Write & AI.
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+            </article>
+          );
+        })}
+      </div>
+      {saving ? (
+        <p className="inline-flex items-center gap-2 text-xs text-white/45">
+          <Loader2 size={12} className="animate-spin" />
+          Saving…
+        </p>
+      ) : null}
+    </div>
+  );
+}
