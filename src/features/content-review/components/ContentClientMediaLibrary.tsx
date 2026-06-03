@@ -9,6 +9,7 @@ import {
   type ContentClient,
   type ContentClientMedia,
 } from "../services/contentReviewService";
+import { setDraggedLibraryMediaId } from "../utils/contentStudioLibraryDrag";
 
 function MediaThumb({ media }: { media: ContentClientMedia }) {
   const isVideo = media.asset_type === "video" || media.mime_type?.startsWith("video/");
@@ -45,6 +46,7 @@ export default function ContentClientMediaLibrary({
   onDeleted,
   compact = false,
   syncFromPostsOnLoad = false,
+  draggableToPosts = false,
 }: {
   client: ContentClient;
   organizationId: string;
@@ -58,6 +60,7 @@ export default function ContentClientMediaLibrary({
   compact?: boolean;
   /** Syncs post media into the library (slower). Use on the dedicated Media tab. */
   syncFromPostsOnLoad?: boolean;
+  draggableToPosts?: boolean;
 }) {
   const [items, setItems] = useState<ContentClientMedia[]>([]);
   const [loading, setLoading] = useState(true);
@@ -179,9 +182,17 @@ export default function ContentClientMediaLibrary({
             return (
               <div
                 key={media.id}
+                draggable={draggableToPosts}
+                onDragStart={
+                  draggableToPosts
+                    ? (event) => {
+                        setDraggedLibraryMediaId(media.id, event);
+                      }
+                    : undefined
+                }
                 className={`group relative overflow-hidden rounded-xl border bg-black/40 ${
                   selected ? "border-orange-500 ring-1 ring-orange-500/40" : "border-white/10"
-                }`}
+                } ${draggableToPosts ? "cursor-grab active:cursor-grabbing" : ""}`}
               >
                 <div className="aspect-square">
                   <MediaThumb media={media} />

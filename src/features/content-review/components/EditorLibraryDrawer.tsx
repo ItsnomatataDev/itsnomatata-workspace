@@ -39,12 +39,16 @@ export default function EditorLibraryDrawer({
           </button>
         </div>
         <div className="flex-1 overflow-auto p-4">
+          <p className="mb-3 text-[11px] text-white/45">
+            Click Add to post, or drag an item onto a post frame media area.
+          </p>
           <ContentClientMediaLibrary
             client={client}
             organizationId={organizationId}
             officeId={officeId}
             userId={userId}
             selectable
+            draggableToPosts
             onSelect={(media) => {
               onSelect(media);
               onClose();

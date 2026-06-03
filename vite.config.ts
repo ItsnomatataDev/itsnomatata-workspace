@@ -46,12 +46,22 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
   const chatWebhookUrl = readEnvFileValue("VITE_N8N_AI_WEBHOOK_URL") ??
     env.VITE_N8N_AI_WEBHOOK_URL;
+  const contentAiWebhookUrl =
+    readEnvFileValue("VITE_N8N_CONTENT_AI_WEBHOOK_URL") ??
+      env.VITE_N8N_CONTENT_AI_WEBHOOK_URL ??
+      chatWebhookUrl;
   const documentUploadWebhookUrl =
     readEnvFileValue("VITE_N8N_AI_DOCUMENT_UPLOAD_WEBHOOK_URL") ??
       env.VITE_N8N_AI_DOCUMENT_UPLOAD_WEBHOOK_URL;
   const proxy: Record<string, string | ProxyOptions> = {};
 
   addWebhookProxy(proxy, "/api/ai", chatWebhookUrl);
+  addWebhookProxy(proxy, "/api/content-studio/generate-caption", contentAiWebhookUrl);
+  addWebhookProxy(
+    proxy,
+    "/api/content-studio/analyze-media-caption",
+    contentAiWebhookUrl,
+  );
   addWebhookProxy(
     proxy,
     "/api/ai/upload-document",
@@ -66,6 +76,9 @@ export default defineConfig(({ mode }) => {
       ),
       "import.meta.env.VITE_N8N_AI_DOCUMENT_UPLOAD_WEBHOOK_URL": JSON.stringify(
         documentUploadWebhookUrl,
+      ),
+      "import.meta.env.VITE_N8N_CONTENT_AI_WEBHOOK_URL": JSON.stringify(
+        contentAiWebhookUrl,
       ),
     },
     server: {

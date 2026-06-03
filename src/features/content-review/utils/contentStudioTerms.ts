@@ -44,15 +44,25 @@ export const contentStudioCopy = {
   publishDate: "Publish date",
   carouselInPost: "Add carousel image to this post",
   editorWorkflow:
-    "Edit here first. The centre preview is what you are building; the client link only shows saved work.",
+    "Edit each post in the centre frames (media left, caption right). Save from the toolbar; use Client review to preview the link.",
   editorWriteHint:
-    "Social caption and story text apply to the whole schedule clients see on the review link.",
+    "Per-post text (beside each image) appears when you select a post in the filmstrip. Story and social caption below apply to the whole schedule unless a post has its own caption.",
   editorMediaHint:
     "Ten posts per schedule. Drop images onto each post, drag between posts, and reorder carousel images inside a post.",
   editorSetupHint:
     "Start here: pick how photos and text are arranged on the client link, then assign the client and publish date.",
   editorLayoutHint:
     "Layouts control the client review page — not your editing screen. Showcase is the usual choice for monthly schedules.",
+  editorPostCopyHint:
+    "Each post can have its own headline and caption. They show on that slide on the client link (especially with Split layout: image + text side by side).",
+  editorPostCopySplitHint:
+    "With Split layout, the caption below is the text shown beside this image. Add an image first, then write copy here.",
+  editorPostCopyUnifiedNote:
+    "Leave empty to use the schedule story and social caption from Write — or type here for text specific to this post only.",
+  editorPostCopyNoMedia:
+    "Upload or pick an image in the filmstrip below the preview, then add text here.",
+  editorSelectPostHint:
+    "Select a post in the filmstrip below the preview to edit its image and caption here.",
   clientReviewHeadline: "Client review headline",
   clientReviewHeadlineHelp:
     "Shown once at the top of the client link (e.g. GOAT June 2026 SM Schedule). Replaces the auto month title like “June 2026 schedule”.",

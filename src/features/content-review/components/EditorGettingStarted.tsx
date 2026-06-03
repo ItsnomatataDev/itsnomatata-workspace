@@ -18,7 +18,7 @@ const STEPS: Array<{
     id: "media",
     step: 2,
     title: "Posts",
-    detail: "Add images to Post 1–10 (drag & drop)",
+    detail: "Add images, then text beside each post",
   },
   {
     id: "write",

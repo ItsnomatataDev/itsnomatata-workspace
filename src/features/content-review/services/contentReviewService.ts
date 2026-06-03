@@ -1957,6 +1957,54 @@ function isImageGenerationMisroute(message: string) {
   );
 }
 
+function isUndeployedEdgeFunctionError(message: string) {
+  return /failed to send a request to the edge function|functions\.fetch|function not found|404.*function/i.test(
+    message,
+  );
+}
+
+function contentStudioEdgeAiEnabled() {
+  return import.meta.env.VITE_CONTENT_STUDIO_EDGE_AI === "true";
+}
+
+function formatContentStudioN8nFailure(
+  primary: Error,
+  context: "caption" | "image_analysis",
+) {
+  const msg = primary.message.trim();
+  if (isImageGenerationMisroute(msg)) {
+    return context === "caption"
+      ? "Caption assist was routed to image generation in n8n. Re-import n8n/itsnomatata-codex-internal-ai.production.workflow.json and publish it."
+      : "Image analysis was routed to image generation in n8n. Re-import the updated Codex workflow and publish it.";
+  }
+  if (/missing vite_n8n_ai_webhook_url/i.test(msg)) {
+    return "AI webhook is not configured. Set VITE_N8N_AI_WEBHOOK_URL in .env and restart the dev server.";
+  }
+  if (/webhook is not active|not registered/i.test(msg)) {
+    return "n8n webhook is not active. Open your Codex workflow in n8n and turn it on (production mode, not test-only).";
+  }
+  if (/could not be reached|failed to fetch/i.test(msg)) {
+    return `Could not reach n8n (${msg}). Check VITE_N8N_AI_WEBHOOK_URL and that the workflow is published.`;
+  }
+  const label = context === "caption" ? "Caption assist" : "Image analysis";
+  return `${label} failed via n8n: ${msg}`;
+}
+
+/** Signed URL so n8n / vision can read private storage objects. */
+export async function resolveContentReviewImageUrlForAi(input: {
+  fileUrl: string;
+  storagePath?: string | null;
+}) {
+  const path = input.storagePath?.trim();
+  if (path) {
+    const { data, error } = await supabase.storage
+      .from(BUCKET)
+      .createSignedUrl(path, 3600);
+    if (!error && data?.signedUrl) return data.signedUrl;
+  }
+  return input.fileUrl;
+}
+
 function parseCaptionGeneratePayload(
   raw: string,
 ): ContentStudioCaptionGenerateOutput {
@@ -1989,6 +2037,15 @@ function parseCaptionGeneratePayload(
 export async function generateContentStudioCaption(
   input: ContentStudioCaptionGenerateInput,
 ): Promise<ContentStudioCaptionGenerateOutput> {
+  try {
+    const { requestContentStudioCaption } = await import(
+      "../../../lib/api/contentStudioAi"
+    );
+    return await requestContentStudioCaption(input);
+  } catch {
+    // fall through to legacy n8n path
+  }
+
   const captionTask = [
     "Content Studio caption task — text only, not image generation.",
     `Client: ${input.clientName}`,
@@ -2025,39 +2082,64 @@ export async function generateContentStudioCaption(
 
     return parseCaptionGeneratePayload(response.message || "");
   } catch (n8nError) {
-    try {
-      const { data, error } = await supabase.functions.invoke(
-        "content-studio-generate-caption",
-        { body: input },
-      );
-      if (!error && data && !data.error) {
-        return parseCaptionGeneratePayload(
-          JSON.stringify({
-            generatedCaption: data.generatedCaption ?? "",
-            hashtags: data.hashtags ?? [],
-            shortAlternative: data.shortAlternative ?? "",
-          }),
+    const primary =
+      n8nError instanceof Error ? n8nError : new Error("Caption assist failed.");
+
+    if (contentStudioEdgeAiEnabled()) {
+      try {
+        const { data, error } = await supabase.functions.invoke(
+          "content-studio-generate-caption",
+          { body: input },
         );
+        if (!error && data && !data.error) {
+          return parseCaptionGeneratePayload(
+            JSON.stringify({
+              generatedCaption: data.generatedCaption ?? "",
+              hashtags: data.hashtags ?? [],
+              shortAlternative: data.shortAlternative ?? "",
+            }),
+          );
+        }
+        if (error && !isUndeployedEdgeFunctionError(error.message)) {
+          throw new Error(error.message);
+        }
+      } catch (edgeError) {
+        if (
+          edgeError instanceof Error &&
+          !isUndeployedEdgeFunctionError(edgeError.message)
+        ) {
+          throw new Error(
+            `${formatContentStudioN8nFailure(primary, "caption")} (Edge: ${edgeError.message})`,
+          );
+        }
       }
-    } catch {
-      // optional fallback only
     }
 
-    if (n8nError instanceof Error) throw n8nError;
-    throw new Error("Caption assist failed. Check that your n8n workflow is active.");
+    throw new Error(formatContentStudioN8nFailure(primary, "caption"));
   }
 }
 
 function parseImageAnalysisPayload(raw: string): ContentStudioImageAnalysis {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    throw new Error(
+      "n8n returned an empty response for image analysis. Check the workflow execution log and that OpenAI vision is configured in n8n Variables.",
+    );
+  }
+  if (isImageGenerationMisroute(trimmed)) {
+    throw new Error(
+      "Image analysis was routed to image generation in n8n. Re-import n8n/itsnomatata-codex-internal-ai.production.workflow.json and publish it.",
+    );
+  }
+
   const fallback: ContentStudioImageAnalysis = {
     mood: "Professional",
-    sceneDescription: raw.trim() || "No scene description returned.",
-    generatedCaption: raw.trim(),
+    sceneDescription: trimmed || "No scene description returned.",
+    generatedCaption: trimmed,
     hashtags: [],
     shortAlternative: "",
   };
 
-  const trimmed = raw.trim();
   if (!trimmed.startsWith("{")) return fallback;
 
   try {
@@ -2157,22 +2239,45 @@ async function analyzeContentStudioImageViaEdge(
 }
 
 /**
- * Image + caption analysis via n8n (Codex webhook + OpenAI in your workflow).
- * Optional Supabase edge function only if n8n is down or not deployed.
+ * Image analysis via n8n (Codex webhook + OpenAI in your workflow).
+ * Supabase edge is opt-in only (VITE_CONTENT_STUDIO_EDGE_AI=true).
  */
 export async function analyzeContentStudioImage(input: {
   clientName: string;
   postTitle: string;
   existingCaption?: string;
   imageUrl: string;
+  storagePath?: string | null;
   fileName?: string;
   userId?: string;
   organizationId?: string;
 }): Promise<ContentStudioImageAnalysis> {
+  const imageUrl = await resolveContentReviewImageUrlForAi({
+    fileUrl: input.imageUrl,
+    storagePath: input.storagePath,
+  });
+
   try {
-    return await analyzeContentStudioImageViaN8n(input);
+    return await analyzeContentStudioImageViaN8n({ ...input, imageUrl });
   } catch (n8nError) {
-    console.warn("Content studio image analysis via n8n failed, trying edge function.", n8nError);
-    return analyzeContentStudioImageViaEdge(input);
+    const primary =
+      n8nError instanceof Error ? n8nError : new Error("Image analysis failed.");
+
+    if (!contentStudioEdgeAiEnabled()) {
+      throw new Error(formatContentStudioN8nFailure(primary, "image_analysis"));
+    }
+
+    try {
+      return await analyzeContentStudioImageViaEdge({ ...input, imageUrl });
+    } catch (edgeError) {
+      const edgeMsg =
+        edgeError instanceof Error ? edgeError.message : String(edgeError);
+      if (isUndeployedEdgeFunctionError(edgeMsg)) {
+        throw new Error(formatContentStudioN8nFailure(primary, "image_analysis"));
+      }
+      throw new Error(
+        `${formatContentStudioN8nFailure(primary, "image_analysis")} (Edge: ${edgeMsg})`,
+      );
+    }
   }
 }

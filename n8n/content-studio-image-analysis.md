@@ -10,9 +10,19 @@ The Write tab sends `metadata.source: "content_studio_caption"` and `forceTextOn
 
 **Fix:** Re-import `itsnomatata-codex-internal-ai.production.workflow.json` (router patch forces caption requests to `main_agent` and tightens image-generation matching).
 
-**You do not need OpenAI on Supabase** if n8n already has OpenAI — caption assist uses your existing `VITE_N8N_AI_WEBHOOK_URL` first.
+**You do not need OpenAI on Supabase** if n8n already has OpenAI — caption and image analysis use `VITE_N8N_AI_WEBHOOK_URL` only by default.
 
-Optional Supabase `content-studio-generate-caption` is only a backup if n8n is down.
+If you see *“Failed to send a request to the Edge Function”*, that was an **optional** Supabase fallback that is **not deployed** — the app no longer surfaces that as the main error; fix **n8n** instead (below).
+
+Optional env for Content Studio AI routes (defaults to `VITE_N8N_AI_WEBHOOK_URL`):
+
+```env
+VITE_N8N_CONTENT_AI_WEBHOOK_URL=https://your-n8n-host/webhook/.../chat
+```
+
+Dev proxies: `/api/content-studio/generate-caption` and `/api/content-studio/analyze-media-caption`.
+
+Optional edge (only if you want a Supabase backup): set `VITE_CONTENT_STUDIO_EDGE_AI=true` in `.env` and deploy the functions.
 
 ---
 

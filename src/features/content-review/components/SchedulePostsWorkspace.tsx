@@ -22,14 +22,9 @@ function MediaThumb({ asset }: { asset: ContentReviewAsset }) {
   );
 }
 
-function inputClass() {
-  return "w-full rounded-lg border border-white/10 bg-black px-3 py-2 text-sm text-white outline-none placeholder:text-white/25 focus:border-orange-400/70";
-}
-
 export default function SchedulePostsWorkspace({
   rows,
   layoutType,
-  unifiedScheduleCopy,
   activeSlot,
   saving,
   canUseLibrary,
@@ -39,13 +34,11 @@ export default function SchedulePostsWorkspace({
   onReorderAssets,
   onMoveAssetToSlot,
   onRemoveAsset,
-  onUpdateSlotCopy,
   onSelectAsset,
   onGoToSetup,
 }: {
   rows: SchedulePostRow[];
   layoutType: ContentReviewLayout;
-  unifiedScheduleCopy: boolean;
   activeSlot: number | null;
   saving: boolean;
   canUseLibrary: boolean;
@@ -55,12 +48,6 @@ export default function SchedulePostsWorkspace({
   onReorderAssets: (draggedId: string, targetId: string) => void;
   onMoveAssetToSlot: (assetId: string, slot: number) => void;
   onRemoveAsset: (asset: ContentReviewAsset) => void;
-  onUpdateSlotCopy: (
-    slot: number,
-    field: "heading" | "caption",
-    value: string,
-    primaryAssetId: string | null,
-  ) => void;
   onSelectAsset: (assetId: string) => void;
   onGoToSetup?: () => void;
 }) {
@@ -98,17 +85,13 @@ export default function SchedulePostsWorkspace({
 
       <p className="text-[11px] leading-relaxed text-white/45">
         {contentStudioCopy.hierarchyLine} Drag images between posts or reorder inside a post.{" "}
-        {unifiedScheduleCopy
-          ? "Story and social caption for the whole schedule are in Write & AI."
-          : "Add a headline and caption on each post below."}
+        Select a post to manage images here. Headline and caption for the selected post are in the panel at the top of this sidebar.
       </p>
 
       <div className="space-y-2">
         {rows.map((row) => {
           const isActive = activeSlot === row.slot;
           const primary = row.assets[0] ?? null;
-          const heading = primary?.heading ?? "";
-          const caption = primary?.caption ?? "";
 
           return (
             <article
@@ -133,12 +116,7 @@ export default function SchedulePostsWorkspace({
                 </span>
               </button>
 
-              <div
-                className={`grid gap-3 border-t border-white/10 p-3 ${
-                  layoutType === "split_media_text" && !unifiedScheduleCopy
-                    ? "md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]"
-                    : ""
-                }`}
+              <div className="border-t border-white/10 p-3"
                 onDragOver={(event) => {
                   if (
                     event.dataTransfer.types.includes(CONTENT_REVIEW_ASSET_DRAG_TYPE) ||
@@ -257,50 +235,14 @@ export default function SchedulePostsWorkspace({
                   ) : null}
                 </div>
 
-                <div className="space-y-2">
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-white/35">Text for this post</p>
-                  <ContentStudioLayoutWireframe layout={layoutType} compact active={isActive} />
-                  {unifiedScheduleCopy && row.slot > 0 ? (
-                    <p className="text-[11px] text-white/40">
-                      Schedule story and social caption are shared — edit them under Write & AI.
-                    </p>
-                  ) : (
-                    <>
-                      <label className="block space-y-1">
-                        <span className="text-[10px] text-white/40">Headline on image</span>
-                        <input
-                          type="text"
-                          value={heading}
-                          disabled={!primary || saving}
-                          placeholder={primary ? "Optional headline" : "Add an image first"}
-                          className={inputClass()}
-                          onChange={(event) =>
-                            onUpdateSlotCopy(row.slot, "heading", event.target.value, primary?.id ?? null)
-                          }
-                        />
-                      </label>
-                      <label className="block space-y-1">
-                        <span className="text-[10px] text-white/40">Post caption</span>
-                        <textarea
-                          value={caption}
-                          disabled={!primary || saving}
-                          rows={3}
-                          placeholder={primary ? "Caption for this slide" : "Add an image first"}
-                          className={inputClass()}
-                          onChange={(event) =>
-                            onUpdateSlotCopy(row.slot, "caption", event.target.value, primary?.id ?? null)
-                          }
-                        />
-                      </label>
-                    </>
-                  )}
-                  {unifiedScheduleCopy && row.slot === 0 && !primary ? (
-                    <p className="flex items-start gap-2 text-[11px] text-white/45">
-                      <ImageIcon size={14} className="mt-0.5 shrink-0" />
-                      Upload Post 1 media, then set the schedule story and social caption in Write & AI.
-                    </p>
-                  ) : null}
-                </div>
+                {isActive ? (
+                  <p className="mt-2 flex items-start gap-2 rounded-lg border border-orange-500/20 bg-orange-500/5 px-2.5 py-2 text-[11px] text-orange-100/90">
+                    <ImageIcon size={14} className="mt-0.5 shrink-0" />
+                    {primary
+                      ? "Edit headline and caption for this post in the selected post panel at the top of the sidebar."
+                      : "Upload an image above, then add text in the selected post panel at the top of the sidebar."}
+                  </p>
+                ) : null}
               </div>
             </article>
           );
