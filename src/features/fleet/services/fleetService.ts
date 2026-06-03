@@ -24,6 +24,10 @@ export type FleetVehicle = {
   estimated_days_to_service?: number | null;
   latest_odometer_at?: string | null;
   status: string | null;
+  maintenance_note?: string | null;
+  maintenance_started_at?: string | null;
+  ezitrack_import_paused?: boolean | null;
+  ezitrack_resumed_at?: string | null;
   created_at?: string | null;
   office?: { id: string; name: string; slug: string | null } | null;
 };
@@ -118,7 +122,8 @@ export type FleetImportRowStatus =
   | "pending"
   | "imported"
   | "failed"
-  | "unmatched";
+  | "unmatched"
+  | "skipped_maintenance";
 
 export type FleetImportRow = {
   id: string;
@@ -241,6 +246,10 @@ const VEHICLE_SELECT = `
   estimated_days_to_service,
   latest_odometer_at,
   status,
+  maintenance_note,
+  maintenance_started_at,
+  ezitrack_import_paused,
+  ezitrack_resumed_at,
   created_at,
   office:company_offices(id, name, slug)
 `;
@@ -292,6 +301,10 @@ function normalizeVehicle(row: Record<string, unknown>): FleetVehicle {
     estimated_days_to_service: optionalNumber(row.estimated_days_to_service),
     latest_odometer_at: (row.latest_odometer_at as string | null) ?? null,
     status: (row.status as string | null) ?? null,
+    maintenance_note: (row.maintenance_note as string | null) ?? null,
+    maintenance_started_at: (row.maintenance_started_at as string | null) ?? null,
+    ezitrack_import_paused: Boolean(row.ezitrack_import_paused),
+    ezitrack_resumed_at: (row.ezitrack_resumed_at as string | null) ?? null,
     created_at: (row.created_at as string | null) ?? null,
     office: office
       ? {
@@ -442,6 +455,45 @@ function calculateAverageDailyKm(readings: Array<{ summary_date: string; odomete
 
   if (!Number.isFinite(distance) || distance <= 0 || days <= 0) return null;
   return Number((distance / days).toFixed(2));
+}
+
+export async function setFleetVehicleMaintenanceMode(params: {
+  organizationId: string;
+  vehicleId: string;
+  underMaintenance: boolean;
+  note?: string | null;
+  userId?: string | null;
+}) {
+  const now = new Date().toISOString();
+  const updates = params.underMaintenance
+    ? {
+        status: "maintenance",
+        ezitrack_import_paused: true,
+        maintenance_note: params.note?.trim() || null,
+        maintenance_started_at: now,
+        maintenance_started_by: params.userId ?? null,
+        ezitrack_resumed_at: null,
+        ezitrack_resumed_import_batch_id: null,
+      }
+    : {
+        status: "active",
+        ezitrack_import_paused: false,
+        maintenance_note: null,
+        maintenance_started_at: null,
+        maintenance_started_by: null,
+        ezitrack_resumed_at: now,
+      };
+
+  const { data, error } = await supabase
+    .from("fleet_vehicles")
+    .update(updates)
+    .eq("organization_id", params.organizationId)
+    .eq("id", params.vehicleId)
+    .select(VEHICLE_SELECT)
+    .single();
+
+  if (error) throw new Error(error.message || "Failed to update vehicle maintenance mode.");
+  return normalizeVehicle(data as Record<string, unknown>);
 }
 
 async function getVehicleOrThrow(organizationId: string, vehicleId: string) {

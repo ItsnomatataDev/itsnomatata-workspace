@@ -40,7 +40,27 @@ type VehicleRow = {
   vehicle_name?: string | null;
   registration_number?: string | null;
   current_odometer_km?: number | null;
+  status?: string | null;
+  ezitrack_import_paused?: boolean | null;
 };
+
+function isVehicleRunningInEziTrack(record: EziTrackRecord) {
+  const routeKm = toNumber(record.routeLengthKm) ?? 0;
+  const moveSeconds = toInteger(record.moveDurationSeconds);
+  const engineWorkSeconds = toInteger(record.engineWorkSeconds);
+  const engineIdleSeconds = toInteger(record.engineIdleSeconds);
+  const topSpeed = toNumber(record.topSpeedKmh) ?? 0;
+  return (
+    routeKm > 0 ||
+    moveSeconds > 0 ||
+    engineWorkSeconds > 0 ||
+    (engineIdleSeconds > 0 && topSpeed > 0)
+  );
+}
+
+function isVehicleImportPaused(vehicle: VehicleRow) {
+  return vehicle.status === "maintenance" || Boolean(vehicle.ezitrack_import_paused);
+}
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -292,7 +312,9 @@ Deno.serve(async (req) => {
 
     const { data: vehicles, error: vehiclesError } = await supabase
       .from("fleet_vehicles")
-      .select("id, vehicle_name, registration_number, current_odometer_km")
+      .select(
+        "id, vehicle_name, registration_number, current_odometer_km, status, ezitrack_import_paused",
+      )
       .eq("organization_id", organizationId);
 
     if (vehiclesError) throw vehiclesError;
@@ -305,7 +327,11 @@ Deno.serve(async (req) => {
 
     let importedRows = 0;
     let failedRows = 0;
+    let skippedMaintenanceRows = 0;
+    let reactivatedVehicles = 0;
     const unmatchedVehicles: string[] = [];
+    const skippedMaintenanceVehicles: string[] = [];
+    const reactivatedVehicleNames: string[] = [];
 
     for (const [index, record] of records.entries()) {
       const rowNumber = index + 1;
@@ -325,6 +351,47 @@ Deno.serve(async (req) => {
           error_message: `No vehicle matched object "${objectName}".`,
         });
         continue;
+      }
+
+      if (isVehicleImportPaused(vehicle) && !isVehicleRunningInEziTrack(record)) {
+        skippedMaintenanceRows += 1;
+        if (!skippedMaintenanceVehicles.includes(objectName)) {
+          skippedMaintenanceVehicles.push(objectName);
+        }
+        await supabase.from("fleet_import_rows").insert({
+          organization_id: organizationId,
+          batch_id: batch.id,
+          row_number: rowNumber,
+          raw_data: record.rawData ?? record,
+          mapped_data: { object: objectName, vehicle_id: vehicle.id },
+          vehicle_id: vehicle.id,
+          status: "skipped_maintenance",
+          error_message:
+            "Vehicle is under maintenance — EziTrack import paused until the daily report shows it active again.",
+        });
+        continue;
+      }
+
+      if (isVehicleImportPaused(vehicle) && isVehicleRunningInEziTrack(record)) {
+        const resumedAt = new Date().toISOString();
+        await supabase
+          .from("fleet_vehicles")
+          .update({
+            status: "active",
+            ezitrack_import_paused: false,
+            ezitrack_resumed_at: resumedAt,
+            ezitrack_resumed_import_batch_id: batch.id,
+            maintenance_note: null,
+            maintenance_started_at: null,
+            maintenance_started_by: null,
+          })
+          .eq("id", vehicle.id);
+        vehicle.status = "active";
+        vehicle.ezitrack_import_paused = false;
+        reactivatedVehicles += 1;
+        if (!reactivatedVehicleNames.includes(objectName)) {
+          reactivatedVehicleNames.push(objectName);
+        }
       }
 
       try {
@@ -417,6 +484,10 @@ Deno.serve(async (req) => {
           email_from: body.emailFrom ?? null,
           received_at: body.receivedAt ?? null,
           unmatched_vehicles: unmatchedVehicles,
+          skipped_maintenance_rows: skippedMaintenanceRows,
+          skipped_maintenance_vehicles: skippedMaintenanceVehicles,
+          reactivated_vehicles: reactivatedVehicleNames,
+          reactivated_vehicle_count: reactivatedVehicles,
         },
       })
       .eq("id", batch.id);
@@ -433,7 +504,11 @@ Deno.serve(async (req) => {
       status,
       importedRows,
       failedRows,
+      skippedMaintenanceRows,
+      reactivatedVehicles,
       unmatchedVehicles,
+      skippedMaintenanceVehicles,
+      reactivatedVehicleNames,
     });
   } catch (error) {
     console.error("EZITRACK IMPORT ERROR:", error);

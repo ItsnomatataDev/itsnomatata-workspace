@@ -38,6 +38,7 @@ import {
   createMaintenanceRecord,
   fetchFleetDashboardData,
   resolveVehicleServiceDefaults,
+  setFleetVehicleMaintenanceMode,
   type CreateFuelPurchaseInput,
   type CreateMaintenanceRecordInput,
   type FleetDailySummary,
@@ -144,16 +145,81 @@ function statusLabel(status?: string | null) {
   return "Service OK";
 }
 
-function serviceStatusClass(status?: string | null) {
-  if (status === "service_overdue") return "border-red-400/40 bg-red-500/15 text-red-100";
-  if (status === "service_soon") return "border-orange-400/40 bg-orange-500/15 text-orange-100";
-  return "border-emerald-400/30 bg-emerald-500/10 text-emerald-100";
+function isVehicleUnderMaintenance(vehicle: FleetVehicle) {
+  return (
+    vehicle.status === "maintenance" || Boolean(vehicle.ezitrack_import_paused)
+  );
 }
 
-function cardClassName(status?: string | null) {
-  if (status === "service_overdue") return "border-red-500/40 bg-red-500/10";
-  if (status === "service_soon") return "border-orange-500/40 bg-orange-500/10";
-  return "border-white/10 bg-white/5";
+function ezitrackStatusLabel(vehicle: FleetVehicle) {
+  if (isVehicleUnderMaintenance(vehicle)) return "EziTrack paused";
+  return "Tracking";
+}
+
+type StatusPillTone = "ok" | "warn" | "danger" | "amber" | "muted";
+
+function StatusPill({
+  tone,
+  children,
+}: {
+  tone: StatusPillTone;
+  children: ReactNode;
+}) {
+  const toneClass: Record<StatusPillTone, string> = {
+    ok: "bg-emerald-500/10 text-emerald-200/90",
+    warn: "bg-orange-500/10 text-orange-200/90",
+    danger: "bg-red-500/10 text-red-200/90",
+    amber: "bg-amber-500/10 text-amber-200/90",
+    muted: "bg-white/5 text-white/50",
+  };
+  return (
+    <span
+      className={`inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-medium leading-none ${toneClass[tone]}`}
+    >
+      {children}
+    </span>
+  );
+}
+
+function servicePillTone(status?: string | null): StatusPillTone {
+  if (status === "service_overdue") return "danger";
+  if (status === "service_soon") return "warn";
+  return "ok";
+}
+
+function serviceStatusPanelClass(status?: string | null) {
+  if (status === "service_overdue") {
+    return "border-red-500/25 bg-red-500/5 text-red-100";
+  }
+  if (status === "service_soon") {
+    return "border-orange-500/25 bg-orange-500/5 text-orange-100";
+  }
+  return "border-white/10 bg-white/5 text-white/80";
+}
+
+function vehicleRowAccent(
+  vehicle: FleetVehicle,
+  serviceStatus?: string | null,
+) {
+  if (isVehicleUnderMaintenance(vehicle)) return "border-l-2 border-l-amber-500/80";
+  if (serviceStatus === "service_overdue") return "border-l-2 border-l-red-500/80";
+  if (serviceStatus === "service_soon") return "border-l-2 border-l-orange-500/80";
+  return "border-l-2 border-l-transparent";
+}
+
+function tableActionClass(kind: "primary" | "ghost" | "warn" | "resume" = "ghost") {
+  const base =
+    "inline-flex h-8 shrink-0 items-center justify-center rounded-lg px-2.5 text-[11px] font-semibold transition disabled:opacity-50";
+  if (kind === "primary") {
+    return `${base} bg-orange-500 text-black hover:bg-orange-400`;
+  }
+  if (kind === "warn") {
+    return `${base} bg-amber-500/10 text-amber-100 hover:bg-amber-500/20`;
+  }
+  if (kind === "resume") {
+    return `${base} bg-emerald-500/10 text-emerald-100 hover:bg-emerald-500/20`;
+  }
+  return `${base} text-white/60 hover:bg-white/5 hover:text-white`;
 }
 
 function resolveVehicleStatus(vehicle: FleetVehicle, data: FleetDashboardData) {
@@ -329,8 +395,11 @@ export default function FleetDashboardPage() {
     const vehicleStatuses = data.vehicles.map((vehicle) => resolveVehicleStatus(vehicle, data));
     return {
       total: data.vehicles.length,
-      active: data.vehicles.filter((vehicle) => vehicle.status === "active").length,
-      maintenance: data.vehicles.filter((vehicle) => vehicle.status === "maintenance").length,
+      active: data.vehicles.filter(
+        (vehicle) => !isVehicleUnderMaintenance(vehicle),
+      ).length,
+      maintenance: data.vehicles.filter((vehicle) => isVehicleUnderMaintenance(vehicle))
+        .length,
       overdue: vehicleStatuses.filter((item) => item.status === "service_overdue").length,
       soon: vehicleStatuses.filter((item) => item.status === "service_soon").length,
       ok: vehicleStatuses.filter((item) => item.status === "service_ok").length,
@@ -345,6 +414,11 @@ export default function FleetDashboardPage() {
           resolved: resolveVehicleStatus(vehicle, data),
         }))
         .sort((a, b) => {
+          const maintenanceRank =
+            Number(isVehicleUnderMaintenance(b.vehicle)) -
+            Number(isVehicleUnderMaintenance(a.vehicle));
+          if (maintenanceRank !== 0) return maintenanceRank;
+
           const statusRank: Record<string, number> = {
             service_overdue: 0,
             service_soon: 1,
@@ -437,6 +511,66 @@ export default function FleetDashboardPage() {
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save service record.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleMaintenanceToggle(vehicle: FleetVehicle) {
+    if (!organizationId) return;
+    const underMaintenance = !isVehicleUnderMaintenance(vehicle);
+
+    if (underMaintenance) {
+      const note = window.prompt(
+        `Pause EziTrack imports for ${vehicleName(vehicle)} until the daily report shows it running again.\n\nMaintenance note (optional):`,
+        vehicle.maintenance_note ?? "",
+      );
+      if (note === null) return;
+      try {
+        setSaving(true);
+        await setFleetVehicleMaintenanceMode({
+          organizationId,
+          vehicleId: vehicle.id,
+          underMaintenance: true,
+          note,
+          userId,
+        });
+        setMessage(
+          `${vehicleName(vehicle)} is under maintenance. EziTrack rows for this vehicle will be skipped until the next active daily report.`,
+        );
+        await load();
+      } catch (err) {
+        setError(
+          err instanceof Error ? err.message : "Failed to mark vehicle under maintenance.",
+        );
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
+
+    if (
+      !window.confirm(
+        `Resume EziTrack tracking for ${vehicleName(vehicle)} now? You can also wait for the next EziTrack daily report to reactivate it automatically.`,
+      )
+    ) {
+      return;
+    }
+
+    try {
+      setSaving(true);
+      await setFleetVehicleMaintenanceMode({
+        organizationId,
+        vehicleId: vehicle.id,
+        underMaintenance: false,
+        userId,
+      });
+      setMessage(`${vehicleName(vehicle)} is active again. EziTrack imports will resume.`);
+      await load();
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to resume vehicle tracking.",
+      );
     } finally {
       setSaving(false);
     }
@@ -553,69 +687,112 @@ export default function FleetDashboardPage() {
               </button>
             </div>
             <div className="overflow-x-auto">
-              <table className="min-w-full text-left text-sm">
-                <thead className="bg-black/40 text-xs uppercase tracking-wide text-white/40">
-                  <tr>
-                    <th className="px-4 py-3 font-semibold">Vehicle</th>
-                    <th className="px-4 py-3 font-semibold">Registration</th>
-                    <th className="px-4 py-3 font-semibold">Status</th>
-                    <th className="px-4 py-3 font-semibold">Current km</th>
-                    <th className="px-4 py-3 font-semibold">Next service km</th>
-                    <th className="px-4 py-3 font-semibold">Remaining</th>
-                    <th className="px-4 py-3 font-semibold">Next service</th>
-                    <th className="px-4 py-3 font-semibold">Latest odo</th>
-                    <th className="px-4 py-3 font-semibold">Actions</th>
+              <table className="min-w-full border-collapse text-left text-sm">
+                <thead>
+                  <tr className="border-b border-white/10 text-[11px] font-medium uppercase tracking-wider text-white/35">
+                    <th className="px-5 py-3.5 font-semibold">Vehicle</th>
+                    <th className="px-4 py-3.5 font-semibold">Status</th>
+                    <th className="px-4 py-3.5 text-right font-semibold tabular-nums">
+                      Odometer
+                    </th>
+                    <th className="px-4 py-3.5 text-right font-semibold tabular-nums">
+                      Service window
+                    </th>
+                    <th className="px-5 py-3.5 text-right font-semibold">Actions</th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody className="divide-y divide-white/6">
                   {vehicleRows.map(({ vehicle, resolved }) => (
                     <tr
                       key={vehicle.id}
-                      className={`border-t border-white/10 ${cardClassName(resolved.status)}`}
+                      className={`group transition-colors hover:bg-white/3 ${vehicleRowAccent(vehicle, resolved.status)}`}
                     >
-                      <td className="px-4 py-3 font-semibold text-white">
-                        {vehicleName(vehicle)}
+                      <td className="px-5 py-4 align-top">
+                        <p className="font-medium text-white">
+                          {vehicleName(vehicle)}
+                        </p>
+                        <p className="mt-0.5 text-xs text-white/40">
+                          {vehicle.registration_number || "No registration"}
+                        </p>
+                        {vehicle.maintenance_note ? (
+                          <p className="mt-2 line-clamp-2 text-xs text-amber-200/75">
+                            {vehicle.maintenance_note}
+                          </p>
+                        ) : null}
                       </td>
-                      <td className="px-4 py-3 text-white/65">
-                        {vehicle.registration_number || "-"}
+                      <td className="px-4 py-4 align-top">
+                        <div className="flex flex-col items-start gap-1.5">
+                          <StatusPill tone={servicePillTone(resolved.status)}>
+                            {statusLabel(resolved.status)}
+                          </StatusPill>
+                          <StatusPill
+                            tone={
+                              isVehicleUnderMaintenance(vehicle) ? "amber" : "ok"
+                            }
+                          >
+                            {ezitrackStatusLabel(vehicle)}
+                          </StatusPill>
+                        </div>
                       </td>
-                      <td className="px-4 py-3">
-                        <span className={`rounded-full border px-3 py-1 text-xs font-bold ${serviceStatusClass(resolved.status)}`}>
-                          {statusLabel(resolved.status)}
-                        </span>
+                      <td className="px-4 py-4 align-top text-right tabular-nums">
+                        <p className="font-medium text-white/90">
+                          {formatNumber(resolved.currentOdo)}{" "}
+                          <span className="text-xs font-normal text-white/35">
+                            km
+                          </span>
+                        </p>
+                        <p className="mt-1 text-xs text-white/40">
+                          Latest{" "}
+                          {formatDate(resolved.latestOdometerDate)}
+                        </p>
                       </td>
-                      <td className="px-4 py-3 text-white/65">
-                        {formatNumber(resolved.currentOdo)} km
+                      <td className="px-4 py-4 align-top text-right tabular-nums">
+                        <p className="text-white/80">
+                          {formatNumber(vehicle.next_service_odometer_km)}{" "}
+                          <span className="text-xs text-white/35">km due</span>
+                        </p>
+                        <p className="mt-1 text-xs text-white/50">
+                          {resolved.remainingKm === null
+                            ? "Remaining —"
+                            : `${formatNumber(resolved.remainingKm)} km left`}
+                          {" · "}
+                          {formatDate(vehicle.next_service_date)}
+                        </p>
                       </td>
-                      <td className="px-4 py-3 text-white/65">
-                        {formatNumber(vehicle.next_service_odometer_km)} km
-                      </td>
-                      <td className="px-4 py-3 text-white/65">
-                        {resolved.remainingKm === null
-                          ? "-"
-                          : `${formatNumber(resolved.remainingKm)} km`}
-                      </td>
-                      <td className="px-4 py-3 text-white/65">
-                        {formatDate(vehicle.next_service_date)}
-                      </td>
-                      <td className="px-4 py-3 text-white/65">
-                        {formatDate(resolved.latestOdometerDate)}
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex flex-wrap gap-2">
+                      <td className="px-5 py-4 align-top">
+                        <div className="flex flex-wrap items-center justify-end gap-1.5">
                           <button
                             type="button"
                             onClick={() => openServiceModal(vehicle.id)}
-                            className="rounded-xl bg-orange-500 px-3 py-2 text-xs font-semibold text-black hover:bg-orange-400"
+                            className={tableActionClass("primary")}
                           >
                             Service
                           </button>
                           <button
                             type="button"
                             onClick={() => openFuelModal(vehicle.id)}
-                            className="rounded-xl border border-white/10 bg-black px-3 py-2 text-xs font-semibold text-white/70 hover:bg-white/5"
+                            className={tableActionClass("ghost")}
                           >
                             Fuel
+                          </button>
+                          <button
+                            type="button"
+                            disabled={saving}
+                            title={
+                              isVehicleUnderMaintenance(vehicle)
+                                ? "Resume EziTrack imports for this vehicle"
+                                : "Pause EziTrack imports until the vehicle is running again"
+                            }
+                            onClick={() => void handleMaintenanceToggle(vehicle)}
+                            className={tableActionClass(
+                              isVehicleUnderMaintenance(vehicle)
+                                ? "resume"
+                                : "warn",
+                            )}
+                          >
+                            {isVehicleUnderMaintenance(vehicle)
+                              ? "Resume"
+                              : "Pause"}
                           </button>
                         </div>
                       </td>
@@ -687,7 +864,17 @@ export default function FleetDashboardPage() {
                     <div key={batch.id} className="rounded-xl border border-white/10 bg-black/40 p-4">
                       <p className="font-semibold capitalize">{batch.status.replace("_", " ")}</p>
                       <p className="mt-1 text-sm text-white/50">{batch.file_name || batch.source}</p>
-                      <p className="mt-2 text-xs text-white/40">{batch.imported_rows}/{batch.total_rows} rows imported</p>
+                      <p className="mt-2 text-xs text-white/40">
+                        {batch.imported_rows}/{batch.total_rows} rows imported
+                        {typeof batch.metadata.skipped_maintenance_rows === "number" &&
+                        batch.metadata.skipped_maintenance_rows > 0
+                          ? ` · ${batch.metadata.skipped_maintenance_rows} skipped (maintenance)`
+                          : ""}
+                        {Array.isArray(batch.metadata.reactivated_vehicles) &&
+                        batch.metadata.reactivated_vehicles.length > 0
+                          ? ` · reactivated: ${(batch.metadata.reactivated_vehicles as string[]).join(", ")}`
+                          : ""}
+                      </p>
                     </div>
                   ))}
                 </div>
@@ -1061,7 +1248,9 @@ function ServiceModal({
           <Field label="Receipt URL" value={form.receiptUrl} onChange={(value) => setForm({ ...form, receiptUrl: value })} />
         </div>
         {defaults ? (
-          <div className={`rounded-xl border p-4 ${serviceStatusClass(defaults.serviceStatus)}`}>
+          <div
+            className={`rounded-xl border p-4 ${serviceStatusPanelClass(defaults.serviceStatus)}`}
+          >
             <p className="font-semibold">{defaults.serviceMessage}</p>
             <p className="mt-1 text-sm opacity-80">Remaining distance: {formatNumber(defaults.remainingKm)} km</p>
           </div>
