@@ -1,4 +1,4 @@
-import { Copy, KeyRound, Loader2, Plus, Send, Sparkles, Trash2, X } from "lucide-react";
+import { AlertCircle, Copy, KeyRound, Loader2, Plus, Send, Sparkles, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import Sidebar from "../../../components/dashboard/components/Sidebar";
@@ -132,6 +132,8 @@ export default function ContentStudioClientsPage() {
   >(clientId ? "posts" : "overview");
   const [previewDraft, setPreviewDraft] = useState<ContentReviewDraft | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [unassignedDrafts, setUnassignedDrafts] = useState<ContentReviewDraft[]>([]);
+  const [assignClientByDraftId, setAssignClientByDraftId] = useState<Record<string, string>>({});
 
   const portalUrl = useMemo(() => (client ? buildClientPortalUrl(client.portal_token) : ""), [client]);
 
@@ -157,14 +159,30 @@ export default function ContentStudioClientsPage() {
       ]);
       setClients(allClients);
 
+      const clientIds = new Set(allClients.map((entry) => entry.id));
       const draftMap: Record<string, ContentReviewDraft[]> = {};
+      const orphaned: ContentReviewDraft[] = [];
       for (const draft of allDrafts) {
-        if (!draft.client_id) continue;
+        if (!draft.client_id || !clientIds.has(draft.client_id)) {
+          orphaned.push(draft);
+          continue;
+        }
         const bucket = draftMap[draft.client_id] ?? [];
         bucket.push(draft);
         draftMap[draft.client_id] = bucket;
       }
+      orphaned.sort(
+        (a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime(),
+      );
+      setUnassignedDrafts(orphaned);
       setAllClientDrafts(draftMap);
+      setAssignClientByDraftId((current) => {
+        const next: Record<string, string> = {};
+        for (const draft of orphaned) {
+          if (current[draft.id]) next[draft.id] = current[draft.id];
+        }
+        return next;
+      });
 
       const assets = await listContentReviewAssetsForDrafts({
         organizationId,
@@ -481,6 +499,33 @@ export default function ContentStudioClientsPage() {
     setPreviewOpen(true);
   }
 
+  async function handleAssignDraft(draft: ContentReviewDraft) {
+    const targetClientId = assignClientByDraftId[draft.id];
+    if (!targetClientId) {
+      setError("Choose a client before assigning this post.");
+      return;
+    }
+    const targetClient = clients.find((entry) => entry.id === targetClientId);
+    try {
+      setSaving(true);
+      setError("");
+      await updateContentReviewDraft(draft, { client_id: targetClientId });
+      setMessage(
+        `Assigned "${draft.title}" to ${targetClient?.company_name ?? "client"}.`,
+      );
+      setAssignClientByDraftId((current) => {
+        const next = { ...current };
+        delete next[draft.id];
+        return next;
+      });
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to assign post to client.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function updateDraftStatus(draft: ContentReviewDraft, status: ContentReviewDraft["status"]) {
     const readiness = getPostReadiness(
       draft,
@@ -580,6 +625,113 @@ export default function ContentStudioClientsPage() {
                   <Plus size={16} /> Add Client
                 </button>
               </div>
+
+              {unassignedDrafts.length > 0 ? (
+                <section className="overflow-hidden rounded-2xl border border-amber-500/35 bg-amber-500/10">
+                  <div className="flex flex-wrap items-start justify-between gap-3 border-b border-amber-500/25 px-4 py-4">
+                    <div className="flex items-start gap-3">
+                      <span className="rounded-xl border border-amber-500/30 bg-amber-500/15 p-2 text-amber-200">
+                        <AlertCircle size={18} />
+                      </span>
+                      <div>
+                        <h2 className="text-lg font-semibold text-amber-50">
+                          Unassigned posts ({unassignedDrafts.length})
+                        </h2>
+                        <p className="mt-1 max-w-2xl text-sm text-amber-100/70">
+                          These posts are in Content Studio but not linked to a client yet. Create the
+                          client if needed, then assign each post from the dropdown below.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="max-h-[320px] overflow-auto">
+                    {unassignedDrafts.map((draft) => {
+                      const assetCount = assetCountForDraft(detailsByDraftId[draft.id]);
+                      const readiness = getPostReadiness(
+                        draft,
+                        assetCount,
+                        assetsForDraft(detailsByDraftId[draft.id]),
+                      );
+                      return (
+                        <div
+                          key={draft.id}
+                          className="grid gap-3 border-b border-amber-500/20 px-4 py-4 md:grid-cols-[minmax(0,1.2fr)_repeat(3,minmax(88px,0.5fr))_minmax(220px,1fr)_auto] md:items-center"
+                        >
+                          <div>
+                            <p className="font-semibold text-white">{draft.title}</p>
+                            <p className="mt-1 text-xs text-amber-100/60">
+                              <span className="rounded-full border border-amber-400/40 bg-amber-500/20 px-2 py-0.5 font-semibold uppercase tracking-wide text-amber-100">
+                                Unassigned
+                              </span>
+                            </p>
+                          </div>
+                          <div className="text-xs text-white/70">
+                            <span className={`inline-flex rounded-full border px-2 py-0.5 font-semibold capitalize ${statusClass(draft.status)}`}>
+                              {formatStatus(draft.status)}
+                            </span>
+                          </div>
+                          <div className="text-xs text-white/70">{assetCount} media</div>
+                          <div className="text-xs text-white/60">
+                            {draft.updated_at
+                              ? new Date(draft.updated_at).toLocaleDateString()
+                              : "-"}
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <select
+                              className={`${inputClassName()} min-w-[180px] flex-1`}
+                              value={assignClientByDraftId[draft.id] ?? ""}
+                              disabled={saving || clients.length === 0}
+                              onChange={(event) =>
+                                setAssignClientByDraftId((current) => ({
+                                  ...current,
+                                  [draft.id]: event.target.value,
+                                }))
+                              }
+                            >
+                              <option value="">Select client…</option>
+                              {clients.map((entry) => (
+                                <option key={entry.id} value={entry.id}>
+                                  {entry.company_name}
+                                </option>
+                              ))}
+                            </select>
+                            <button
+                              type="button"
+                              disabled={
+                                saving ||
+                                !assignClientByDraftId[draft.id] ||
+                                clients.length === 0
+                              }
+                              onClick={() => void handleAssignDraft(draft)}
+                              className="rounded-xl bg-orange-500 px-3 py-2 text-xs font-bold text-black hover:bg-orange-400 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              Assign
+                            </button>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              onClick={() => openPostEditor(draft.id)}
+                              className="rounded-lg border border-white/15 px-3 py-2 text-xs font-semibold text-white/80 hover:bg-white/10"
+                            >
+                              Open editor
+                            </button>
+                            <div className="flex flex-wrap gap-1 self-center">
+                              <StatusBadge label={readiness.mediaLabel} />
+                              <StatusBadge label={readiness.captionLabel} />
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {clients.length === 0 ? (
+                    <p className="border-t border-amber-500/20 px-4 py-3 text-sm text-amber-100/70">
+                      Create a client below before you can assign these posts.
+                    </p>
+                  ) : null}
+                </section>
+              ) : null}
 
               <div className="overflow-hidden rounded-2xl border border-white/10 bg-white/5">
                 <div className="grid grid-cols-[1.1fr_repeat(8,minmax(90px,1fr))] gap-2 border-b border-white/10 px-4 py-3 text-xs uppercase tracking-wide text-white/45">

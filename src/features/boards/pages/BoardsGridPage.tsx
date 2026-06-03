@@ -256,6 +256,7 @@ export default function BoardsGridPage() {
   const [officeFilter, setOfficeFilter] = useState<string>("mine");
   const [loading, setLoading] = useState(true);
   const [searchValue, setSearchValue] = useState("");
+  const [sortOrder, setSortOrder] = useState<"az" | "za">("az");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [showNewBoard, setShowNewBoard] = useState(false);
@@ -310,15 +311,21 @@ export default function BoardsGridPage() {
 
   const filteredBoards = useMemo(() => {
     const q = searchValue.trim().toLowerCase();
-    if (!q) return boards;
-    return boards.filter((b) =>
-      [b.name, b.email, b.industry, b.notes]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase()
-        .includes(q),
-    );
-  }, [boards, searchValue]);
+    const matched = q
+      ? boards.filter((b) =>
+          [b.name, b.email, b.industry, b.notes]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase()
+            .includes(q),
+        )
+      : boards;
+
+    return [...matched].sort((a, b) => {
+      const cmp = a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+      return sortOrder === "az" ? cmp : -cmp;
+    });
+  }, [boards, searchValue, sortOrder]);
 
   // Workspace totals from real stats
   const summary = useMemo(
@@ -466,6 +473,15 @@ export default function BoardsGridPage() {
                 ))}
               </select>
             ) : null}
+            <select
+              value={sortOrder}
+              onChange={(e) => setSortOrder(e.target.value as "az" | "za")}
+              className="rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none focus:border-orange-500/50"
+              aria-label="Sort boards alphabetically"
+            >
+              <option value="az">A → Z</option>
+              <option value="za">Z → A</option>
+            </select>
             </div>
             {!loading && (
               <p className="text-sm text-white/30">

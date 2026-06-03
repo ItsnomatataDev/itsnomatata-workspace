@@ -30,6 +30,9 @@ import {
 } from "lucide-react";
 import Sidebar from "../../../components/dashboard/components/Sidebar";
 import { useAuth } from "../../../app/providers/AuthProvider";
+import FleetUsageCharts, {
+  buildFleetPerVehicleChartData,
+} from "../components/FleetUsageCharts";
 import {
   createFuelPurchase,
   createMaintenanceRecord,
@@ -125,7 +128,12 @@ function buttonClassName(kind: "primary" | "ghost" = "primary") {
   return "inline-flex items-center justify-center gap-2 rounded-xl bg-orange-500 px-4 py-3 text-sm font-semibold text-black hover:bg-orange-400 disabled:opacity-60";
 }
 
-function vehicleName(vehicle?: Pick<FleetVehicle, "vehicle_name" | "registration_number"> | null) {
+function vehicleName(
+  vehicle?: {
+    vehicle_name?: string | null;
+    registration_number?: string | null;
+  } | null,
+) {
   if (!vehicle) return "Unknown vehicle";
   return vehicle.vehicle_name || vehicle.registration_number || "Unnamed vehicle";
 }
@@ -351,6 +359,17 @@ export default function FleetDashboardPage() {
     [data],
   );
 
+  const usageCharts = useMemo(
+    () =>
+      buildFleetPerVehicleChartData({
+        summaries: data.summaries,
+        fuelPurchases: data.fuelPurchases,
+        vehicles: data.vehicles,
+        vehicleLabel: vehicleName,
+      }),
+    [data.summaries, data.fuelPurchases, data.vehicles],
+  );
+
   function openServiceModal(vehicleId?: string) {
     setServiceForm({
       vehicleId: vehicleId ?? data.vehicles[0]?.id ?? "",
@@ -517,6 +536,8 @@ export default function FleetDashboardPage() {
             <MetricCard label="In Maintenance" value={String(metrics.maintenance)} helper="Vehicle status" icon={<Wrench size={18} />} />
             <MetricCard label="Active Vehicles" value={String(metrics.active)} helper="Operational vehicles" icon={<Gauge size={18} />} />
           </section>
+
+          <FleetUsageCharts data={usageCharts.data} series={usageCharts.series} />
 
           <section className="overflow-hidden rounded-2xl border border-white/10 bg-white/5">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-3">

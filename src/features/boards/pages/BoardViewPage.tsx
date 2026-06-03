@@ -5,7 +5,6 @@ import {
   X,
   Plus,
   Clock,
-  LayoutList,
   Loader2,
   Flag,
   MessageSquare,
@@ -19,11 +18,9 @@ import {
 } from "lucide-react";
 import CardTimeIndicator from "../components/CardTimeIndicator";
 import { useAuth } from "../../../app/providers/AuthProvider";
-import BoardSidebar from "../components/BoardSidebar";
 import Sidebar from "../../../components/dashboard/components/Sidebar";
 import {
   getBoard,
-  getBoards,
   getCards,
   getCardById,
   createCard,
@@ -36,7 +33,6 @@ import {
   deleteCard,
 } from "../services/boardService";
 import CardDetailModal from "../components/Carddetailmodal";
-import CreateCardModal from "../components/CreateCardModal";
 import type { TaskItem, TaskStatus } from "../../../lib/supabase/queries/tasks";
 import type { Board, BoardStats, Card, List } from "../../../types/board";
 import { supabase } from "../../../lib/supabase/client";
@@ -54,13 +50,6 @@ import { canManageAllOffices, canUseDetailedTimeTracking } from "../../../lib/of
 
 
 type Task = Card;
-
-type AssignableUser = {
-  id: string;
-  full_name: string | null;
-  email: string | null;
-  primary_role: string | null;
-};
 
 function cardToTask(card: any): Task {
   return {
@@ -122,21 +111,6 @@ type BoardColumnView = {
   dot: string;
   accent: string;
   columnId: string | null;
-};
-
-const PRIORITY_COLOR: Record<string, string> = {
-  urgent: "text-red-400",
-  high: "text-orange-400",
-  medium: "text-yellow-400",
-  low: "text-white/30",
-};
-
-const STATUS_BADGE_COLOR: Record<string, string> = {
-  backlog: "bg-white/10 text-white/60",
-  todo: "bg-blue-500/15 text-blue-300",
-  in_progress: "bg-orange-500/15 text-orange-300",
-  review: "bg-yellow-500/15 text-yellow-300",
-  done: "bg-green-500/15 text-green-300",
 };
 
 function InlineCardAdder({
@@ -205,6 +179,21 @@ function InlineCardAdder({
     </div>
   );
 }
+
+const PRIORITY_COLOR: Record<string, string> = {
+  urgent: "text-red-400",
+  high: "text-orange-400",
+  medium: "text-yellow-400",
+  low: "text-white/30",
+};
+
+const STATUS_BADGE_COLOR: Record<string, string> = {
+  backlog: "bg-white/10 text-white/60",
+  todo: "bg-blue-500/15 text-blue-300",
+  in_progress: "bg-orange-500/15 text-orange-300",
+  review: "bg-yellow-500/15 text-yellow-300",
+  done: "bg-green-500/15 text-green-300",
+};
 
 function KanbanCard({
   task,
@@ -506,8 +495,10 @@ function KanbanColumn({
           </span>
         </div>
         <button
+          type="button"
           onClick={() => setAdding(true)}
           className="rounded-lg p-1 text-white/30 hover:bg-white/10 hover:text-white transition"
+          aria-label={`Add card to ${label}`}
         >
           <Plus size={15} />
         </button>
@@ -532,7 +523,6 @@ function KanbanColumn({
           />
         ))}
 
-        {/* Inline adder */}
         {adding ? (
           <InlineCardAdder
             onAdd={async (title) => {
@@ -543,6 +533,7 @@ function KanbanColumn({
           />
         ) : (
           <button
+            type="button"
             onClick={() => setAdding(true)}
             className="flex items-center gap-2 rounded-xl border border-dashed border-white/10 px-3 py-2.5 text-xs text-white/25 hover:border-white/25 hover:text-white/60 transition"
           >
@@ -573,30 +564,14 @@ export default function BoardViewPage() {
   const [stats, setStats] = useState<BoardStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [activeTimer, setActiveTimer] = useState<TimeEntryItem | null>(null);
   const [liveSeconds, setLiveSeconds] = useState(0);
   const [timerBusy, setTimerBusy] = useState(false);
   const [searchValue, setSearchValue] = useState("");
-  const [adminCreateOpen, setAdminCreateOpen] = useState(false);
-  const [availableBoards, setAvailableBoards] = useState<Board[]>([]);
-  const [assignableUsers, setAssignableUsers] = useState<AssignableUser[]>([]);
   const requestedCardId = useMemo(() => {
     return new URLSearchParams(location.search).get("cardId");
   }, [location.search]);
-  const canAssignCards =
-    profile?.primary_role === "admin" || profile?.primary_role === "manager";
-  const createModalColumns = useMemo(
-    () =>
-      columns.map((column) => ({
-        id: column.id,
-        columnId: column.columnId,
-        status: column.status,
-        label: column.label,
-      })),
-    [columns],
-  );
 
   // drag state
   const dragRef = useRef<{ id: string; status: TaskStatus } | null>(null);
@@ -704,38 +679,6 @@ export default function BoardViewPage() {
   useEffect(() => {
     void loadBoardData();
   }, [loadBoardData]);
-
-  useEffect(() => {
-    if (!organizationId || !canAssignCards) return;
-
-    const boardOfficeId = board?.office_id ?? (profile?.office_id as string | null | undefined) ?? null;
-    let usersQuery = supabase
-      .from("profiles")
-      .select("id, full_name, email, primary_role")
-      .eq("organization_id", organizationId)
-      .eq("is_active", true)
-      .order("full_name", { ascending: true });
-
-    if (boardOfficeId) {
-      usersQuery = usersQuery.eq("office_id", boardOfficeId);
-    }
-
-    void Promise.all([
-      getBoards(organizationId, {
-        officeId: canViewAllOffices ? null : boardOfficeId,
-        includeAllOffices: canViewAllOffices,
-      }),
-      usersQuery,
-    ])
-      .then(([boardsData, usersResult]) => {
-        if (usersResult.error) throw usersResult.error;
-        setAvailableBoards(boardsData);
-        setAssignableUsers((usersResult.data ?? []) as AssignableUser[]);
-      })
-      .catch((err) => {
-        console.warn("Failed to load admin assignment options:", err);
-      });
-  }, [board?.office_id, canAssignCards, canViewAllOffices, organizationId, profile?.office_id]);
 
   useEffect(() => {
     if (!requestedCardId) {
@@ -1029,51 +972,6 @@ export default function BoardViewPage() {
       getBoardStats(organizationId, boardId).then(setStats).catch(console.warn);
     },
     [organizationId, boardId, auth?.user?.id],
-  );
-
-  const handleAdminCreateCard = useCallback(
-    async (input: {
-      boardId: string;
-      columnId?: string | null;
-      title: string;
-      description?: string;
-      status?: TaskStatus;
-      priority?: string;
-      assigneeIds: string[];
-      dueDate?: string;
-      estimatedHours?: number | null;
-    }) => {
-      if (!organizationId || !auth?.user?.id) return;
-
-      const rawCard = await createCard(organizationId, input.boardId, {
-        title: input.title,
-        description: input.description,
-        status: input.status,
-        priority: input.priority,
-        assigneeIds: input.assigneeIds,
-        dueDate: input.dueDate,
-        estimatedSeconds:
-          input.estimatedHours !== null && input.estimatedHours !== undefined
-            ? Math.round(input.estimatedHours * 3600)
-            : null,
-        columnId: input.columnId ?? null,
-        createdBy: auth.user.id,
-        assignedBy: auth.user.id,
-      });
-
-      if (input.boardId === boardId) {
-        const newTask = cardToTask(rawCard);
-        setTasks((prev) => [...prev, newTask]);
-        setGroupedTasks((prev) => {
-          const next = { ...prev };
-          const groupKey = input.columnId ?? input.status ?? "todo";
-          next[groupKey] = [...(next[groupKey] ?? []), newTask];
-          return next;
-        });
-        getBoardStats(organizationId, input.boardId).then(setStats).catch(console.warn);
-      }
-    },
-    [auth?.user?.id, boardId, organizationId],
   );
 
   // ── Open card ────────────────────────────────────────────────────────────────
@@ -1428,22 +1326,6 @@ export default function BoardViewPage() {
                 </span>
               </div>
             )}
-            {canAssignCards ? (
-              <button
-                type="button"
-                onClick={() => setAdminCreateOpen(true)}
-                className="inline-flex min-h-10 flex-1 items-center justify-center gap-2 rounded-xl bg-orange-500 px-4 py-2 text-sm font-semibold text-black transition hover:bg-orange-400 sm:flex-none"
-              >
-                <Plus size={16} />
-                <span className="hidden sm:inline">Create / assign</span>
-              </button>
-            ) : null}
-            <button
-              onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="hidden lg:flex rounded-xl p-2 text-white/40 hover:bg-white/10 hover:text-white transition"
-            >
-              <LayoutList size={17} />
-            </button>
           </div>
         </div>
 
@@ -1472,9 +1354,7 @@ export default function BoardViewPage() {
           </div>
         </div>
 
-        {/* ── Board + Sidebar ── */}
         <div className="flex flex-1 overflow-hidden">
-          {/* Kanban */}
           <div className="flex-1 overflow-x-auto overflow-y-hidden">
             {loading ? (
               <div className="flex h-full items-center justify-center">
@@ -1507,18 +1387,6 @@ export default function BoardViewPage() {
               </div>
             )}
           </div>
-
-          {/* Sidebar inline (desktop) */}
-          {sidebarOpen && board && organizationId && (
-            <div className="hidden lg:flex w-80 shrink-0 border-l border-white/10">
-              <BoardSidebar
-                board={board}
-                organizationId={organizationId}
-                isOpen={true}
-                onClose={() => setSidebarOpen(false)}
-              />
-            </div>
-          )}
         </div>
       </main>
 
@@ -1545,17 +1413,6 @@ export default function BoardViewPage() {
         />
       )}
 
-      {canAssignCards && boardId ? (
-        <CreateCardModal
-          isOpen={adminCreateOpen}
-          onClose={() => setAdminCreateOpen(false)}
-          onCreate={handleAdminCreateCard}
-          boards={availableBoards.length > 0 ? availableBoards : board ? [board] : []}
-          users={assignableUsers}
-          currentBoardId={boardId}
-          currentColumns={createModalColumns}
-        />
-      ) : null}
     </div>
   );
 }
