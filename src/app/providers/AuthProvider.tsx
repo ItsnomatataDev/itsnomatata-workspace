@@ -618,19 +618,23 @@ export function AuthProvider({
 
       previousStatusRef.current = nextStatus;
 
-      if (
-        previousStatus === "pending_approval" &&
-        nextStatus === "active" &&
-        window.location.pathname !== "/dashboard"
-      ) {
+      if (previousStatus === "pending_approval" && nextStatus === "active") {
         window.localStorage.setItem(
           "account_approved_message",
           "Welcome. Your account has been approved.",
         );
 
-        window.location.assign("/dashboard");
-
-        return;
+        const path = window.location.pathname;
+        const authEntryPaths = new Set([
+          "/login",
+          "/signup",
+          "/forgot-password",
+          "/resetpassword",
+        ]);
+        if (authEntryPaths.has(path)) {
+          window.location.assign("/dashboard");
+          return;
+        }
       }
 
       setProfile(safeProfile);

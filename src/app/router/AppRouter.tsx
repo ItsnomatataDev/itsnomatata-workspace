@@ -75,6 +75,7 @@ import TeamPage from "../../features/organization-members/pages/TeamPage";
 import ContentStudioPage from "../../features/content-review/pages/ContentStudioPage";
 import ContentStudioEditorPage from "../../features/content-review/pages/ContentStudioEditorPage";
 import ContentStudioClientsPage from "../../features/content-review/pages/ContentStudioClientsPage";
+import ContentStudioRoute from "./ContentStudioRoute";
 import PublicClientReviewPage from "../../features/content-review/pages/PublicClientReviewPage";
 import ClientPortalLoginPage from "../../features/content-review/pages/ClientPortalLoginPage";
 import ClientPortalPage from "../../features/content-review/pages/ClientPortalPage";
@@ -416,11 +417,11 @@ const AppRouter = () => {
             path={path}
             element={
               <ProtectedRoute>
-                <RoleRoute roles={["admin", "social_media", "media_team"]}>
+                <ContentStudioRoute>
                   <FeatureRoute feature="content_review">
                     <ContentStudioPage />
                   </FeatureRoute>
-                </RoleRoute>
+                </ContentStudioRoute>
               </ProtectedRoute>
             }
           />
@@ -434,11 +435,11 @@ const AppRouter = () => {
           path="/content-studio/:clientId"
           element={
             <ProtectedRoute>
-              <RoleRoute roles={["admin", "social_media", "media_team"]}>
+              <ContentStudioRoute>
                 <FeatureRoute feature="content_review">
                   <ContentStudioClientLegacyRedirect />
                 </FeatureRoute>
-              </RoleRoute>
+              </ContentStudioRoute>
             </ProtectedRoute>
           }
         />
@@ -452,11 +453,11 @@ const AppRouter = () => {
             path={path}
             element={
               <ProtectedRoute>
-                <RoleRoute roles={["admin", "social_media", "media_team"]}>
+                <ContentStudioRoute>
                   <FeatureRoute feature="content_review">
                     <ContentStudioClientsPage />
                   </FeatureRoute>
-                </RoleRoute>
+                </ContentStudioRoute>
               </ProtectedRoute>
             }
           />
@@ -466,11 +467,11 @@ const AppRouter = () => {
           path="/admin/content-studio/editor/:draftId"
           element={
             <ProtectedRoute>
-              <RoleRoute roles={["admin", "social_media", "media_team"]}>
+              <ContentStudioRoute>
                 <FeatureRoute feature="content_review">
                   <ContentStudioEditorPage />
                 </FeatureRoute>
-              </RoleRoute>
+              </ContentStudioRoute>
             </ProtectedRoute>
           }
         />
