@@ -16,7 +16,7 @@ If your production domain differs, set `VITE_PUBLIC_SITE_URL` in `.env` and upda
 ## What was added
 
 - **index.html** — title, meta description, Open Graph, Twitter Card, JSON-LD (Organization + WebApplication + creators).
-- **public/about.html** — public page naming **Thando Mpofu** and **Benjamin McDonald** with links to [GitHub (thando544)](https://github.com/thando544), [Instagram (@thando.dev1)](https://www.instagram.com/thando.dev1/), [IT's No Matata](https://itsnomatata.com/), and [ItsnomatataDev](https://github.com/ItsnomatataDev).
+- **public/about.html** — public page naming **Thando Mpofu** and **Benjamin McDonald** with links to [GitHub (thando544)](https://github.com/thando544), [Instagram (@thando.dev1)](https://www.instagram.com/thando.dev1/), [Instagram (@itsnomatata)](https://www.instagram.com/itsnomatata/), [IT's No Matata](https://itsnomatata.com/), and [ItsnomatataDev](https://github.com/ItsnomatataDev).
 - **public/robots.txt** — allows `/`, `/login`, `/about`; blocks authenticated app paths.
 - **public/sitemap.xml** — entry points for Google.
 - **vercel.json** — `/about` serves static HTML; SPA routes still work.

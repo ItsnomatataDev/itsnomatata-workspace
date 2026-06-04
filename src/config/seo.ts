@@ -8,6 +8,7 @@ export const SEO_BRAND = {
   productFullName: "Codex AI Workspace",
   companyName: "IT's No Matata",
   companyUrl: "https://itsnomatata.com/",
+  companyInstagram: "https://www.instagram.com/itsnomatata/",
   companyGitHub: "https://github.com/ItsnomatataDev",
   tagline:
     "AI-native team workspace for operations, content, boards, and realtime collaboration — built in Victoria Falls, Zimbabwe.",
@@ -24,7 +25,7 @@ export const SEO_TEAM = {
     location: "Victoria Falls, Zimbabwe",
     github: "https://github.com/thando544",
     instagram: "https://www.instagram.com/thando.dev1/",
-    website: "https://tmctechsolutions.com",
+    companyInstagram: "https://www.instagram.com/itsnomatata/",
   },
   ben: {
     name: "Benjamin McDonald",
