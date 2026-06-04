@@ -21,6 +21,7 @@ import {
   type ContentReviewFeedbackSource,
 } from "../utils/contentReviewEmailRouting";
 import { areAllInternalPostsApproved } from "../utils/contentReviewFeedback";
+import { isVideoUploadFile, resolveUploadMimeType } from "../utils/mediaUpload";
 
 export type ContentReviewStatus =
   | "draft"
@@ -1164,9 +1165,11 @@ export async function uploadContentClientMedia(params: {
 }) {
   await cleanupExpiredContentClientMedia();
   const uploadFile = await compressMediaFile(params.file);
+  const { mimeType, assetType } = uploadMediaMeta(uploadFile.file);
   if (uploadFile.file.size > CONTENT_REVIEW_UPLOAD_LIMIT_BYTES) {
+    const label = assetType === "video" ? "Video" : "File";
     throw new Error(
-      `Media is still too large after compression. Please keep uploads under ${formatContentReviewFileSize(CONTENT_REVIEW_UPLOAD_LIMIT_BYTES)}.`,
+      `${label} is too large. Please keep uploads under ${formatContentReviewFileSize(CONTENT_REVIEW_UPLOAD_LIMIT_BYTES)}.`,
     );
   }
   const safeName = uploadFile.file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
@@ -1174,7 +1177,7 @@ export async function uploadContentClientMedia(params: {
   const { error: uploadError } = await supabase.storage
     .from(BUCKET)
     .upload(path, uploadFile.file, {
-      contentType: uploadFile.file.type || undefined,
+      contentType: mimeType || undefined,
       upsert: false,
     });
 
@@ -1188,7 +1191,7 @@ export async function uploadContentClientMedia(params: {
     fileUrl: publicUrl.publicUrl,
     fileName: uploadFile.file.name,
     storedSizeBytes: uploadFile.storedSize,
-    mimeType: uploadFile.file.type || null,
+    mimeType,
   });
   if (existing) {
     if (existing.storage_path !== path) {
@@ -1207,8 +1210,8 @@ export async function uploadContentClientMedia(params: {
       file_name: uploadFile.file.name,
       file_url: publicUrl.publicUrl,
       storage_path: path,
-      mime_type: uploadFile.file.type || null,
-      asset_type: uploadFile.file.type.startsWith("video/") ? "video" : "image",
+      mime_type: mimeType,
+      asset_type: assetType,
       label: params.label?.trim() || null,
       expires_at: new Date(Date.now() + ASSET_RETENTION_DAYS * 86400000).toISOString(),
       original_size_bytes: uploadFile.originalSize,
@@ -1422,14 +1425,20 @@ async function compressVideoFile(file: File) {
 }
 
 async function compressMediaFile(file: File) {
+  if (isVideoUploadFile(file)) return compressVideoFile(file);
   if (file.type.startsWith("image/")) return compressImageFile(file);
-  if (file.type.startsWith("video/")) return compressVideoFile(file);
   return {
     file,
     compressionStatus: "not_applicable" as const,
     originalSize: file.size,
     storedSize: file.size,
   };
+}
+
+function uploadMediaMeta(file: File) {
+  const mimeType = resolveUploadMimeType(file) || file.type || null;
+  const assetType = isVideoUploadFile(file) ? ("video" as const) : ("image" as const);
+  return { mimeType, assetType };
 }
 
 async function cleanupExpiredContentReviewAssets() {
@@ -1469,9 +1478,11 @@ export async function uploadContentReviewAsset(params: {
 }) {
   await cleanupExpiredContentReviewAssets();
   const uploadFile = await compressMediaFile(params.file);
+  const { mimeType, assetType } = uploadMediaMeta(uploadFile.file);
   if (uploadFile.file.size > CONTENT_REVIEW_UPLOAD_LIMIT_BYTES) {
+    const label = assetType === "video" ? "Video" : "File";
     throw new Error(
-      `Media is still too large after compression. Please keep uploads under ${formatContentReviewFileSize(CONTENT_REVIEW_UPLOAD_LIMIT_BYTES)}.`,
+      `${label} is too large. Please keep uploads under ${formatContentReviewFileSize(CONTENT_REVIEW_UPLOAD_LIMIT_BYTES)}.`,
     );
   }
   const safeName = uploadFile.file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
@@ -1479,7 +1490,7 @@ export async function uploadContentReviewAsset(params: {
   const { error: uploadError } = await supabase.storage
     .from(BUCKET)
     .upload(path, uploadFile.file, {
-      contentType: uploadFile.file.type || undefined,
+      contentType: mimeType || undefined,
       upsert: false,
     });
 
@@ -1496,8 +1507,8 @@ export async function uploadContentReviewAsset(params: {
       file_name: uploadFile.file.name,
       file_url: publicUrl.publicUrl,
       storage_path: path,
-      mime_type: uploadFile.file.type || null,
-      asset_type: uploadFile.file.type.startsWith("video/") ? "video" : "image",
+      mime_type: mimeType,
+      asset_type: assetType,
       is_selected: true,
       crop_x: 50,
       crop_y: 50,

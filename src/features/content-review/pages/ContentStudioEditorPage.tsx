@@ -17,6 +17,7 @@ import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import { supabase } from "../../../lib/supabase/client";
 import { ContentReviewRenderer } from "../components/ContentReviewRenderer";
+import { isContentReviewVideo } from "../components/ContentReviewVideo";
 import ContentStudioLayoutPicker from "../components/ContentStudioLayoutPicker";
 import EditorGettingStarted from "../components/EditorGettingStarted";
 import EditorLibraryDrawer from "../components/EditorLibraryDrawer";
@@ -673,8 +674,7 @@ export default function ContentStudioEditorPage() {
           fileUrl: primary.file_url,
           storagePath: primary.storage_path,
         });
-        const isVideo =
-          primary.asset_type === "video" || primary.mime_type?.startsWith("video/");
+        const isVideo = isContentReviewVideo(primary);
         const analysis = await requestContentStudioAnalyzeMedia({
           clientName: editorClient?.company_name ?? "Client",
           postTitle: `${form.title} — ${postLabel(slot)}`,

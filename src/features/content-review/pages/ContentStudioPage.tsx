@@ -8,7 +8,7 @@ import {
   contentStudioCropFromAsset,
 } from "../components/ContentStudioCropEditor";
 import { ContentReviewRenderer } from "../components/ContentReviewRenderer";
-import { ContentReviewVideoPlayer } from "../components/ContentReviewVideo";
+import { ContentReviewVideoPlayer, isContentReviewVideo } from "../components/ContentReviewVideo";
 import {
   addInternalContentReviewComment,
   assertCanUseContentStudio,
@@ -83,12 +83,12 @@ function MediaPreview({ asset }: { asset: ContentReviewAsset }) {
     "--crop-origin": `${asset.crop_x ?? 50}% ${asset.crop_y ?? 50}%`,
   } as CSSProperties;
 
-  if (asset.asset_type === "video" || asset.mime_type?.startsWith("video/")) {
+  if (isContentReviewVideo(asset)) {
     return (
       <ContentReviewVideoPlayer
         asset={asset}
         controls
-        className="aspect-video w-full rounded-xl border border-white/10 object-contain sm:object-cover"
+        className="aspect-video w-full rounded-xl border border-white/10 object-contain"
       />
     );
   }
@@ -1161,7 +1161,7 @@ function AssetReviewCard({
   const [heading, setHeading] = useState(asset.heading ?? "");
   const [caption, setCaption] = useState(asset.caption ?? "");
   const selected = asset.is_selected !== false;
-  const isImage = asset.asset_type !== "video" && !asset.mime_type?.startsWith("video/");
+  const isImage = !isContentReviewVideo(asset);
 
   useEffect(() => {
     setHeading(asset.heading ?? "");

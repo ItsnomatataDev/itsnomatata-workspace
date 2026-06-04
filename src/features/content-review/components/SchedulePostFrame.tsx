@@ -21,6 +21,7 @@ import {
 import { postLabel } from "../utils/contentStudioTerms";
 import {
   ContentReviewVideoPlayer,
+  ContentReviewVideoThumb,
   isContentReviewVideo,
 } from "./ContentReviewVideo";
 import type { SchedulePostRow } from "../utils/contentStudioSchedule";
@@ -53,15 +54,19 @@ function inputClass() {
   return "w-full rounded-xl border border-white/10 bg-black/60 px-3 py-2.5 text-sm text-white outline-none placeholder:text-white/30 focus:border-orange-400/70 disabled:opacity-50";
 }
 
-function MediaPreview({ asset }: { asset: ContentReviewAsset }) {
+function MediaPreview({ asset, playable }: { asset: ContentReviewAsset; playable: boolean }) {
   return (
     <div className="relative aspect-4/5 max-h-[280px] w-full overflow-hidden rounded-xl border border-white/10 bg-black">
       {isContentReviewVideo(asset) ? (
-        <ContentReviewVideoPlayer
-          asset={asset}
-          className="h-full w-full object-contain"
-          controls
-        />
+        playable ? (
+          <ContentReviewVideoPlayer
+            asset={asset}
+            className="h-full w-full object-contain"
+            controls
+          />
+        ) : (
+          <ContentReviewVideoThumb className="min-h-[200px]" />
+        )
       ) : (
         <img
           src={asset.file_url}
@@ -195,7 +200,7 @@ export default function SchedulePostFrame({
         >
           {primary ? (
             <div className="space-y-3" onClick={(event) => event.stopPropagation()}>
-              <MediaPreview asset={primary} />
+              <MediaPreview asset={primary} playable={isActive} />
               <div className="flex flex-wrap gap-2">
                 {canUseLibrary ? (
                   <button

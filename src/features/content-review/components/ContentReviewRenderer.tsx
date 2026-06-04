@@ -14,12 +14,13 @@ import { postLabel } from "../utils/contentStudioTerms";
 import { shouldUseUnifiedPostCopy } from "../utils/postCopyLayout";
 import MediaCarousel, { carouselCropStyle } from "./MediaCarousel";
 import { ContentReviewVideoPlayer } from "./ContentReviewVideo";
+import { isVideoAsset } from "../utils/mediaUpload";
 
 type PreviewTheme = "public" | "internal";
 type PreviewViewport = "responsive" | "mobile";
 
 function isVideo(asset?: ContentReviewAsset | null) {
-  return Boolean(asset?.asset_type === "video" || asset?.mime_type?.startsWith("video/"));
+  return Boolean(asset && isVideoAsset(asset));
 }
 
 function formatStatus(status: string) {

@@ -1,8 +1,11 @@
 import { Film } from "lucide-react";
 import type { ContentReviewAsset } from "../services/contentReviewService";
+import { isVideoAsset } from "../utils/mediaUpload";
 
-export function isContentReviewVideo(asset: Pick<ContentReviewAsset, "asset_type" | "mime_type">) {
-  return asset.asset_type === "video" || asset.mime_type?.startsWith("video/");
+export function isContentReviewVideo(
+  asset: Pick<ContentReviewAsset, "asset_type" | "mime_type" | "file_name">,
+) {
+  return isVideoAsset(asset);
 }
 
 /** Lightweight placeholder — avoids loading/decoding every video in a filmstrip. */
