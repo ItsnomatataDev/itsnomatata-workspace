@@ -20,7 +20,12 @@ export type ContentReviewEmailRecipient = {
   fullName: string | null;
 };
 
-/** Client change requests go to the final reviewer; everything else goes to the schedule creator. */
+/**
+ * Email routing (n8n sends to the resolved address only):
+ * - Internal approve / request changes / notes → schedule creator (created_by profile email)
+ * - Client approve / client comment → schedule creator
+ * - Client request changes → final reviewer (default tammie@itsnomatata.com)
+ */
 export function shouldEmailFinalClientReviewer(
   source: ContentReviewFeedbackSource,
   eventType: ContentReviewFeedbackEvent,

@@ -59,9 +59,12 @@ export function getClientChangesRequestedSlots(
 
 export function areAllClientPostsApproved(
   comments: ContentReviewComment[],
-  expectedPosts = CONTENT_STUDIO_POSTS_PER_SCHEDULE,
+  activeSlotsOrCount: number[] | number = CONTENT_STUDIO_POSTS_PER_SCHEDULE,
 ): boolean {
-  return getClientApprovedSlots(comments, expectedPosts).length >= expectedPosts;
+  if (Array.isArray(activeSlotsOrCount)) {
+    return areAllActiveClientSlotsApproved(comments, activeSlotsOrCount);
+  }
+  return getClientApprovedSlots(comments, CONTENT_STUDIO_POSTS_PER_SCHEDULE).length >= activeSlotsOrCount;
 }
 
 type InternalSlotDecision = "approval_note" | "change_request";
@@ -115,11 +118,33 @@ export function getInternalChangesRequestedSlots(
     .sort((a, b) => a - b);
 }
 
+export function areAllActiveSlotsInternallyApproved(
+  comments: ContentReviewComment[],
+  activeSlots: number[],
+) {
+  if (activeSlots.length === 0) return false;
+  return activeSlots.every((slot) =>
+    isInternalSlotApproved(comments, slot, CONTENT_STUDIO_POSTS_PER_SCHEDULE),
+  );
+}
+
+export function areAllActiveClientSlotsApproved(
+  comments: ContentReviewComment[],
+  activeSlots: number[],
+) {
+  if (activeSlots.length === 0) return false;
+  const approved = new Set(getClientApprovedSlots(comments, CONTENT_STUDIO_POSTS_PER_SCHEDULE));
+  return activeSlots.every((slot) => approved.has(slot));
+}
+
 export function areAllInternalPostsApproved(
   comments: ContentReviewComment[],
-  expectedPosts = CONTENT_STUDIO_POSTS_PER_SCHEDULE,
+  activeSlotsOrCount: number[] | number = CONTENT_STUDIO_POSTS_PER_SCHEDULE,
 ): boolean {
-  return getInternalApprovedSlots(comments, expectedPosts).length >= expectedPosts;
+  if (Array.isArray(activeSlotsOrCount)) {
+    return areAllActiveSlotsInternallyApproved(comments, activeSlotsOrCount);
+  }
+  return getInternalApprovedSlots(comments, CONTENT_STUDIO_POSTS_PER_SCHEDULE).length >= activeSlotsOrCount;
 }
 
 export function isInternalSlotApproved(

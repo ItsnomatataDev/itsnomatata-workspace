@@ -4,8 +4,10 @@ import { getCompanyOfficeBySlug } from "../../../lib/supabase/queries/offices";
 import { createNotification } from "../../../lib/supabase/mutations/notifications";
 import { askAssistant, buildAssistantContext } from "../../../lib/api/ai";
 import {
+  buildSchedulePostRows,
   defaultScheduleTitle,
   draftScheduleMonthKey,
+  getActiveSchedulePostSlots,
   isLegacyPostSlotDraft,
   scheduleMonthStartIso,
 } from "../utils/contentStudioSchedule";
@@ -1861,6 +1863,14 @@ export async function submitInternalPostReviewFeedback(params: {
   const comment = data as ContentReviewComment;
   const mergedComments = [...(params.existingComments ?? []), comment];
 
+  const { data: assetRows } = await supabase
+    .from("content_review_assets")
+    .select("*")
+    .eq("draft_id", draft.id)
+    .order("display_slot", { ascending: true });
+  const scheduleRows = buildSchedulePostRows(draft, assetRows ?? []);
+  const activeSlots = getActiveSchedulePostSlots(scheduleRows);
+
   if (params.decision === "changes_requested" && draft.status === "approved") {
     await updateContentReviewDraft(draft, {
       status: "ready_for_review",
@@ -1870,7 +1880,7 @@ export async function submitInternalPostReviewFeedback(params: {
     });
   } else if (
     params.decision === "approved" &&
-    areAllInternalPostsApproved(mergedComments) &&
+    areAllInternalPostsApproved(mergedComments, activeSlots) &&
     draft.status !== "approved" &&
     draft.status !== "published"
   ) {
@@ -1988,20 +1998,43 @@ async function getContentReviewNotificationRecipients(draft: ContentReviewDraft)
 }
 
 async function getScheduleCreatorEmailRecipient(
-  draft: ContentReviewDraft,
+  draft: Pick<ContentReviewDraft, "id" | "created_by">,
 ): Promise<ContentReviewEmailRecipient | null> {
-  if (!draft.created_by) return null;
+  let creatorId = draft.created_by ?? null;
+
+  if (!creatorId) {
+    const { data: row, error: draftError } = await supabase
+      .from("content_review_drafts")
+      .select("created_by")
+      .eq("id", draft.id)
+      .maybeSingle();
+    if (draftError) throw draftError;
+    creatorId = row?.created_by ?? null;
+  }
+
+  if (!creatorId) {
+    console.warn("Content review feedback email skipped: schedule has no creator.", {
+      draftId: draft.id,
+    });
+    return null;
+  }
 
   const { data: profile, error } = await supabase
     .from("profiles")
     .select("full_name, email")
-    .eq("id", draft.created_by)
+    .eq("id", creatorId)
     .maybeSingle();
 
   if (error) throw error;
 
   const email = typeof profile?.email === "string" ? profile.email.trim() : "";
-  if (!email) return null;
+  if (!email) {
+    console.warn("Content review feedback email skipped: creator profile has no email.", {
+      draftId: draft.id,
+      creatorId,
+    });
+    return null;
+  }
 
   return {
     email,

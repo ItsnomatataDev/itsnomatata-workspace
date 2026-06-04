@@ -5,7 +5,8 @@ import type {
 } from "../services/contentReviewService";
 import { groupAssetsByDisplaySlot } from "./assetDisplaySlots";
 import {
-  areAllInternalPostsApproved,
+  areAllActiveClientSlotsApproved,
+  areAllActiveSlotsInternallyApproved,
   getClientApprovedSlots,
   getInternalApprovedSlots,
 } from "./contentReviewFeedback";
@@ -89,6 +90,15 @@ export type SchedulePostRow = {
   hasCaption: boolean;
 };
 
+/** Posts that have media attached (schedules are not required to fill all 10 slots). */
+export function getActiveSchedulePostRows(rows: SchedulePostRow[]) {
+  return rows.filter((row) => row.hasMedia);
+}
+
+export function getActiveSchedulePostSlots(rows: SchedulePostRow[]) {
+  return getActiveSchedulePostRows(rows).map((row) => row.slot);
+}
+
 export function buildSchedulePostRows(
   draft: ContentReviewDraft,
   assets: ContentReviewAsset[],
@@ -129,42 +139,50 @@ export function getScheduleBatchReadiness(
   comments: ContentReviewComment[] = [],
 ): ClientBatchReadiness {
   const rows = buildSchedulePostRows(draft, assets, expectedPosts);
-  const mediaComplete = rows.filter((row) => row.hasMedia).length;
-  const captionsComplete = rows.filter((row) => row.hasCaption).length;
+  const activeRows = getActiveSchedulePostRows(rows);
+  const activeSlots = getActiveSchedulePostSlots(rows);
+  const postCount = activeRows.length;
+  const mediaComplete = postCount;
+  const captionsComplete = activeRows.filter((row) => row.hasCaption).length;
   const draftReadiness = getPostReadiness(
     draft,
     mediaComplete,
     assets.filter((asset) => asset.is_selected !== false),
   );
 
-  const internalApprovedCount = getInternalApprovedSlots(comments, expectedPosts).length;
-  const scheduleInternallyApproved =
-    draftReadiness.internallyApproved || areAllInternalPostsApproved(comments, expectedPosts);
-  const internalApproved = scheduleInternallyApproved
-    ? expectedPosts
-    : internalApprovedCount;
-  const sentToClient = draftReadiness.sentToClient ? expectedPosts : 0;
-  const clientApprovedCount = getClientApprovedSlots(comments, expectedPosts).length;
-  const clientReviewed =
-    clientApprovedCount >= expectedPosts
-      ? expectedPosts
-      : draftReadiness.clientReviewed
-        ? expectedPosts
-        : clientApprovedCount;
+  const internalApprovedOnActive = activeSlots.filter((slot) =>
+    getInternalApprovedSlots(comments, expectedPosts).includes(slot),
+  ).length;
+  const allActiveInternallyApproved = areAllActiveSlotsInternallyApproved(
+    comments,
+    activeSlots,
+  );
+  const internalApproved = internalApprovedOnActive;
+
+  const sentToClient = draftReadiness.sentToClient ? postCount : 0;
+  const clientApprovedOnActive = activeSlots.filter((slot) =>
+    getClientApprovedSlots(comments, expectedPosts).includes(slot),
+  ).length;
+  const allActiveClientApproved = areAllActiveClientSlotsApproved(comments, activeSlots);
+  const clientReviewed = draftReadiness.clientReviewed
+    ? postCount
+    : allActiveClientApproved
+      ? postCount
+      : clientApprovedOnActive;
 
   const allPostsInternallyReady =
-    mediaComplete >= expectedPosts &&
-    captionsComplete >= expectedPosts &&
-    scheduleInternallyApproved;
+    postCount > 0 &&
+    captionsComplete === postCount &&
+    allActiveInternallyApproved;
 
   const canSendBatchToClient =
-    allPostsInternallyReady &&
-    scheduleInternallyApproved &&
-    !draftReadiness.sentToClient;
+    allPostsInternallyReady && !draftReadiness.sentToClient;
+
+  const progressDenom = Math.max(postCount, 1);
 
   return {
-    expectedPosts,
-    actualPosts: expectedPosts,
+    expectedPosts: postCount,
+    actualPosts: postCount,
     mediaComplete,
     captionsComplete,
     internalApproved,
@@ -172,11 +190,14 @@ export function getScheduleBatchReadiness(
     clientReviewed,
     allPostsInternallyReady,
     canSendBatchToClient,
-    mediaProgress: Math.round((mediaComplete / expectedPosts) * 100),
-    captionsProgress: Math.round((captionsComplete / expectedPosts) * 100),
-    internalProgress: Math.round((internalApprovedCount / expectedPosts) * 100),
-    sentProgress: Math.round((sentToClient / expectedPosts) * 100),
-    clientReviewProgress: Math.round((clientApprovedCount / expectedPosts) * 100),
+    mediaProgress: postCount === 0 ? 0 : Math.round((mediaComplete / progressDenom) * 100),
+    captionsProgress:
+      postCount === 0 ? 0 : Math.round((captionsComplete / progressDenom) * 100),
+    internalProgress:
+      postCount === 0 ? 0 : Math.round((internalApprovedOnActive / progressDenom) * 100),
+    sentProgress: postCount === 0 ? 0 : Math.round((sentToClient / progressDenom) * 100),
+    clientReviewProgress:
+      postCount === 0 ? 0 : Math.round((clientApprovedOnActive / progressDenom) * 100),
   };
 }
 

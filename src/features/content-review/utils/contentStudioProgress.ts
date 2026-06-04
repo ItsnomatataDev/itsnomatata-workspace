@@ -275,20 +275,20 @@ export function sendGateHint(readiness: PostReadiness) {
 }
 
 export function batchSendGateHint(batch: ClientBatchReadiness) {
-  if (batch.mediaComplete < batch.expectedPosts) {
-    return `Add media to each post in the schedule (${batch.mediaComplete}/${batch.expectedPosts} ready).`;
+  if (batch.expectedPosts === 0) {
+    return "Add at least one post with media and a caption before sending to the client.";
   }
   if (batch.captionsComplete < batch.expectedPosts) {
-    return `Add captions to each post in the schedule (${batch.captionsComplete}/${batch.expectedPosts} ready).`;
+    return `Add captions to each post that has media (${batch.captionsComplete}/${batch.expectedPosts} ready).`;
   }
   if (!batch.allPostsInternallyReady) {
-    return `Approve each post internally (${batch.internalApproved}/${batch.expectedPosts} approved). Add media and captions on every post first.`;
+    return `Approve each post internally on the review link (${batch.internalApproved}/${batch.expectedPosts} approved).`;
   }
-  if (batch.sentToClient >= batch.expectedPosts && !batch.canSendBatchToClient) {
-    return "Every post in this schedule was already sent to the client.";
+  if (batch.sentToClient > 0 && !batch.canSendBatchToClient) {
+    return "This schedule was already sent to the client portal.";
   }
   if (batch.canSendBatchToClient) {
-    return "Send the full schedule to the client review portal.";
+    return "Send to client — they can open this schedule in the portal to approve or request changes.";
   }
-  return "Some posts in this schedule are already with the client.";
+  return "Complete internal review before sending to the client.";
 }

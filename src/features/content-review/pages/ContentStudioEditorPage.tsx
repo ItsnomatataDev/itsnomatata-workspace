@@ -363,12 +363,13 @@ export default function ContentStudioEditorPage() {
     );
     return {
       ...base,
-      hasMedia: batch.mediaComplete >= CONTENT_STUDIO_POSTS_PER_SCHEDULE,
-      hasCaption: batch.captionsComplete >= CONTENT_STUDIO_POSTS_PER_SCHEDULE,
+      hasMedia: batch.expectedPosts > 0,
+      hasCaption: batch.captionsComplete >= batch.expectedPosts && batch.expectedPosts > 0,
       internallyApproved: batch.allPostsInternallyReady,
       canApproveInternally: false,
       canSendToClient: batch.canSendBatchToClient,
       internalApprovedCount: batch.internalApproved,
+      activePostCount: batch.expectedPosts,
     };
   }, [detail, form, orderedAssets]);
 
@@ -910,8 +911,10 @@ export default function ContentStudioEditorPage() {
                 ? "●"
                 : "○"}{" "}
               Internal{" "}
-              {typeof editorReadiness?.internalApprovedCount === "number"
-                ? `(${editorReadiness.internalApprovedCount}/${CONTENT_STUDIO_POSTS_PER_SCHEDULE})`
+              {typeof editorReadiness?.internalApprovedCount === "number" &&
+              typeof editorReadiness?.activePostCount === "number" &&
+              editorReadiness.activePostCount > 0
+                ? `(${editorReadiness.internalApprovedCount}/${editorReadiness.activePostCount})`
                 : ""}
             </span>
           </div>

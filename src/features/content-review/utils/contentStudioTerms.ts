@@ -56,7 +56,7 @@ export const contentStudioCopy = {
   editorHeadlineVsPosts:
     "The headline is the page title in the client portal. Each post’s caption is edited in the centre frames.",
   editorMediaHint:
-    "Ten posts per schedule. Drop images onto each post, drag between posts, and reorder carousel images inside a post.",
+    "Up to 10 post slots per schedule — you only need as many as you plan to publish. Drop images onto each post, drag between posts, and reorder carousel images inside a post.",
   editorSetupHint:
     "Start here: pick how photos and text are arranged on the client link, then assign the client and publish date.",
   editorLayoutHint:

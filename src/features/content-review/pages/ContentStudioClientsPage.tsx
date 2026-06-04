@@ -413,7 +413,7 @@ export default function ContentStudioClientsPage() {
       const overallStatus: ClientProgress["overallStatus"] =
         overallAverage === 0
           ? "Not Started"
-          : batch.sentToClient >= CONTENT_STUDIO_POSTS_PER_SCHEDULE
+          : batch.sentToClient > 0 && batch.expectedPosts > 0
             ? "Done"
             : batch.allPostsInternallyReady
               ? "Ready For Review"
@@ -640,8 +640,9 @@ export default function ContentStudioClientsPage() {
 
   async function handleSendBatchToClient() {
     if (!clientBatch?.canSendBatchToClient) return;
+    const postCount = clientBatch.expectedPosts;
     const confirmed = window.confirm(
-      `Send this month's schedule (${CONTENT_STUDIO_POSTS_PER_SCHEDULE} posts) to ${client?.company_name} for client review?`,
+      `Send this schedule (${postCount} post${postCount === 1 ? "" : "s"}) to ${client?.company_name} for client review? They will be able to open it in the client portal.`,
     );
     if (!confirmed) return;
     try {
@@ -1120,8 +1121,11 @@ export default function ContentStudioClientsPage() {
                         </p>
                       </div>
                       <div className="text-xs">
-                        {row.batch.actualPosts}/
-                        {CONTENT_STUDIO_POSTS_PER_SCHEDULE}
+                        {row.batch.actualPosts}
+                        {row.batch.expectedPosts > 0
+                          ? ` / ${row.batch.expectedPosts}`
+                          : ""}{" "}
+                        posts
                       </div>
                       <div className="text-xs font-medium text-white/80">
                         {row.batch.mediaProgress}%
@@ -1133,8 +1137,9 @@ export default function ContentStudioClientsPage() {
                         {row.batch.internalProgress}%
                       </div>
                       <div className="text-xs">
-                        {row.batch.sentToClient}/
-                        {CONTENT_STUDIO_POSTS_PER_SCHEDULE}
+                        {row.batch.sentToClient > 0
+                          ? `Sent (${row.batch.expectedPosts || row.batch.sentToClient})`
+                          : "Not sent"}
                       </div>
                       <div className="text-xs">
                         {row.batch.clientReviewProgress}%
@@ -1224,15 +1229,19 @@ export default function ContentStudioClientsPage() {
                     <div className="flex flex-wrap gap-4 text-sm">
                       <span>
                         <strong className="text-white">
-                          {clientBatch.actualPosts}/
-                          {CONTENT_STUDIO_POSTS_PER_SCHEDULE}
+                          {clientBatch.actualPosts}
+                          {clientBatch.expectedPosts > 0
+                            ? ` / ${clientBatch.expectedPosts}`
+                            : ""}
                         </strong>{" "}
-                        <span className="text-white/50">Posts in schedule</span>
+                        <span className="text-white/50">
+                          Posts with media
+                        </span>
                       </span>
                       <span>
                         <strong className="text-orange-200">
                           {clientBatch.internalApproved}/
-                          {CONTENT_STUDIO_POSTS_PER_SCHEDULE}
+                          {clientBatch.expectedPosts || "—"}
                         </strong>{" "}
                         <span className="text-white/50">
                           Internally approved
@@ -1240,15 +1249,16 @@ export default function ContentStudioClientsPage() {
                       </span>
                       <span>
                         <strong className="text-white">
-                          {clientBatch.sentToClient}/
-                          {CONTENT_STUDIO_POSTS_PER_SCHEDULE}
+                          {clientBatch.sentToClient > 0
+                            ? `Yes (${clientBatch.expectedPosts || clientBatch.sentToClient})`
+                            : "Not yet"}
                         </strong>{" "}
                         <span className="text-white/50">Sent to client</span>
                       </span>
                       <span>
                         <strong className="text-white">
                           {clientBatch.clientReviewed}/
-                          {CONTENT_STUDIO_POSTS_PER_SCHEDULE}
+                          {clientBatch.expectedPosts || "—"}
                         </strong>{" "}
                         <span className="text-white/50">Client reviewed</span>
                       </span>
@@ -1404,19 +1414,23 @@ export default function ContentStudioClientsPage() {
                       <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
                         <MiniStat
                           label="Posts in schedule"
-                          value={`${clientBatch.actualPosts}/${CONTENT_STUDIO_POSTS_PER_SCHEDULE}`}
+                          value={`${clientBatch.actualPosts}`}
                         />
                         <MiniStat
                           label="Internally approved"
-                          value={`${clientBatch.internalApproved}/${CONTENT_STUDIO_POSTS_PER_SCHEDULE}`}
+                          value={`${clientBatch.internalApproved}/${clientBatch.expectedPosts || "—"}`}
                         />
                         <MiniStat
                           label="Sent to client"
-                          value={`${clientBatch.sentToClient}/${CONTENT_STUDIO_POSTS_PER_SCHEDULE}`}
+                          value={
+                            clientBatch.sentToClient > 0
+                              ? "Sent"
+                              : "Not sent"
+                          }
                         />
                         <MiniStat
                           label="Client reviewed"
-                          value={`${clientBatch.clientReviewed}/${CONTENT_STUDIO_POSTS_PER_SCHEDULE}`}
+                          value={`${clientBatch.clientReviewed}/${clientBatch.expectedPosts || "—"}`}
                         />
                       </div>
                       <div className="mt-5 grid gap-3 md:grid-cols-2">

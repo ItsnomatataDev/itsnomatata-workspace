@@ -96,8 +96,10 @@ flowchart LR
 
 | Source | Path |
 |--------|------|
-| Client approves / requests changes | `ClientPortalReviewPage` → `sendContentReviewFeedbackEmails` → `sendEmailOnly` → n8n webhook |
-| Internal approves / requests changes (review link) | `InternalContentPreviewPage` → `submit_internal_content_review_feedback` RPC → `sendContentReviewFeedbackEmails` → n8n webhook |
+| Client approves / comments | Creator (`created_by` profile email) |
+| Client **requests changes** | `tammie@itsnomatata.com` (or `VITE_CONTENT_STUDIO_FINAL_REVIEWER_EMAIL`) |
+| Internal approves / requests changes | Creator (`created_by` profile email) |
+| Browser path | `sendContentReviewFeedbackEmails` → `sendEmailOnly` → n8n → Outlook |
 | Internal comments in studio | `contentReviewService` → `sendEmailOnly` → n8n webhook |
 | Any `create-notification` with email channel | Edge function builds HTML → n8n webhook → updates `notification_deliveries` |
 | Stuck `queued` rows | n8n **Schedule** every 2 min → `dispatch-notification-email` → n8n webhook |
@@ -115,22 +117,23 @@ curl -sS -X POST 'https://n8n.srv883957.hstgr.cloud/webhook/itsnomatata-notifica
   -H 'Content-Type: application/json' \
   -H 'x-notification-secret: YOUR_SECRET' \
   -d '{
-    "to": "you@itsnomatata.com",
-    "fullName": "Test User",
-    "title": "[Client review] Approval (Post 1) — June 2026 schedule",
-    "message": "Michelle approved Post 1 in \"June 2026 schedule\".",
+    "to": "CREATOR_EMAIL_FROM_PROFILES_TABLE",
+    "fullName": "Schedule Creator Name",
+    "title": "[Internal review] Approval (Post 1) — June 2026 schedule",
+    "message": "Staff approved Post 1 internally.",
     "type": "system_alert",
     "priority": "high",
     "actionUrl": "/admin/content-studio/editor/DRAFT_UUID",
     "metadata": {
-      "feedback_source": "client",
-      "source_badge": "Client review",
-      "review_event": "approval_note"
-    },
-    "subject": "[Client review] Approval (Post 1) — June 2026 schedule - Nomatata",
-    "emailHtml": "<p>Hi Test,</p><p>Client approved a post.</p>"
+      "feedback_source": "internal",
+      "source_badge": "Internal review",
+      "review_event": "approval_note",
+      "display_slot": 0
+    }
   }'
 ```
+
+Replace `CREATOR_EMAIL_FROM_PROFILES_TABLE` with the real creator inbox. The app chooses that address automatically from `content_review_drafts.created_by` — it does **not** default to `test@itsnomatata.com`.
 
 Expect `{"ok":true,"sent":true,...}` and an inbox message from your Outlook sender.
 

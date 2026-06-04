@@ -13,7 +13,7 @@ import {
   getClientApprovedSlots,
   getInternalApprovedSlots,
 } from "../utils/contentReviewFeedback";
-import { CONTENT_STUDIO_POSTS_PER_SCHEDULE, postLabel } from "../utils/contentStudioTerms";
+import { postLabel } from "../utils/contentStudioTerms";
 import {
   getInternalContentReviewPreview,
   sendContentReviewFeedbackEmails,
@@ -103,9 +103,11 @@ export default function InternalContentPreviewPage() {
     return new Set(getInternalApprovedSlots(comments));
   }, [comments, feedbackLimits.approved_slots]);
 
-  const allClientPostsApproved =
-    clientApprovedSlots.size >= CONTENT_STUDIO_POSTS_PER_SCHEDULE ||
-    Boolean(feedbackLimits.all_posts_approved);
+  const expectedPostCount =
+    feedbackLimits.expected_posts ??
+    (assets.length > 0 ? new Set(assets.map((a) => a.display_slot ?? a.sort_order)).size : 0);
+
+  const allClientPostsApproved = Boolean(feedbackLimits.all_posts_approved);
 
   async function submitSectionDecision(
     slot: ContentReviewDisplaySlot,
@@ -270,7 +272,7 @@ export default function InternalContentPreviewPage() {
               </span>
             ) : null}
             <span className="rounded-full border border-white/10 px-3 py-1 text-white/70">
-              Internal {internalApprovedSlots.size}/{CONTENT_STUDIO_POSTS_PER_SCHEDULE}
+              Internal {internalApprovedSlots.size}/{expectedPostCount || "—"}
             </span>
           </div>
         </header>

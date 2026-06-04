@@ -3,7 +3,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ContentReviewRenderer } from "../components/ContentReviewRenderer";
 import { type ContentReviewDisplaySlot } from "../utils/assetDisplaySlots";
-import { CONTENT_STUDIO_POSTS_PER_SCHEDULE } from "../utils/contentStudioTerms";
 import { contentClientSessionKey } from "./ClientPortalLoginPage";
 import {
   getContentClientReview,
@@ -52,13 +51,11 @@ function normalizeFeedbackLimits(
     has_approved: feedback?.has_approved ?? approvedSlots.length > 0,
     has_commented: feedback?.has_commented ?? false,
     has_requested_changes: feedback?.has_requested_changes ?? false,
-    expected_posts: feedback?.expected_posts ?? CONTENT_STUDIO_POSTS_PER_SCHEDULE,
+    expected_posts: feedback?.expected_posts ?? 0,
     approved_slots: approvedSlots,
     changes_requested_slots: feedback?.changes_requested_slots ?? [],
     approved_count: feedback?.approved_count ?? approvedSlots.length,
-    all_posts_approved:
-      feedback?.all_posts_approved ??
-      approvedSlots.length >= CONTENT_STUDIO_POSTS_PER_SCHEDULE,
+    all_posts_approved: feedback?.all_posts_approved ?? false,
   };
 }
 
@@ -231,7 +228,9 @@ export default function ClientPortalReviewPage() {
               <div>
                 <p className="font-semibold text-emerald-950">All posts approved</p>
                 <p className="mt-1 text-sm text-emerald-900/80">
-                  You approved all {CONTENT_STUDIO_POSTS_PER_SCHEDULE} posts in this schedule.
+                  You approved all{" "}
+                  {feedbackLimits.expected_posts || feedbackLimits.approved_count}{" "}
+                  posts in this schedule.
                   The content team has been notified.
                 </p>
               </div>
