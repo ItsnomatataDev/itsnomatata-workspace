@@ -1,4 +1,5 @@
 import { askAssistant, buildAssistantContext } from "./ai";
+import { supabase } from "../supabase/client";
 
 const CONTENT_AI_WEBHOOK = import.meta.env.VITE_N8N_CONTENT_AI_WEBHOOK_URL as
   | string
@@ -24,15 +25,33 @@ function getContentStudioAiRequestUrl(route: string) {
   return getContentStudioAiWebhookUrl();
 }
 
+function isUndeployedEdgeFunctionError(message: string) {
+  return /failed to send a request to the edge function|functions\.fetch|function not found|404.*function/i.test(
+    message,
+  );
+}
+
+function isImageGenerationMisroute(message: string) {
+  return /could not return a generated image|no visible image attachment was produced/i.test(
+    message,
+  );
+}
+
+function contentStudioEdgeAiEnabled() {
+  return import.meta.env.VITE_CONTENT_STUDIO_EDGE_AI === "true";
+}
+
 async function postContentStudioRoute(
   route: string,
   body: Record<string, unknown>,
+  options?: { timeoutMs?: number },
 ): Promise<unknown> {
   try {
     const response = await fetch(getContentStudioAiRequestUrl(route), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(options?.timeoutMs ?? 120_000),
     });
     if (!response.ok) {
       const text = await response.text();
@@ -198,7 +217,37 @@ export async function requestContentStudioCaption(
         : [],
       shortAlternative: String(parsed.shortAlternative ?? ""),
     };
-  } catch {
+  } catch (n8nError) {
+    if (contentStudioEdgeAiEnabled()) {
+      try {
+        const { data, error } = await supabase.functions.invoke(
+          "content-studio-generate-caption",
+          { body: input },
+        );
+      if (!error && data && !data.error) {
+        return {
+          generatedCaption: String(data.generatedCaption ?? ""),
+          hashtags: Array.isArray(data.hashtags)
+            ? data.hashtags.map(String)
+            : [],
+          shortAlternative: String(data.shortAlternative ?? ""),
+        };
+      }
+        if (error && !isUndeployedEdgeFunctionError(error.message)) {
+          throw error;
+        }
+      } catch (edgeError) {
+        if (
+          edgeError instanceof Error &&
+          !isUndeployedEdgeFunctionError(edgeError.message)
+        ) {
+          throw new Error(
+            `Caption assist failed (n8n: ${n8nError instanceof Error ? n8nError.message : "unknown"}; edge: ${edgeError.message})`,
+          );
+        }
+      }
+    }
+
     const response = await askAssistant({
       message: buildCaptionChatInput(input),
       context: buildAssistantContext({
@@ -228,10 +277,77 @@ export async function requestContentStudioCaption(
   }
 }
 
-/** Image/video analysis via dedicated proxy route → n8n vision. */
+/** Vision via Supabase edge (downloads storage image, OpenAI vision). */
+async function analyzeContentStudioMediaViaEdge(
+  input: ContentStudioAnalyzeMediaInput,
+): Promise<ContentStudioAnalyzeMediaOutput> {
+  const { data, error } = await supabase.functions.invoke(
+    "content-studio-analyze-image",
+    {
+      body: {
+        clientName: input.clientName,
+        postTitle: input.postTitle,
+        existingCaption: input.existingCaption,
+        imageUrl: input.mediaUrl,
+        fileName: input.fileName,
+      },
+    },
+  );
+
+  if (error) {
+    throw new Error(error.message || "content-studio-analyze-image failed");
+  }
+  if (data && typeof data === "object" && "error" in data && data.error) {
+    throw new Error(String(data.error));
+  }
+  if (!data || typeof data !== "object") {
+    throw new Error("content-studio-analyze-image returned no data");
+  }
+
+  const record = data as Record<string, unknown>;
+  return normalizeAnalyzeOutput(
+    JSON.stringify({
+      mood: record.mood,
+      sceneDescription: record.sceneDescription,
+      suggestedCaption: record.generatedCaption ?? record.suggestedCaption,
+      hashtags: record.hashtags,
+      shortAlternative: record.shortAlternative,
+      instagramCaption: record.instagramCaption,
+      facebookCaption: record.facebookCaption,
+    }),
+  );
+}
+
+function formatImageAnalysisFailure(primary: Error, edgeHint?: string) {
+  const msg = primary.message.trim();
+  if (isImageGenerationMisroute(msg)) {
+    return new Error(
+      "Image analysis was routed to image generation in n8n. Re-import and publish n8n/itsnomatata-codex-internal-ai.production.workflow.json.",
+    );
+  }
+  if (/Error in workflow/i.test(msg)) {
+    return new Error(
+      `Image analysis failed in n8n (${msg}).${edgeHint ?? " Check n8n Executions for the Image Analysis Tool node."}`,
+    );
+  }
+  return new Error(
+    `Image analysis failed: ${msg}${edgeHint ?? ""}`,
+  );
+}
+
+/**
+ * Image analysis via n8n (same OpenAI credential as Codex).
+ * Optional Supabase edge only when VITE_CONTENT_STUDIO_EDGE_AI=true.
+ */
 export async function requestContentStudioAnalyzeMedia(
   input: ContentStudioAnalyzeMediaInput,
 ): Promise<ContentStudioAnalyzeMediaOutput> {
+  if (input.mediaType === "video") {
+    throw new Error(
+      "Video frame analysis is not supported yet. Use an image post or add a still frame.",
+    );
+  }
+
   const n8nPayload = {
     action: "sendMessage",
     chatInput: buildAnalyzeChatInput(input),
@@ -239,9 +355,9 @@ export async function requestContentStudioAnalyzeMedia(
     attachments: [
       {
         name: input.fileName ?? "post-media",
-        type: input.mediaType === "video" ? "video" : "image",
+        type: "image",
         url: input.mediaUrl,
-        mimeType: input.mediaType === "video" ? "video/mp4" : "image/jpeg",
+        mimeType: "image/jpeg",
       },
     ],
     metadata: {
@@ -252,14 +368,43 @@ export async function requestContentStudioAnalyzeMedia(
     },
   };
 
+  let n8nError: Error | null = null;
+
   try {
     const data = await postContentStudioRoute(
       "/api/content-studio/analyze-media-caption",
       n8nPayload,
+      { timeoutMs: 120_000 },
     );
     const message = extractN8nMessage(data);
-    return normalizeAnalyzeOutput(message);
-  } catch {
+    const normalized = normalizeAnalyzeOutput(message);
+    if (
+      normalized.sceneDescription.trim() ||
+      normalized.suggestedCaption.trim()
+    ) {
+      return normalized;
+    }
+    if (message.trim()) return normalized;
+    throw new Error("n8n returned an empty image analysis response.");
+  } catch (error) {
+    n8nError = error instanceof Error ? error : new Error(String(error));
+  }
+
+  let edgeError: Error | null = null;
+  if (contentStudioEdgeAiEnabled()) {
+    try {
+      return await analyzeContentStudioMediaViaEdge(input);
+    } catch (error) {
+      edgeError = error instanceof Error ? error : new Error(String(error));
+      if (isUndeployedEdgeFunctionError(edgeError.message)) {
+        edgeError = new Error(
+          "Deploy content-studio-analyze-image and set OPENAI_API_KEY on Supabase.",
+        );
+      }
+    }
+  }
+
+  try {
     const response = await askAssistant({
       message: buildAnalyzeChatInput(input),
       context: buildAssistantContext({
@@ -270,24 +415,36 @@ export async function requestContentStudioAnalyzeMedia(
         role: "social_media",
         timezone: "Africa/Harare",
       }),
-      attachments:
-        input.mediaType === "image"
-          ? [
-              {
-                name: input.fileName ?? "post-media",
-                type: "image",
-                url: input.mediaUrl,
-                mimeType: "image/jpeg",
-              },
-            ]
-          : [],
+      attachments: [
+        {
+          name: input.fileName ?? "post-media",
+          type: "image",
+          url: input.mediaUrl,
+          mimeType: "image/jpeg",
+        },
+      ],
       metadata: {
         source: "content_studio_image_analysis",
         forceImageVision: true,
       },
     });
-    return normalizeAnalyzeOutput(response.message || "");
+    const normalized = normalizeAnalyzeOutput(response.message || "");
+    if (
+      normalized.sceneDescription.trim() ||
+      normalized.suggestedCaption.trim()
+    ) {
+      return normalized;
+    }
+  } catch {
+    // fall through to combined error
   }
+
+  const edgeHint = edgeError
+    ? ` Optional edge fallback: ${edgeError.message}`
+    : contentStudioEdgeAiEnabled()
+      ? ""
+      : " Re-import and publish n8n/itsnomatata-codex-internal-ai.production.workflow.json (Content Studio Vision branch).";
+  throw formatImageAnalysisFailure(n8nError ?? new Error("Unknown error"), edgeHint);
 }
 
 function normalizeAnalyzeOutput(raw: string): ContentStudioAnalyzeMediaOutput {

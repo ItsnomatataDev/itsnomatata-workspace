@@ -247,13 +247,6 @@ export async function runContentReviewMaintenanceIfDue() {
   await purgeOldContentReviewSchedules();
 }
 export const CONTENT_REVIEW_UPLOAD_LIMIT_BYTES = 1024 * 1024 * 1024;
-const VIDEO_TARGET_BITS_PER_SECOND = 2_500_000;
-const AUDIO_TARGET_BITS_PER_SECOND = 128_000;
-
-type CapturableVideoElement = HTMLVideoElement & {
-  captureStream?: () => MediaStream;
-  mozCaptureStream?: () => MediaStream;
-};
 
 export function formatContentReviewFileSize(bytes: number) {
   if (bytes >= 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
@@ -1417,108 +1410,15 @@ async function compressImageFile(file: File) {
 }
 
 async function compressVideoFile(file: File) {
-  if (!file.type.startsWith("video/")) {
-    return {
-      file,
-      compressionStatus: "not_applicable" as const,
-      originalSize: file.size,
-      storedSize: file.size,
-    };
-  }
-
-  if (!("MediaRecorder" in window) || !MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus")) {
-    return {
-      file,
-      compressionStatus: "stored_original" as const,
-      originalSize: file.size,
-      storedSize: file.size,
-    };
-  }
-
-  const url = URL.createObjectURL(file);
-  const video = document.createElement("video") as CapturableVideoElement;
-  video.src = url;
-  video.preload = "metadata";
-  video.playsInline = true;
-  video.volume = 0;
-
-  try {
-    await new Promise<void>((resolve, reject) => {
-      video.onloadedmetadata = () => resolve();
-      video.onerror = () => reject(new Error("Video could not be prepared for compression."));
-    });
-
-    const captureStream = (video.captureStream ?? video.mozCaptureStream)?.bind(video);
-    if (!captureStream) {
-      return {
-        file,
-        compressionStatus: "stored_original" as const,
-        originalSize: file.size,
-        storedSize: file.size,
-      };
-    }
-
-    const stream = captureStream();
-    const chunks: Blob[] = [];
-    const recorder = new MediaRecorder(stream, {
-      mimeType: "video/webm;codecs=vp9,opus",
-      videoBitsPerSecond: VIDEO_TARGET_BITS_PER_SECOND,
-      audioBitsPerSecond: AUDIO_TARGET_BITS_PER_SECOND,
-    });
-
-    const blob = await new Promise<Blob>((resolve, reject) => {
-      recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) chunks.push(event.data);
-      };
-      recorder.onerror = () => reject(new Error("Video compression failed."));
-      recorder.onstop = () => resolve(new Blob(chunks, { type: "video/webm" }));
-      video.onended = () => {
-        if (recorder.state !== "inactive") recorder.stop();
-        stream.getTracks().forEach((track) => track.stop());
-      };
-
-      recorder.start(1000);
-      void video.play().catch((error) => {
-        if (recorder.state !== "inactive") recorder.stop();
-        stream.getTracks().forEach((track) => track.stop());
-        reject(error instanceof Error ? error : new Error("Video compression could not start."));
-      });
-    });
-
-    if (!blob || blob.size === 0 || blob.size >= file.size) {
-      return {
-        file,
-        compressionStatus: "stored_original" as const,
-        originalSize: file.size,
-        storedSize: file.size,
-      };
-    }
-
-    const compressed = new File(
-      [blob],
-      `${file.name.replace(/\.[^.]+$/, "")}.webm`,
-      { type: "video/webm" },
-    );
-
-    return {
-      file: compressed,
-      compressionStatus: "compressed" as const,
-      originalSize: file.size,
-      storedSize: compressed.size,
-    };
-  } catch (error) {
-    console.warn("Video compression skipped.", error);
-    return {
-      file,
-      compressionStatus: "stored_original" as const,
-      originalSize: file.size,
-      storedSize: file.size,
-    };
-  } finally {
-    URL.revokeObjectURL(url);
-    video.removeAttribute("src");
-    video.load();
-  }
+  // Keep original video files: browser captureStream + MediaRecorder re-encoding caused
+  // blocky/pixelated output (~2.5 Mbps), stutter, and forced a full real-time playback before upload.
+  // Images are still compressed to WebP; videos upload as-is up to CONTENT_REVIEW_UPLOAD_LIMIT_BYTES.
+  return {
+    file,
+    compressionStatus: "stored_original" as const,
+    originalSize: file.size,
+    storedSize: file.size,
+  };
 }
 
 async function compressMediaFile(file: File) {
@@ -2552,79 +2452,41 @@ function parseImageAnalysisPayload(raw: string): ContentStudioImageAnalysis {
   }
 }
 
+function mapAnalyzeMediaToImageAnalysis(
+  result: import("../../../lib/api/contentStudioAi").ContentStudioAnalyzeMediaOutput,
+): ContentStudioImageAnalysis {
+  return {
+    mood: result.mood,
+    sceneDescription: result.sceneDescription,
+    generatedCaption: result.suggestedCaption,
+    hashtags: result.hashtags,
+    shortAlternative: result.shortAlternative,
+    instagramCaption: result.platformCaptions?.instagram,
+    facebookCaption: result.platformCaptions?.facebook,
+  };
+}
+
 async function analyzeContentStudioImageViaN8n(
   input: Parameters<typeof analyzeContentStudioImage>[0],
 ): Promise<ContentStudioImageAnalysis> {
-  const prompt = [
-    `Client: ${input.clientName}`,
-    `Post: ${input.postTitle}`,
-    input.existingCaption ? `Existing caption: ${input.existingCaption}` : null,
-    "",
-    "Analyze this image for social content. Describe what you see in the photo.",
-    "Return strict JSON only with keys:",
-    "mood, sceneDescription, generatedCaption, hashtags (array), shortAlternative, instagramCaption, facebookCaption",
-  ]
-    .filter(Boolean)
-    .join("\n");
-
-  const response = await askAssistant({
-    message: prompt,
-    context: buildAssistantContext({
-      userId: input.userId ?? "content-studio-system",
-      organizationId: input.organizationId ?? "content-studio",
-      currentModule: "content-studio",
-      currentRoute: "/admin/content-studio/clients",
-      role: "social_media",
-      timezone: "Africa/Harare",
-    }),
-    attachments: [
-      {
-        name: input.fileName ?? "post-image",
-        type: "image",
-        url: input.imageUrl,
-        mimeType: "image/jpeg",
-      },
-    ],
-    metadata: {
-      source: "content_studio_image_analysis",
-      forceImageVision: true,
-    },
-  });
-
-  return parseImageAnalysisPayload(response.message || "");
-}
-
-async function analyzeContentStudioImageViaEdge(
-  input: Parameters<typeof analyzeContentStudioImage>[0],
-): Promise<ContentStudioImageAnalysis> {
-  const { data, error } = await supabase.functions.invoke("content-studio-analyze-image", {
-    body: input,
-  });
-  if (error) {
-    throw new Error(error.message || "content-studio-analyze-image failed");
-  }
-  if (data?.error) {
-    throw new Error(String(data.error));
-  }
-  if (!data) {
-    throw new Error("content-studio-analyze-image returned no data");
-  }
-  return parseImageAnalysisPayload(
-    JSON.stringify({
-      mood: data.mood,
-      sceneDescription: data.sceneDescription,
-      generatedCaption: data.generatedCaption,
-      hashtags: data.hashtags,
-      shortAlternative: data.shortAlternative,
-      instagramCaption: data.instagramCaption,
-      facebookCaption: data.facebookCaption,
-    }),
+  const { requestContentStudioAnalyzeMedia } = await import(
+    "../../../lib/api/contentStudioAi"
   );
+  const result = await requestContentStudioAnalyzeMedia({
+    clientName: input.clientName,
+    postTitle: input.postTitle,
+    mediaUrl: input.imageUrl,
+    mediaType: "image",
+    existingCaption: input.existingCaption,
+    fileName: input.fileName,
+    instruction: "Describe what you see in this image for social content.",
+  });
+  return mapAnalyzeMediaToImageAnalysis(result);
 }
 
 /**
- * Image analysis via n8n (Codex webhook + OpenAI in your workflow).
- * Supabase edge is opt-in only (VITE_CONTENT_STUDIO_EDGE_AI=true).
+ * Image analysis: signed storage URL → n8n vision → Supabase edge → chat fallback.
+ * Prefer `requestContentStudioAnalyzeMedia` from the editor (same pipeline).
  */
 export async function analyzeContentStudioImage(input: {
   clientName: string;
@@ -2641,27 +2503,5 @@ export async function analyzeContentStudioImage(input: {
     storagePath: input.storagePath,
   });
 
-  try {
-    return await analyzeContentStudioImageViaN8n({ ...input, imageUrl });
-  } catch (n8nError) {
-    const primary =
-      n8nError instanceof Error ? n8nError : new Error("Image analysis failed.");
-
-    if (!contentStudioEdgeAiEnabled()) {
-      throw new Error(formatContentStudioN8nFailure(primary, "image_analysis"));
-    }
-
-    try {
-      return await analyzeContentStudioImageViaEdge({ ...input, imageUrl });
-    } catch (edgeError) {
-      const edgeMsg =
-        edgeError instanceof Error ? edgeError.message : String(edgeError);
-      if (isUndeployedEdgeFunctionError(edgeMsg)) {
-        throw new Error(formatContentStudioN8nFailure(primary, "image_analysis"));
-      }
-      throw new Error(
-        `${formatContentStudioN8nFailure(primary, "image_analysis")} (Edge: ${edgeMsg})`,
-      );
-    }
-  }
+  return analyzeContentStudioImageViaN8n({ ...input, imageUrl });
 }

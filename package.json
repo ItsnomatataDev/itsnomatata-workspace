@@ -10,7 +10,8 @@
     "preview": "vite preview --host",
     "deploy:function:create-notification": "./scripts/deploy-create-notification.sh",
     "deploy:push-functions": "./scripts/deploy-push-functions.sh",
-    "generate:vapid-keys": "web-push generate-vapid-keys"
+    "generate:vapid-keys": "web-push generate-vapid-keys",
+    "seed:caption-test": "node scripts/seed-tech-client-caption-test.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

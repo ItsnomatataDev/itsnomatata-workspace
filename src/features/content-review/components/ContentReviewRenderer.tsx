@@ -13,6 +13,7 @@ import {
 import { postLabel } from "../utils/contentStudioTerms";
 import { shouldUseUnifiedPostCopy } from "../utils/postCopyLayout";
 import MediaCarousel, { carouselCropStyle } from "./MediaCarousel";
+import { ContentReviewVideoPlayer } from "./ContentReviewVideo";
 
 type PreviewTheme = "public" | "internal";
 type PreviewViewport = "responsive" | "mobile";
@@ -73,11 +74,10 @@ function MediaSlide({
   if (isVideo(asset)) {
     return (
       <div className={`overflow-hidden rounded-2xl border ${border} bg-black`}>
-        <video
-          src={asset.file_url}
-          controls
-          playsInline
+        <ContentReviewVideoPlayer
+          asset={asset}
           className="max-h-[70vh] w-full bg-black object-contain"
+          controls
         />
       </div>
     );
@@ -465,11 +465,10 @@ export function ContentReviewRenderer({
                 <X size={20} />
               </button>
             </div>
-            <video
-              src={expandedVideo.file_url}
+            <ContentReviewVideoPlayer
+              asset={expandedVideo}
               controls
               autoPlay
-              playsInline
               className="max-h-[82vh] w-full rounded-2xl bg-black object-contain"
             />
           </div>

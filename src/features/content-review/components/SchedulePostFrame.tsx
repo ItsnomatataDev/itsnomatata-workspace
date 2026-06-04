@@ -19,6 +19,10 @@ import {
   readDraggedLibraryMediaId,
 } from "../utils/contentStudioLibraryDrag";
 import { postLabel } from "../utils/contentStudioTerms";
+import {
+  ContentReviewVideoPlayer,
+  isContentReviewVideo,
+} from "./ContentReviewVideo";
 import type { SchedulePostRow } from "../utils/contentStudioSchedule";
 import PostFrameAiSuggestions, { type PostFrameAiSuggestion } from "./PostFrameAiSuggestions";
 
@@ -50,11 +54,14 @@ function inputClass() {
 }
 
 function MediaPreview({ asset }: { asset: ContentReviewAsset }) {
-  const isVideo = asset.asset_type === "video" || asset.mime_type?.startsWith("video/");
   return (
     <div className="relative aspect-4/5 max-h-[280px] w-full overflow-hidden rounded-xl border border-white/10 bg-black">
-      {isVideo ? (
-        <video src={asset.file_url} className="h-full w-full object-cover" controls playsInline />
+      {isContentReviewVideo(asset) ? (
+        <ContentReviewVideoPlayer
+          asset={asset}
+          className="h-full w-full object-contain"
+          controls
+        />
       ) : (
         <img
           src={asset.file_url}

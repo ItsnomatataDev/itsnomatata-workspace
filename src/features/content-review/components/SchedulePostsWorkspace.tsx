@@ -11,11 +11,14 @@ import type { SchedulePostRow } from "../utils/contentStudioSchedule";
 import { contentStudioCopy, postLabel } from "../utils/contentStudioTerms";
 import ContentStudioLayoutWireframe from "./ContentStudioLayoutWireframe";
 import { CONTENT_STUDIO_LAYOUT_OPTIONS } from "../utils/contentStudioLayouts";
+import {
+  ContentReviewVideoThumb,
+  isContentReviewVideo,
+} from "./ContentReviewVideo";
 
 function MediaThumb({ asset }: { asset: ContentReviewAsset }) {
-  const isVideo = asset.asset_type === "video" || asset.mime_type?.startsWith("video/");
-  if (isVideo) {
-    return <video src={asset.file_url} className="h-full w-full object-cover" muted playsInline />;
+  if (isContentReviewVideo(asset)) {
+    return <ContentReviewVideoThumb />;
   }
   return (
     <img src={asset.file_url} alt={asset.file_name} loading="lazy" className="h-full w-full object-cover" />

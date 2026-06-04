@@ -1,13 +1,16 @@
 import type { ContentReviewAsset, ContentReviewLayout } from "../services/contentReviewService";
 import { postLabel } from "../utils/contentStudioTerms";
 import PostSlotCopyFields from "./PostSlotCopyFields";
+import {
+  ContentReviewVideoThumb,
+  isContentReviewVideo,
+} from "./ContentReviewVideo";
 
 function PostThumb({ asset }: { asset: ContentReviewAsset }) {
-  const isVideo = asset.asset_type === "video" || asset.mime_type?.startsWith("video/");
   return (
     <div className="h-[72px] w-[72px] shrink-0 overflow-hidden rounded-xl border border-white/15 bg-black">
-      {isVideo ? (
-        <video src={asset.file_url} className="h-full w-full object-cover" muted playsInline />
+      {isContentReviewVideo(asset) ? (
+        <ContentReviewVideoThumb />
       ) : (
         <img
           src={asset.file_url}

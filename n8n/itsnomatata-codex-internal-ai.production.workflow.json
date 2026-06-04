@@ -124,7 +124,7 @@
         0
       ],
       "parameters": {
-        "jsCode": "const chatInput = $json.chatInput || $json.message || '';\nconst message = chatInput.toLowerCase();\nconst intakeReady = $json.processedInput?.hasUsableContent === true;\nconst metaReportDetected = $json.processedInput?.metaReportDetected === true;\nconst extractedLinks = Array.isArray($json.extractedLinks) ? $json.extractedLinks : [];\nconst attachments = Array.isArray($json.attachments) ? $json.attachments : [];\nconst sources = Array.isArray($json.attachmentSources) ? $json.attachmentSources : [];\nconst contextAttachments = Array.isArray($json.context?.attachments) ? $json.context.attachments : [];\nconst previousAttachments = Array.isArray($json.context?.previousAttachments) ? $json.context.previousAttachments : [];\nconst metadataAttachments = Array.isArray($json.metadata?.attachments) ? $json.metadata.attachments : [];\nconst metadataPreviousAttachments = Array.isArray($json.metadata?.previousAttachments) ? $json.metadata.previousAttachments : [];\nconst rememberedImages = [$json.context?.lastGeneratedImage, $json.metadata?.lastGeneratedImage].filter(Boolean);\nconst allAttachments = [...attachments, ...sources, ...contextAttachments, ...previousAttachments, ...metadataAttachments, ...metadataPreviousAttachments, ...rememberedImages];\nconst mimeOrName = item => String(item?.mimeType || item?.mime_type || item?.type || item?.name || item?.url || item?.download_url || '').toLowerCase();\nconst hasImageAttachment = allAttachments.some(item => item?.type === 'image' || mimeOrName(item).startsWith('image/') || /\\.(png|jpe?g|webp|gif)(\\?|#|$)/i.test(String(item?.url || item?.download_url || item?.name || '')) || String(item?.url || item?.download_url || '').startsWith('data:image/'));\nconst hasDocumentAttachment = allAttachments.some(item => item?.type === 'document' || /pdf|text|markdown|csv|json|word|docx|xlsx|excel|spreadsheet|document|invoice|receipt|form/.test(mimeOrName(item)));\nconst isStructuredFileAttachment = allAttachments.some(item => /\\.(csv|xlsx|xls|tsv|docx?|txt|md)$/i.test(String(item?.name || '')) || /csv|spreadsheet|excel|word|docx|plain|tab-separated/i.test(mimeOrName(item)));\nconst isTabularAttachment = allAttachments.some(item => /\\.(csv|xlsx|xls|tsv)$/i.test(String(item?.name || item?.url || '')) || /csv|spreadsheet|excel/i.test(mimeOrName(item)));\nconst isPdfAttachment = allAttachments.some(item => /pdf/i.test(mimeOrName(item)) || item?.type === 'document' && /\\.pdf/i.test(String(item?.name || item?.url || '')));\nconst hasAnyAttachment = hasImageAttachment || hasDocumentAttachment || allAttachments.length > 0 || Object.keys($binary || {}).length > 0;\nconst hasMetaLink = metaReportDetected || extractedLinks.some(url => /business\\.facebook|facebook\\.com\\/ads|business\\.meta|adsmanager\\.facebook/i.test(String(url))) || /meta business|ads manager|facebook ads|instagram insights|campaign report|ad account report/i.test(message);\nconst editIntent = /\\b(edit|change|modify|enhance|improve|retouch|remove|replace|background|make it professional|product photo|poster|add text|add the words|resize|crop|upscale|hd|high[- ]?resolution|clean up|color|colour|turn this into|use this image)\\b/i.test(chatInput);\nconst metadataSource = String($json.metadata?.source || '');\nconst contentStudioCaption = metadataSource === 'content_studio_caption' || $json.metadata?.forceTextOnly === true;\nconst contentStudioVision = metadataSource === 'content_studio_image_analysis' || $json.metadata?.forceImageVision === true;\nconst imageQuestionIntent = contentStudioVision || /what (can you see|is in|do you see)|describe (this|the|attached) image|analy[sz]e (this|the|attached)? ?image|identify this|what car|car model|caption this image/i.test(chatInput);\nconst extractAttachmentIntent = /\\bextract\\b|\\bpull\\s+(the\\s+)?data\\b|\\bget\\s+(the\\s+)?data\\b|presented\\s+attach|this\\s+attach|attached\\s+file|from\\s+(the\\s+)?attach|parse\\s+(the\\s+)?(file|document|attach)|what'?s\\s+in\\s+(this|the)\\s+(file|attach|document)/i.test(chatInput);\nconst ocrIntent = extractAttachmentIntent || /extract (the )?text|read this|scan this|ocr|what does this document say|transcribe|receipt|invoice|screenshot|form|scanned pdf|photographed document/i.test(chatInput);\nconst summarizeIntent = /summarize|summary|insights|performance|report|roas|spend|campaign results|account overview/i.test(message);\nlet route = 'main_agent';\nif (contentStudioCaption) route = 'main_agent';\nelse if (hasImageAttachment && editIntent) route = 'image_editing';\nelse if (!contentStudioCaption && /generate(?:s+an?s+|s+thes+)?image|create(?:s+an?s+|s+thes+)?image|\bdraw\b|make(?:s+an?s+)?picture|image of|generate.*logo|create.*logo|(?:^|\n).*\bad creative\b|marketing visual/i.test(chatInput) && !/caption|hashtag|rewrite|social copy|content studio/i.test(chatInput) && !hasImageAttachment) route = 'image_generation';\nelse if (hasImageAttachment && imageQuestionIntent) route = 'image_analysis';\nelse if (intakeReady && hasAnyAttachment && (extractAttachmentIntent || summarizeIntent || hasDocumentAttachment)) route = 'document_intake';\nelse if (!intakeReady && hasAnyAttachment && (extractAttachmentIntent || ocrIntent || summarizeIntent) && (isStructuredFileAttachment || isPdfAttachment)) route = 'ocr_extraction';\nelse if (!intakeReady && hasAnyAttachment && (extractAttachmentIntent || ocrIntent) && !isStructuredFileAttachment && !isPdfAttachment) route = 'ocr_extraction';\nelse if (intakeReady && (hasDocumentAttachment || hasMetaLink || summarizeIntent)) route = 'document_intake';\nelse if (hasMetaLink && summarizeIntent) route = 'meta_report';\nelse if (hasDocumentAttachment || /document|file|pdf|policy|summarize this|action items|deadline|extract text|invoice|receipt|xlsx|csv|spreadsheet/i.test(message)) route = 'document_qa';\nelse if (/website|external company|research|find online|official site/i.test(message)) route = 'web_research';\nelse if (/logo|hero image|gallery|open graph|og:image|favicon/i.test(message)) route = 'image_fetch';\nelse if (/who|team|department|responsible|maintain|built codex|developer/i.test(message)) route = 'people_directory';\nelse if (/code|typescript|react|next|tailwind|supabase|node|expo|bug|error/i.test(message)) route = 'code_assistant';\nreturn [{ json: { ...$json, chatInput, message: chatInput, route, allowed: true, routing: { hasImageAttachment, hasDocumentAttachment, editIntent, ocrIntent, extractAttachmentIntent, intakeReady, hasMetaLink } }, binary: $binary }];"
+        "jsCode": "const chatInput = $json.chatInput || $json.message || '';\nconst message = chatInput.toLowerCase();\nconst intakeReady = $json.processedInput?.hasUsableContent === true;\nconst metaReportDetected = $json.processedInput?.metaReportDetected === true;\nconst extractedLinks = Array.isArray($json.extractedLinks) ? $json.extractedLinks : [];\nconst attachments = Array.isArray($json.attachments) ? $json.attachments : [];\nconst sources = Array.isArray($json.attachmentSources) ? $json.attachmentSources : [];\nconst contextAttachments = Array.isArray($json.context?.attachments) ? $json.context.attachments : [];\nconst previousAttachments = Array.isArray($json.context?.previousAttachments) ? $json.context.previousAttachments : [];\nconst metadataAttachments = Array.isArray($json.metadata?.attachments) ? $json.metadata.attachments : [];\nconst metadataPreviousAttachments = Array.isArray($json.metadata?.previousAttachments) ? $json.metadata.previousAttachments : [];\nconst rememberedImages = [$json.context?.lastGeneratedImage, $json.metadata?.lastGeneratedImage].filter(Boolean);\nconst allAttachments = [...attachments, ...sources, ...contextAttachments, ...previousAttachments, ...metadataAttachments, ...metadataPreviousAttachments, ...rememberedImages];\nconst mimeOrName = item => String(item?.mimeType || item?.mime_type || item?.type || item?.name || item?.url || item?.download_url || '').toLowerCase();\nconst hasImageAttachment = allAttachments.some(item => item?.type === 'image' || mimeOrName(item).startsWith('image/') || /\\.(png|jpe?g|webp|gif)(\\?|#|$)/i.test(String(item?.url || item?.download_url || item?.name || '')) || String(item?.url || item?.download_url || '').startsWith('data:image/'));\nconst hasDocumentAttachment = allAttachments.some(item => item?.type === 'document' || /pdf|text|markdown|csv|json|word|docx|xlsx|excel|spreadsheet|document|invoice|receipt|form/.test(mimeOrName(item)));\nconst isStructuredFileAttachment = allAttachments.some(item => /\\.(csv|xlsx|xls|tsv|docx?|txt|md)$/i.test(String(item?.name || '')) || /csv|spreadsheet|excel|word|docx|plain|tab-separated/i.test(mimeOrName(item)));\nconst isTabularAttachment = allAttachments.some(item => /\\.(csv|xlsx|xls|tsv)$/i.test(String(item?.name || item?.url || '')) || /csv|spreadsheet|excel/i.test(mimeOrName(item)));\nconst isPdfAttachment = allAttachments.some(item => /pdf/i.test(mimeOrName(item)) || item?.type === 'document' && /\\.pdf/i.test(String(item?.name || item?.url || '')));\nconst hasAnyAttachment = hasImageAttachment || hasDocumentAttachment || allAttachments.length > 0 || Object.keys($binary || {}).length > 0;\nconst hasMetaLink = metaReportDetected || extractedLinks.some(url => /business\\.facebook|facebook\\.com\\/ads|business\\.meta|adsmanager\\.facebook/i.test(String(url))) || /meta business|ads manager|facebook ads|instagram insights|campaign report|ad account report/i.test(message);\nconst editIntent = /\\b(edit|change|modify|enhance|improve|retouch|remove|replace|background|make it professional|product photo|poster|add text|add the words|resize|crop|upscale|hd|high[- ]?resolution|clean up|color|colour|turn this into|use this image)\\b/i.test(chatInput);\nconst metadataSource = String($json.metadata?.source || '');\nconst contentStudioCaption = metadataSource === 'content_studio_caption' || $json.metadata?.forceTextOnly === true;\nconst contentStudioVision = metadataSource === 'content_studio_image_analysis' || $json.metadata?.forceImageVision === true;\nif (contentStudioVision && hasImageAttachment) {\n  return [{ json: { ...$json, chatInput, message: chatInput, route: 'image_analysis', allowed: true, routing: { contentStudioVision: true, hasImageAttachment } }, binary: $binary }];\n}\nconst imageQuestionIntent = contentStudioVision || /what (can you see|is in|do you see)|describe (this|the|attached) image|analy[sz]e (this|the|attached)? ?image|identify this|what car|car model|caption this image/i.test(chatInput);\nconst extractAttachmentIntent = /\\bextract\\b|\\bpull\\s+(the\\s+)?data\\b|\\bget\\s+(the\\s+)?data\\b|presented\\s+attach|this\\s+attach|attached\\s+file|from\\s+(the\\s+)?attach|parse\\s+(the\\s+)?(file|document|attach)|what'?s\\s+in\\s+(this|the)\\s+(file|attach|document)/i.test(chatInput);\nconst ocrIntent = extractAttachmentIntent || /extract (the )?text|read this|scan this|ocr|what does this document say|transcribe|receipt|invoice|screenshot|form|scanned pdf|photographed document/i.test(chatInput);\nconst summarizeIntent = /summarize|summary|insights|performance|report|roas|spend|campaign results|account overview/i.test(message);\nlet route = 'main_agent';\nif (contentStudioCaption) route = 'main_agent';\nelse if (hasImageAttachment && editIntent) route = 'image_editing';\nelse if (!contentStudioCaption && /generate(?:s+an?s+|s+thes+)?image|create(?:s+an?s+|s+thes+)?image|\bdraw\b|make(?:s+an?s+)?picture|image of|generate.*logo|create.*logo|(?:^|\n).*\bad creative\b|marketing visual/i.test(chatInput) && !/caption|hashtag|rewrite|social copy|content studio/i.test(chatInput) && !hasImageAttachment) route = 'image_generation';\nelse if (hasImageAttachment && imageQuestionIntent) route = 'image_analysis';\nelse if (intakeReady && hasAnyAttachment && (extractAttachmentIntent || summarizeIntent || hasDocumentAttachment)) route = 'document_intake';\nelse if (!intakeReady && hasAnyAttachment && (extractAttachmentIntent || ocrIntent || summarizeIntent) && (isStructuredFileAttachment || isPdfAttachment)) route = 'ocr_extraction';\nelse if (!intakeReady && hasAnyAttachment && (extractAttachmentIntent || ocrIntent) && !isStructuredFileAttachment && !isPdfAttachment) route = 'ocr_extraction';\nelse if (intakeReady && (hasDocumentAttachment || hasMetaLink || summarizeIntent)) route = 'document_intake';\nelse if (hasMetaLink && summarizeIntent) route = 'meta_report';\nelse if (hasDocumentAttachment || /document|file|pdf|policy|summarize this|action items|deadline|extract text|invoice|receipt|xlsx|csv|spreadsheet/i.test(message)) route = 'document_qa';\nelse if (/website|external company|research|find online|official site/i.test(message)) route = 'web_research';\nelse if (/logo|hero image|gallery|open graph|og:image|favicon/i.test(message)) route = 'image_fetch';\nelse if (/who|team|department|responsible|maintain|built codex|developer/i.test(message)) route = 'people_directory';\nelse if (/code|typescript|react|next|tailwind|supabase|node|expo|bug|error/i.test(message)) route = 'code_assistant';\nreturn [{ json: { ...$json, chatInput, message: chatInput, route, allowed: true, routing: { hasImageAttachment, hasDocumentAttachment, editIntent, ocrIntent, extractAttachmentIntent, intakeReady, hasMetaLink } }, binary: $binary }];"
       }
     },
     {
@@ -210,6 +210,28 @@
                   {
                     "leftValue": "={{ $json.route }}",
                     "rightValue": "ocr_extraction",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and",
+                "options": {
+                  "caseSensitive": true,
+                  "typeValidation": "strict",
+                  "version": 2
+                }
+              }
+            },
+            {
+              "renameOutput": true,
+              "outputKey": "image_analysis",
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "image_analysis",
                     "operator": {
                       "type": "string",
                       "operation": "equals"
@@ -2094,6 +2116,56 @@
         },
         "options": {}
       }
+    },
+    {
+      "id": "content-studio-vision-openai",
+      "name": "Content Studio Vision (OpenAI Direct)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -520,
+        -360
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/responses",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ (() => { const s = $('05 Permission + Tool Router').first().json; const list = [...(s.attachmentSources || []), ...(s.attachments || [])]; const img = list.find(a => a && (a.type === 'image' || /\\.(jpe?g|png|webp|gif)(\\?|#|$)/i.test(String(a.url || a.download_url || '')))); const url = String(img?.download_url || img?.url || ''); const prompt = String(s.chatInput || s.message || 'Analyze this image for social content.'); return JSON.stringify({ model: 'gpt-4o-mini', input: [{ role: 'user', content: [{ type: 'input_text', text: prompt }, { type: 'input_image', image_url: url }] }] }); })() }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "credentials": {
+        "openAiApi": {
+          "id": "AMCuIhOcN1ffKYz9",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "id": "format-content-studio-vision",
+      "name": "Format Content Studio Vision JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -280,
+        -360
+      ],
+      "parameters": {
+        "jsCode": "const source = $('05 Permission + Tool Router').first().json;\nlet raw = '';\nconst payload = $json;\nif (Array.isArray(payload?.output)) {\n  for (const part of payload.output) {\n    if (part?.type === 'message' && Array.isArray(part.content)) {\n      const textPart = part.content.find(c => c.type === 'output_text');\n      if (textPart?.text) raw = String(textPart.text);\n    }\n  }\n}\nif (!raw) raw = String(payload?.output_text || payload?.text || '').trim();\nconst trimmed = raw.trim();\nconst start = trimmed.indexOf('{');\nconst end = trimmed.lastIndexOf('}');\nconst jsonSlice = start >= 0 && end > start ? trimmed.slice(start, end + 1) : trimmed;\nlet parsed = {};\ntry { parsed = JSON.parse(jsonSlice); } catch { parsed = { sceneDescription: trimmed, suggestedCaption: trimmed }; }\nconst out = {\n  mood: String(parsed.mood || 'Professional'),\n  sceneDescription: String(parsed.sceneDescription || parsed.scene || trimmed.slice(0, 800)),\n  suggestedCaption: String(parsed.suggestedCaption || parsed.generatedCaption || parsed.caption || ''),\n  hashtags: Array.isArray(parsed.hashtags) ? parsed.hashtags : [],\n  shortAlternative: String(parsed.shortAlternative || ''),\n  platformCaptions: parsed.platformCaptions && typeof parsed.platformCaptions === 'object' ? parsed.platformCaptions : {\n    instagram: parsed.instagramCaption ? String(parsed.instagramCaption) : undefined,\n    facebook: parsed.facebookCaption ? String(parsed.facebookCaption) : undefined,\n  },\n  confidenceScore: typeof parsed.confidenceScore === 'number' ? parsed.confidenceScore : 0.85,\n};\nconst message = JSON.stringify(out);\nreturn [{ json: {\n  success: true,\n  type: 'image_analysis',\n  message,\n  output: message,\n  conversationId: source.conversationId || null,\n  attachments: [],\n  sources: [],\n}}];"
+      }
     }
   ],
   "connections": {
@@ -2182,6 +2254,13 @@
         [
           {
             "node": "Get OCR Source",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Content Studio Vision (OpenAI Direct)",
             "type": "main",
             "index": 0
           }
@@ -2961,6 +3040,28 @@
         [
           {
             "node": "OCR Handled by Codex?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Content Studio Vision (OpenAI Direct)": {
+      "main": [
+        [
+          {
+            "node": "Format Content Studio Vision JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Content Studio Vision JSON": {
+      "main": [
+        [
+          {
+            "node": "07 Safe Response Contract",
             "type": "main",
             "index": 0
           }

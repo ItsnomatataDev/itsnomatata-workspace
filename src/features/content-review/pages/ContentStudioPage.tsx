@@ -8,6 +8,7 @@ import {
   contentStudioCropFromAsset,
 } from "../components/ContentStudioCropEditor";
 import { ContentReviewRenderer } from "../components/ContentReviewRenderer";
+import { ContentReviewVideoPlayer } from "../components/ContentReviewVideo";
 import {
   addInternalContentReviewComment,
   assertCanUseContentStudio,
@@ -84,8 +85,8 @@ function MediaPreview({ asset }: { asset: ContentReviewAsset }) {
 
   if (asset.asset_type === "video" || asset.mime_type?.startsWith("video/")) {
     return (
-      <video
-        src={asset.file_url}
+      <ContentReviewVideoPlayer
+        asset={asset}
         controls
         className="aspect-video w-full rounded-xl border border-white/10 object-contain sm:object-cover"
       />
@@ -303,7 +304,7 @@ export default function ContentStudioPage() {
     try {
       setSaving(true);
       setError("");
-      setMessage("Preparing media. Large videos may take a few minutes to compress.");
+      setMessage("Uploading media…");
       let order = assets.length;
       for (const file of Array.from(files)) {
         await uploadContentReviewAsset({
@@ -316,7 +317,7 @@ export default function ContentStudioPage() {
         order += 1;
       }
       await loadDraftDetail(selectedDraft.id);
-      setMessage(`${Array.from(files).length} asset(s) uploaded. Videos are compressed when the browser supports it.`);
+      setMessage(`${Array.from(files).length} asset(s) uploaded.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to upload media.");
     } finally {
@@ -976,7 +977,7 @@ function UploadsTab({
           <div>
             <h2 className="text-xl font-semibold">Uploads</h2>
             <p className="mt-1 text-sm text-white/45">
-              Images and supported videos are compressed before upload. Limit {formatContentReviewFileSize(CONTENT_REVIEW_UPLOAD_LIMIT_BYTES)} per file. Media is permanently deleted after 60 days.
+              Images are compressed to WebP before upload; videos keep their original quality (up to {formatContentReviewFileSize(CONTENT_REVIEW_UPLOAD_LIMIT_BYTES)} per file). Media is permanently deleted after 60 days.
             </p>
           </div>
           <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-orange-500 px-4 py-3 text-sm font-semibold text-black hover:bg-orange-400">

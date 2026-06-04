@@ -55,16 +55,27 @@ This is n8n’s generic failure — the webhook was hit but a node crashed.
 4. For **Analyze image**, confirm the attachment URL opens in a browser (signed URL); OpenAI must be able to fetch it.
 5. Dev: restart `npm run dev` after `.env` changes so `/api/content-studio/*` proxies to `VITE_N8N_AI_WEBHOOK_URL`.
 
-## Optional Supabase edge function
+## Recommended: one OpenAI key in n8n (no Supabase duplicate)
 
-`content-studio-analyze-image` is only a **fallback** if n8n fails (webhook down, vision tool error, etc.).
+Content Studio **Analyze image** uses the same webhook as Codex (`VITE_N8N_AI_WEBHOOK_URL`) with `metadata.source: content_studio_image_analysis`.
 
-```bash
-supabase secrets set OPENAI_API_KEY=sk-...
-supabase functions deploy content-studio-analyze-image
-```
+The production workflow includes a **Content Studio Vision (OpenAI Direct)** branch: it calls your existing **OpenAi account** credential in n8n (same key you already use) and returns JSON — it does not rely on the main agent guessing.
 
-Skip this if n8n works — it duplicates OpenAI billing/config.
+**After pulling the latest workflow JSON:**
+
+1. n8n → **Import** `n8n/itsnomatata-codex-internal-ai.production.workflow.json`
+2. **Publish** the workflow (not test-only)
+3. Confirm **Content Studio Vision (OpenAI Direct)** uses your **OpenAi account** credential
+4. Optional n8n **Variables** (helps `04b Codex Process Input` sign private storage URLs):
+   - `SUPABASE_URL`
+   - `SUPABASE_SERVICE_ROLE_KEY`
+   - `INTERNAL_API_KEY` (same as app `.env`)
+
+Captions and rewrites still go through **06 Codex Main Agent** (`content_studio_caption`).
+
+## Optional Supabase edge (off by default)
+
+Only if you want a backup when n8n is down: set `VITE_CONTENT_STUDIO_EDGE_AI=true` and deploy `content-studio-analyze-image` with `OPENAI_API_KEY` on Supabase. **Not required** if n8n vision works.
 
 ## Quick test in n8n
 

@@ -10,18 +10,14 @@ import {
   type ContentClientMedia,
 } from "../services/contentReviewService";
 import { setDraggedLibraryMediaId } from "../utils/contentStudioLibraryDrag";
+import {
+  ContentReviewVideoThumb,
+  isContentReviewVideo,
+} from "./ContentReviewVideo";
 
 function MediaThumb({ media }: { media: ContentClientMedia }) {
-  const isVideo = media.asset_type === "video" || media.mime_type?.startsWith("video/");
-  if (isVideo) {
-    return (
-      <video
-        src={media.file_url}
-        className="h-full w-full object-cover"
-        muted
-        playsInline
-      />
-    );
+  if (isContentReviewVideo(media)) {
+    return <ContentReviewVideoThumb />;
   }
   return (
     <img
@@ -161,7 +157,7 @@ export default function ContentClientMediaLibrary({
         </label>
       </div>
       <p className="mt-2 text-[11px] text-white/35">
-        Max {formatContentReviewFileSize(CONTENT_REVIEW_UPLOAD_LIMIT_BYTES)} per file after compression.
+        Max {formatContentReviewFileSize(CONTENT_REVIEW_UPLOAD_LIMIT_BYTES)} per file (images compressed; videos kept as uploaded).
       </p>
       {error ? <p className="mt-2 text-xs text-red-300">{error}</p> : null}
       {loading ? (
