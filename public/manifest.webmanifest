@@ -1,12 +1,13 @@
 {
-  "name": "ITsNomatata Workspace",
-  "short_name": "Nomatata",
-  "description": "Team workspace with chat, tasks, and notifications",
+  "name": "Codex AI Workspace — IT's No Matata",
+  "short_name": "Codex",
+  "description": "AI-native team workspace by IT's No Matata. Built by Thando Mpofu and Benjamin McDonald.",
   "start_url": "/dashboard",
   "scope": "/",
   "display": "standalone",
   "background_color": "#000000",
   "theme_color": "#f97316",
+  "lang": "en-ZW",
   "icons": [
     {
       "src": "https://res.cloudinary.com/dnqjax5ut/image/upload/v1776754504/Itsnomatata-Logo-White-with-tagline-2-768x643_u3n4j0.png",

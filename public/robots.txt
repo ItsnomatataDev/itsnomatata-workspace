@@ -1,0 +1,17 @@
+# Codex AI Workspace — IT's No Matata
+# https://codex.itsnomatata.com
+
+User-agent: *
+Allow: /
+Allow: /login
+Allow: /about
+Allow: /about.html
+
+# Authenticated app surfaces — not useful in search indexes
+Disallow: /dashboard
+Disallow: /admin/
+Disallow: /client-portal/
+Disallow: /internal-preview/
+Disallow: /join/
+
+Sitemap: https://codex.itsnomatata.com/sitemap.xml
