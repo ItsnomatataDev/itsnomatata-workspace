@@ -97,6 +97,7 @@ flowchart LR
 | Source | Path |
 |--------|------|
 | Client approves / requests changes | `ClientPortalReviewPage` → `sendContentReviewFeedbackEmails` → `sendEmailOnly` → n8n webhook |
+| Internal approves / requests changes (review link) | `InternalContentPreviewPage` → `submit_internal_content_review_feedback` RPC → `sendContentReviewFeedbackEmails` → n8n webhook |
 | Internal comments in studio | `contentReviewService` → `sendEmailOnly` → n8n webhook |
 | Any `create-notification` with email channel | Edge function builds HTML → n8n webhook → updates `notification_deliveries` |
 | Stuck `queued` rows | n8n **Schedule** every 2 min → `dispatch-notification-email` → n8n webhook |
@@ -136,9 +137,12 @@ Expect `{"ok":true,"sent":true,...}` and an inbox message from your Outlook send
 ### B. Content review (end-to-end)
 
 1. Set `.env` webhook URL + secret and restart dev server.
-2. In client portal, approve one post on a **sent** schedule.
-3. Check browser Network tab: POST to n8n webhook returns 200.
-4. Content team inbox receives email with **Client review** badge.
+2. **Internal review:** Sign in to Codex, open the **internal review link**, approve one post.
+3. **Client review:** Schedule must be **Sent to client** first. In client portal, approve one post.
+4. Check browser Network tab: POST to n8n webhook returns 200.
+5. Creator inbox receives email with **Internal review** or **Client review** badge.
+
+**Internal review requirements:** reviewer must be signed in (`/login`) with role admin, media team, manager, etc. Migration `202606040005_fix_internal_review_feedback_submission.sql` must be applied (adds `submit_internal_content_review_feedback` RPC).
 
 ### C. Queue backup
 

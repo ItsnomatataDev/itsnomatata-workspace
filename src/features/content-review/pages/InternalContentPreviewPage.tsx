@@ -11,35 +11,56 @@ import {
 } from "../utils/contentReviewDisplay";
 import {
   getClientApprovedSlots,
-  isInternalSlotApproved,
+  getInternalApprovedSlots,
 } from "../utils/contentReviewFeedback";
 import { CONTENT_STUDIO_POSTS_PER_SCHEDULE, postLabel } from "../utils/contentStudioTerms";
 import {
   getInternalContentReviewPreview,
-  submitInternalPostReviewFeedback,
+  sendContentReviewFeedbackEmails,
+  submitInternalContentReviewFeedbackByToken,
   type ContentReviewAsset,
   type ContentReviewComment,
   type ContentReviewDraft,
+  type ContentInternalFeedbackLimits,
 } from "../services/contentReviewService";
 
 function inputClassName() {
   return "w-full rounded-xl border border-white/10 bg-black px-3 py-3 text-sm text-white outline-none transition placeholder:text-white/30 focus:border-orange-400/70";
 }
 
+function internalFeedbackErrorMessage(error?: string) {
+  switch (error) {
+    case "unauthorized":
+      return "Please sign in to Codex before submitting internal review.";
+    case "forbidden":
+      return "Your account cannot approve content on this schedule. Use a reviewer role (admin, media team, manager, etc.).";
+    case "already_approved":
+      return "This post was already approved internally.";
+    case "read_only":
+      return "This schedule is read-only.";
+    case "comment_required":
+      return "Please add a comment before submitting.";
+    case "not_found":
+      return "This review link could not be found.";
+    default:
+      return error || "Unable to submit internal review.";
+  }
+}
+
 export default function InternalContentPreviewPage() {
   const { token = "" } = useParams();
   const auth = useAuth();
   const profile = auth.profile;
-  const userId = auth.user?.id ?? null;
   const [draft, setDraft] = useState<ContentReviewDraft | null>(null);
   const [assets, setAssets] = useState<ContentReviewAsset[]>([]);
   const [comments, setComments] = useState<ContentReviewComment[]>([]);
+  const [feedbackLimits, setFeedbackLimits] = useState<ContentInternalFeedbackLimits>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [requestingSlot, setRequestingSlot] = useState<ContentReviewDisplaySlot | null>(null);
   const [requestText, setRequestText] = useState("");
-  const [message, setMessage] = useState("");
 
   const canReview = canApproveContentStudio(profile?.primary_role);
 
@@ -59,6 +80,7 @@ export default function InternalContentPreviewPage() {
       setDraft(result.draft ?? null);
       setAssets(result.assets ?? []);
       setComments(result.comments ?? []);
+      setFeedbackLimits(result.feedback ?? {});
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load preview.");
     } finally {
@@ -75,15 +97,22 @@ export default function InternalContentPreviewPage() {
     [comments],
   );
 
+  const internalApprovedSlots = useMemo(() => {
+    const fromFeedback = feedbackLimits.approved_slots ?? [];
+    if (fromFeedback.length > 0) return new Set(fromFeedback);
+    return new Set(getInternalApprovedSlots(comments));
+  }, [comments, feedbackLimits.approved_slots]);
+
   const allClientPostsApproved =
-    clientApprovedSlots.size >= CONTENT_STUDIO_POSTS_PER_SCHEDULE;
+    clientApprovedSlots.size >= CONTENT_STUDIO_POSTS_PER_SCHEDULE ||
+    Boolean(feedbackLimits.all_posts_approved);
 
   async function submitSectionDecision(
     slot: ContentReviewDisplaySlot,
     decision: "approved" | "changes_requested",
     sectionComment?: string,
   ) {
-    if (!draft || !userId || !canReview) return;
+    if (!draft || !canReview) return;
     const slotComment = (sectionComment ?? "").trim();
     const slotLabel = `Post ${slot.slot + 1}`;
     const sectionTitle = slot.primary.heading?.trim() || slot.primary.file_name || "";
@@ -101,27 +130,37 @@ export default function InternalContentPreviewPage() {
     try {
       setSubmitting(true);
       setError("");
-      const comment = await submitInternalPostReviewFeedback({
-        draft,
+      const result = await submitInternalContentReviewFeedbackByToken({
+        token,
         slot: slot.slot,
         decision,
         message: compiled,
-        createdBy: userId,
-        authorName: profile?.full_name?.trim() || profile?.email || "Staff",
-        authorEmail: profile?.email ?? null,
-        existingComments: comments,
       });
-      setComments((current) => [...current, comment]);
-      if (decision === "approved" && areAllInternallyApproved([...comments, comment])) {
-        setDraft((current) =>
-          current ? { ...current, status: "approved" } : current,
-        );
+      if (!result.ok) {
+        setError(internalFeedbackErrorMessage(result.error));
+        return;
       }
-      if (decision === "changes_requested" && draft.status === "approved") {
-        setDraft((current) =>
-          current ? { ...current, status: "ready_for_review" } : current,
-        );
+      if (result.comment) {
+        setComments((current) => [...current, result.comment as ContentReviewComment]);
       }
+      if (result.feedback) {
+        setFeedbackLimits(result.feedback);
+      }
+      if (result.status && draft) {
+        setDraft({ ...draft, status: result.status });
+      }
+
+      const eventType = decision === "approved" ? "approval_note" : "change_request";
+      void sendContentReviewFeedbackEmails({
+        draft: { ...draft, status: result.status ?? draft.status },
+        source: "internal",
+        eventType,
+        authorName: profile?.full_name?.trim() || profile?.email || "Staff",
+        message: compiled,
+        displaySlot: slot.slot,
+        dedupeKey: `content-internal-feedback:${draft.id}:${decision}:${slot.slot}:${Date.now()}`,
+      });
+
       setMessage(
         decision === "approved"
           ? `${postLabel(slot.slot)} approved internally.`
@@ -129,6 +168,7 @@ export default function InternalContentPreviewPage() {
       );
       setRequestingSlot(null);
       setRequestText("");
+      await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to submit internal review.");
     } finally {
@@ -136,19 +176,11 @@ export default function InternalContentPreviewPage() {
     }
   }
 
-  function areAllInternallyApproved(nextComments: ContentReviewComment[]) {
-    let approved = 0;
-    for (let slot = 0; slot < CONTENT_STUDIO_POSTS_PER_SCHEDULE; slot += 1) {
-      if (isInternalSlotApproved(nextComments, slot)) approved += 1;
-    }
-    return approved >= CONTENT_STUDIO_POSTS_PER_SCHEDULE;
-  }
-
   function slotReviewState(slot: ContentReviewDisplaySlot) {
     if (clientApprovedSlots.has(slot.slot)) {
       return "client_approved" as const;
     }
-    if (isInternalSlotApproved(comments, slot.slot)) {
+    if (internalApprovedSlots.has(slot.slot)) {
       return "internal_approved" as const;
     }
     return "pending" as const;
@@ -191,12 +223,20 @@ export default function InternalContentPreviewPage() {
           </div>
         </div>
 
-        {!canReview ? (
-          <div className="mb-6 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-white/70">
-            Sign in with a reviewer account to approve posts on this page.{" "}
-            <Link to="/login" className="font-semibold text-orange-300 hover:text-orange-200">
+        {!auth.user ? (
+          <div className="mb-6 rounded-2xl border border-orange-500/30 bg-orange-500/10 p-4 text-sm text-orange-100">
+            Sign in to Codex to approve or request changes.{" "}
+            <Link
+              to={`/login?returnTo=${encodeURIComponent(window.location.pathname)}`}
+              className="font-semibold underline"
+            >
               Sign in
             </Link>
+          </div>
+        ) : !canReview ? (
+          <div className="mb-6 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-white/70">
+            Your role can view this preview but cannot submit internal approvals. Ask an admin or
+            media team reviewer to open this link while signed in.
           </div>
         ) : null}
 
@@ -207,8 +247,7 @@ export default function InternalContentPreviewPage() {
               <div>
                 <p className="font-semibold text-emerald-100">All posts client-approved</p>
                 <p className="mt-1 text-sm text-emerald-100/80">
-                  The client approved every post in this schedule. Internal review actions are
-                  closed.
+                  The client approved every post in this schedule.
                 </p>
               </div>
             </div>
@@ -230,6 +269,9 @@ export default function InternalContentPreviewPage() {
                 Publish {formatClientReviewDate(draft.scheduled_at)}
               </span>
             ) : null}
+            <span className="rounded-full border border-white/10 px-3 py-1 text-white/70">
+              Internal {internalApprovedSlots.size}/{CONTENT_STUDIO_POSTS_PER_SCHEDULE}
+            </span>
           </div>
         </header>
 
@@ -250,7 +292,7 @@ export default function InternalContentPreviewPage() {
           theme="public"
           hideScheduleHeaderInBody
           renderSectionActions={
-            canReview
+            auth.user && canReview
               ? (slot) => {
                   const state = slotReviewState(slot);
                   if (state === "client_approved") {

@@ -1809,6 +1809,18 @@ export async function submitInternalPostReviewFeedback(params: {
   authorEmail?: string | null;
   existingComments?: ContentReviewComment[];
 }) {
+  const { data: draftRow, error: draftError } = await supabase
+    .from("content_review_drafts")
+    .select("*")
+    .eq("id", params.draft.id)
+    .single();
+
+  if (draftError || !draftRow) {
+    throw new Error(draftError?.message || "Schedule not found for internal review.");
+  }
+
+  const draft = { ...params.draft, ...draftRow } as ContentReviewDraft;
+
   const slotLabel = `Post ${params.slot + 1}`;
   const body = [
     `[${slotLabel}]`,
@@ -1823,9 +1835,9 @@ export async function submitInternalPostReviewFeedback(params: {
   const { data, error } = await supabase
     .from("content_review_comments")
     .insert({
-      draft_id: params.draft.id,
-      organization_id: params.draft.organization_id,
-      office_id: params.draft.office_id,
+      draft_id: draft.id,
+      organization_id: draft.organization_id,
+      office_id: draft.office_id,
       author_name: params.authorName,
       author_email: params.authorEmail ?? null,
       body,
@@ -1841,13 +1853,16 @@ export async function submitInternalPostReviewFeedback(params: {
     .select("*")
     .single();
 
-  if (error) throw error;
+  if (error) {
+    const details = [error.message, error.details, error.hint].filter(Boolean).join(" | ");
+    throw new Error(details || "Failed to save internal review feedback.");
+  }
 
   const comment = data as ContentReviewComment;
   const mergedComments = [...(params.existingComments ?? []), comment];
 
-  if (params.decision === "changes_requested" && params.draft.status === "approved") {
-    await updateContentReviewDraft(params.draft, {
+  if (params.decision === "changes_requested" && draft.status === "approved") {
+    await updateContentReviewDraft(draft, {
       status: "ready_for_review",
       approved_at: null,
       approved_by_name: null,
@@ -1856,10 +1871,10 @@ export async function submitInternalPostReviewFeedback(params: {
   } else if (
     params.decision === "approved" &&
     areAllInternalPostsApproved(mergedComments) &&
-    params.draft.status !== "approved" &&
-    params.draft.status !== "published"
+    draft.status !== "approved" &&
+    draft.status !== "published"
   ) {
-    await updateContentReviewDraft(params.draft, {
+    await updateContentReviewDraft(draft, {
       status: "approved",
       approved_at: new Date().toISOString(),
       approved_by_name: params.authorName,
@@ -1867,17 +1882,21 @@ export async function submitInternalPostReviewFeedback(params: {
     });
   }
 
-  await recordActivity({
-    draft: params.draft,
-    type:
-      params.decision === "approved"
-        ? "internal_approval"
-        : "internal_changes_requested",
-    actorUserId: params.createdBy,
-  });
+  try {
+    await recordActivity({
+      draft,
+      type:
+        params.decision === "approved"
+          ? "internal_approval"
+          : "internal_changes_requested",
+      actorUserId: params.createdBy,
+    });
+  } catch (activityError) {
+    console.warn("Content review activity log skipped.", activityError);
+  }
 
   void sendContentReviewFeedbackEmails({
-    draft: params.draft,
+    draft,
     source: "internal",
     eventType: commentType,
     authorName: params.authorName,
@@ -1887,6 +1906,41 @@ export async function submitInternalPostReviewFeedback(params: {
   });
 
   return comment;
+}
+
+export type ContentInternalFeedbackLimits = {
+  expected_posts?: number;
+  approved_slots?: number[];
+  changes_requested_slots?: number[];
+  approved_count?: number;
+  all_posts_approved?: boolean;
+  has_approved?: boolean;
+  has_requested_changes?: boolean;
+};
+
+export async function submitInternalContentReviewFeedbackByToken(params: {
+  token: string;
+  slot: number;
+  decision: "approved" | "changes_requested";
+  message: string;
+}) {
+  const { data, error } = await supabase.rpc("submit_internal_content_review_feedback", {
+    target_token: params.token,
+    feedback_body: params.message,
+    decision: params.decision,
+    display_slot: params.slot,
+  });
+  if (error) {
+    const details = [error.message, error.details, error.hint].filter(Boolean).join(" | ");
+    throw new Error(details || "submit_internal_content_review_feedback failed");
+  }
+  return data as {
+    ok: boolean;
+    error?: string | "unauthorized" | "forbidden" | "not_found" | "read_only" | "already_approved" | "comment_required" | "invalid_decision";
+    status?: ContentReviewStatus;
+    comment?: ContentReviewComment;
+    feedback?: ContentInternalFeedbackLimits;
+  };
 }
 
 export async function recordActivity(params: {
@@ -2103,6 +2157,7 @@ export async function getInternalContentReviewPreview(token: string) {
     draft?: ContentReviewDraft;
     assets?: ContentReviewAsset[];
     comments?: ContentReviewComment[];
+    feedback?: ContentInternalFeedbackLimits;
   };
 }
 
