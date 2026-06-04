@@ -254,6 +254,16 @@ export function revokeScheduleApprovalLabel(
   return "Unapprove schedule";
 }
 
+/** Staff can flag a schedule for fixes before it is sent to the client portal. */
+export function canRequestInternalChanges(
+  draft: Pick<ContentReviewDraft, "status">,
+  readiness: PostReadiness,
+) {
+  if (readiness.sentToClient) return false;
+  if (draft.status === "archived" || draft.status === "published") return false;
+  return readiness.hasMedia && readiness.hasCaption;
+}
+
 export function sendGateHint(readiness: PostReadiness) {
   const missing: string[] = [];
   if (!readiness.hasMedia) missing.push("media");

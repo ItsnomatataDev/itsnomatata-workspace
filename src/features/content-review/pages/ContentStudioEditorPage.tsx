@@ -69,11 +69,13 @@ import {
 } from "../utils/contentStudioEditorNav";
 import { shouldUseUnifiedPostCopy } from "../utils/postCopyLayout";
 import {
+  canRequestInternalChanges,
   canRevokeScheduleApproval,
   revokeScheduleApprovalLabel,
   getPostReadiness,
   sendGateHint,
 } from "../utils/contentStudioProgress";
+import { canApproveContentStudio } from "../../../lib/auth/contentStudioAccess";
 import { contentStudioCopy, postLabel } from "../utils/contentStudioTerms";
 
 type PreviewMode = "desktop" | "mobile";
@@ -103,7 +105,7 @@ function formatStatus(status: string) {
 }
 
 function canApproveRole(role: string | null | undefined) {
-  return ["admin", "org_admin", "super_admin", "superadmin", "social_media"].includes(role ?? "");
+  return canApproveContentStudio(role);
 }
 
 function draftToForm(draft: ContentReviewDraft) {
@@ -729,7 +731,10 @@ export default function ContentStudioEditorPage() {
     }
   }
 
-  async function saveDraft(nextStatus?: ContentReviewDraft["status"]) {
+  async function saveDraft(
+    nextStatus?: ContentReviewDraft["status"],
+    options?: { internalRequestChanges?: boolean },
+  ) {
     if (!detail || !draftPreview || !form || !editorReadiness) return;
     if (nextStatus === "sent_to_client" && !editorReadiness.canSendToClient) {
       setError(sendGateHint(editorReadiness));
@@ -739,7 +744,19 @@ export default function ContentStudioEditorPage() {
       setError("Add media and social caption before internal approval.");
       return;
     }
-    if (nextStatus === "ready_for_review") {
+    if (nextStatus === "ready_for_review" && options?.internalRequestChanges) {
+      if (!canRequestInternalChanges(detail.draft, editorReadiness)) {
+        setError("Add media and captions before requesting internal changes.");
+        return;
+      }
+      if (
+        !window.confirm(
+          `Request changes on "${form.title.trim() || "this schedule"}"? It cannot be sent to the client until it is approved again.`,
+        )
+      ) {
+        return;
+      }
+    } else if (nextStatus === "ready_for_review") {
       if (!canRevokeScheduleApproval(detail.draft, editorReadiness)) {
         setError("This schedule cannot be recalled or unapproved.");
         return;
@@ -791,10 +808,12 @@ export default function ContentStudioEditorPage() {
         nextStatus === "sent_to_client"
           ? "Saved and sent for client review via the portal."
           : nextStatus === "approved"
-            ? "Post internally approved."
-            : nextStatus === "ready_for_review"
-              ? "Schedule recalled. Ready for review again."
-              : "All changes saved.",
+            ? "Schedule internally approved. Send to client when ready."
+            : nextStatus === "ready_for_review" && options?.internalRequestChanges
+              ? "Schedule marked as needing internal changes."
+              : nextStatus === "ready_for_review"
+                ? "Schedule recalled. Ready for review again."
+                : "All changes saved.",
       );
       if (nextStatus === "sent_to_client") {
         await notifyContentReviewTeam({
@@ -983,7 +1002,20 @@ export default function ContentStudioEditorPage() {
                 className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-2 text-xs font-semibold text-emerald-200 hover:bg-emerald-500/15 disabled:opacity-60"
               >
                 <CheckCircle2 size={14} />
-                Approve
+                Approve internally
+              </button>
+            ) : null}
+            {canApproveRole(profile?.primary_role) &&
+            detail &&
+            editorReadiness &&
+            canRequestInternalChanges(detail.draft, editorReadiness) ? (
+              <button
+                type="button"
+                onClick={() => void saveDraft("ready_for_review", { internalRequestChanges: true })}
+                disabled={saving}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-orange-500/40 bg-orange-500/10 px-2.5 py-2 text-xs font-semibold text-orange-100 hover:bg-orange-500/15 disabled:opacity-60"
+              >
+                Request changes
               </button>
             ) : null}
             {canApproveRole(profile?.primary_role) &&

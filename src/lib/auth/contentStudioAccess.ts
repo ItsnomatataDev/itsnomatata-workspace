@@ -40,3 +40,18 @@ export function isContentStudioPath(pathname: string) {
     pathname.startsWith("/content-studio")
   );
 }
+
+/** Roles that can internally approve schedules or request changes before client send. */
+export const CONTENT_STUDIO_APPROVER_ROLES = new Set([
+  "admin",
+  "org_admin",
+  "super_admin",
+  "superadmin",
+  "social_media",
+  "media_team",
+  "manager",
+]);
+
+export function canApproveContentStudio(role: string | null | undefined) {
+  return CONTENT_STUDIO_APPROVER_ROLES.has(role ?? "");
+}

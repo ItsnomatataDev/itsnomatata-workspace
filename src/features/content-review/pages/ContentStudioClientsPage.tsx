@@ -50,6 +50,7 @@ import {
 import {
   batchSendGateHint,
   CONTENT_STUDIO_POSTS_PER_SCHEDULE,
+  canRequestInternalChanges,
   canRevokeScheduleApproval,
   revokeScheduleApprovalLabel,
   getClientBatchReadiness,
@@ -57,6 +58,7 @@ import {
   stageBadgeClass,
   type StageLabel,
 } from "../utils/contentStudioProgress";
+import { canApproveContentStudio } from "../../../lib/auth/contentStudioAccess";
 import {
   contentStudioCopy,
   defaultScheduleTitle,
@@ -127,13 +129,7 @@ function isClientReviewedStatus(status: string) {
 }
 
 function canApprove(role: string | null | undefined) {
-  return [
-    "admin",
-    "org_admin",
-    "super_admin",
-    "superadmin",
-    "social_media",
-  ].includes(role ?? "");
+  return canApproveContentStudio(role);
 }
 
 function StatusBadge({ label }: { label: StageLabel }) {
@@ -771,7 +767,7 @@ export default function ContentStudioClientsPage() {
   async function updateDraftStatus(
     draft: ContentReviewDraft,
     status: ContentReviewDraft["status"],
-    options?: { skipConfirm?: boolean },
+    options?: { skipConfirm?: boolean; internalRequestChanges?: boolean },
   ) {
     const readiness = getPostReadiness(
       draft,
@@ -786,7 +782,22 @@ export default function ContentStudioClientsPage() {
       setError("Add media and caption before internal approval.");
       return;
     }
-    if (status === "ready_for_review") {
+    if (status === "ready_for_review" && options?.internalRequestChanges) {
+      if (!canRequestInternalChanges(draft, readiness)) {
+        setError(
+          "Add media and captions on all posts before requesting internal changes.",
+        );
+        return;
+      }
+      if (
+        !options?.skipConfirm &&
+        !window.confirm(
+          `Request changes on "${draft.title || "this schedule"}"? It will stay off the client portal until it is approved again.`,
+        )
+      ) {
+        return;
+      }
+    } else if (status === "ready_for_review") {
       if (!canRevokeScheduleApproval(draft, readiness)) {
         setError("This schedule cannot be recalled or unapproved.");
         return;
@@ -810,9 +821,13 @@ export default function ContentStudioClientsPage() {
       }
       await updateContentReviewDraft(draft, updates);
       setMessage(
-        status === "ready_for_review"
-          ? "Schedule recalled. It is ready for review again."
-          : `Post marked as ${formatStatus(status)}.`,
+        status === "ready_for_review" && options?.internalRequestChanges
+          ? "Schedule marked as needing internal changes. Approve again when ready to send to the client."
+          : status === "ready_for_review"
+            ? "Schedule recalled. It is ready for review again."
+            : status === "approved"
+              ? "Schedule internally approved. You can send it to the client when ready."
+              : `Post marked as ${formatStatus(status)}.`,
       );
       await load();
     } catch (err) {
@@ -1258,6 +1273,55 @@ export default function ContentStudioClientsPage() {
                       </span>
                     </div>
                     <div className="flex flex-wrap gap-2">
+                      {canApprove(profile?.primary_role) && activeScheduleDraft
+                        ? (() => {
+                            const scheduleReadiness = getPostReadiness(
+                              activeScheduleDraft,
+                              clientBatch.mediaComplete,
+                              assetsForDraft(
+                                detailsByDraftId[activeScheduleDraft.id],
+                              ),
+                            );
+                            return (
+                              <>
+                                {scheduleReadiness.canApproveInternally ? (
+                                  <button
+                                    type="button"
+                                    disabled={saving}
+                                    onClick={() =>
+                                      void updateDraftStatus(
+                                        activeScheduleDraft,
+                                        "approved",
+                                      )
+                                    }
+                                    className="inline-flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-2 text-sm font-semibold text-emerald-200 disabled:opacity-60"
+                                  >
+                                    Approve schedule
+                                  </button>
+                                ) : null}
+                                {canRequestInternalChanges(
+                                  activeScheduleDraft,
+                                  scheduleReadiness,
+                                ) ? (
+                                  <button
+                                    type="button"
+                                    disabled={saving}
+                                    onClick={() =>
+                                      void updateDraftStatus(
+                                        activeScheduleDraft,
+                                        "ready_for_review",
+                                        { internalRequestChanges: true },
+                                      )
+                                    }
+                                    className="inline-flex items-center gap-2 rounded-xl border border-orange-500/40 bg-orange-500/10 px-4 py-2 text-sm font-semibold text-orange-100 disabled:opacity-60"
+                                  >
+                                    Request changes
+                                  </button>
+                                ) : null}
+                              </>
+                            );
+                          })()
+                        : null}
                       <button
                         type="button"
                         disabled={saving || !clientBatch.canSendBatchToClient}
@@ -1626,7 +1690,25 @@ export default function ContentStudioClientsPage() {
                                         }
                                         className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-200"
                                       >
-                                        Approve schedule
+                                        Approve internally
+                                      </button>
+                                    ) : null}
+                                    {canRequestInternalChanges(
+                                      activeScheduleDraft,
+                                      scheduleReadiness,
+                                    ) ? (
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          void updateDraftStatus(
+                                            activeScheduleDraft,
+                                            "ready_for_review",
+                                            { internalRequestChanges: true },
+                                          )
+                                        }
+                                        className="rounded-xl border border-orange-500/40 bg-orange-500/10 px-3 py-2 text-xs font-semibold text-orange-100 hover:bg-orange-500/15"
+                                      >
+                                        Request changes
                                       </button>
                                     ) : null}
                                     {canRevokeScheduleApproval(
