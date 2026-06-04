@@ -172,6 +172,7 @@ export default function ContentStudioEditorPage() {
         organizationId,
         officeId: profile?.office_id ?? null,
         role: profile?.primary_role ?? null,
+        profile,
         roles: [
           profile?.primary_role,
           profile?.organization_role_key,

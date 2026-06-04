@@ -114,6 +114,32 @@ export function isITsNomatataOfficeProfile(profile?: {
   );
 }
 
+/** Offices that may use Content Studio (excludes Three Little Birds). */
+export function filterContentStudioOffices(offices: CompanyOffice[]) {
+  return offices.filter((office) => getOfficeCapabilities(office).contentStudio);
+}
+
+export function pickContentStudioOffice(
+  offices: CompanyOffice[],
+  preferredOfficeId?: string | null,
+) {
+  const eligible = filterContentStudioOffices(offices);
+  if (eligible.length === 0) return null;
+
+  if (preferredOfficeId) {
+    const preferred = eligible.find((office) => office.id === preferredOfficeId);
+    if (preferred) return preferred;
+  }
+
+  return (
+    eligible.find((office) => office.is_primary) ??
+    eligible.find(
+      (office) => normalizeOfficeSlug(office.slug) === OFFICE_SLUGS.itsNoMatata,
+    ) ??
+    eligible[0]
+  );
+}
+
 export function describeOfficeCapabilities(
   office?: { slug?: string | null; name?: string | null } | null,
 ) {

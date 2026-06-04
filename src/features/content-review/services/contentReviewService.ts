@@ -1,6 +1,12 @@
 import { supabase } from "../../../lib/supabase/client";
-import { OFFICE_SLUGS } from "../../../lib/offices";
-import { getCompanyOfficeBySlug } from "../../../lib/supabase/queries/offices";
+import {
+  canManageAllOffices,
+  filterContentStudioOffices,
+  getOfficeCapabilities,
+  OFFICE_SLUGS,
+  pickContentStudioOffice,
+} from "../../../lib/offices";
+import { getCompanyOffices } from "../../../lib/supabase/queries/offices";
 import { createNotification } from "../../../lib/supabase/mutations/notifications";
 import { askAssistant, buildAssistantContext } from "../../../lib/api/ai";
 import {
@@ -289,13 +295,50 @@ export function inferLayoutType(params: {
   return "article";
 }
 
+/** @deprecated Use resolveContentStudioOffice — kept for legacy imports. */
 export async function getItsNoMatataOffice(organizationId: string) {
-  const office = await getCompanyOfficeBySlug({
-    organizationId,
-    slug: OFFICE_SLUGS.itsNoMatata,
-  });
-  if (!office) throw new Error("IT's No Matata office was not found.");
-  return office;
+  return resolveContentStudioOffice({ organizationId });
+}
+
+export async function resolveContentStudioOffice(params: {
+  organizationId: string;
+  preferredOfficeId?: string | null;
+  allowOrgWideAdmin?: boolean;
+}) {
+  const offices = await getCompanyOffices(params.organizationId);
+  const eligible = filterContentStudioOffices(offices);
+
+  if (eligible.length === 0) {
+    throw new Error(
+      "No office in this organization is set up for Content Studio. Add a company office in organization settings (Three Little Birds offices cannot use Content Studio).",
+    );
+  }
+
+  const office = pickContentStudioOffice(offices, params.preferredOfficeId);
+  if (office) return office;
+
+  if (params.preferredOfficeId) {
+    const assigned = offices.find((row) => row.id === params.preferredOfficeId);
+    if (assigned && !getOfficeCapabilities(assigned).contentStudio) {
+      throw new Error(
+        "Content Studio is not available for the Three Little Birds office. Ask an admin to assign you to a media office.",
+      );
+    }
+
+    if (!params.allowOrgWideAdmin) {
+      throw new Error(
+        "Content Studio is not available for your current office. Ask an admin to assign you to a media office in this organization.",
+      );
+    }
+  }
+
+  const fallback = pickContentStudioOffice(offices);
+  if (!fallback) {
+    throw new Error(
+      "No office in this organization is set up for Content Studio. Add a company office in organization settings (Three Little Birds offices cannot use Content Studio).",
+    );
+  }
+  return fallback;
 }
 
 export async function assertCanUseContentStudio(params: {
@@ -303,6 +346,11 @@ export async function assertCanUseContentStudio(params: {
   officeId?: string | null;
   role?: string | null;
   roles?: Array<string | null | undefined>;
+  profile?: {
+    primary_role?: string | null;
+    office_id?: string | null;
+    office?: { is_primary?: boolean | null; slug?: string | null } | null;
+  } | null;
 }) {
   const roleCandidates = [
     ...(params.roles ?? []),
@@ -313,12 +361,11 @@ export async function assertCanUseContentStudio(params: {
     throw new Error("You do not have access to Content Studio.");
   }
 
-  const office = await getItsNoMatataOffice(params.organizationId);
-  if (params.officeId !== office.id) {
-    throw new Error("Content Studio is only available for IT's No Matata.");
-  }
-
-  return office;
+  return resolveContentStudioOffice({
+    organizationId: params.organizationId,
+    preferredOfficeId: params.officeId ?? params.profile?.office_id ?? null,
+    allowOrgWideAdmin: canManageAllOffices(params.profile),
+  });
 }
 
 export async function purgeOldContentReviewSchedules(

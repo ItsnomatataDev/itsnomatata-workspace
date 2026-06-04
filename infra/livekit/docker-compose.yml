@@ -1,0 +1,11 @@
+# Linux VPS only — requires host networking (see LiveKit docs).
+# Run from /opt/livekit on the meet VPS after copying this folder.
+
+services:
+  livekit:
+    image: livekit/livekit-server:v1.8
+    command: --config /etc/livekit.yaml
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./livekit.yaml:/etc/livekit.yaml:ro

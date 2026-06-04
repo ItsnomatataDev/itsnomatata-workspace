@@ -18,7 +18,6 @@ import {
   deleteContentReviewDraft,
   formatContentReviewFileSize,
   getContentReviewDetail,
-  getItsNoMatataOffice,
   inferLayoutType,
   listContentReviewDrafts,
   notifyContentReviewTeam,
@@ -183,6 +182,7 @@ export default function ContentStudioPage() {
         organizationId,
         officeId: profile?.office_id ?? null,
         role: profile?.primary_role ?? null,
+        profile,
         roles: [
           profile?.primary_role,
           profile?.organization_role_key,

@@ -1,0 +1,31 @@
+# Self-hosted LiveKit for meet.itsnomatata.com
+# Replace API key/secret placeholders before starting (see scripts/livekit-generate-keys.sh).
+#
+# Supabase Edge secrets must match keys.* below:
+#   LIVEKIT_URL=wss://meet.itsnomatata.com
+#   LIVEKIT_API_KEY=<key name>
+#   LIVEKIT_API_SECRET=<secret value>
+
+port: 7880
+
+bind_addresses:
+  - ""
+
+rtc:
+  tcp_port: 7881
+  port_range_start: 50000
+  port_range_end: 50100
+  use_external_ip: true
+
+turn:
+  enabled: true
+  domain: meet.itsnomatata.com
+  tls_port: 443
+  udp_port: 3478
+  external_tls: true
+
+keys:
+  REPLACE_ME_API_KEY: REPLACE_ME_API_SECRET
+
+logging:
+  level: info
