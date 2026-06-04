@@ -88,6 +88,7 @@ function MediaPreview({ asset }: { asset: ContentReviewAsset }) {
       <ContentReviewVideoPlayer
         asset={asset}
         controls
+        preload="metadata"
         className="aspect-video w-full rounded-xl border border-white/10 object-contain"
       />
     );

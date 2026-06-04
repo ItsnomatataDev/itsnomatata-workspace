@@ -43,3 +43,41 @@ export function isVideoAsset(asset: {
   if (asset.file_name && isVideoExtension(fileNameExtension(asset.file_name))) return true;
   return false;
 }
+
+export type PreparedMediaUpload = {
+  file: File;
+  compressionStatus: "compressed" | "stored_original" | "not_applicable";
+  originalSize: number;
+  storedSize: number;
+};
+
+/** Videos are never re-encoded in the browser — upload the file bytes as selected. */
+export function prepareVideoUpload(file: File): PreparedMediaUpload {
+  return {
+    file,
+    compressionStatus: "stored_original",
+    originalSize: file.size,
+    storedSize: file.size,
+  };
+}
+
+/** Older uploads were re-encoded to WebM in-browser; re-upload the original file to restore quality. */
+export function isLegacyCompressedVideo(asset: {
+  asset_type?: string | null;
+  mime_type?: string | null;
+  file_name?: string | null;
+  compression_status?: string | null;
+  original_size_bytes?: number | null;
+  stored_size_bytes?: number | null;
+}) {
+  if (!isVideoAsset(asset)) return false;
+  if (asset.compression_status === "compressed") return true;
+  const mime = asset.mime_type ?? "";
+  const name = asset.file_name ?? "";
+  if (mime === "video/webm" || /\.webm$/i.test(name)) {
+    const original = asset.original_size_bytes ?? 0;
+    const stored = asset.stored_size_bytes ?? 0;
+    if (original > 0 && stored > 0 && stored < original * 0.85) return true;
+  }
+  return false;
+}

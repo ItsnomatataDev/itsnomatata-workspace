@@ -11,7 +11,8 @@
     "deploy:function:create-notification": "./scripts/deploy-create-notification.sh",
     "deploy:push-functions": "./scripts/deploy-push-functions.sh",
     "generate:vapid-keys": "web-push generate-vapid-keys",
-    "seed:caption-test": "node scripts/seed-tech-client-caption-test.mjs"
+    "seed:caption-test": "node scripts/seed-tech-client-caption-test.mjs",
+    "cleanup:content-media": "node scripts/cleanup-content-review-media.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

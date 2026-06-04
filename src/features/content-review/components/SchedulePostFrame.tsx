@@ -19,6 +19,7 @@ import {
   readDraggedLibraryMediaId,
 } from "../utils/contentStudioLibraryDrag";
 import { postLabel } from "../utils/contentStudioTerms";
+import { isLegacyCompressedVideo } from "../services/contentReviewService";
 import {
   ContentReviewVideoPlayer,
   ContentReviewVideoThumb,
@@ -44,7 +45,7 @@ const FRAME_AI_ACTIONS: Array<{
   { label: "Facebook version", instruction: "Rewrite for Facebook", tone: "friendly", platform: "facebook" },
   { label: "Suggest ideas", instruction: "Suggest three caption ideas and pick the best one" },
   {
-    label: "Analyze image + caption",
+    label: "Analyze media + caption",
     instruction: "Analyze the media mood and write a caption",
     analyze: true,
   },
@@ -63,6 +64,7 @@ function MediaPreview({ asset, playable }: { asset: ContentReviewAsset; playable
             asset={asset}
             className="h-full w-full object-contain"
             controls
+            preload="metadata"
           />
         ) : (
           <ContentReviewVideoThumb className="min-h-[200px]" />
@@ -200,6 +202,12 @@ export default function SchedulePostFrame({
         >
           {primary ? (
             <div className="space-y-3" onClick={(event) => event.stopPropagation()}>
+              {isLegacyCompressedVideo(primary) ? (
+                <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] leading-relaxed text-amber-100">
+                  This video was saved in an older compressed format. Remove it and upload the
+                  original file again (do not pick it from the library) to restore full quality.
+                </p>
+              ) : null}
               <MediaPreview asset={primary} playable={isActive} />
               <div className="flex flex-wrap gap-2">
                 {canUseLibrary ? (

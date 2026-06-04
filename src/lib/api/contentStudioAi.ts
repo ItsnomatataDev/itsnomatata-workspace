@@ -1,5 +1,6 @@
 import { askAssistant, buildAssistantContext } from "./ai";
 import { supabase } from "../supabase/client";
+import { captureVideoFrameDataUrl } from "../../features/content-review/utils/videoFrameCapture";
 
 const CONTENT_AI_WEBHOOK = import.meta.env.VITE_N8N_CONTENT_AI_WEBHOOK_URL as
   | string
@@ -327,7 +328,7 @@ function formatImageAnalysisFailure(primary: Error, edgeHint?: string) {
   }
   if (/Error in workflow/i.test(msg)) {
     return new Error(
-      `Image analysis failed in n8n (${msg}).${edgeHint ?? " Check n8n Executions for the Image Analysis Tool node."}`,
+      `Image analysis failed in n8n (${msg}). Re-import and publish n8n/itsnomatata-codex-internal-ai.production.workflow.json, then check Executions for "Content Studio Vision (OpenAI Direct)" and confirm the OpenAi account credential.${edgeHint ?? ""}`,
     );
   }
   return new Error(
@@ -335,36 +336,64 @@ function formatImageAnalysisFailure(primary: Error, edgeHint?: string) {
   );
 }
 
+function isEdgeImageAnalysisUnavailable(message: string) {
+  return /OPENAI_API_KEY is not configured|function not found|failed to send a request to the edge function|404/i.test(
+    message,
+  );
+}
+
 /**
- * Image analysis via n8n (same OpenAI credential as Codex).
- * Optional Supabase edge only when VITE_CONTENT_STUDIO_EDGE_AI=true.
+ * Image analysis: Supabase edge (downloads storage + vision) when available,
+ * then n8n Content Studio Vision branch (same OpenAI credential as Codex).
  */
 export async function requestContentStudioAnalyzeMedia(
   input: ContentStudioAnalyzeMediaInput,
 ): Promise<ContentStudioAnalyzeMediaOutput> {
+  let mediaUrl = input.mediaUrl;
+  let mediaType = input.mediaType;
+  let fileName = input.fileName;
+
   if (input.mediaType === "video") {
-    throw new Error(
-      "Video frame analysis is not supported yet. Use an image post or add a still frame.",
-    );
+    mediaUrl = await captureVideoFrameDataUrl(input.mediaUrl);
+    mediaType = "image";
+    fileName = `${(input.fileName ?? "video").replace(/\.[^.]+$/, "")}-frame.jpg`;
+  }
+
+  const visionInput: ContentStudioAnalyzeMediaInput = {
+    ...input,
+    mediaUrl,
+    mediaType,
+    fileName,
+  };
+
+  let edgeError: Error | null = null;
+  try {
+    return await analyzeContentStudioMediaViaEdge(visionInput);
+  } catch (error) {
+    edgeError = error instanceof Error ? error : new Error(String(error));
+    if (!isEdgeImageAnalysisUnavailable(edgeError.message)) {
+      throw edgeError;
+    }
   }
 
   const n8nPayload = {
     action: "sendMessage",
-    chatInput: buildAnalyzeChatInput(input),
+    chatInput: buildAnalyzeChatInput(visionInput),
     context: contentStudioAiContext,
     attachments: [
       {
-        name: input.fileName ?? "post-media",
+        name: visionInput.fileName ?? "post-media",
         type: "image",
-        url: input.mediaUrl,
-        mimeType: "image/jpeg",
+        url: mediaUrl.startsWith("data:") ? mediaUrl : visionInput.mediaUrl,
+        mimeType: mediaUrl.startsWith("data:") ? "image/jpeg" : "image/jpeg",
       },
     ],
     metadata: {
       source: "content_studio_image_analysis",
       forceImageVision: true,
       route: "analyze-media-caption",
-      mediaType: input.mediaType,
+      mediaType: visionInput.mediaType,
+      analyzedFromVideo: input.mediaType === "video",
     },
   };
 
@@ -379,8 +408,14 @@ export async function requestContentStudioAnalyzeMedia(
     const message = extractN8nMessage(data);
     const normalized = normalizeAnalyzeOutput(message);
     if (
-      normalized.sceneDescription.trim() ||
-      normalized.suggestedCaption.trim()
+      normalized.sceneDescription.trim() &&
+      !/^openai vision failed|^no image url/i.test(normalized.sceneDescription)
+    ) {
+      return normalized;
+    }
+    if (
+      normalized.suggestedCaption.trim() &&
+      !/^openai vision failed|^no image url/i.test(normalized.suggestedCaption)
     ) {
       return normalized;
     }
@@ -390,23 +425,9 @@ export async function requestContentStudioAnalyzeMedia(
     n8nError = error instanceof Error ? error : new Error(String(error));
   }
 
-  let edgeError: Error | null = null;
-  if (contentStudioEdgeAiEnabled()) {
-    try {
-      return await analyzeContentStudioMediaViaEdge(input);
-    } catch (error) {
-      edgeError = error instanceof Error ? error : new Error(String(error));
-      if (isUndeployedEdgeFunctionError(edgeError.message)) {
-        edgeError = new Error(
-          "Deploy content-studio-analyze-image and set OPENAI_API_KEY on Supabase.",
-        );
-      }
-    }
-  }
-
   try {
     const response = await askAssistant({
-      message: buildAnalyzeChatInput(input),
+      message: buildAnalyzeChatInput(visionInput),
       context: buildAssistantContext({
         userId: "content-studio-system",
         organizationId: "content-studio",
@@ -417,15 +438,16 @@ export async function requestContentStudioAnalyzeMedia(
       }),
       attachments: [
         {
-          name: input.fileName ?? "post-media",
+          name: visionInput.fileName ?? "post-media",
           type: "image",
-          url: input.mediaUrl,
+          url: mediaUrl.startsWith("data:") ? mediaUrl : visionInput.mediaUrl,
           mimeType: "image/jpeg",
         },
       ],
       metadata: {
         source: "content_studio_image_analysis",
         forceImageVision: true,
+        analyzedFromVideo: input.mediaType === "video",
       },
     });
     const normalized = normalizeAnalyzeOutput(response.message || "");
@@ -440,10 +462,8 @@ export async function requestContentStudioAnalyzeMedia(
   }
 
   const edgeHint = edgeError
-    ? ` Optional edge fallback: ${edgeError.message}`
-    : contentStudioEdgeAiEnabled()
-      ? ""
-      : " Re-import and publish n8n/itsnomatata-codex-internal-ai.production.workflow.json (Content Studio Vision branch).";
+    ? ` Supabase edge: ${edgeError.message} (run: supabase secrets set OPENAI_API_KEY=sk-... and deploy content-studio-analyze-image).`
+    : "";
   throw formatImageAnalysisFailure(n8nError ?? new Error("Unknown error"), edgeHint);
 }
 

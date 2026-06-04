@@ -50,6 +50,10 @@ function parseStoragePath(url: string, supabaseUrl: string) {
 }
 
 async function loadImageAsDataUrl(imageUrl: string) {
+  if (imageUrl.startsWith("data:image/")) {
+    return imageUrl;
+  }
+
   const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
   const admin = serviceKey && supabaseUrl

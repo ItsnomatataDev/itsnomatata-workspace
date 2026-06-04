@@ -21,7 +21,14 @@ import {
   type ContentReviewFeedbackSource,
 } from "../utils/contentReviewEmailRouting";
 import { areAllInternalPostsApproved } from "../utils/contentReviewFeedback";
-import { isVideoUploadFile, resolveUploadMimeType } from "../utils/mediaUpload";
+import {
+  isLegacyCompressedVideo,
+  isVideoUploadFile,
+  prepareVideoUpload,
+  resolveUploadMimeType,
+} from "../utils/mediaUpload";
+
+export { isLegacyCompressedVideo } from "../utils/mediaUpload";
 
 export type ContentReviewStatus =
   | "draft"
@@ -1164,7 +1171,9 @@ export async function uploadContentClientMedia(params: {
   label?: string;
 }) {
   await cleanupExpiredContentClientMedia();
-  const uploadFile = await compressMediaFile(params.file);
+  const uploadFile = isVideoUploadFile(params.file)
+    ? prepareVideoUpload(params.file)
+    : await compressMediaFile(params.file);
   const { mimeType, assetType } = uploadMediaMeta(uploadFile.file);
   if (uploadFile.file.size > CONTENT_REVIEW_UPLOAD_LIMIT_BYTES) {
     const label = assetType === "video" ? "Video" : "File";
@@ -1349,6 +1358,10 @@ function fileExtension(file: File) {
 }
 
 async function compressImageFile(file: File) {
+  if (isVideoUploadFile(file)) {
+    return prepareVideoUpload(file);
+  }
+
   if (!file.type.startsWith("image/")) {
     return {
       file,
@@ -1412,20 +1425,8 @@ async function compressImageFile(file: File) {
   };
 }
 
-async function compressVideoFile(file: File) {
-  // Keep original video files: browser captureStream + MediaRecorder re-encoding caused
-  // blocky/pixelated output (~2.5 Mbps), stutter, and forced a full real-time playback before upload.
-  // Images are still compressed to WebP; videos upload as-is up to CONTENT_REVIEW_UPLOAD_LIMIT_BYTES.
-  return {
-    file,
-    compressionStatus: "stored_original" as const,
-    originalSize: file.size,
-    storedSize: file.size,
-  };
-}
-
 async function compressMediaFile(file: File) {
-  if (isVideoUploadFile(file)) return compressVideoFile(file);
+  if (isVideoUploadFile(file)) return prepareVideoUpload(file);
   if (file.type.startsWith("image/")) return compressImageFile(file);
   return {
     file,
@@ -1477,7 +1478,9 @@ export async function uploadContentReviewAsset(params: {
   displaySlot?: number;
 }) {
   await cleanupExpiredContentReviewAssets();
-  const uploadFile = await compressMediaFile(params.file);
+  const uploadFile = isVideoUploadFile(params.file)
+    ? prepareVideoUpload(params.file)
+    : await compressMediaFile(params.file);
   const { mimeType, assetType } = uploadMediaMeta(uploadFile.file);
   if (uploadFile.file.size > CONTENT_REVIEW_UPLOAD_LIMIT_BYTES) {
     const label = assetType === "video" ? "Video" : "File";

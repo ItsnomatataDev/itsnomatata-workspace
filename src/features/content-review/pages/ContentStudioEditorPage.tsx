@@ -500,8 +500,11 @@ export default function ContentStudioEditorPage() {
         setSelectedAssetId(added[0].id);
       }
       setActiveTab("media");
+      const hasVideo = added.some((asset) => isContentReviewVideo(asset));
       setMessage(
-        `${added.length} file(s) added to ${postLabel(slot)}. Add text in the selected post panel on the right.`,
+        hasVideo
+          ? `${added.length} file(s) added to ${postLabel(slot)}. Video uploaded in original quality — replace any old library copy if playback still looks compressed.`
+          : `${added.length} file(s) added to ${postLabel(slot)}. Add text in the selected post panel on the right.`,
       );
       scrollToDisplaySlot(slot);
     } catch (err) {

@@ -47,13 +47,14 @@ The app calls your existing chat webhook (`VITE_N8N_AI_WEBHOOK_URL`) with:
 
 ## `{"message":"Error in workflow"}` (HTTP 500)
 
-This is n8n’s generic failure — the webhook was hit but a node crashed.
+This is n8n’s generic failure — the webhook was hit but a node crashed (often **Content Studio Vision (OpenAI Direct)** before the fix).
 
-1. n8n → **Executions** → latest failed run → note the **red node** (often **06 Codex Main Agent** or **Image Analysis Tool**).
-2. **Re-import + publish** `n8n/itsnomatata-codex-internal-ai.production.workflow.json` (router + Image Analysis credential fix).
-3. Confirm **OpenAI** works in n8n (test **OpenAI Main Reasoning Model** / chat in the workflow editor).
-4. For **Analyze image**, confirm the attachment URL opens in a browser (signed URL); OpenAI must be able to fetch it.
-5. Dev: restart `npm run dev` after `.env` changes so `/api/content-studio/*` proxies to `VITE_N8N_AI_WEBHOOK_URL`.
+1. **Re-import + publish** `n8n/itsnomatata-codex-internal-ai.production.workflow.json` (includes **Content Studio Vision Prep**, chat/completions vision, `continueOnFail`).
+2. n8n → **Executions** → latest failed run → note the **red node**.
+3. Open **Content Studio Vision (OpenAI Direct)** → credential **OpenAi account** must be valid (same as Codex).
+4. Confirm the post image URL opens in a browser (signed URL from Content Studio).
+5. Optional backup: `supabase secrets set OPENAI_API_KEY=sk-...` and deploy `content-studio-analyze-image` (the app tries this before n8n).
+6. Dev: restart `npm run dev` after `.env` changes so `/api/content-studio/*` proxies to `VITE_N8N_AI_WEBHOOK_URL`.
 
 ## Recommended: one OpenAI key in n8n (no Supabase duplicate)
 

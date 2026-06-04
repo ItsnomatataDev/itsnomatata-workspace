@@ -13,7 +13,10 @@ import {
 import { postLabel } from "../utils/contentStudioTerms";
 import { shouldUseUnifiedPostCopy } from "../utils/postCopyLayout";
 import MediaCarousel, { carouselCropStyle } from "./MediaCarousel";
-import { ContentReviewVideoPlayer } from "./ContentReviewVideo";
+import {
+  ContentReviewVideoPlayer,
+  ContentReviewVideoThumb,
+} from "./ContentReviewVideo";
 import { isVideoAsset } from "../utils/mediaUpload";
 
 type PreviewTheme = "public" | "internal";
@@ -74,12 +77,10 @@ function MediaSlide({
 
   if (isVideo(asset)) {
     return (
-      <div className={`overflow-hidden rounded-2xl border ${border} bg-black`}>
-        <ContentReviewVideoPlayer
-          asset={asset}
-          className="max-h-[70vh] w-full bg-black object-contain"
-          controls
-        />
+      <div
+        className={`flex min-h-[200px] max-h-[70vh] items-center justify-center overflow-hidden rounded-2xl border ${border} bg-black`}
+      >
+        <ContentReviewVideoThumb className="min-h-[200px] w-full" />
       </div>
     );
   }
@@ -470,6 +471,7 @@ export function ContentReviewRenderer({
               asset={expandedVideo}
               controls
               autoPlay
+              preload="auto"
               className="max-h-[82vh] w-full rounded-2xl bg-black object-contain"
             />
           </div>

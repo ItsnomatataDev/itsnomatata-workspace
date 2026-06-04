@@ -2118,6 +2118,19 @@
       }
     },
     {
+      "id": "content-studio-vision-prep",
+      "name": "Content Studio Vision Prep",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -640,
+        -360
+      ],
+      "parameters": {
+        "jsCode": "const s = $('05 Permission + Tool Router').first().json;\nconst list = [...(Array.isArray(s.attachmentSources) ? s.attachmentSources : []), ...(Array.isArray(s.attachments) ? s.attachments : [])];\nconst imageLike = a => {\n  if (!a || typeof a !== 'object') return false;\n  const u = String(a.download_url || a.url || a.image_url || '').trim();\n  if (!u || u.startsWith('[')) return false;\n  return a.type === 'image' || /^image\\//i.test(String(a.mimeType || a.mime_type || '')) || /\\.(jpe?g|png|webp|gif|heic|heif)(\\?|#|$)/i.test(u);\n};\nconst img = list.find(imageLike);\nconst imageUrl = String(img?.download_url || img?.url || img?.image_url || '').trim();\nconst visionPrompt = String(s.chatInput || s.message || 'Analyze this image for social content. Return strict JSON only.');\nreturn [{ json: {\n  ...s,\n  contentStudioImageUrl: imageUrl,\n  contentStudioVisionPrompt: visionPrompt,\n  contentStudioVisionReady: Boolean(imageUrl),\n}}];"
+      }
+    },
+    {
       "id": "content-studio-vision-openai",
       "name": "Content Studio Vision (OpenAI Direct)",
       "type": "n8n-nodes-base.httpRequest",
@@ -2126,9 +2139,10 @@
         -520,
         -360
       ],
+      "continueOnFail": true,
       "parameters": {
         "method": "POST",
-        "url": "https://api.openai.com/v1/responses",
+        "url": "https://api.openai.com/v1/chat/completions",
         "authentication": "predefinedCredentialType",
         "nodeCredentialType": "openAiApi",
         "sendHeaders": true,
@@ -2142,7 +2156,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ (() => { const s = $('05 Permission + Tool Router').first().json; const list = [...(s.attachmentSources || []), ...(s.attachments || [])]; const img = list.find(a => a && (a.type === 'image' || /\\.(jpe?g|png|webp|gif)(\\?|#|$)/i.test(String(a.url || a.download_url || '')))); const url = String(img?.download_url || img?.url || ''); const prompt = String(s.chatInput || s.message || 'Analyze this image for social content.'); return JSON.stringify({ model: 'gpt-4o-mini', input: [{ role: 'user', content: [{ type: 'input_text', text: prompt }, { type: 'input_image', image_url: url }] }] }); })() }}",
+        "jsonBody": "={{ { model: 'gpt-4o-mini', max_tokens: 2000, messages: [{ role: 'user', content: [{ type: 'text', text: $json.contentStudioVisionPrompt }, { type: 'image_url', image_url: { url: $json.contentStudioImageUrl, detail: 'high' } }] }] } }}",
         "options": {
           "timeout": 120000
         }
@@ -2164,7 +2178,7 @@
         -360
       ],
       "parameters": {
-        "jsCode": "const source = $('05 Permission + Tool Router').first().json;\nlet raw = '';\nconst payload = $json;\nif (Array.isArray(payload?.output)) {\n  for (const part of payload.output) {\n    if (part?.type === 'message' && Array.isArray(part.content)) {\n      const textPart = part.content.find(c => c.type === 'output_text');\n      if (textPart?.text) raw = String(textPart.text);\n    }\n  }\n}\nif (!raw) raw = String(payload?.output_text || payload?.text || '').trim();\nconst trimmed = raw.trim();\nconst start = trimmed.indexOf('{');\nconst end = trimmed.lastIndexOf('}');\nconst jsonSlice = start >= 0 && end > start ? trimmed.slice(start, end + 1) : trimmed;\nlet parsed = {};\ntry { parsed = JSON.parse(jsonSlice); } catch { parsed = { sceneDescription: trimmed, suggestedCaption: trimmed }; }\nconst out = {\n  mood: String(parsed.mood || 'Professional'),\n  sceneDescription: String(parsed.sceneDescription || parsed.scene || trimmed.slice(0, 800)),\n  suggestedCaption: String(parsed.suggestedCaption || parsed.generatedCaption || parsed.caption || ''),\n  hashtags: Array.isArray(parsed.hashtags) ? parsed.hashtags : [],\n  shortAlternative: String(parsed.shortAlternative || ''),\n  platformCaptions: parsed.platformCaptions && typeof parsed.platformCaptions === 'object' ? parsed.platformCaptions : {\n    instagram: parsed.instagramCaption ? String(parsed.instagramCaption) : undefined,\n    facebook: parsed.facebookCaption ? String(parsed.facebookCaption) : undefined,\n  },\n  confidenceScore: typeof parsed.confidenceScore === 'number' ? parsed.confidenceScore : 0.85,\n};\nconst message = JSON.stringify(out);\nreturn [{ json: {\n  success: true,\n  type: 'image_analysis',\n  message,\n  output: message,\n  conversationId: source.conversationId || null,\n  attachments: [],\n  sources: [],\n}}];"
+        "jsCode": "const source = $('05 Permission + Tool Router').first().json;\nconst prep = $('Content Studio Vision Prep').first()?.json || {};\nconst payload = $json || {};\nconst fail = (detail) => {\n  const out = { mood: 'Unknown', sceneDescription: String(detail).slice(0, 800), suggestedCaption: '', hashtags: [], shortAlternative: '', platformCaptions: {}, confidenceScore: 0 };\n  const message = JSON.stringify(out);\n  return [{ json: { success: true, type: 'image_analysis', message, output: message, conversationId: source.conversationId || null, attachments: [], sources: [] } }];\n};\nif (!prep.contentStudioVisionReady) {\n  return fail('No image URL in the request. Ensure the post has an image and the app sends a signed storage URL.');\n}\nif (payload.error || (typeof payload.statusCode === 'number' && payload.statusCode >= 400)) {\n  const detail = payload.error?.message || payload.message || JSON.stringify(payload.error || payload).slice(0, 400);\n  return fail(`OpenAI vision failed: ${detail}. Check the OpenAi account credential in n8n and that the image URL is publicly reachable.`);\n}\nlet raw = '';\nif (payload?.choices?.[0]?.message?.content) raw = String(payload.choices[0].message.content);\nif (!raw && Array.isArray(payload?.output)) {\n  for (const part of payload.output) {\n    if (part?.type === 'message' && Array.isArray(part.content)) {\n      const textPart = part.content.find(c => c.type === 'output_text');\n      if (textPart?.text) raw = String(textPart.text);\n    }\n  }\n}\nif (!raw) raw = String(payload?.output_text || payload?.text || '').trim();\nif (!raw.trim()) return fail('OpenAI returned an empty vision response.');\nconst trimmed = raw.trim();\nconst start = trimmed.indexOf('{');\nconst end = trimmed.lastIndexOf('}');\nconst jsonSlice = start >= 0 && end > start ? trimmed.slice(start, end + 1) : trimmed;\nlet parsed = {};\ntry { parsed = JSON.parse(jsonSlice); } catch { parsed = { sceneDescription: trimmed, suggestedCaption: trimmed }; }\nconst out = {\n  mood: String(parsed.mood || 'Professional'),\n  sceneDescription: String(parsed.sceneDescription || parsed.scene || trimmed.slice(0, 800)),\n  suggestedCaption: String(parsed.suggestedCaption || parsed.generatedCaption || parsed.caption || ''),\n  hashtags: Array.isArray(parsed.hashtags) ? parsed.hashtags : [],\n  shortAlternative: String(parsed.shortAlternative || ''),\n  platformCaptions: parsed.platformCaptions && typeof parsed.platformCaptions === 'object' ? parsed.platformCaptions : {\n    instagram: parsed.instagramCaption ? String(parsed.instagramCaption) : undefined,\n    facebook: parsed.facebookCaption ? String(parsed.facebookCaption) : undefined,\n  },\n  confidenceScore: typeof parsed.confidenceScore === 'number' ? parsed.confidenceScore : 0.85,\n};\nconst message = JSON.stringify(out);\nreturn [{ json: {\n  success: true,\n  type: 'image_analysis',\n  message,\n  output: message,\n  conversationId: source.conversationId || null,\n  attachments: [],\n  sources: [],\n}}];"
       }
     }
   ],
@@ -2260,7 +2274,7 @@
         ],
         [
           {
-            "node": "Content Studio Vision (OpenAI Direct)",
+            "node": "Content Studio Vision Prep",
             "type": "main",
             "index": 0
           }
@@ -3040,6 +3054,17 @@
         [
           {
             "node": "OCR Handled by Codex?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Content Studio Vision Prep": {
+      "main": [
+        [
+          {
+            "node": "Content Studio Vision (OpenAI Direct)",
             "type": "main",
             "index": 0
           }

@@ -27,6 +27,8 @@ type ContentReviewVideoPlayerProps = {
   controls?: boolean;
   autoPlay?: boolean;
   muted?: boolean;
+  /** When false, the browser does not buffer the file until the user plays (reduces lag). */
+  preload?: "none" | "metadata" | "auto";
 };
 
 /** Full playback — use only for the active preview, not thumbnails. */
@@ -36,14 +38,16 @@ export function ContentReviewVideoPlayer({
   controls = true,
   autoPlay = false,
   muted = false,
+  preload = "none",
 }: ContentReviewVideoPlayerProps) {
   return (
     <video
+      key={asset.file_url}
       src={asset.file_url}
       className={className}
       controls={controls}
       playsInline
-      preload="metadata"
+      preload={preload}
       autoPlay={autoPlay}
       muted={muted}
       aria-label={asset.file_name ?? "Video"}
