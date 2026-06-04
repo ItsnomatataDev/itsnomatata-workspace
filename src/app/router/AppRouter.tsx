@@ -39,6 +39,7 @@ import AdminEmployeesPage from "../../features/admin/pages/AdminEmployeesPage";
 import AdminEmployeeDetailsPage from "../../features/admin/pages/AdminEmployeeDetailsPage";
 import AdminNotificationsPage from "../../features/admin/pages/AdminNotificationsPage";
 import AdminLocationPlannerPage from "../../features/admin/pages/AdminLocationPlannerPage";
+import MySchedulePage from "../../features/location-planner/MySchedulePage";
 import NotificationsPage from "../../features/notifications/pages/NotificationsPage";
 import ChatPage from "../../features/chat/pages/ChatPage";
 import MeetingsPage from "../../features/meetings/pages/MeetingsPage";
@@ -840,6 +841,15 @@ const AppRouter = () => {
           element={
             <ProtectedRoute>
               <AdminLocationPlannerPage />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/my-schedule"
+          element={
+            <ProtectedRoute>
+              <MySchedulePage />
             </ProtectedRoute>
           }
         />

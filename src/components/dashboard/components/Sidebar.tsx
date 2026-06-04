@@ -82,7 +82,7 @@ const commonLinks: LinkItem[] = [
   { to: "/attendance", label: "Attendance", icon: Timer, featureKey: "attendance" },
   { to: "/leave", label: "Leave", icon: CalendarDays, featureKey: "leave_requests" },
   { to: "/roster", label: "Duty Roster", icon: CalendarClock, featureKey: "duty_roster" },
-  { to: "/location-planner", label: "Location Planner", icon: MapPinned },
+  { to: "/my-schedule", label: "My Schedule", icon: CalendarDays },
   { to: "/chat", label: "Team Chat", icon: MessageSquare, featureKey: "chat" },
   { to: "/meetings", label: "Meetings", icon: Video, featureKey: "meetings" },
   { to: "/ai-workspace", label: "AI Workspace", icon: Sparkles, featureKey: "ai_workspace" },
@@ -225,6 +225,7 @@ function getRoleNav(role?: string | null, counts?: SidebarCounts): NavItem[] {
 
 case "manager":
 return [
+{ to: "/location-planner", label: "Location Planner", icon: MapPinned },
 { type: "group", label: "Assets", icon: Package, color: "text-blue-400", activePaths: ["/assets", "/scan", "/fleet"], children: [
 { to: "/assets", label: "Assets", icon: ShieldCheck, featureKey: "stock" },
 { to: "/scan", label: "Scan Asset", icon: ScanLine, featureKey: "stock" },
