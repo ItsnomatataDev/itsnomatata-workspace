@@ -1,0 +1,287 @@
+{
+  "name": "IT's No Matata — Notification Email (Codex)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "itsnomatata-notification-email",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-notification-email",
+      "name": "01 Webhook — Notification Email",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -900,
+        200
+      ],
+      "webhookId": "itsnomatata-notification-email"
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first();\nconst headers = item.json.headers || {};\nconst body = item.json.body ?? item.json;\n\nconst expectedSecret = ($vars.NOTIFICATION_WEBHOOK_SECRET || '').trim();\nconst inboundSecret = String(\n  headers['x-notification-secret'] ||\n  headers['X-Notification-Secret'] ||\n  ''\n).trim();\n\nif (expectedSecret && inboundSecret !== expectedSecret) {\n  return [{ json: { ok: false, authorized: false, error: 'Invalid notification secret' } }];\n}\n\nconst to = String(body.to || '').trim();\nif (!to) {\n  return [{ json: { ok: false, authorized: true, error: 'Missing recipient email (to)' } }];\n}\n\nconst fullName = String(body.fullName || 'Team Member').trim() || 'Team Member';\nconst firstName = String(body.firstName || fullName.split(/\\s+/)[0] || 'there');\nconst title = String(body.title || 'Notification').trim();\nconst message = String(body.message || title).trim();\nconst subject = String(body.subject || `${title} - Nomatata`).trim();\nconst emailHtml = String(body.emailHtml || '').trim();\nconst textBody = emailHtml\n  ? ''\n  : [title, '', `Hi ${firstName},`, message, '', 'Open: https://codex.itsnomatata.com'].join('\\n');\n\nreturn [{\n  json: {\n    ok: true,\n    authorized: true,\n    to,\n    fullName,\n    firstName,\n    title,\n    message,\n    subject,\n    emailHtml,\n    textBody,\n    type: body.type || 'system_alert',\n    priority: body.priority || 'medium',\n    actionUrl: body.actionUrl || '/',\n    metadata: body.metadata || {},\n    deliveryId: body.deliveryId || null,\n    notificationId: body.notificationId || null,\n    useHtml: Boolean(emailHtml)\n  }\n}];"
+      },
+      "id": "code-prepare-email",
+      "name": "02 Code — Validate & Prepare",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -660,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "authorized",
+              "leftValue": "={{ $json.authorized }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            },
+            {
+              "id": "has-to",
+              "leftValue": "={{ $json.to }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-can-send",
+      "name": "03 IF — Can Send?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -420,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "toRecipients": "={{ $json.to }}",
+        "subject": "={{ $json.subject }}",
+        "bodyContent": "={{ $json.useHtml ? $json.emailHtml : $json.textBody }}",
+        "additionalFields": {
+          "bodyContentType": "={{ $json.useHtml ? 'html' : 'text' }}"
+        }
+      },
+      "id": "outlook-send",
+      "name": "04 Outlook — Send Email",
+      "type": "n8n-nodes-base.microsoftOutlook",
+      "typeVersion": 2,
+      "position": [
+        -160,
+        80
+      ],
+      "credentials": {
+        "microsoftOutlookOAuth2Api": {
+          "id": "lmwQwLP7AZcYPU6T",
+          "name": "Microsoft Outlook account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: true, sent: true, to: $('02 Code — Validate & Prepare').item.json.to, subject: $('02 Code — Validate & Prepare').item.json.subject } }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "respond-success",
+      "name": "05 Respond — Success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        100,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: false, sent: false, error: $json.error?.message || $json.message || 'Outlook send failed' } }}",
+        "options": {
+          "responseCode": 502
+        }
+      },
+      "id": "respond-outlook-fail",
+      "name": "05B Respond — Outlook Failed",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        100,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: false, sent: false, authorized: $json.authorized === true, error: $json.error || 'Unauthorized or invalid payload' } }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "respond-reject",
+      "name": "06 Respond — Rejected",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        -160,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 2
+            }
+          ]
+        }
+      },
+      "id": "schedule-queue",
+      "name": "10 Schedule — Email Queue (backup)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -900,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($vars.SUPABASE_URL || '').replace(/\\/$/, '') + '/functions/v1/dispatch-notification-email' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+            },
+            {
+              "name": "apikey",
+              "value": "={{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { limit: 25 } }}",
+        "options": {}
+      },
+      "id": "http-dispatch-queue",
+      "name": "11 HTTP — Dispatch Queued Emails",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -660,
+        520
+      ],
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "01 Webhook — Notification Email": {
+      "main": [
+        [
+          {
+            "node": "02 Code — Validate & Prepare",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "02 Code — Validate & Prepare": {
+      "main": [
+        [
+          {
+            "node": "03 IF — Can Send?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "03 IF — Can Send?": {
+      "main": [
+        [
+          {
+            "node": "04 Outlook — Send Email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "06 Respond — Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "04 Outlook — Send Email": {
+      "main": [
+        [
+          {
+            "node": "05 Respond — Success",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "05B Respond — Outlook Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "10 Schedule — Email Queue (backup)": {
+      "main": [
+        [
+          {
+            "node": "11 HTTP — Dispatch Queued Emails",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}

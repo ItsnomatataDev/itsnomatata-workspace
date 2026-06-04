@@ -74,6 +74,7 @@ export class EmailTemplateService {
       case "approval_decision":
         return this.approvalDecisionTemplate(contextWithFullUrl, appName, appUrl);
       case "system_alert":
+      case "content_review_feedback":
         return this.systemAlertTemplate(contextWithFullUrl, appName, appUrl);
       case "workspace_admin_notice":
         return this.workspaceAdminNoticeTemplate(contextWithFullUrl, appName, appUrl);
@@ -515,15 +516,47 @@ export class EmailTemplateService {
   }
 
   private static systemAlertTemplate(context: EmailContext, appName: string, appUrl: string): EmailTemplate {
+    const sourceBadge =
+      typeof context.metadata?.source_badge === "string"
+        ? context.metadata.source_badge
+        : typeof context.metadata?.feedback_source === "string"
+          ? context.metadata.feedback_source === "client"
+            ? "Client review"
+            : "Internal review"
+          : null;
+
+    const reviewEvent =
+      typeof context.metadata?.review_event === "string"
+        ? String(context.metadata.review_event).replace(/_/g, " ")
+        : null;
+
+    const badgeHtml = sourceBadge
+      ? `<p style="margin:0 0 16px;">
+          <span style="display:inline-block;padding:6px 12px;border-radius:999px;font-size:12px;font-weight:700;${
+            sourceBadge === "Client review"
+              ? "background:#0ea5e920;color:#0369a1;border:1px solid #0ea5e966;"
+              : "background:#f9731620;color:#c2410c;border:1px solid #f9731666;"
+          }">${sourceBadge}</span>
+          ${
+            reviewEvent
+              ? `<span style="display:inline-block;margin-left:8px;padding:6px 12px;border-radius:999px;font-size:12px;font-weight:600;background:#f4f4f5;color:#3f3f46;border:1px solid #e4e4e7;">${reviewEvent}</span>`
+              : ""
+          }
+        </p>`
+      : "";
+
+    const heading = sourceBadge ? context.title : "System Alert";
+
     const content = `
-      <h2>System Alert</h2>
+      <h2>${heading}</h2>
+      ${badgeHtml}
       <p>Hi ${context.firstName},</p>
       <p>${context.message}</p>
-      <a href="${context.actionUrl}" class="button">View Details</a>
-      ${this.renderMetadata(context)}
+      <a href="${context.actionUrl}" class="button">View in Content Studio</a>
+      ${this.renderMetadata(context, ["feedback_source", "source_badge", "review_event"])}
     `;
     return {
-      subject: `System Alert - ${appName}`,
+      subject: sourceBadge ? `${context.title} - ${appName}` : `System Alert - ${appName}`,
       html: this.baseTemplate(content, appName, appUrl),
     };
   }
@@ -813,12 +846,16 @@ export class EmailTemplateService {
     };
   }
 
-  private static renderMetadata(context: EmailContext): string {
+  private static renderMetadata(
+    context: EmailContext,
+    excludeKeys: string[] = [],
+  ): string {
     if (!context.metadata || Object.keys(context.metadata).length === 0) {
       return '';
     }
 
     const metadataItems = Object.entries(context.metadata)
+      .filter(([key, value]) => !excludeKeys.includes(key))
       .filter(([_, value]) => value !== undefined && value !== null && value !== '')
       .map(([key, value]) => `
         <div class="metadata-item">

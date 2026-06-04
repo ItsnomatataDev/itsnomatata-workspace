@@ -33,11 +33,13 @@ import {
   getContentClient,
   listContentClients,
   listContentReviewAssetsForDrafts,
+  listContentReviewCommentsForDrafts,
   listContentReviewDrafts,
   loadContentStudioClientSnapshot,
   regenerateContentClientPin,
   regenerateContentReviewLink,
   refreshContentReviewLinkExpiry,
+  notifyContentReviewTeam,
   runContentReviewMaintenanceIfDue,
   updateContentReviewDraft,
   type ContentReviewAsset,
@@ -66,6 +68,7 @@ import {
   draftScheduleMonthKey,
   formatScheduleDate,
   getScheduleBatchReadiness,
+  getScheduleOverallProgress,
   isLegacyPostSlotDraft,
   listClientScheduleDrafts,
   resolveClientScheduleDraft,
@@ -272,12 +275,16 @@ export default function ContentStudioClientsPage() {
         return next;
       });
 
-      const assets = await listContentReviewAssetsForDrafts({
-        organizationId,
-        officeId: office.id,
-        draftIds: allDrafts.map((draft) => draft.id),
-      });
-      setDetailsByDraftId(buildContentReviewDetailsIndex(allDrafts, assets));
+      const allDraftIds = allDrafts.map((draft) => draft.id);
+      const [assets, comments] = await Promise.all([
+        listContentReviewAssetsForDrafts({
+          organizationId,
+          officeId: office.id,
+          draftIds: allDraftIds,
+        }),
+        listContentReviewCommentsForDrafts(allDraftIds),
+      ]);
+      setDetailsByDraftId(buildContentReviewDetailsIndex(allDrafts, assets, comments));
 
       if (clientId && userId) {
         const nextClient = await getContentClient({
@@ -389,8 +396,11 @@ export default function ContentStudioClientsPage() {
       const scheduleAssets = scheduleDraft
         ? assetsForDraft(detailsByDraftId[scheduleDraft.id])
         : [];
+      const scheduleComments = scheduleDraft
+        ? (detailsByDraftId[scheduleDraft.id]?.comments ?? [])
+        : [];
       const batch = scheduleDraft
-        ? getScheduleBatchReadiness(scheduleDraft, scheduleAssets)
+        ? getScheduleBatchReadiness(scheduleDraft, scheduleAssets, undefined, scheduleComments)
         : getClientBatchReadiness(
             [],
             {},
@@ -485,11 +495,19 @@ export default function ContentStudioClientsPage() {
 
   const clientBatch = useMemo(() => {
     if (!activeScheduleDraft) return null;
+    const detail = detailsByDraftId[activeScheduleDraft.id];
     return getScheduleBatchReadiness(
       activeScheduleDraft,
-      assetsForDraft(detailsByDraftId[activeScheduleDraft.id]),
+      assetsForDraft(detail),
+      undefined,
+      detail?.comments ?? [],
     );
   }, [activeScheduleDraft, detailsByDraftId]);
+
+  const scheduleOverallProgress = useMemo(
+    () => (clientBatch ? getScheduleOverallProgress(clientBatch) : 0),
+    [clientBatch],
+  );
 
   const filteredRows = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -635,11 +653,19 @@ export default function ContentStudioClientsPage() {
       setSaving(true);
       if (!activeScheduleDraft) return;
       let draft = await refreshContentReviewLinkExpiry(activeScheduleDraft);
-      await updateContentReviewDraft(draft, {
+      const updated = await updateContentReviewDraft(draft, {
         status: "sent_to_client",
         expires_at: contentReviewLinkExpiresAt(),
       });
-      setMessage("Schedule sent to client for review.");
+      await notifyContentReviewTeam({
+        draft: updated,
+        title: "Schedule ready for client portal",
+        message: `${updated.title} was sent to ${client?.company_name ?? "the client"}. Share the portal link (not the internal preview link).`,
+        dedupeKey: `content-batch-sent:${updated.id}`,
+      });
+      setMessage(
+        `Schedule sent for client review. Share the portal link: ${portalUrl}`,
+      );
       await load();
     } catch (err) {
       setError(
@@ -1490,10 +1516,15 @@ export default function ContentStudioClientsPage() {
                     <>
                       <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                         <div>
-                          <h2 className="text-xl font-semibold text-white">
-                            {activeScheduleDraft.title ||
-                              formatScheduleMonthLabel(activeScheduleMonth)}
-                          </h2>
+                          <div className="flex flex-wrap items-center gap-3">
+                            <h2 className="text-xl font-semibold text-white">
+                              {activeScheduleDraft.title ||
+                                formatScheduleMonthLabel(activeScheduleMonth)}
+                            </h2>
+                            <span className="rounded-full border border-orange-500/35 bg-orange-500/15 px-3 py-1 text-sm font-bold text-orange-200">
+                              {scheduleOverallProgress}% complete
+                            </span>
+                          </div>
                           <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-white/60">
                             <span className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-black/40 px-3 py-2">
                               <CalendarDays
@@ -1716,50 +1747,12 @@ export default function ContentStudioClientsPage() {
 
               {activeClientTab === "review-link" ? (
                 <section className="space-y-5">
-                  <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-                    <h2 className="text-xl font-semibold">
-                      Schedule preview link
-                    </h2>
-                    <p className="mt-2 text-sm text-white/55">
-                      Copy the schedule link from the Schedule tab. Clients open
-                      it without a PIN and approve each post (slide) inside the
-                      schedule.
-                    </p>
-                    {activeScheduleDraft?.review_url ? (
-                      <div className="mt-4 flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            void copySchedulePreviewLink(activeScheduleDraft)
-                          }
-                          className="rounded-xl border border-white/15 px-3 py-2 text-xs font-semibold text-white/80"
-                        >
-                          Copy schedule link
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            void handleRevokePostLink(activeScheduleDraft)
-                          }
-                          className="rounded-xl border border-amber-500/30 px-3 py-2 text-xs font-semibold text-amber-200"
-                        >
-                          Revoke link
-                        </button>
-                      </div>
-                    ) : null}
-                    <p className="mt-3 text-xs text-white/45">
-                      Example format:{" "}
-                      <span className="text-orange-200/90">
-                        /client-review/…
-                      </span>
-                    </p>
-                  </div>
-                  <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+                  <div className="rounded-2xl border border-orange-500/25 bg-orange-500/5 p-5">
                     <h2 className="text-xl font-semibold">Client portal</h2>
                     <p className="mt-2 text-sm text-white/55">
-                      The portal link requires the client email and PIN.
-                      Regenerating the PIN invalidates the previous PIN only;
-                      the portal URL stays the same.
+                      Send this link to clients. They sign in with their email and
+                      PIN, then approve or request changes on each schedule. Only
+                      feedback from the portal counts as a client review.
                     </p>
                     <div className="mt-4 grid gap-3 md:grid-cols-2">
                       <div className="rounded-xl border border-white/10 bg-black/40 p-3 text-xs break-all text-white/70">
@@ -1779,23 +1772,9 @@ export default function ContentStudioClientsPage() {
                             ? formatScheduleDate(activeScheduleDraft)
                             : "—"}
                         </p>
-                        <p>
-                          Link valid until:{" "}
-                          {activeScheduleDraft?.expires_at
-                            ? new Date(
-                                activeScheduleDraft.expires_at,
-                              ).toLocaleString()
-                            : "Extended when copied or opened"}
-                        </p>
                         <p className="text-white/45">
-                          Preview links stay open during client review (not tied
-                          to approval). They only stop after the schedule is
-                          published or archived.
-                        </p>
-                        <p>
-                          Client feedback status:{" "}
-                          {clientBatch?.clientReviewed ?? 0}/
-                          {CONTENT_STUDIO_POSTS_PER_SCHEDULE} reviewed
+                          After you use Send to client, schedules appear in the
+                          portal for review.
                         </p>
                       </div>
                     </div>
@@ -1823,6 +1802,52 @@ export default function ContentStudioClientsPage() {
                         Regenerate PIN
                       </button>
                     </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+                    <h2 className="text-xl font-semibold">Internal schedule preview</h2>
+                    <p className="mt-2 text-sm text-white/55">
+                      Staff-only link while editing. Opens a read-only preview — no
+                      client login, no approvals. Do not send this URL to clients.
+                    </p>
+                    {activeScheduleDraft?.review_url ? (
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void copySchedulePreviewLink(activeScheduleDraft)
+                          }
+                          className="rounded-xl border border-white/15 px-3 py-2 text-xs font-semibold text-white/80"
+                        >
+                          Copy internal preview link
+                        </button>
+                        <a
+                          href={activeScheduleDraft.review_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="rounded-xl border border-white/10 px-3 py-2 text-xs font-semibold text-white/75"
+                        >
+                          Open preview
+                        </a>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void handleRevokePostLink(activeScheduleDraft)
+                          }
+                          className="rounded-xl border border-amber-500/30 px-3 py-2 text-xs font-semibold text-amber-200"
+                        >
+                          Revoke preview link
+                        </button>
+                      </div>
+                    ) : (
+                      <p className="mt-3 text-xs text-white/45">
+                        Save the schedule to generate a preview link.
+                      </p>
+                    )}
+                    <p className="mt-3 text-xs text-white/45">
+                      Format:{" "}
+                      <span className="text-orange-200/90">/internal-preview/…</span>
+                    </p>
                   </div>
                 </section>
               ) : null}

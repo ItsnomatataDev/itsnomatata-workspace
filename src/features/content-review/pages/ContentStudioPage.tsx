@@ -484,7 +484,7 @@ export default function ContentStudioPage() {
   async function copyReviewLink() {
     if (!selectedDraft?.review_url) return;
     await navigator.clipboard.writeText(selectedDraft.review_url);
-    setMessage("Post preview link copied. No PIN is required for this link.");
+    setMessage("Internal preview link copied. Clients use the portal link to review.");
   }
 
   async function handleInternalComment(event: FormEvent) {
@@ -735,7 +735,7 @@ export default function ContentStudioPage() {
                       className="inline-flex items-center justify-center gap-2 rounded-xl border border-orange-500/20 bg-orange-500/10 px-4 py-3 text-sm font-semibold text-orange-200 hover:bg-orange-500/15"
                     >
                       <Copy size={16} />
-                      Copy post preview link
+                      Copy internal preview
                     </button>
                     <button
                       type="button"
@@ -1308,22 +1308,32 @@ function CalendarTab({ drafts }: { drafts: ContentReviewDraft[] }) {
 }
 
 function commentLabel(comment: ContentReviewComment) {
-  if (comment.comment_type === "change_request") return "Change Request";
-  if (comment.comment_type === "approval_note") return "Approval Note";
-  if (comment.author_type === "internal" || comment.visibility === "internal") {
-    return "Internal Comment";
+  const isInternal =
+    comment.author_type === "internal" || comment.visibility === "internal";
+  if (comment.comment_type === "change_request") {
+    return isInternal ? "Internal — Changes requested" : "Client — Changes requested";
   }
-  return "Client Comment";
+  if (comment.comment_type === "approval_note") {
+    return isInternal ? "Internal — Approval" : "Client — Approval";
+  }
+  if (isInternal) return "Internal note";
+  return "Client comment";
 }
 
 function commentLabelClass(comment: ContentReviewComment) {
+  const isInternal =
+    comment.author_type === "internal" || comment.visibility === "internal";
   if (comment.comment_type === "change_request") {
-    return "border-orange-400/30 bg-orange-500/10 text-orange-200";
+    return isInternal
+      ? "border-amber-400/30 bg-amber-500/10 text-amber-200"
+      : "border-orange-400/30 bg-orange-500/10 text-orange-200";
   }
   if (comment.comment_type === "approval_note") {
-    return "border-emerald-400/30 bg-emerald-500/10 text-emerald-200";
+    return isInternal
+      ? "border-white/10 bg-white/10 text-white/75"
+      : "border-emerald-400/30 bg-emerald-500/10 text-emerald-200";
   }
-  if (comment.author_type === "internal" || comment.visibility === "internal") {
+  if (isInternal) {
     return "border-white/10 bg-white/10 text-white/75";
   }
   return "border-sky-400/30 bg-sky-500/10 text-sky-200";

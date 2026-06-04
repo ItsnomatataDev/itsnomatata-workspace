@@ -44,7 +44,7 @@ export const contentStudioCopy = {
   publishDate: "Publish date",
   carouselInPost: "Add carousel image to this post",
   editorWorkflow:
-    "Edit each post in the centre frames (media left, caption right). Save from the toolbar; use Client review to preview the link.",
+    "Edit each post in the centre frames (media left, caption right). Save from the toolbar; use Portal preview to see what clients see after you send the schedule.",
   editorWriteHint:
     "Optional extras (CTA, internal notes). Post captions and media are edited in the centre frames.",
   editorDefaultSocialCaption: "Default social caption (optional)",
@@ -54,13 +54,13 @@ export const contentStudioCopy = {
   editorIntroAfterImagesHelp:
     "Only for Showcase/Gallery layouts: a short paragraph below all photos. Not the same as the client review headline above.",
   editorHeadlineVsPosts:
-    "The headline is the page title on the client link. Each post’s caption is edited in the centre frames.",
+    "The headline is the page title in the client portal. Each post’s caption is edited in the centre frames.",
   editorMediaHint:
     "Ten posts per schedule. Drop images onto each post, drag between posts, and reorder carousel images inside a post.",
   editorSetupHint:
     "Start here: pick how photos and text are arranged on the client link, then assign the client and publish date.",
   editorLayoutHint:
-    "Layouts control the client review page — not your editing screen. Showcase is the usual choice for monthly schedules.",
+    "Layouts control the client portal review page — not your editing screen. Showcase is the usual choice for monthly schedules.",
   editorPostCopyHint:
     "Each post can have its own headline and caption. They show on that slide on the client link (especially with Split layout: image + text side by side).",
   editorPostCopySplitHint:
@@ -73,7 +73,7 @@ export const contentStudioCopy = {
     "Select a post in the filmstrip below the preview to edit its image and caption here.",
   clientReviewHeadline: "Client review headline",
   clientReviewHeadlineHelp:
-    "Shown once at the top of the client link (e.g. GOAT June 2026 SM Schedule). Replaces the auto month title like “June 2026 schedule”.",
+    "Shown once at the top of the client portal review (e.g. GOAT June 2026 SM Schedule). Replaces the auto month title like “June 2026 schedule”.",
   clientReviewHeadlinePlaceholder: "e.g. GOAT June 2026 SM Schedule",
   clientReviewSubtitle: "Optional line under headline",
   clientReviewSubtitleHelp: "Leave empty if you only need the headline.",

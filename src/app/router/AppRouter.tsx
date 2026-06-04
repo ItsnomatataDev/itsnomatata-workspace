@@ -78,7 +78,8 @@ import ContentStudioClientsPage from "../../features/content-review/pages/Conten
 import ContentStudioRoute from "./ContentStudioRoute";
 import CatchAllRedirect from "./CatchAllRedirect";
 import AuthReturnPathListener from "./AuthReturnPathListener";
-import PublicClientReviewPage from "../../features/content-review/pages/PublicClientReviewPage";
+import InternalContentPreviewPage from "../../features/content-review/pages/InternalContentPreviewPage";
+import ClientReviewLegacyRedirectPage from "../../features/content-review/pages/ClientReviewLegacyRedirectPage";
 import ClientPortalLoginPage from "../../features/content-review/pages/ClientPortalLoginPage";
 import ClientPortalPage from "../../features/content-review/pages/ClientPortalPage";
 import ClientPortalReviewPage from "../../features/content-review/pages/ClientPortalReviewPage";
@@ -100,7 +101,8 @@ const AppRouter = () => {
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         <Route path="/resetpassword" element={<ResetPasswordPage />} />
         <Route path="/invite/:token" element={<AcceptOrganizationInvitePage />} />
-        <Route path="/client-review/:token" element={<PublicClientReviewPage />} />
+        <Route path="/internal-preview/:token" element={<InternalContentPreviewPage />} />
+        <Route path="/client-review/:token" element={<ClientReviewLegacyRedirectPage />} />
         <Route path="/client-portal" element={<ClientPortalLoginPage />} />
         <Route path="/client-portal/login" element={<ClientPortalLoginPage />} />
         <Route path="/client-portal/:clientToken/login" element={<ClientPortalLoginPage />} />

@@ -48,7 +48,7 @@ type DraftDeliveryState = Pick<
   "status" | "last_viewed_at" | "changes_requested_at"
 >;
 
-/** True once the client portal or public review link has been used, or the draft was explicitly sent. */
+/** True once sent to the client portal or the client has engaged via the portal. */
 export function hasBeenSentToClient(draft: DraftDeliveryState) {
   if (
     draft.status === "sent_to_client" ||

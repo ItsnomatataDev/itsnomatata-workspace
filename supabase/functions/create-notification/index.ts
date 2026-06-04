@@ -1,4 +1,8 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  buildN8nNotificationEmailPayload,
+  postNotificationEmailToN8n,
+} from "../_shared/n8nNotificationEmail.ts";
 
 type CreateNotificationBody = {
   organizationId?: string;
@@ -357,17 +361,73 @@ Deno.serve(async (req) => {
 
       if (channels.includes("email") && body.sendEmail !== false) {
         try {
-          await createDelivery(supabase, {
+          const deliveryId = await createDelivery(supabase, {
             notificationId: notification.id,
             channel: "email",
             status: "queued",
             provider: "n8n",
           });
 
+          const { data: profile } = await supabase
+            .from("profiles")
+            .select("full_name, email")
+            .eq("id", notification.user_id)
+            .maybeSingle();
+
+          const email = typeof profile?.email === "string"
+            ? profile.email.trim()
+            : "";
+
+          if (!email) {
+            await supabase
+              .from("notification_deliveries")
+              .update({
+                status: "failed",
+                error_message: "Recipient profile has no email",
+                attempted_at: new Date().toISOString(),
+              })
+              .eq("id", deliveryId);
+
+            deliveryResults.push({
+              notificationId: notification.id,
+              channel: "email",
+              status: "failed",
+              error: "Recipient profile has no email",
+            });
+            continue;
+          }
+
+          const payload = buildN8nNotificationEmailPayload({
+            to: email,
+            fullName: profile?.full_name,
+            title,
+            message: body.message?.trim() || title,
+            type,
+            priority,
+            actionUrl: body.actionUrl?.trim() || null,
+            metadata: body.metadata ?? {},
+            deliveryId,
+            notificationId: notification.id,
+          });
+
+          const sent = await postNotificationEmailToN8n(payload);
+
+          await supabase
+            .from("notification_deliveries")
+            .update({
+              status: sent.ok ? "sent" : "failed",
+              destination: email,
+              error_message: sent.ok ? null : sent.error ?? "n8n dispatch failed",
+              attempted_at: new Date().toISOString(),
+              delivered_at: sent.ok ? new Date().toISOString() : null,
+            })
+            .eq("id", deliveryId);
+
           deliveryResults.push({
             notificationId: notification.id,
             channel: "email",
-            status: "queued",
+            status: sent.ok ? "sent" : "failed",
+            error: sent.ok ? undefined : sent.error,
           });
         } catch (emailError) {
           deliveryResults.push({

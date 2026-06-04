@@ -1,5 +1,10 @@
-import type { ContentReviewAsset, ContentReviewDraft } from "../services/contentReviewService";
+import type {
+  ContentReviewAsset,
+  ContentReviewComment,
+  ContentReviewDraft,
+} from "../services/contentReviewService";
 import { groupAssetsByDisplaySlot } from "./assetDisplaySlots";
+import { getClientApprovedSlots } from "./contentReviewFeedback";
 import {
   CONTENT_STUDIO_POSTS_PER_SCHEDULE,
   defaultScheduleTitle,
@@ -103,10 +108,21 @@ export function buildSchedulePostRows(
   });
 }
 
+export function getScheduleOverallProgress(batch: ClientBatchReadiness) {
+  return Math.round(
+    (batch.mediaProgress +
+      batch.captionsProgress +
+      batch.internalProgress +
+      batch.clientReviewProgress) /
+      4,
+  );
+}
+
 export function getScheduleBatchReadiness(
   draft: ContentReviewDraft,
   assets: ContentReviewAsset[],
   expectedPosts = CONTENT_STUDIO_POSTS_PER_SCHEDULE,
+  comments: ContentReviewComment[] = [],
 ): ClientBatchReadiness {
   const rows = buildSchedulePostRows(draft, assets, expectedPosts);
   const mediaComplete = rows.filter((row) => row.hasMedia).length;
@@ -119,7 +135,13 @@ export function getScheduleBatchReadiness(
 
   const internalApproved = draftReadiness.internallyApproved ? expectedPosts : 0;
   const sentToClient = draftReadiness.sentToClient ? expectedPosts : 0;
-  const clientReviewed = draftReadiness.clientReviewed ? expectedPosts : 0;
+  const clientApprovedCount = getClientApprovedSlots(comments, expectedPosts).length;
+  const clientReviewed =
+    clientApprovedCount >= expectedPosts
+      ? expectedPosts
+      : draftReadiness.clientReviewed
+        ? expectedPosts
+        : clientApprovedCount;
 
   const allPostsInternallyReady =
     mediaComplete >= expectedPosts &&
@@ -143,7 +165,7 @@ export function getScheduleBatchReadiness(
     captionsProgress: Math.round((captionsComplete / expectedPosts) * 100),
     internalProgress: draftReadiness.internallyApproved ? 100 : 0,
     sentProgress: Math.round((sentToClient / expectedPosts) * 100),
-    clientReviewProgress: Math.round((clientReviewed / expectedPosts) * 100),
+    clientReviewProgress: Math.round((clientApprovedCount / expectedPosts) * 100),
   };
 }
 

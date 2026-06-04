@@ -707,13 +707,13 @@ export default function ContentStudioEditorPage() {
     const url = detail?.draft.review_url;
     if (!url) return;
     await navigator.clipboard.writeText(url);
-    setMessage("Post preview link copied. No PIN is required for this link.");
+    setMessage("Internal preview link copied. Share the client portal link with clients, not this URL.");
   }
 
   async function revokePostPreviewLink() {
     if (!detail) return;
     const confirmed = window.confirm(
-      `Revoke the preview link for "${detail.draft.title}"? Anyone with the current link will no longer be able to open it.`,
+      `Revoke the internal preview link for "${detail.draft.title}"? Staff with the old URL will no longer be able to open it.`,
     );
     if (!confirmed) return;
     try {
@@ -789,7 +789,7 @@ export default function ContentStudioEditorPage() {
       setSavedForm(persisted);
       setMessage(
         nextStatus === "sent_to_client"
-          ? "Saved and sent for client review."
+          ? "Saved and sent for client review via the portal."
           : nextStatus === "approved"
             ? "Post internally approved."
             : nextStatus === "ready_for_review"
@@ -800,7 +800,7 @@ export default function ContentStudioEditorPage() {
         await notifyContentReviewTeam({
           draft: updated,
           title: "Content review ready",
-          message: `${updated.title} is ready for client review.`,
+          message: `${updated.title} is ready in the client portal.`,
           dedupeKey: `content-editor-ready:${updated.id}:${nextStatus}`,
         });
       }
@@ -914,7 +914,7 @@ export default function ContentStudioEditorPage() {
                   className="inline-flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/5 px-2.5 py-2 text-xs font-semibold hover:bg-white/10"
                 >
                   <Copy size={14} />
-                  Copy preview link
+                  Copy internal preview
                 </button>
                 <button
                   type="button"
@@ -948,14 +948,14 @@ export default function ContentStudioEditorPage() {
               <button
                 type="button"
                 onClick={() => setPreviewTheme("public")}
-                title="Preview the public client review page"
+                title="Preview how this schedule looks in the client portal (read-only)"
                 className={`rounded-[10px] px-2.5 py-1.5 text-xs font-semibold transition ${
                   previewTheme === "public"
                     ? "bg-orange-500 text-black"
                     : "text-white/60 hover:text-white"
                 }`}
               >
-                Client review
+                Portal preview
               </button>
             </div>
             <button
@@ -1090,11 +1090,11 @@ export default function ContentStudioEditorPage() {
               <p className="shrink-0 border-b border-white/10 bg-black/40 px-4 py-2 text-center text-[11px] text-white/50">
                 <strong className="text-white/70">Frame editor</strong> — what you edit here matches the client
                 review layout. Toggle{" "}
-                <span className="text-orange-200/90">Client review</span> in the toolbar for a read-only preview.
+                <span className="text-orange-200/90">Portal preview</span> in the toolbar for a read-only preview of the client portal layout.
               </p>
             ) : (
               <p className="shrink-0 border-b border-neutral-300 bg-white px-4 py-2 text-center text-[11px] text-neutral-600">
-                Read-only client review preview — switch to <strong>Non-review</strong> to edit posts.
+                Read-only portal layout preview — switch to <strong>Non-review</strong> to edit posts.
               </p>
             )}
             <div ref={previewScrollRef} className="flex-1 overflow-auto p-4 sm:p-6">
@@ -1550,19 +1550,38 @@ function TextArea({
 }
 
 function ClientFeedbackCard({ comment }: { comment: ContentReviewComment }) {
+  const isInternal =
+    comment.author_type === "internal" || comment.visibility === "internal";
   const isChangeRequest = comment.comment_type === "change_request";
   const isApproval = comment.comment_type === "approval_note";
   const badgeClass = isChangeRequest
-    ? "border-orange-400/30 bg-orange-500/10 text-orange-200"
+    ? isInternal
+      ? "border-amber-400/30 bg-amber-500/10 text-amber-200"
+      : "border-orange-400/30 bg-orange-500/10 text-orange-200"
     : isApproval
-      ? "border-emerald-400/30 bg-emerald-500/10 text-emerald-200"
-      : "border-sky-400/30 bg-sky-500/10 text-sky-200";
+      ? isInternal
+        ? "border-white/10 bg-white/10 text-white/75"
+        : "border-emerald-400/30 bg-emerald-500/10 text-emerald-200"
+      : isInternal
+        ? "border-white/10 bg-white/10 text-white/75"
+        : "border-sky-400/30 bg-sky-500/10 text-sky-200";
+  const badgeLabel = isChangeRequest
+    ? isInternal
+      ? "Internal — Changes"
+      : "Client — Changes"
+    : isApproval
+      ? isInternal
+        ? "Internal — Approval"
+        : "Client — Approval"
+      : isInternal
+        ? "Internal note"
+        : "Client comment";
 
   return (
     <div className="rounded-lg border border-white/10 bg-black/30 p-3">
       <div className="flex flex-wrap items-center gap-2">
         <span className={`rounded-full border px-2 py-1 text-[10px] font-semibold uppercase tracking-wide ${badgeClass}`}>
-          {isChangeRequest ? "Changes" : isApproval ? "Approved" : "Comment"}
+          {badgeLabel}
         </span>
         <p className="text-xs font-semibold text-white/85">{comment.author_name || "Client"}</p>
       </div>

@@ -11,6 +11,13 @@ import {
 } from "../utils/contentStudioSchedule";
 import { scheduleMonthKey } from "../utils/contentStudioTerms";
 import { CONTENT_STUDIO_ROLES } from "../../../lib/auth/contentStudioAccess";
+import {
+  buildFinalClientReviewerRecipient,
+  shouldEmailFinalClientReviewer,
+  type ContentReviewEmailRecipient,
+  type ContentReviewFeedbackEvent,
+  type ContentReviewFeedbackSource,
+} from "../utils/contentReviewEmailRouting";
 
 export type ContentReviewStatus =
   | "draft"
@@ -122,6 +129,7 @@ export type ContentReviewComment = {
   visibility?: "internal" | "client_visible";
   author_type?: "internal" | "client";
   comment_type?: "internal_comment" | "client_comment" | "change_request" | "approval_note";
+  display_slot?: number | null;
   created_at: string;
 };
 
@@ -157,6 +165,8 @@ export type ContentPortalDraftCard = {
   last_viewed_at: string | null;
   approved_at: string | null;
   thumbnail_url: string | null;
+  /** False until staff uses Send to client in Content Studio. */
+  can_review?: boolean;
 };
 
 export type ContentReviewActivity = {
@@ -206,7 +216,7 @@ export type ContentStudioImageAnalysis = {
 const BUCKET = "content-review-assets";
 const ASSET_RETENTION_DAYS = 60;
 const SCHEDULE_RETENTION_DAYS = 60;
-/** Public schedule / client-review links stay open through the full review cycle. */
+/** Internal schedule preview links (staff only — clients use the portal). */
 export const CONTENT_REVIEW_LINK_VALID_DAYS = 90;
 
 export function contentReviewLinkExpiresAt(fromMs = Date.now()) {
@@ -254,7 +264,7 @@ export function generateReviewToken() {
 }
 
 export function buildReviewUrl(token: string) {
-  return `${window.location.origin}/client-review/${token}`;
+  return `${window.location.origin}/internal-preview/${token}`;
 }
 
 export function buildClientPortalUrl(token: string) {
@@ -380,10 +390,24 @@ export async function listContentReviewAssetsForDrafts(params: {
   return (data ?? []) as ContentReviewAsset[];
 }
 
-/** Lightweight detail map for dashboards (draft + assets only, no comments/activity). */
+export async function listContentReviewCommentsForDrafts(draftIds: string[]) {
+  if (draftIds.length === 0) return [] as ContentReviewComment[];
+
+  const { data, error } = await supabase
+    .from("content_review_comments")
+    .select("*")
+    .in("draft_id", draftIds)
+    .order("created_at", { ascending: true });
+
+  if (error) throw error;
+  return (data ?? []) as ContentReviewComment[];
+}
+
+/** Detail map for dashboards (draft + assets; comments when provided). */
 export function buildContentReviewDetailsIndex(
   drafts: ContentReviewDraft[],
   assets: ContentReviewAsset[],
+  comments: ContentReviewComment[] = [],
 ): Record<string, ContentReviewDetail> {
   const assetsByDraftId = new Map<string, ContentReviewAsset[]>();
   for (const asset of assets) {
@@ -392,12 +416,19 @@ export function buildContentReviewDetailsIndex(
     assetsByDraftId.set(asset.draft_id, bucket);
   }
 
+  const commentsByDraftId = new Map<string, ContentReviewComment[]>();
+  for (const comment of comments) {
+    const bucket = commentsByDraftId.get(comment.draft_id) ?? [];
+    bucket.push(comment);
+    commentsByDraftId.set(comment.draft_id, bucket);
+  }
+
   const index: Record<string, ContentReviewDetail> = {};
   for (const draft of drafts) {
     index[draft.id] = {
       draft,
       assets: assetsByDraftId.get(draft.id) ?? [],
-      comments: [],
+      comments: commentsByDraftId.get(draft.id) ?? [],
       activity: [],
     };
   }
@@ -417,14 +448,18 @@ export async function loadContentStudioClientSnapshot(params: {
     },
     { skipMaintenance: true },
   );
-  const assets = await listContentReviewAssetsForDrafts({
-    organizationId: params.organizationId,
-    officeId: params.officeId,
-    draftIds: clientDrafts.map((draft) => draft.id),
-  });
+  const draftIds = clientDrafts.map((draft) => draft.id);
+  const [assets, comments] = await Promise.all([
+    listContentReviewAssetsForDrafts({
+      organizationId: params.organizationId,
+      officeId: params.officeId,
+      draftIds,
+    }),
+    listContentReviewCommentsForDrafts(draftIds),
+  ]);
   return {
     clientDrafts,
-    detailsByDraftId: buildContentReviewDetailsIndex(clientDrafts, assets),
+    detailsByDraftId: buildContentReviewDetailsIndex(clientDrafts, assets, comments),
   };
 }
 
@@ -580,6 +615,13 @@ export async function ensureClientMonthlySchedule(params: {
     });
   }
 
+  if (schedule.status === "draft") {
+    schedule = await updateContentReviewDraft(schedule, {
+      status: "ready_for_review",
+      review_status: "ready_for_review",
+    });
+  }
+
   // Only remove duplicate legacy "Post N" slot rows — never delete other assigned schedules.
   const deleteTargets = legacy.filter((draft) => draft.id !== schedule.id);
 
@@ -656,7 +698,7 @@ export async function regenerateContentClientPin(clientId: string) {
   return data as { ok: boolean; pin: string; client: ContentClient };
 }
 
-/** Rotates the per-post public preview token. Old `/client-review/:token` URLs stop working. No PIN required on the new link. */
+/** Rotates the internal preview token. Old preview URLs stop working. Not for client approval. */
 export async function regenerateContentReviewLink(draft: ContentReviewDraft) {
   const token = generateReviewToken();
   const updated = await updateContentReviewDraft(draft, {
@@ -667,7 +709,7 @@ export async function regenerateContentReviewLink(draft: ContentReviewDraft) {
   await recordActivity({
     draft: updated,
     type: "review_link_regenerated",
-    metadata: { access: "public_preview" },
+    metadata: { access: "internal_preview" },
   });
   return updated;
 }
@@ -742,13 +784,36 @@ async function deleteContentClientDirect(clientId: string) {
   return { ok: true };
 }
 
+function applyClientAssignmentStatus(
+  draft: ContentReviewDraft,
+  updates: Partial<ContentReviewDraft>,
+): Partial<ContentReviewDraft> {
+  const nextClientId =
+    updates.client_id !== undefined ? updates.client_id : draft.client_id;
+  const nextTitle = (updates.title ?? draft.title).trim();
+  const nextStatus = updates.status ?? draft.status;
+  if (
+    nextClientId &&
+    nextStatus === "draft" &&
+    !isLegacyPostSlotDraft({ title: nextTitle })
+  ) {
+    return {
+      ...updates,
+      status: "ready_for_review",
+      review_status: "ready_for_review",
+    };
+  }
+  return updates;
+}
+
 export async function updateContentReviewDraft(
   draft: ContentReviewDraft,
   updates: Partial<ContentReviewDraft>,
 ) {
+  const payload = applyClientAssignmentStatus(draft, updates);
   const { data, error } = await supabase
     .from("content_review_drafts")
-    .update(updates)
+    .update(payload)
     .eq("id", draft.id)
     .select("*")
     .single();
@@ -1720,6 +1785,16 @@ export async function addInternalContentReviewComment(params: {
     type: "internal_comment_added",
     actorUserId: params.createdBy,
   });
+
+  void sendContentReviewFeedbackEmails({
+    draft: params.draft,
+    source: "internal",
+    eventType: "internal_comment",
+    authorName: params.authorName,
+    message: params.body.trim(),
+    dedupeKey: `content-internal-comment:${data.id}`,
+  });
+
   return data as ContentReviewComment;
 }
 
@@ -1767,12 +1842,48 @@ async function getContentReviewNotificationRecipients(draft: ContentReviewDraft)
   return Array.from(recipientIds);
 }
 
+async function getScheduleCreatorEmailRecipient(
+  draft: ContentReviewDraft,
+): Promise<ContentReviewEmailRecipient | null> {
+  if (!draft.created_by) return null;
+
+  const { data: profile, error } = await supabase
+    .from("profiles")
+    .select("full_name, email")
+    .eq("id", draft.created_by)
+    .maybeSingle();
+
+  if (error) throw error;
+
+  const email = typeof profile?.email === "string" ? profile.email.trim() : "";
+  if (!email) return null;
+
+  return {
+    email,
+    fullName: profile?.full_name ?? null,
+  };
+}
+
+async function resolveContentReviewFeedbackEmailRecipients(params: {
+  draft: ContentReviewDraft;
+  source: ContentReviewFeedbackSource;
+  eventType: ContentReviewFeedbackEvent;
+}): Promise<ContentReviewEmailRecipient[]> {
+  if (shouldEmailFinalClientReviewer(params.source, params.eventType)) {
+    return [buildFinalClientReviewerRecipient()];
+  }
+
+  const creator = await getScheduleCreatorEmailRecipient(params.draft);
+  return creator ? [creator] : [];
+}
+
 export async function notifyContentReviewTeam(params: {
   draft: ContentReviewDraft;
   title: string;
   message: string;
   priority?: "low" | "medium" | "high";
   dedupeKey?: string;
+  metadata?: Record<string, unknown>;
 }) {
   try {
     const recipients = await getContentReviewNotificationRecipients(params.draft);
@@ -1788,7 +1899,7 @@ export async function notifyContentReviewTeam(params: {
           entityType: "content_review_draft",
           entityId: params.draft.id,
           actionUrl: `/admin/content-studio/editor/${params.draft.id}`,
-          metadata: { draftId: params.draft.id },
+          metadata: { draftId: params.draft.id, ...(params.metadata ?? {}) },
           priority: params.priority ?? "medium",
           category: "content_review",
           dedupeKey: params.dedupeKey ? `${params.dedupeKey}:${userId}` : undefined,
@@ -1804,22 +1915,112 @@ export async function notifyContentReviewTeam(params: {
   }
 }
 
-export async function getPublicContentReview(token: string, viewerEmail = "") {
+export type { ContentReviewFeedbackEvent, ContentReviewFeedbackSource } from "../utils/contentReviewEmailRouting";
+
+/** Email alerts for content review feedback (in-app is handled by DB triggers). */
+export async function sendContentReviewFeedbackEmails(params: {
+  draft: ContentReviewDraft;
+  source: ContentReviewFeedbackSource;
+  eventType: ContentReviewFeedbackEvent;
+  authorName: string;
+  message: string;
+  displaySlot?: number | null;
+  clientCompany?: string | null;
+  dedupeKey?: string;
+}) {
+  const sourceBadge = params.source === "client" ? "Client review" : "Internal review";
+  const eventLabel =
+    params.eventType === "approval_note"
+      ? "Approval"
+      : params.eventType === "change_request"
+        ? "Changes requested"
+        : params.eventType === "internal_comment"
+          ? "Internal note"
+          : "Comment";
+
+  const slotSuffix =
+    params.displaySlot != null && params.displaySlot >= 0
+      ? ` (Post ${params.displaySlot + 1})`
+      : "";
+
+  const title = `[${sourceBadge}] ${eventLabel}${slotSuffix} — ${params.draft.title}`;
+  const message = params.message.trim() || `${params.authorName} updated "${params.draft.title}".`;
+
+  try {
+    const recipients = await resolveContentReviewFeedbackEmailRecipients({
+      draft: params.draft,
+      source: params.source,
+      eventType: params.eventType,
+    });
+    if (recipients.length === 0) {
+      console.warn("Content review feedback email skipped: no recipient resolved.", {
+        draftId: params.draft.id,
+        source: params.source,
+        eventType: params.eventType,
+        createdBy: params.draft.created_by,
+      });
+      return;
+    }
+
+    const metadata = {
+      draftId: params.draft.id,
+      feedback_source: params.source,
+      source_badge: sourceBadge,
+      review_event: params.eventType,
+      display_slot: params.displaySlot ?? null,
+      client_company: params.clientCompany ?? null,
+      author_name: params.authorName,
+    };
+
+    await Promise.allSettled(
+      recipients.map(async (recipient) => {
+        const { sendEmailOnly } = await import(
+          "../../notifications/services/notificationService"
+        );
+
+        await sendEmailOnly({
+          to: recipient.email,
+          fullName: recipient.fullName,
+          type: "system_alert",
+          title,
+          message,
+          actionUrl: `/admin/content-studio/editor/${params.draft.id}`,
+          priority:
+            params.eventType === "approval_note" || params.eventType === "change_request"
+              ? "high"
+              : "medium",
+          metadata,
+        });
+      }),
+    );
+  } catch (err) {
+    console.warn("Content review feedback email skipped.", err);
+  }
+}
+
+/** Staff-only preview via schedule token link (does not count as client review). */
+export async function getInternalContentReviewPreview(token: string) {
   const { data, error } = await supabase.rpc("get_content_review_by_token", {
     target_token: token,
-    viewer_email: viewerEmail,
+    viewer_email: null,
   });
   if (error) throw error;
   return data as {
     ok: boolean;
     error?: "not_found" | "expired";
+    preview_mode?: "internal";
     draft?: ContentReviewDraft;
     assets?: ContentReviewAsset[];
     comments?: ContentReviewComment[];
   };
 }
 
-export async function submitPublicContentReviewFeedback(params: {
+/** @deprecated Use getInternalContentReviewPreview. Token links are internal-only. */
+export async function getPublicContentReview(token: string, _viewerEmail = "") {
+  return getInternalContentReviewPreview(token);
+}
+
+export async function submitPublicContentReviewFeedback(_params: {
   token: string;
   name: string;
   email: string;
@@ -1827,21 +2028,12 @@ export async function submitPublicContentReviewFeedback(params: {
   comment: string;
   decision: "comment" | "approved" | "changes_requested" | "revoke_approval";
 }) {
-  const { data, error } = await supabase.rpc("submit_content_review_feedback", {
-    target_token: params.token,
-    client_name: params.name,
-    client_email: params.email,
-    client_company: params.company ?? "",
-    feedback_body: params.comment,
-    decision: params.decision,
-  });
-  if (error) {
-    const details = [error.message, error.details, error.hint]
-      .filter(Boolean)
-      .join(" | ");
-    throw new Error(details || "submit_content_review_feedback failed");
-  }
-  return data as { ok: boolean; error?: string; status?: ContentReviewStatus };
+  return {
+    ok: false as const,
+    error: "portal_required" as const,
+    message:
+      "Client reviews must be submitted through the client portal. Schedule preview links are for internal staff only.",
+  };
 }
 
 export async function loginContentClientPortal(params: {
@@ -1915,6 +2107,11 @@ export type ContentClientFeedbackLimits = {
   has_approved: boolean;
   has_commented: boolean;
   has_requested_changes: boolean;
+  expected_posts?: number;
+  approved_slots?: number[];
+  changes_requested_slots?: number[];
+  approved_count?: number;
+  all_posts_approved?: boolean;
 };
 
 export async function submitContentClientReviewFeedback(params: {
