@@ -629,7 +629,7 @@ export default function ContentStudioClientsPage() {
         setError("No preview link on this schedule yet.");
         return;
       }
-      await copy(refreshed.review_url, "Schedule preview link");
+      await copy(refreshed.review_url, "Internal review link");
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to refresh preview link.",
@@ -656,7 +656,7 @@ export default function ContentStudioClientsPage() {
       await notifyContentReviewTeam({
         draft: updated,
         title: "Schedule ready for client portal",
-        message: `${updated.title} was sent to ${client?.company_name ?? "the client"}. Share the portal link (not the internal preview link).`,
+        message: `${updated.title} was sent to ${client?.company_name ?? "the client"}. Share the portal link (not the internal review link).`,
         dedupeKey: `content-batch-sent:${updated.id}`,
       });
       setMessage(
@@ -1887,10 +1887,10 @@ export default function ContentStudioClientsPage() {
                   </div>
 
                   <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-                    <h2 className="text-xl font-semibold">Internal schedule preview</h2>
+                    <h2 className="text-xl font-semibold">Internal review only</h2>
                     <p className="mt-2 text-sm text-white/55">
-                      Staff-only link while editing. Opens a read-only preview — no
-                      client login, no approvals. Do not send this URL to clients.
+                      Staff-only link while editing. Clients approve and comment in the client
+                      portal after you send the schedule — do not share this URL with clients.
                     </p>
                     {activeScheduleDraft?.review_url ? (
                       <div className="mt-4 flex flex-wrap gap-2">
@@ -1901,7 +1901,7 @@ export default function ContentStudioClientsPage() {
                           }
                           className="rounded-xl border border-white/15 px-3 py-2 text-xs font-semibold text-white/80"
                         >
-                          Copy internal preview link
+                          Copy internal review link
                         </button>
                         <a
                           href={activeScheduleDraft.review_url}
@@ -1909,7 +1909,7 @@ export default function ContentStudioClientsPage() {
                           rel="noreferrer"
                           className="rounded-xl border border-white/10 px-3 py-2 text-xs font-semibold text-white/75"
                         >
-                          Open preview
+                          Open internal review
                         </a>
                         <button
                           type="button"
@@ -1918,7 +1918,7 @@ export default function ContentStudioClientsPage() {
                           }
                           className="rounded-xl border border-amber-500/30 px-3 py-2 text-xs font-semibold text-amber-200"
                         >
-                          Revoke preview link
+                          Revoke review link
                         </button>
                       </div>
                     ) : (

@@ -709,13 +709,13 @@ export default function ContentStudioEditorPage() {
     const url = detail?.draft.review_url;
     if (!url) return;
     await navigator.clipboard.writeText(url);
-    setMessage("Internal preview link copied. Share the client portal link with clients, not this URL.");
+    setMessage("Internal review link copied. Share the client portal link with clients, not this URL.");
   }
 
   async function revokePostPreviewLink() {
     if (!detail) return;
     const confirmed = window.confirm(
-      `Revoke the internal preview link for "${detail.draft.title}"? Staff with the old URL will no longer be able to open it.`,
+      `Revoke the internal review link for "${detail.draft.title}"? Staff with the old URL will no longer be able to open it.`,
     );
     if (!confirmed) return;
     try {
@@ -933,7 +933,7 @@ export default function ContentStudioEditorPage() {
                   className="inline-flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/5 px-2.5 py-2 text-xs font-semibold hover:bg-white/10"
                 >
                   <Copy size={14} />
-                  Copy internal preview
+                  Copy internal review link
                 </button>
                 <button
                   type="button"

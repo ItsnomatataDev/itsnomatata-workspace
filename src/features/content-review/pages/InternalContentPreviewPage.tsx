@@ -53,7 +53,7 @@ export default function InternalContentPreviewPage() {
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-neutral-950 p-6 text-white/70">
-        Loading internal preview...
+        Loading internal review...
       </div>
     );
   }
@@ -77,7 +77,7 @@ export default function InternalContentPreviewPage() {
           <div className="flex items-start gap-3">
             <Eye size={20} className="mt-0.5 shrink-0 text-amber-200" />
             <div>
-              <p className="text-sm font-semibold text-amber-100">Internal preview only</p>
+              <p className="text-sm font-semibold text-amber-100">Internal review only</p>
               <p className="mt-1 text-sm leading-relaxed text-amber-100/80">
                 This link is for your team while editing. Clients approve and comment in the client
                 portal after you send the schedule — do not share this URL with clients.
@@ -87,7 +87,7 @@ export default function InternalContentPreviewPage() {
         </div>
 
         <header className="mb-6 rounded-3xl bg-black p-6 text-white shadow-xl ring-1 ring-white/10">
-          <p className="text-xs uppercase tracking-[0.3em] text-orange-400">Staff preview</p>
+          <p className="text-xs uppercase tracking-[0.3em] text-orange-400">Internal review</p>
           <h1 className="mt-4 text-3xl font-bold sm:text-5xl">{draft.title}</h1>
           {draft.subtitle ? (
             <p className="mt-3 text-lg text-white/70">{draft.subtitle}</p>
