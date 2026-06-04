@@ -282,7 +282,7 @@ export function batchSendGateHint(batch: ClientBatchReadiness) {
     return `Add captions to each post in the schedule (${batch.captionsComplete}/${batch.expectedPosts} ready).`;
   }
   if (!batch.allPostsInternallyReady) {
-    return "All posts in the schedule need media, captions, and internal approval.";
+    return `Approve each post internally (${batch.internalApproved}/${batch.expectedPosts} approved). Add media and captions on every post first.`;
   }
   if (batch.sentToClient >= batch.expectedPosts && !batch.canSendBatchToClient) {
     return "Every post in this schedule was already sent to the client.";

@@ -18,6 +18,7 @@ import {
   type ContentReviewFeedbackEvent,
   type ContentReviewFeedbackSource,
 } from "../utils/contentReviewEmailRouting";
+import { areAllInternalPostsApproved } from "../utils/contentReviewFeedback";
 
 export type ContentReviewStatus =
   | "draft"
@@ -1796,6 +1797,96 @@ export async function addInternalContentReviewComment(params: {
   });
 
   return data as ContentReviewComment;
+}
+
+export async function submitInternalPostReviewFeedback(params: {
+  draft: ContentReviewDraft;
+  slot: number;
+  decision: "approved" | "changes_requested";
+  message?: string;
+  createdBy: string;
+  authorName: string;
+  authorEmail?: string | null;
+  existingComments?: ContentReviewComment[];
+}) {
+  const slotLabel = `Post ${params.slot + 1}`;
+  const body = [
+    `[${slotLabel}]`,
+    params.message?.trim() ||
+      (params.decision === "approved"
+        ? "Approved for this post."
+        : "Changes requested for this post."),
+  ].join("\n");
+  const commentType =
+    params.decision === "approved" ? "approval_note" : "change_request";
+
+  const { data, error } = await supabase
+    .from("content_review_comments")
+    .insert({
+      draft_id: params.draft.id,
+      organization_id: params.draft.organization_id,
+      office_id: params.draft.office_id,
+      author_name: params.authorName,
+      author_email: params.authorEmail ?? null,
+      body,
+      comment: body,
+      source: "internal",
+      client_visible: false,
+      visibility: "internal",
+      author_type: "internal",
+      comment_type: commentType,
+      display_slot: params.slot,
+      created_by: params.createdBy,
+    })
+    .select("*")
+    .single();
+
+  if (error) throw error;
+
+  const comment = data as ContentReviewComment;
+  const mergedComments = [...(params.existingComments ?? []), comment];
+
+  if (params.decision === "changes_requested" && params.draft.status === "approved") {
+    await updateContentReviewDraft(params.draft, {
+      status: "ready_for_review",
+      approved_at: null,
+      approved_by_name: null,
+      approved_by_email: null,
+    });
+  } else if (
+    params.decision === "approved" &&
+    areAllInternalPostsApproved(mergedComments) &&
+    params.draft.status !== "approved" &&
+    params.draft.status !== "published"
+  ) {
+    await updateContentReviewDraft(params.draft, {
+      status: "approved",
+      approved_at: new Date().toISOString(),
+      approved_by_name: params.authorName,
+      approved_by_email: params.authorEmail ?? null,
+    });
+  }
+
+  await recordActivity({
+    draft: params.draft,
+    type:
+      params.decision === "approved"
+        ? "internal_approval"
+        : "internal_changes_requested",
+    actorUserId: params.createdBy,
+  });
+
+  void sendContentReviewFeedbackEmails({
+    draft: params.draft,
+    source: "internal",
+    eventType: commentType,
+    authorName: params.authorName,
+    message: body,
+    displaySlot: params.slot,
+    dedupeKey: `content-internal-feedback:${comment.id}`,
+  });
+
+  return comment;
 }
 
 export async function recordActivity(params: {

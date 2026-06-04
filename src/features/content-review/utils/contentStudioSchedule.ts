@@ -4,7 +4,11 @@ import type {
   ContentReviewDraft,
 } from "../services/contentReviewService";
 import { groupAssetsByDisplaySlot } from "./assetDisplaySlots";
-import { getClientApprovedSlots } from "./contentReviewFeedback";
+import {
+  areAllInternalPostsApproved,
+  getClientApprovedSlots,
+  getInternalApprovedSlots,
+} from "./contentReviewFeedback";
 import {
   CONTENT_STUDIO_POSTS_PER_SCHEDULE,
   defaultScheduleTitle,
@@ -133,7 +137,12 @@ export function getScheduleBatchReadiness(
     assets.filter((asset) => asset.is_selected !== false),
   );
 
-  const internalApproved = draftReadiness.internallyApproved ? expectedPosts : 0;
+  const internalApprovedCount = getInternalApprovedSlots(comments, expectedPosts).length;
+  const scheduleInternallyApproved =
+    draftReadiness.internallyApproved || areAllInternalPostsApproved(comments, expectedPosts);
+  const internalApproved = scheduleInternallyApproved
+    ? expectedPosts
+    : internalApprovedCount;
   const sentToClient = draftReadiness.sentToClient ? expectedPosts : 0;
   const clientApprovedCount = getClientApprovedSlots(comments, expectedPosts).length;
   const clientReviewed =
@@ -146,10 +155,12 @@ export function getScheduleBatchReadiness(
   const allPostsInternallyReady =
     mediaComplete >= expectedPosts &&
     captionsComplete >= expectedPosts &&
-    draftReadiness.internallyApproved;
+    scheduleInternallyApproved;
 
   const canSendBatchToClient =
-    allPostsInternallyReady && draftReadiness.canSendToClient;
+    allPostsInternallyReady &&
+    scheduleInternallyApproved &&
+    !draftReadiness.sentToClient;
 
   return {
     expectedPosts,
@@ -163,7 +174,7 @@ export function getScheduleBatchReadiness(
     canSendBatchToClient,
     mediaProgress: Math.round((mediaComplete / expectedPosts) * 100),
     captionsProgress: Math.round((captionsComplete / expectedPosts) * 100),
-    internalProgress: draftReadiness.internallyApproved ? 100 : 0,
+    internalProgress: Math.round((internalApprovedCount / expectedPosts) * 100),
     sentProgress: Math.round((sentToClient / expectedPosts) * 100),
     clientReviewProgress: Math.round((clientApprovedCount / expectedPosts) * 100),
   };

@@ -62,16 +62,16 @@ import {
   computeMoveToSlot,
   nextSortOrderForSlot,
 } from "../utils/contentStudioAssetOrdering";
-import { buildSchedulePostRows, type SchedulePostRow } from "../utils/contentStudioSchedule";
+import { buildSchedulePostRows, getScheduleBatchReadiness, type SchedulePostRow } from "../utils/contentStudioSchedule";
 import {
   parseContentStudioEditorLocationState,
   type ContentStudioEditorFocusTab,
 } from "../utils/contentStudioEditorNav";
 import { shouldUseUnifiedPostCopy } from "../utils/postCopyLayout";
 import {
-  canRequestInternalChanges,
   canRevokeScheduleApproval,
   revokeScheduleApprovalLabel,
+  CONTENT_STUDIO_POSTS_PER_SCHEDULE,
   getPostReadiness,
   sendGateHint,
 } from "../utils/contentStudioProgress";
@@ -350,11 +350,26 @@ export default function ContentStudioEditorPage() {
 
   const editorReadiness = useMemo(() => {
     if (!detail || !form) return null;
-    return getPostReadiness(
+    const batch = getScheduleBatchReadiness(
       { ...detail.draft, captions: form.captions, body: form.body, summary: form.summary },
-      orderedAssets.length,
+      orderedAssets,
+      undefined,
+      detail.comments,
+    );
+    const base = getPostReadiness(
+      { ...detail.draft, captions: form.captions, body: form.body, summary: form.summary },
+      batch.mediaComplete,
       orderedAssets,
     );
+    return {
+      ...base,
+      hasMedia: batch.mediaComplete >= CONTENT_STUDIO_POSTS_PER_SCHEDULE,
+      hasCaption: batch.captionsComplete >= CONTENT_STUDIO_POSTS_PER_SCHEDULE,
+      internallyApproved: batch.allPostsInternallyReady,
+      canApproveInternally: false,
+      canSendToClient: batch.canSendBatchToClient,
+      internalApprovedCount: batch.internalApproved,
+    };
   }, [detail, form, orderedAssets]);
 
   const clientFeedback = useMemo(() => {
@@ -731,32 +746,13 @@ export default function ContentStudioEditorPage() {
     }
   }
 
-  async function saveDraft(
-    nextStatus?: ContentReviewDraft["status"],
-    options?: { internalRequestChanges?: boolean },
-  ) {
+  async function saveDraft(nextStatus?: ContentReviewDraft["status"]) {
     if (!detail || !draftPreview || !form || !editorReadiness) return;
     if (nextStatus === "sent_to_client" && !editorReadiness.canSendToClient) {
       setError(sendGateHint(editorReadiness));
       return;
     }
-    if (nextStatus === "approved" && !editorReadiness.canApproveInternally && !editorReadiness.internallyApproved) {
-      setError("Add media and social caption before internal approval.");
-      return;
-    }
-    if (nextStatus === "ready_for_review" && options?.internalRequestChanges) {
-      if (!canRequestInternalChanges(detail.draft, editorReadiness)) {
-        setError("Add media and captions before requesting internal changes.");
-        return;
-      }
-      if (
-        !window.confirm(
-          `Request changes on "${form.title.trim() || "this schedule"}"? It cannot be sent to the client until it is approved again.`,
-        )
-      ) {
-        return;
-      }
-    } else if (nextStatus === "ready_for_review") {
+    if (nextStatus === "ready_for_review") {
       if (!canRevokeScheduleApproval(detail.draft, editorReadiness)) {
         setError("This schedule cannot be recalled or unapproved.");
         return;
@@ -807,13 +803,9 @@ export default function ContentStudioEditorPage() {
       setMessage(
         nextStatus === "sent_to_client"
           ? "Saved and sent for client review via the portal."
-          : nextStatus === "approved"
-            ? "Schedule internally approved. Send to client when ready."
-            : nextStatus === "ready_for_review" && options?.internalRequestChanges
-              ? "Schedule marked as needing internal changes."
-              : nextStatus === "ready_for_review"
-                ? "Schedule recalled. Ready for review again."
-                : "All changes saved.",
+          : nextStatus === "ready_for_review"
+            ? "Schedule recalled. Ready for review again."
+            : "All changes saved.",
       );
       if (nextStatus === "sent_to_client") {
         await notifyContentReviewTeam({
@@ -914,7 +906,13 @@ export default function ContentStudioEditorPage() {
               {editorReadiness?.hasCaption ? "●" : "○"} Caption
             </span>
             <span className={editorReadiness?.internallyApproved ? "text-emerald-300" : ""}>
-              {editorReadiness?.internallyApproved ? "●" : "○"} Internal
+              {editorReadiness?.internallyApproved
+                ? "●"
+                : "○"}{" "}
+              Internal{" "}
+              {typeof editorReadiness?.internalApprovedCount === "number"
+                ? `(${editorReadiness.internalApprovedCount}/${CONTENT_STUDIO_POSTS_PER_SCHEDULE})`
+                : ""}
             </span>
           </div>
           <span className="rounded-full bg-orange-500 px-2.5 py-1 text-[11px] font-bold capitalize text-black">
@@ -994,30 +992,6 @@ export default function ContentStudioEditorPage() {
               <Save size={14} />
               Save
             </button>
-            {canApproveRole(profile?.primary_role) && editorReadiness?.canApproveInternally ? (
-              <button
-                type="button"
-                onClick={() => void saveDraft("approved")}
-                disabled={saving}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-2 text-xs font-semibold text-emerald-200 hover:bg-emerald-500/15 disabled:opacity-60"
-              >
-                <CheckCircle2 size={14} />
-                Approve internally
-              </button>
-            ) : null}
-            {canApproveRole(profile?.primary_role) &&
-            detail &&
-            editorReadiness &&
-            canRequestInternalChanges(detail.draft, editorReadiness) ? (
-              <button
-                type="button"
-                onClick={() => void saveDraft("ready_for_review", { internalRequestChanges: true })}
-                disabled={saving}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-orange-500/40 bg-orange-500/10 px-2.5 py-2 text-xs font-semibold text-orange-100 hover:bg-orange-500/15 disabled:opacity-60"
-              >
-                Request changes
-              </button>
-            ) : null}
             {canApproveRole(profile?.primary_role) &&
             detail &&
             editorReadiness &&

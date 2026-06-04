@@ -123,13 +123,12 @@ export default function ClientPortalReviewPage() {
     [draft],
   );
 
-  const allPostsApproved = feedbackLimits.all_posts_approved ?? false;
   const approvedSlots = useMemo(
     () => new Set(feedbackLimits.approved_slots ?? []),
     [feedbackLimits.approved_slots],
   );
 
-  const hideAllPostActions = readOnly || allPostsApproved || draft?.status === "approved";
+  const readOnlyReview = readOnly;
 
   async function submit(
     decision: "comment" | "approved" | "changes_requested" | "revoke_approval",
@@ -225,7 +224,7 @@ export default function ClientPortalReviewPage() {
           <ArrowLeft size={16} /> Back to portal
         </Link>
 
-        {allPostsApproved ? (
+        {(feedbackLimits.all_posts_approved ?? false) ? (
           <div className="mb-5 rounded-2xl border border-emerald-300 bg-emerald-50 p-4">
             <div className="flex items-start gap-3">
               <CheckCircle2 size={22} className="mt-0.5 text-emerald-700" />
@@ -245,7 +244,7 @@ export default function ClientPortalReviewPage() {
           assets={assets}
           theme="public"
           renderSectionActions={
-            hideAllPostActions
+            readOnlyReview
               ? undefined
               : (slot) => {
                   const slotApproved = approvedSlots.has(slot.slot);
@@ -290,7 +289,7 @@ export default function ClientPortalReviewPage() {
         />
         {submittedStatus ? <div className="mt-6 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">Status updated: {submittedStatus.replace(/_/g, " ")}.</div> : null}
         {error ? <div className="mt-6 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div> : null}
-        {readOnly ? <p className="mt-4 text-center text-xs text-neutral-500">This review is read-only.</p> : null}
+        {readOnlyReview ? <p className="mt-4 text-center text-xs text-neutral-500">This review is read-only.</p> : null}
       </div>
       {requestingSlot ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">

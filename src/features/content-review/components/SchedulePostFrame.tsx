@@ -114,12 +114,12 @@ export default function SchedulePostFrame({
   const heading = primary?.heading ?? "";
   const caption = primary?.caption ?? "";
   const approvalLabel =
-    draft.status === "approved"
-      ? "Approved"
-      : draft.status === "changes_requested"
-        ? "Changes requested"
-        : draft.status === "sent_to_client" || draft.status === "viewed"
-          ? "With client"
+    draft.status === "changes_requested"
+      ? "Changes requested"
+      : draft.status === "sent_to_client" || draft.status === "viewed"
+        ? "With client"
+        : draft.status === "approved"
+          ? "Approved"
           : "In progress";
 
   return (
@@ -361,28 +361,6 @@ export default function SchedulePostFrame({
               applyCaptionLabel="Apply caption"
             />
           ) : null}
-
-          <div className="rounded-xl border border-dashed border-white/15 bg-white/5 p-3">
-            <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-white/35">
-              Client review preview (not clickable)
-            </p>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                disabled
-                className="cursor-default rounded-xl bg-orange-500 px-3 py-2 text-xs font-bold text-black opacity-90"
-              >
-                Approve
-              </button>
-              <button
-                type="button"
-                disabled
-                className="cursor-default rounded-xl border border-orange-500/40 px-3 py-2 text-xs font-bold text-orange-200 opacity-90"
-              >
-                Request changes
-              </button>
-            </div>
-          </div>
         </div>
       </div>
     </article>
