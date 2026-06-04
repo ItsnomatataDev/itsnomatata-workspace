@@ -1170,7 +1170,8 @@ export async function uploadContentClientMedia(params: {
   uploadedBy: string;
   label?: string;
 }) {
-  await cleanupExpiredContentClientMedia();
+  // Do not block uploads on global expiry sweep (can scan the whole table).
+  void cleanupExpiredContentClientMedia();
   const uploadFile = isVideoUploadFile(params.file)
     ? prepareVideoUpload(params.file)
     : await compressMediaFile(params.file);
@@ -1477,7 +1478,7 @@ export async function uploadContentReviewAsset(params: {
   sortOrder: number;
   displaySlot?: number;
 }) {
-  await cleanupExpiredContentReviewAssets();
+  void cleanupExpiredContentReviewAssets();
   const uploadFile = isVideoUploadFile(params.file)
     ? prepareVideoUpload(params.file)
     : await compressMediaFile(params.file);

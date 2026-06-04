@@ -61,6 +61,7 @@ export default function ContentClientMediaLibrary({
   const [items, setItems] = useState<ContentClientMedia[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [uploadLabel, setUploadLabel] = useState<string | null>(null);
   const [error, setError] = useState("");
 
   const load = useCallback(async () => {
@@ -89,30 +90,49 @@ export default function ContentClientMediaLibrary({
 
   async function handleUpload(files: FileList | null) {
     if (!files || !userId) return;
+    const queue = Array.from(files);
     try {
       setSaving(true);
       setError("");
-      for (const file of Array.from(files)) {
+      for (let index = 0; index < queue.length; index += 1) {
+        const file = queue[index];
+        const sizeLabel = formatContentReviewFileSize(file.size);
+        setUploadLabel(
+          queue.length > 1
+            ? `Uploading ${file.name} (${sizeLabel}) — ${index + 1} of ${queue.length}…`
+            : `Uploading ${file.name} (${sizeLabel})…`,
+        );
         await uploadContentClientMedia({
           client,
           file,
           uploadedBy: userId,
         });
       }
+      setUploadLabel("Refreshing library…");
       setItems(
         await listContentClientMedia({
           organizationId,
           officeId,
           clientId: client.id,
           uploadedBy: userId,
-          syncFromPosts: true,
+          syncFromPosts: false,
         }),
       );
+      if (syncFromPostsOnLoad) {
+        void listContentClientMedia({
+          organizationId,
+          officeId,
+          clientId: client.id,
+          uploadedBy: userId,
+          syncFromPosts: true,
+        }).then(setItems);
+      }
       onUploaded?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to upload media.");
     } finally {
       setSaving(false);
+      setUploadLabel(null);
     }
   }
 
@@ -157,8 +177,16 @@ export default function ContentClientMediaLibrary({
         </label>
       </div>
       <p className="mt-2 text-[11px] text-white/35">
-        Max {formatContentReviewFileSize(CONTENT_REVIEW_UPLOAD_LIMIT_BYTES)} per file (images compressed; videos kept as uploaded).
+        Max {formatContentReviewFileSize(CONTENT_REVIEW_UPLOAD_LIMIT_BYTES)} per file. Videos upload in full
+        quality — a large file can take several minutes depending on your connection (that is normal, not
+        compression).
       </p>
+      {uploadLabel ? (
+        <p className="mt-2 flex items-center gap-2 text-xs text-orange-200/90">
+          <Loader2 size={14} className="shrink-0 animate-spin" />
+          {uploadLabel}
+        </p>
+      ) : null}
       {error ? <p className="mt-2 text-xs text-red-300">{error}</p> : null}
       {loading ? (
         <div className="mt-4 flex items-center gap-2 text-sm text-white/50">
