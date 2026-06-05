@@ -49,5 +49,4 @@ export const EDITOR_ROLES = new Set([
   "org_admin",
   "super_admin",
   "superadmin",
-  "manager",
 ]);

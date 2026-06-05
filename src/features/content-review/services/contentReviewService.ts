@@ -767,7 +767,17 @@ export async function updateContentClientDetails(params: {
     target_phone: params.phone ?? "",
   });
   if (error) {
-    if (String(error.message ?? "").toLowerCase().includes("not allowed")) {
+    const message = String(error.message ?? "").toLowerCase();
+    if (
+      message.includes("could not find the function") ||
+      message.includes("schema cache") ||
+      error.code === "PGRST202"
+    ) {
+      throw new Error(
+        "Client detail editing is not deployed yet. Apply the latest Supabase migrations and reload the schema cache.",
+      );
+    }
+    if (message.includes("not allowed")) {
       throw new Error("You do not have permission to edit this client.");
     }
     throw error;

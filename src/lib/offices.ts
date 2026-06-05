@@ -56,6 +56,7 @@ export type OfficeCapabilities = {
   meetings: boolean;
   timesheetNav: boolean;
   contentStudio: boolean;
+  locationPlanner: boolean;
 };
 
 export function getOfficeCapabilities(
@@ -75,6 +76,7 @@ export function getOfficeCapabilities(
     meetings: !isThreeLittleBirds,
     timesheetNav: !isThreeLittleBirds,
     contentStudio: !isThreeLittleBirds,
+    locationPlanner: isThreeLittleBirds,
   };
 }
 

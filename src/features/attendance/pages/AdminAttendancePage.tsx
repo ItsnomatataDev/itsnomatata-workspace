@@ -24,6 +24,8 @@ function formatMaybeDate(value?: string | null) {
 function StatusPill({ row }: { row: AttendanceReportRow }) {
   const label = row.status === "on_leave"
     ? "On Leave"
+    : row.status === "off_day"
+      ? "Off day"
     : row.status === "active"
       ? "Clocked in"
       : row.status === "completed"
@@ -34,6 +36,8 @@ function StatusPill({ row }: { row: AttendanceReportRow }) {
 
   const color = row.status === "on_leave"
     ? "bg-sky-500/15 text-sky-300"
+    : row.status === "off_day"
+      ? "bg-purple-500/15 text-purple-300"
     : row.status === "active"
       ? "bg-green-500/15 text-green-300"
       : row.status === "missed_clock_out"
@@ -115,6 +119,7 @@ export default function AdminAttendancePage() {
 
   const clockedIn = rows.filter((row) => row.status === "active").length;
   const onLeave = rows.filter((row) => row.status === "on_leave").length;
+  const offDay = rows.filter((row) => row.status === "off_day").length;
   const late = rows.filter((row) => row.is_late).length;
   const missed = rows.filter((row) => row.missed_clock_out).length;
   const autoClockedOut = rows.filter((row) => row.clock_out_method === "auto").length;
@@ -168,10 +173,11 @@ export default function AdminAttendancePage() {
             </div>
           </div>
 
-          <section className="mb-6 grid gap-4 md:grid-cols-5">
+          <section className="mb-6 grid gap-4 md:grid-cols-6">
             {[
               { label: "Clocked in", value: clockedIn, Icon: UserCheck },
               { label: "On leave", value: onLeave, Icon: CalendarDays },
+              { label: "Off day", value: offDay, Icon: CalendarDays },
               { label: "Auto out", value: autoClockedOut, Icon: ShieldCheck },
               { label: "Late", value: late, Icon: Clock3 },
               { label: "Missed", value: missed, Icon: Activity },

@@ -71,7 +71,7 @@ export type AttendanceReportRow = {
   break_seconds: number;
   task_tracked_seconds: number;
   untracked_seconds: number;
-  status: AttendanceSessionStatus | "offline" | "on_leave";
+  status: AttendanceSessionStatus | "offline" | "on_leave" | "off_day";
   is_late: boolean;
   missed_clock_out: boolean;
   clock_out_method?: string | null;

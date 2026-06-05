@@ -21,6 +21,8 @@ import CreateSlotModal from "./components/modals/CreateSlotModal";
 import AssignmentModal from "./components/modals/AssignmentModal";
 import ManageLocationsModal from "./components/modals/ManageLocationsModal";
 import ManageRolesModal from "./components/modals/ManageRolesModal";
+import TlbOffDaysPanel from "./components/TlbOffDaysPanel";
+import { getOfficeCapabilities } from "../../lib/offices";
 import type {
   AdminAssignmentRow,
   AdminPlannerCalendar,
@@ -37,11 +39,13 @@ import type {
 } from "./components/plannerBoardTypes";
 import {
   assignEmployeeToSlot,
+  createTlbEmployeeOffDay,
   createAssignmentSlot,
   createLocationStatusEvent,
   deleteAssignment,
   deleteAssignmentSlot,
   deleteCompanyLocation,
+  deleteTlbEmployeeOffDay,
   detectAssignmentConflicts,
   getAdminPlannerCalendar,
   moveAssignment,
@@ -74,7 +78,10 @@ export default function LocationPlannerAdminPage() {
   const auth = useAuth();
   const profile = auth?.profile ?? null;
   const organizationId = profile?.organization_id ?? null;
-  const canEdit = EDITOR_ROLES.has(String(profile?.primary_role ?? ""));
+  const officeCapabilities = getOfficeCapabilities(profile?.office);
+  const canUsePlanner = officeCapabilities.locationPlanner;
+  const canEdit =
+    canUsePlanner && EDITOR_ROLES.has(String(profile?.primary_role ?? ""));
 
   const initialDate = getHarareDateKey();
   const [selectedDate, setSelectedDate] = useState(initialDate);
@@ -245,8 +252,13 @@ export default function LocationPlannerAdminPage() {
 
   const unassignedEmployees = useMemo<PlannerEmployeeCardModel[]>(() => {
     const assignedIds = new Set(assignmentCards.map((assignment) => assignment.employeeId));
+    const unavailableIds = new Set(
+      (data?.availability ?? [])
+        .filter((item) => assignmentOnDay(item.start_date, item.end_date, selectedDate))
+        .map((item) => item.user_id),
+    );
     return (data?.employees ?? [])
-      .filter((employee) => !assignedIds.has(employee.id))
+      .filter((employee) => !assignedIds.has(employee.id) && !unavailableIds.has(employee.id))
       .map((employee) => ({
         id: employee.id,
         name: employee.full_name ?? employee.email ?? "Employee",
@@ -255,7 +267,15 @@ export default function LocationPlannerAdminPage() {
         department: employee.department,
         skills: employee.skills,
       }));
-  }, [assignmentCards, data?.employees]);
+  }, [assignmentCards, data?.availability, data?.employees, selectedDate]);
+
+  const unavailableToday = useMemo(
+    () =>
+      (data?.availability ?? []).filter((item) =>
+        assignmentOnDay(item.start_date, item.end_date, selectedDate),
+      ),
+    [data?.availability, selectedDate],
+  );
 
   const activeAssignment =
     activeDrag?.type === "assignment" ? assignmentsById.get(activeDrag.id) : null;
@@ -454,6 +474,69 @@ export default function LocationPlannerAdminPage() {
     }
   };
 
+  const handleCreateOffDay = async (input: {
+    userId: string;
+    offDate: string;
+    reason?: string | null;
+  }) => {
+    const officeId = profile?.office_id ?? profile?.office?.id ?? null;
+    if (!organizationId || !officeId) {
+      setError("Three Little Birds office is not set on your profile.");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await createTlbEmployeeOffDay({
+        organizationId,
+        officeId,
+        userId: input.userId,
+        offDate: input.offDate,
+        reason: input.reason,
+        createdBy: auth?.user?.id ?? null,
+      });
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to add off day.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteOffDay = async (offDayId: string) => {
+    if (!organizationId) return;
+    setSaving(true);
+    try {
+      await deleteTlbEmployeeOffDay({ organizationId, offDayId });
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to remove off day.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!canUsePlanner) {
+    return (
+      <div className="min-h-screen bg-black text-white">
+        <div className="flex min-h-screen flex-col lg:flex-row">
+          <Sidebar role={profile?.primary_role} />
+          <main className="flex-1 bg-gray-100 px-4 py-6 text-gray-900 sm:px-6 lg:px-8">
+            <div className="mx-auto max-w-3xl rounded-3xl border border-gray-200 bg-white p-8 shadow-sm">
+              <p className="text-xs font-semibold uppercase tracking-[0.25em] text-orange-500">
+                Three Little Birds only
+              </p>
+              <h1 className="mt-3 text-2xl font-bold text-gray-950">Location Planner is not available here</h1>
+              <p className="mt-2 text-sm text-gray-500">
+                This planner is only available to Three Little Birds admins. IT's Nomatata staff should not use this route.
+              </p>
+            </div>
+          </main>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-black text-white">
       <div className="flex min-h-screen flex-col lg:flex-row">
@@ -573,6 +656,25 @@ export default function LocationPlannerAdminPage() {
                 </p>
               ) : null}
 
+              {unavailableToday.length > 0 ? (
+                <div className="mb-4 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3">
+                  <p className="text-sm font-semibold text-sky-900">
+                    {unavailableToday.length} TLB staff unavailable today
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {unavailableToday.map((item) => (
+                      <span
+                        key={`${item.kind}-${item.id}`}
+                        className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-sky-700 shadow-sm"
+                      >
+                        {item.employee_name || item.employee_email || "Employee"} ·{" "}
+                        {item.kind === "leave" ? "On leave" : "Off day"}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
               <StatusAlertBanner events={data?.status_events ?? []} />
 
               {loading || !data ? (
@@ -619,22 +721,32 @@ export default function LocationPlannerAdminPage() {
                       employees={unassignedEmployees}
                       canEdit={canEdit}
                       compact
-                      title="Free employees"
-                      description="Always visible. Drag a person into a location slot."
+                      title="Available employees"
+                      description="Only unassigned TLB staff who are not on leave or off today."
                     />
                     {calendarOpen ? (
-                      <AssignmentDatePanel
-                        selectedDate={selectedDate}
-                        assignments={assignmentCards}
-                        onDateChange={setSelectedDate}
-                        selectedAssignmentId={selectedAssignmentId}
-                        canEdit={canEdit}
-                        onSelectAssignment={(id) => {
-                          setSelectedAssignmentId(id);
-                          setAssignmentModalMode("edit");
-                          setAssignmentModalOpen(true);
-                        }}
-                      />
+                      <div className="space-y-5">
+                        <AssignmentDatePanel
+                          selectedDate={selectedDate}
+                          assignments={assignmentCards}
+                          onDateChange={setSelectedDate}
+                          selectedAssignmentId={selectedAssignmentId}
+                          canEdit={canEdit}
+                          onSelectAssignment={(id) => {
+                            setSelectedAssignmentId(id);
+                            setAssignmentModalMode("edit");
+                            setAssignmentModalOpen(true);
+                          }}
+                        />
+                        <TlbOffDaysPanel
+                          selectedDate={selectedDate}
+                          employees={data.employees}
+                          availability={data.availability ?? []}
+                          saving={saving}
+                          onCreateOffDay={handleCreateOffDay}
+                          onDeleteOffDay={handleDeleteOffDay}
+                        />
+                      </div>
                     ) : null}
                   </div>
                 </>

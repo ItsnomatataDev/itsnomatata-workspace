@@ -458,24 +458,30 @@ export default function Sidebar({
     ["admin", "org_admin", "super_admin", "superadmin", "it-superadmin"].includes(
       String(role ?? ""),
     );
+  const canUseLocationPlanner =
+    officeCapabilities.locationPlanner &&
+    ["admin", "org_admin", "super_admin", "superadmin"].includes(String(role ?? ""));
   const rawRoleNav = getRoleNav(role, counts);
-  const officeScopedRoleNav = isThreeLittleBirds
-    ? rawRoleNav.flatMap<NavItem>((item) => {
+  const officeScopedRoleNav = rawRoleNav.flatMap<NavItem>((item) => {
         if ("type" in item && item.type === "group") {
           const children = item.children.filter(
             (child) =>
+              !child.to.includes("location-planner") &&
               !child.to.startsWith("/admin/content-studio") &&
-              (canUseTimeTracking || child.to !== "/timesheets/team") &&
-              (canUseTimeTracking || child.to !== "/board-management"),
+              (!isThreeLittleBirds || canUseTimeTracking || child.to !== "/timesheets/team") &&
+              (!isThreeLittleBirds || canUseTimeTracking || child.to !== "/board-management"),
           );
           return children.length > 0 ? [{ ...item, children } as GroupItem] : [];
         }
         const link = item as LinkItem;
-        if (link.to.startsWith("/admin/content-studio")) return [];
-        if (!canUseTimeTracking && link.to === "/timesheets/team") return [];
+        if (link.to === "/admin/location-planner") {
+          return canUseLocationPlanner ? [link] : [];
+        }
+        if (link.to.includes("location-planner")) return [];
+        if (isThreeLittleBirds && link.to.startsWith("/admin/content-studio")) return [];
+        if (isThreeLittleBirds && !canUseTimeTracking && link.to === "/timesheets/team") return [];
         return [link];
-      })
-    : rawRoleNav;
+      });
   const roleNav = filterNavByFeatures(officeScopedRoleNav, isEnabled);
   const allNav: NavItem[] = [
     ...visibleCommonLinks,

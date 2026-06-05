@@ -12,6 +12,7 @@ import type {
   EmployeeSkill,
   LocationStatusEvent,
   MoveAssignmentInput,
+  TlbEmployeeOffDay,
 } from "../types";
 
 function parseConflictResult(value: unknown): ConflictResult {
@@ -52,6 +53,7 @@ export async function getAdminPlannerCalendar(params: {
     slots: [],
     assignments: [],
     employees: [],
+    availability: [],
   }) as AdminPlannerCalendar;
 }
 
@@ -235,6 +237,44 @@ export async function deleteCompanyLocation(params: {
     .update({ is_active: false })
     .eq("organization_id", params.organizationId)
     .eq("id", params.locationId);
+
+  if (error) throw new Error(error.message);
+}
+
+export async function createTlbEmployeeOffDay(params: {
+  organizationId: string;
+  officeId: string;
+  userId: string;
+  offDate: string;
+  reason?: string | null;
+  createdBy?: string | null;
+}): Promise<TlbEmployeeOffDay> {
+  const { data, error } = await supabase
+    .from("tlb_employee_off_days")
+    .insert({
+      organization_id: params.organizationId,
+      office_id: params.officeId,
+      user_id: params.userId,
+      off_date: params.offDate,
+      reason: params.reason?.trim() || null,
+      created_by: params.createdBy ?? null,
+    })
+    .select("*")
+    .single();
+
+  if (error) throw new Error(error.message);
+  return data as TlbEmployeeOffDay;
+}
+
+export async function deleteTlbEmployeeOffDay(params: {
+  organizationId: string;
+  offDayId: string;
+}): Promise<void> {
+  const { error } = await supabase
+    .from("tlb_employee_off_days")
+    .delete()
+    .eq("organization_id", params.organizationId)
+    .eq("id", params.offDayId);
 
   if (error) throw new Error(error.message);
 }

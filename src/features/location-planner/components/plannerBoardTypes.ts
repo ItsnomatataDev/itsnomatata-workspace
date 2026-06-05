@@ -51,4 +51,6 @@ export type PlannerEmployeeCardModel = {
   primaryRole: string | null;
   department: string | null;
   skills: string[];
+  availabilityLabel?: string | null;
+  availabilityKind?: "leave" | "off_day" | null;
 };

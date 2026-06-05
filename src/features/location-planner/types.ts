@@ -99,6 +99,32 @@ export type EmployeeSkill = {
   created_at: string;
 };
 
+export type PlannerAvailabilityKind = "leave" | "off_day";
+
+export type PlannerAvailability = {
+  id: string;
+  user_id: string;
+  kind: PlannerAvailabilityKind;
+  start_date: string;
+  end_date: string;
+  title: string;
+  reason: string | null;
+  employee_name: string | null;
+  employee_email: string | null;
+};
+
+export type TlbEmployeeOffDay = {
+  id: string;
+  organization_id: string;
+  office_id: string;
+  user_id: string;
+  off_date: string;
+  reason: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type PlannerEmployee = {
   id: string;
   full_name: string | null;
@@ -133,6 +159,7 @@ export type AdminPlannerCalendar = {
   slots: AssignmentSlot[];
   assignments: AdminAssignmentRow[];
   employees: PlannerEmployee[];
+  availability: PlannerAvailability[];
 };
 
 export type EmployeePlannerCalendar = {

@@ -310,6 +310,20 @@ async function getApprovedLeavesForRange(organizationId: string, from: string, t
   return data ?? [];
 }
 
+async function getTlbOffDaysForRange(organizationId: string, from: string, to: string) {
+  const fromDate = getZimbabweDateKey(from);
+  const toDate = getZimbabweDateKey(to);
+  const { data, error } = await supabase
+    .from("tlb_employee_off_days")
+    .select("id, user_id, off_date")
+    .eq("organization_id", organizationId)
+    .gte("off_date", fromDate)
+    .lte("off_date", toDate);
+
+  if (error) throw error;
+  return data ?? [];
+}
+
 async function getTaskTrackedSecondsByUser(params: {
   organizationId: string;
   from: string;
@@ -382,7 +396,7 @@ export async function getAttendanceReport(params: {
   if (params.userId) dailyStatusQuery = dailyStatusQuery.eq("user_id", params.userId);
   if (params.officeId) dailyStatusQuery = dailyStatusQuery.eq("office_id", params.officeId);
 
-  const [profilesResult, sessionsResult, dailyStatusResult, taskTrackedMap, settings, leaves] =
+  const [profilesResult, sessionsResult, dailyStatusResult, taskTrackedMap, settings, leaves, offDays] =
     await Promise.all([
       profilesQuery,
       sessionsQuery.order("clock_in_at", { ascending: true }),
@@ -394,6 +408,7 @@ export async function getAttendanceReport(params: {
       }),
       getAttendanceSettings(params.organizationId),
       getApprovedLeavesForRange(params.organizationId, params.from, params.to),
+      getTlbOffDaysForRange(params.organizationId, params.from, params.to),
     ]);
 
   if (profilesResult.error) throw profilesResult.error;
@@ -417,6 +432,11 @@ export async function getAttendanceReport(params: {
       .filter((leave) => leave.start_date <= todayKey && leave.end_date >= todayKey)
       .map((leave) => leave.user_id as string),
   );
+  const offDayUserIds = new Set(
+    offDays
+      .filter((offDay) => offDay.off_date === todayKey)
+      .map((offDay) => offDay.user_id as string),
+  );
 
   return ((profilesResult.data ?? []) as AttendanceProfile[]).map((profile) => {
     const userSessions = sessionsByUser.get(profile.id) ?? [];
@@ -428,6 +448,7 @@ export async function getAttendanceReport(params: {
     );
     const taskTrackedSeconds = taskTrackedMap.get(profile.id) ?? 0;
     const onLeave = leaveUserIds.has(profile.id);
+    const onOffDay = offDayUserIds.has(profile.id);
     const dailyStatus = dailyStatusByUser.get(profile.id);
     const active = userSessions.some(
       (session) => session.status === "active" && !session.clock_out_at,
@@ -451,10 +472,12 @@ export async function getAttendanceReport(params: {
       untracked_seconds: Math.max(0, workSeconds - taskTrackedSeconds),
       status: onLeave
         ? "on_leave"
+        : onOffDay
+          ? "off_day"
         : active
           ? "active"
           : lastSession?.status ?? "offline",
-      is_late: !onLeave && ((dailyStatus?.status === "late") || isLate(firstSession, settings)),
+      is_late: !onLeave && !onOffDay && ((dailyStatus?.status === "late") || isLate(firstSession, settings)),
       missed_clock_out: missed,
       clock_out_method: hasAutoClockOut ? "auto" : lastSession?.clock_out_method ?? null,
     };
