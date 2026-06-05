@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
-import { CalendarDays, Trash2 } from "lucide-react";
-import type { PlannerAvailability, PlannerEmployee } from "../types";
+import { CalendarDays, RefreshCcw, Trash2 } from "lucide-react";
+import type { PlannerAvailability, PlannerEmployee, TlbEmployeeOffDay } from "../types";
 import {
   addDays,
   assignmentOnDay,
@@ -19,6 +19,7 @@ type Props = {
   selectedDate: string;
   employees: PlannerEmployee[];
   availability: PlannerAvailability[];
+  offDayHistory?: TlbEmployeeOffDay[];
   saving?: boolean;
   onCreateOffDay: (input: {
     userId: string;
@@ -32,6 +33,7 @@ export default function TlbOffDaysPanel({
   selectedDate,
   employees,
   availability,
+  offDayHistory = [],
   saving,
   onCreateOffDay,
   onDeleteOffDay,
@@ -57,6 +59,42 @@ export default function TlbOffDaysPanel({
     return buildDayRange(weekStart, addDays(weekStart, 6));
   }, [selectedDate]);
 
+  const rotatedEmployee = useMemo(() => {
+    const unavailableOnDate = new Set(
+      availability
+        .filter((item) => assignmentOnDay(item.start_date, item.end_date, offDate))
+        .map((item) => item.user_id),
+    );
+    const candidates = employees.filter((employee) => !unavailableOnDate.has(employee.id));
+    if (candidates.length === 0) return null;
+
+    const stats = offDayHistory.reduce<
+      Record<string, { count: number; lastOffDate: string | null }>
+    >((acc, item) => {
+      const current = acc[item.user_id] ?? { count: 0, lastOffDate: null };
+      acc[item.user_id] = {
+        count: current.count + 1,
+        lastOffDate:
+          !current.lastOffDate || item.off_date > current.lastOffDate
+            ? item.off_date
+            : current.lastOffDate,
+      };
+      return acc;
+    }, {});
+
+    return [...candidates].sort((a, b) => {
+      const aStats = stats[a.id] ?? { count: 0, lastOffDate: null };
+      const bStats = stats[b.id] ?? { count: 0, lastOffDate: null };
+      if (aStats.count !== bStats.count) return aStats.count - bStats.count;
+      if (aStats.lastOffDate !== bStats.lastOffDate) {
+        if (!aStats.lastOffDate) return -1;
+        if (!bStats.lastOffDate) return 1;
+        return aStats.lastOffDate.localeCompare(bStats.lastOffDate);
+      }
+      return (a.full_name ?? a.email ?? "").localeCompare(b.full_name ?? b.email ?? "");
+    })[0];
+  }, [availability, employees, offDate, offDayHistory]);
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const targetUserId = employeeId || employees[0]?.id;
@@ -66,6 +104,17 @@ export default function TlbOffDaysPanel({
       offDate,
       reason,
     });
+    setReason("");
+  }
+
+  async function handleAutoRotate() {
+    if (!rotatedEmployee) return;
+    await onCreateOffDay({
+      userId: rotatedEmployee.id,
+      offDate,
+      reason: reason || "Auto-rotated off day",
+    });
+    setEmployeeId(rotatedEmployee.id);
     setReason("");
   }
 
@@ -117,6 +166,15 @@ export default function TlbOffDaysPanel({
         >
           Add off day
         </button>
+        <button
+          type="button"
+          disabled={saving || !rotatedEmployee}
+          onClick={() => void handleAutoRotate()}
+          className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-orange-200 bg-orange-50 px-3 py-2 text-sm font-semibold text-orange-700 hover:bg-orange-100 disabled:opacity-60"
+        >
+          <RefreshCcw size={15} />
+          Auto rotate: {rotatedEmployee?.full_name || rotatedEmployee?.email || "No one available"}
+        </button>
       </form>
 
       <div className="mt-5 space-y-3">
@@ -138,6 +196,9 @@ export default function TlbOffDaysPanel({
                 <p className="text-xs text-gray-400">Everyone available.</p>
               ) : (
                 <div className="space-y-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+                    People off / on leave
+                  </p>
                   {dayItems.map((item) => (
                     <div
                       key={`${item.kind}-${item.id}`}

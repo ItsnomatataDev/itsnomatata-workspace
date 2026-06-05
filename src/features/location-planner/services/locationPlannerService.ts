@@ -267,6 +267,21 @@ export async function createTlbEmployeeOffDay(params: {
   return data as TlbEmployeeOffDay;
 }
 
+export async function listTlbEmployeeOffDayHistory(params: {
+  organizationId: string;
+  limit?: number;
+}): Promise<TlbEmployeeOffDay[]> {
+  const { data, error } = await supabase
+    .from("tlb_employee_off_days")
+    .select("*")
+    .eq("organization_id", params.organizationId)
+    .order("off_date", { ascending: false })
+    .limit(params.limit ?? 500);
+
+  if (error) throw new Error(error.message);
+  return (data ?? []) as TlbEmployeeOffDay[];
+}
+
 export async function deleteTlbEmployeeOffDay(params: {
   organizationId: string;
   offDayId: string;

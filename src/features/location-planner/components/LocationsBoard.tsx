@@ -75,8 +75,8 @@ function SlotDropZone({
             <button
               type="button"
               onClick={() => onDeleteSlot?.(slot.slotId ?? "")}
-              aria-label={`Delete ${slot.title} slot`}
-              title="Delete slot"
+              aria-label={`Delete ${slot.title} role slot`}
+              title="Delete role slot"
               className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-red-100 bg-white text-red-500 shadow-sm transition hover:border-red-200 hover:bg-red-50 hover:text-red-700"
             >
               <Trash2 size={14} />
@@ -98,7 +98,7 @@ function SlotDropZone({
           ))
         ) : (
           <p className="rounded-lg bg-white/70 px-3 py-4 text-center text-[11px] text-orange-700">
-            Drop a free employee here
+            Drop an available employee here
           </p>
         )}
       </div>
@@ -176,7 +176,7 @@ function LocationColumn({
           className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-orange-200 bg-orange-50 px-3 py-2 text-xs font-semibold text-orange-700 hover:bg-orange-100"
         >
           <Plus size={14} />
-          Create slot in this location
+          Create role slot in this location
         </button>
       ) : null}
 
@@ -199,7 +199,7 @@ function LocationColumn({
               closed ? "border-white/10 text-white/35" : "border-gray-200 text-gray-400",
             ].join(" ")}
           >
-            {closed ? "Location closed" : "No slots yet. Create a slot here, then drag employees into it."}
+            {closed ? "Location closed" : "No role slots yet. Create a role slot here, then drag employees into it."}
           </div>
         )}
       </div>

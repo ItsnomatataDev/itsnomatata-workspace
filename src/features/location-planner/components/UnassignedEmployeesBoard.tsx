@@ -67,7 +67,7 @@ export default function UnassignedEmployeesBoard({
   employees,
   canEdit,
   title = "Free employees",
-  description = "Drag a person into a visible slot.",
+  description = "Drag a person into a visible role slot.",
   compact,
   emptyTitle = "Everyone is assigned for this date",
   emptyDescription = "Unassigned employees will appear here when they have no active placement.",
@@ -152,7 +152,7 @@ export default function UnassignedEmployeesBoard({
             ].join(" ")}
           >
             <Trash2 size={16} className="mx-auto mb-1" />
-            Drop an assigned employee here to remove them from the location/slot.
+            Drop an assigned employee here to remove them from the location or role slot.
           </div>
         ) : null}
         {content}

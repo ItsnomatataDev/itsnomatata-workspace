@@ -30,6 +30,7 @@ import type {
   CompanyLocation,
   CompanyRole,
   ConflictResult,
+  TlbEmployeeOffDay,
 } from "./types";
 import type {
   PlannerAssignmentCardModel,
@@ -48,12 +49,18 @@ import {
   deleteTlbEmployeeOffDay,
   detectAssignmentConflicts,
   getAdminPlannerCalendar,
+  listTlbEmployeeOffDayHistory,
   moveAssignment,
   updateAssignment,
   upsertCompanyLocation,
   upsertCompanyRole,
 } from "./services/locationPlannerService";
-import { addDays, assignmentOnDay, getHarareDateKey } from "./utils/calendarDates";
+import {
+  addDays,
+  assignmentOnDay,
+  getHarareDateKey,
+  startOfWeekDateKey,
+} from "./utils/calendarDates";
 import { formatAvailabilitySummary } from "./utils/availabilityLabels";
 
 function mapAssignment(row: AdminAssignmentRow): PlannerAssignmentCardModel {
@@ -89,6 +96,7 @@ export default function LocationPlannerAdminPage() {
   const [calendarOpen, setCalendarOpen] = useState(true);
   const [locationFilter, setLocationFilter] = useState("all");
   const [data, setData] = useState<AdminPlannerCalendar | null>(null);
+  const [offDayHistory, setOffDayHistory] = useState<TlbEmployeeOffDay[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -111,7 +119,10 @@ export default function LocationPlannerAdminPage() {
   );
 
   const range = useMemo(
-    () => ({ start: selectedDate, end: selectedDate }),
+    () => {
+      const weekStart = startOfWeekDateKey(selectedDate);
+      return { start: weekStart, end: addDays(weekStart, 6) };
+    },
     [selectedDate],
   );
 
@@ -120,13 +131,17 @@ export default function LocationPlannerAdminPage() {
     try {
       setLoading(true);
       setError("");
-      const next = await getAdminPlannerCalendar({
-        organizationId,
-        startDate: range.start,
-        endDate: range.end,
-        locationId: locationFilter === "all" ? null : locationFilter,
-      });
+      const [next, history] = await Promise.all([
+        getAdminPlannerCalendar({
+          organizationId,
+          startDate: range.start,
+          endDate: range.end,
+          locationId: locationFilter === "all" ? null : locationFilter,
+        }),
+        listTlbEmployeeOffDayHistory({ organizationId }),
+      ]);
       setData(next);
+      setOffDayHistory(history);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load planner.");
     } finally {
@@ -181,7 +196,7 @@ export default function LocationPlannerAdminPage() {
         return {
           id: `slot-${slot.id}`,
           title: slot.title,
-          subtitle: `${role?.name ?? "Work stream"} · ${location?.name ?? "No location"} · ${slot.required_count} needed`,
+          subtitle: `${role?.name ?? "Role"} · ${location?.name ?? "No location"} · ${slot.required_count} needed`,
           locationId: slot.location_id,
           slotId: slot.id,
           temporaryRoleId: slot.temporary_role_id,
@@ -216,7 +231,7 @@ export default function LocationPlannerAdminPage() {
     ).map(([key, assignments]) => ({
       id: `role-${key}`,
       title: assignments[0]?.roleName ?? "General Work",
-      subtitle: "Assignments without a named slot",
+      subtitle: "Assignments without a named role slot",
       locationId: assignments[0]?.locationId ?? null,
       slotId: null,
       temporaryRoleId: assignments[0]?.temporaryRoleId ?? null,
@@ -472,7 +487,7 @@ export default function LocationPlannerAdminPage() {
   const handleDeleteSlot = async (slotId: string) => {
     if (!organizationId || !slotId) return;
     const confirmed = window.confirm(
-      "Delete this slot? Existing assignments will stay on the location but will no longer belong to this slot.",
+      "Delete this role slot? Existing assignments will stay on the location but will no longer belong to this role slot.",
     );
     if (!confirmed) return;
 
@@ -481,7 +496,7 @@ export default function LocationPlannerAdminPage() {
       await deleteAssignmentSlot({ organizationId, slotId });
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete slot.");
+      setError(err instanceof Error ? err.message : "Failed to delete role slot.");
     } finally {
       setSaving(false);
     }
@@ -571,7 +586,7 @@ export default function LocationPlannerAdminPage() {
                       Location Planner
                     </h1>
                     <p className="mt-2 max-w-2xl text-sm text-gray-500">
-                      Drag employees or assignments into work streams and locations for the selected date.
+                      Drag employees into role slots inside each location for the selected date.
                     </p>
                   </div>
 
@@ -641,7 +656,7 @@ export default function LocationPlannerAdminPage() {
                           className="inline-flex items-center gap-2 rounded-xl bg-orange-500 px-3 py-2 text-sm font-semibold text-white hover:bg-orange-600"
                         >
                           <Plus size={16} />
-                          Work Stream
+                          Role Slot
                         </button>
                         <button
                           type="button"
@@ -707,10 +722,10 @@ export default function LocationPlannerAdminPage() {
                     <section>
                       <div className="mb-4 rounded-2xl border border-gray-200 bg-white px-4 py-3">
                         <p className="text-sm font-semibold text-gray-950">
-                          Locations and slots
+                          Locations and role slots
                         </p>
                         <p className="mt-1 text-xs text-gray-500">
-                          Create slots inside locations, then drag free employees into the exact slot.
+                          Create role slots inside locations, then drag available employees into the right role.
                         </p>
                       </div>
                       <LocationsBoard
@@ -755,6 +770,7 @@ export default function LocationPlannerAdminPage() {
                           selectedDate={selectedDate}
                           employees={data.employees}
                           availability={data.availability ?? []}
+                          offDayHistory={offDayHistory}
                           saving={saving}
                           onCreateOffDay={handleCreateOffDay}
                           onDeleteOffDay={handleDeleteOffDay}
@@ -802,6 +818,9 @@ export default function LocationPlannerAdminPage() {
             defaultStart={selectedDate}
             defaultEnd={selectedDate}
             saving={saving}
+            onCreateRole={async (role) =>
+              upsertCompanyRole({ ...role, organization_id: organizationId })
+            }
             onSave={async (input) => {
               await createAssignmentSlot({ organizationId, input });
               setCreateSlotOpen(false);
