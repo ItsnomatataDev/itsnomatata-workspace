@@ -229,7 +229,7 @@ export default function AdminAttendancePage() {
                     </tr>
                   ) : (
                     rows.map((row) => (
-                      <tr key={row.user_id} className="hover:bg-white/[0.03]">
+                      <tr key={row.user_id} className="hover:bg-white/3">
                         <td className="px-4 py-3">
                           <p className="font-medium">{row.full_name || "Unnamed"}</p>
                           <p className="text-xs text-white/40">{row.email}</p>

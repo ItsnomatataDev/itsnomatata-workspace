@@ -54,6 +54,7 @@ import {
   upsertCompanyRole,
 } from "./services/locationPlannerService";
 import { addDays, assignmentOnDay, getHarareDateKey } from "./utils/calendarDates";
+import { formatAvailabilitySummary } from "./utils/availabilityLabels";
 
 function mapAssignment(row: AdminAssignmentRow): PlannerAssignmentCardModel {
   return {
@@ -189,17 +190,9 @@ export default function LocationPlannerAdminPage() {
           startTime: slot.start_time,
           endTime: slot.end_time,
           requiredCount: slot.required_count,
-          assignments: assignmentCards.filter((assignment) => {
-            const matchesStreamDetails =
-              assignment.locationId === slot.location_id &&
-              assignment.temporaryRoleId === slot.temporary_role_id &&
-              assignment.startDate === slot.start_date &&
-              assignment.endDate === slot.end_date &&
-              assignment.startTime === slot.start_time &&
-              assignment.endTime === slot.end_time;
-
-            return matchesStreamDetails;
-          }),
+          assignments: assignmentCards.filter(
+            (assignment) => assignment.slotId === slot.id,
+          ),
         };
       });
 
@@ -213,7 +206,10 @@ export default function LocationPlannerAdminPage() {
     );
     const roleStreams = Array.from(
       ungrouped.reduce<Map<string, PlannerAssignmentCardModel[]>>((acc, assignment) => {
-        const key = assignment.temporaryRoleId ?? assignment.roleName ?? "General";
+        const key = [
+          assignment.locationId,
+          assignment.temporaryRoleId ?? assignment.roleName ?? "General",
+        ].join(":");
         acc.set(key, [...(acc.get(key) ?? []), assignment]);
         return acc;
       }, new Map()),
@@ -307,6 +303,23 @@ export default function LocationPlannerAdminPage() {
     if (!active || !over) return;
 
     const overType = String(over.type ?? "");
+    if (overType === "unassign") {
+      if (active.type !== "assignment") return;
+      try {
+        setSaving(true);
+        await deleteAssignment({
+          organizationId,
+          assignmentId: String(active.assignmentId),
+        });
+        await load();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to remove assignment.");
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
+
     if (overType !== "stream" && overType !== "location") return;
 
     const input = {
@@ -668,7 +681,7 @@ export default function LocationPlannerAdminPage() {
                         className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-sky-700 shadow-sm"
                       >
                         {item.employee_name || item.employee_email || "Employee"} ·{" "}
-                        {item.kind === "leave" ? "On leave" : "Off day"}
+                        {formatAvailabilitySummary(item)}
                       </span>
                     ))}
                   </div>

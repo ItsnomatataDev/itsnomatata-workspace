@@ -460,9 +460,11 @@ export default function Sidebar({
     ["admin", "org_admin", "super_admin", "superadmin", "it-superadmin"].includes(
       String(role ?? ""),
     );
+  const isAdminRole = ["admin", "org_admin", "super_admin", "superadmin"].includes(String(role ?? ""));
   const canUseLocationPlanner =
     officeCapabilities.locationPlanner &&
-    ["admin", "org_admin", "super_admin", "superadmin"].includes(String(role ?? ""));
+    isAdminRole;
+  const canUseMySchedule = officeCapabilities.isThreeLittleBirds || canUseLocationPlanner;
   const rawRoleNav = getRoleNav(role, counts);
   const officeScopedRoleNav = rawRoleNav.flatMap<NavItem>((item) => {
         if ("type" in item && item.type === "group") {
@@ -486,7 +488,7 @@ export default function Sidebar({
       });
   const roleNav = filterNavByFeatures(officeScopedRoleNav, isEnabled);
   const allNav: NavItem[] = [
-    ...visibleCommonLinks,
+    ...visibleCommonLinks.filter((link) => link.to !== "/my-schedule" || canUseMySchedule),
     ...roleNav,
     ...(canSeeSystemOwnerAdminLinks ? systemOwnerAdminLinks : []),
   ];

@@ -76,6 +76,7 @@ export async function getEmployeeCalendarAssignments(params: {
     locations: [],
     status_events: [],
     assignments: [],
+    availability: [],
   }) as EmployeePlannerCalendar;
 }
 

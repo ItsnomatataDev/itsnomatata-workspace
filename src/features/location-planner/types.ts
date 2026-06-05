@@ -107,6 +107,7 @@ export type PlannerAvailability = {
   kind: PlannerAvailabilityKind;
   start_date: string;
   end_date: string;
+  day_count?: number | null;
   title: string;
   reason: string | null;
   employee_name: string | null;
@@ -167,6 +168,7 @@ export type EmployeePlannerCalendar = {
   locations: CompanyLocation[];
   status_events: LocationStatusEvent[];
   assignments: EmployeeAssignmentRow[];
+  availability: PlannerAvailability[];
 };
 
 export type ConflictItem = {

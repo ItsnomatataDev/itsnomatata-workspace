@@ -9,6 +9,11 @@ import {
   formatDayLabel,
   startOfWeekDateKey,
 } from "../utils/calendarDates";
+import {
+  formatAvailabilityKind,
+  formatAvailabilityRange,
+  formatDayCount,
+} from "../utils/availabilityLabels";
 
 type Props = {
   selectedDate: string;
@@ -144,7 +149,10 @@ export default function TlbOffDaysPanel({
                             {item.employee_name || item.employee_email || "Employee"}
                           </p>
                           <p className="mt-1 text-gray-500">
-                            {item.kind === "leave" ? "On leave" : "Off day"}
+                            {formatAvailabilityKind(item)} · {formatDayCount(item.day_count)}
+                          </p>
+                          <p className="mt-1 text-[11px] text-gray-400">
+                            {formatAvailabilityRange(item)}
                             {item.reason ? ` · ${item.reason}` : ""}
                           </p>
                         </div>

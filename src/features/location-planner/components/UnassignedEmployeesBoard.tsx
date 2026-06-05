@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
-import { useDraggable } from "@dnd-kit/core";
-import { Search, Users } from "lucide-react";
+import { useDraggable, useDroppable } from "@dnd-kit/core";
+import { Search, Trash2, Users } from "lucide-react";
 import type { PlannerEmployeeCardModel } from "./plannerBoardTypes";
 
 type Props = {
@@ -73,6 +73,11 @@ export default function UnassignedEmployeesBoard({
   emptyDescription = "Unassigned employees will appear here when they have no active placement.",
 }: Props) {
   const [query, setQuery] = useState("");
+  const removeDrop = useDroppable({
+    id: "assignment-remove-zone",
+    data: { type: "unassign" },
+    disabled: !canEdit,
+  });
   const filteredEmployees = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     if (!normalized) return employees;
@@ -135,6 +140,20 @@ export default function UnassignedEmployeesBoard({
               className="min-w-0 flex-1 bg-transparent text-gray-900 outline-none placeholder:text-gray-400"
             />
           </label>
+        ) : null}
+        {canEdit ? (
+          <div
+            ref={removeDrop.setNodeRef}
+            className={[
+              "mb-4 rounded-xl border border-dashed px-3 py-3 text-center text-xs transition",
+              removeDrop.isOver
+                ? "border-red-300 bg-red-50 text-red-700"
+                : "border-gray-300 bg-gray-50 text-gray-500",
+            ].join(" ")}
+          >
+            <Trash2 size={16} className="mx-auto mb-1" />
+            Drop an assigned employee here to remove them from the location/slot.
+          </div>
         ) : null}
         {content}
       </aside>
