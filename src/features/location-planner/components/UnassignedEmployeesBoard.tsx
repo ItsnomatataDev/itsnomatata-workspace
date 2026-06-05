@@ -92,6 +92,35 @@ function EmployeeCard({
   );
 }
 
+function EmployeeSection({
+  title,
+  count,
+  tone,
+  sectionClass,
+  children,
+}: {
+  title: string;
+  count: number;
+  tone: string;
+  sectionClass: string;
+  children: ReactNode;
+}) {
+  if (count === 0) return null;
+  return (
+    <section className="space-y-2">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+          {title}
+        </p>
+        <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${tone}`}>
+          {count}
+        </span>
+      </div>
+      <div className={sectionClass}>{children}</div>
+    </section>
+  );
+}
+
 export default function UnassignedEmployeesBoard({
   employees,
   canEdit,
@@ -136,33 +165,6 @@ export default function UnassignedEmployeesBoard({
 
   const sectionClass = compact ? "space-y-3" : "grid gap-4 md:grid-cols-2 xl:grid-cols-4";
 
-  function EmployeeSection({
-    title: sectionTitle,
-    count,
-    tone,
-    children,
-  }: {
-    title: string;
-    count: number;
-    tone: string;
-    children: ReactNode;
-  }) {
-    if (count === 0) return null;
-    return (
-      <section className="space-y-2">
-        <div className="flex items-center justify-between">
-          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-            {sectionTitle}
-          </p>
-          <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${tone}`}>
-            {count}
-          </span>
-        </div>
-        <div className={sectionClass}>{children}</div>
-      </section>
-    );
-  }
-
   const content =
     employees.length === 0 ? (
       <div className="rounded-2xl border border-dashed border-gray-300 bg-white px-6 py-14 text-center">
@@ -182,6 +184,7 @@ export default function UnassignedEmployeesBoard({
           title="Free today"
           count={groupedEmployees.free.length}
           tone="bg-emerald-50 text-emerald-700"
+          sectionClass={sectionClass}
         >
           {groupedEmployees.free.map((employee) => (
             <EmployeeCard key={employee.id} employee={employee} canEdit={canEdit} />
@@ -192,6 +195,7 @@ export default function UnassignedEmployeesBoard({
           title="Off today"
           count={groupedEmployees.off.length}
           tone="bg-violet-50 text-violet-700"
+          sectionClass={sectionClass}
         >
           {groupedEmployees.off.map((employee) => (
             <EmployeeCard key={employee.id} employee={employee} canEdit={canEdit} />
@@ -202,6 +206,7 @@ export default function UnassignedEmployeesBoard({
           title="On leave"
           count={groupedEmployees.leave.length}
           tone="bg-amber-50 text-amber-700"
+          sectionClass={sectionClass}
         >
           {groupedEmployees.leave.map((employee) => (
             <EmployeeCard key={employee.id} employee={employee} canEdit={canEdit} />

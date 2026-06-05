@@ -519,9 +519,8 @@ export default function LocationPlannerAdminPage() {
     offDate: string;
     reason?: string | null;
   }) => {
-    const officeId = profile?.office_id ?? profile?.office?.id ?? null;
-    if (!organizationId || !officeId) {
-      setError("Three Little Birds office is not set on your profile.");
+    if (!organizationId) {
+      setError("Organization is not set on your profile.");
       return;
     }
 
@@ -529,11 +528,9 @@ export default function LocationPlannerAdminPage() {
     try {
       await createTlbEmployeeOffDay({
         organizationId,
-        officeId,
         userId: input.userId,
         offDate: input.offDate,
         reason: input.reason,
-        createdBy: auth?.user?.id ?? null,
       });
       await load();
     } catch (err) {
@@ -548,9 +545,8 @@ export default function LocationPlannerAdminPage() {
     startDate: string;
     reason?: string | null;
   }) => {
-    const officeId = profile?.office_id ?? profile?.office?.id ?? null;
-    if (!organizationId || !officeId) {
-      setError("Three Little Birds office is not set on your profile.");
+    if (!organizationId) {
+      setError("Organization is not set on your profile.");
       return;
     }
 
@@ -558,11 +554,9 @@ export default function LocationPlannerAdminPage() {
     try {
       await createTlbEmployeeWeeklyOffDay({
         organizationId,
-        officeId,
         userId: input.userId,
         startDate: input.startDate,
         reason: input.reason,
-        createdBy: auth?.user?.id ?? null,
       });
       await load();
     } catch (err) {

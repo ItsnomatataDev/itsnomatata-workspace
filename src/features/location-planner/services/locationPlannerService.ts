@@ -245,56 +245,33 @@ export async function deleteCompanyLocation(params: {
 
 export async function createTlbEmployeeOffDay(params: {
   organizationId: string;
-  officeId: string;
   userId: string;
   offDate: string;
   reason?: string | null;
-  createdBy?: string | null;
 }): Promise<TlbEmployeeOffDay> {
-  const { data, error } = await supabase
-    .from("tlb_employee_off_days")
-    .insert({
-      organization_id: params.organizationId,
-      office_id: params.officeId,
-      user_id: params.userId,
-      off_date: params.offDate,
-      reason: params.reason?.trim() || null,
-      created_by: params.createdBy ?? null,
-    })
-    .select("*")
-    .single();
+  const { data, error } = await supabase.rpc("create_tlb_employee_off_day", {
+    p_organization_id: params.organizationId,
+    p_user_id: params.userId,
+    p_off_date: params.offDate,
+    p_reason: params.reason?.trim() || null,
+  });
 
   if (error) throw new Error(error.message);
   return data as TlbEmployeeOffDay;
 }
 
-function isoDayOfWeek(dateKey: string) {
-  const date = new Date(`${dateKey}T12:00:00Z`);
-  const day = date.getUTCDay();
-  return day === 0 ? 7 : day;
-}
-
 export async function createTlbEmployeeWeeklyOffDay(params: {
   organizationId: string;
-  officeId: string;
   userId: string;
   startDate: string;
   reason?: string | null;
-  createdBy?: string | null;
 }): Promise<TlbEmployeeWeeklyOffDay> {
-  const { data, error } = await supabase
-    .from("tlb_employee_weekly_off_days")
-    .insert({
-      organization_id: params.organizationId,
-      office_id: params.officeId,
-      user_id: params.userId,
-      day_of_week: isoDayOfWeek(params.startDate),
-      start_date: params.startDate,
-      reason: params.reason?.trim() || null,
-      created_by: params.createdBy ?? null,
-    })
-    .select("*")
-    .single();
+  const { data, error } = await supabase.rpc("create_tlb_employee_weekly_off_day", {
+    p_organization_id: params.organizationId,
+    p_user_id: params.userId,
+    p_start_date: params.startDate,
+    p_reason: params.reason?.trim() || null,
+  });
 
   if (error) throw new Error(error.message);
   return data as TlbEmployeeWeeklyOffDay;
