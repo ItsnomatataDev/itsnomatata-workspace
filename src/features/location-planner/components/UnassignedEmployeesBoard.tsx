@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import { useDraggable, useDroppable } from "@dnd-kit/core";
 import { Search, Trash2, Users } from "lucide-react";
 import type { PlannerEmployeeCardModel } from "./plannerBoardTypes";
@@ -20,10 +21,17 @@ function EmployeeCard({
   employee: PlannerEmployeeCardModel;
   canEdit?: boolean;
 }) {
+  const isUnavailable = Boolean(employee.availabilityKind);
+  const cardTone =
+    employee.availabilityKind === "leave"
+      ? "border-amber-200 bg-amber-50"
+      : employee.availabilityKind === "off_day"
+        ? "border-violet-200 bg-violet-50"
+        : "border-gray-200 bg-white";
   const drag = useDraggable({
     id: `employee-${employee.id}`,
     data: { type: "employee", employeeId: employee.id },
-    disabled: !canEdit,
+    disabled: !canEdit || isUnavailable,
   });
 
   return (
@@ -35,18 +43,39 @@ function EmployeeCard({
           : undefined
       }
       className={[
-        "rounded-2xl border border-gray-200 bg-white p-4 shadow-sm transition",
-        canEdit ? "cursor-grab active:cursor-grabbing" : "",
+        "rounded-2xl border p-4 shadow-sm transition",
+        cardTone,
+        canEdit && !isUnavailable ? "cursor-grab active:cursor-grabbing" : "",
+        isUnavailable ? "opacity-95" : "",
         drag.isDragging ? "opacity-40" : "",
       ].join(" ")}
-      {...(canEdit ? { ...drag.listeners, ...drag.attributes } : {})}
+      {...(canEdit && !isUnavailable ? { ...drag.listeners, ...drag.attributes } : {})}
     >
-      <p className="font-semibold text-gray-950">
-        {employee.name || employee.email || "Employee"}
-      </p>
+      <div className="flex items-start justify-between gap-2">
+        <p className="font-semibold text-gray-950">
+          {employee.name || employee.email || "Employee"}
+        </p>
+        {employee.availabilityKind ? (
+          <span
+            className={[
+              "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold",
+              employee.availabilityKind === "leave"
+                ? "bg-amber-100 text-amber-800"
+                : "bg-violet-100 text-violet-800",
+            ].join(" ")}
+          >
+            {employee.availabilityKind === "leave" ? "On leave" : "Off"}
+          </span>
+        ) : null}
+      </div>
       <p className="mt-1 text-xs text-gray-500">
         {employee.primaryRole ?? "No role"} {employee.department ? `· ${employee.department}` : ""}
       </p>
+      {employee.availabilityLabel ? (
+        <p className="mt-2 rounded-xl bg-white/80 px-2.5 py-2 text-xs font-medium text-gray-700">
+          {employee.availabilityLabel}
+        </p>
+      ) : null}
       {employee.skills.length > 0 ? (
         <div className="mt-3 flex flex-wrap gap-1.5">
           {employee.skills.slice(0, 4).map((skill) => (
@@ -87,12 +116,52 @@ export default function UnassignedEmployeesBoard({
         employee.email,
         employee.primaryRole,
         employee.department,
+        employee.availabilityKind,
+        employee.availabilityLabel,
         ...employee.skills,
       ]
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(normalized)),
     );
   }, [employees, query]);
+
+  const groupedEmployees = useMemo(
+    () => ({
+      free: filteredEmployees.filter((employee) => !employee.availabilityKind),
+      off: filteredEmployees.filter((employee) => employee.availabilityKind === "off_day"),
+      leave: filteredEmployees.filter((employee) => employee.availabilityKind === "leave"),
+    }),
+    [filteredEmployees],
+  );
+
+  const sectionClass = compact ? "space-y-3" : "grid gap-4 md:grid-cols-2 xl:grid-cols-4";
+
+  function EmployeeSection({
+    title: sectionTitle,
+    count,
+    tone,
+    children,
+  }: {
+    title: string;
+    count: number;
+    tone: string;
+    children: ReactNode;
+  }) {
+    if (count === 0) return null;
+    return (
+      <section className="space-y-2">
+        <div className="flex items-center justify-between">
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+            {sectionTitle}
+          </p>
+          <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${tone}`}>
+            {count}
+          </span>
+        </div>
+        <div className={sectionClass}>{children}</div>
+      </section>
+    );
+  }
 
   const content =
     employees.length === 0 ? (
@@ -108,10 +177,36 @@ export default function UnassignedEmployeesBoard({
         <p className="mt-1 text-sm text-gray-500">Try another name, role, department, or skill.</p>
       </div>
     ) : (
-      <div className={compact ? "space-y-3" : "grid gap-4 md:grid-cols-2 xl:grid-cols-4"}>
-        {filteredEmployees.map((employee) => (
-          <EmployeeCard key={employee.id} employee={employee} canEdit={canEdit} />
-        ))}
+      <div className="space-y-5">
+        <EmployeeSection
+          title="Free today"
+          count={groupedEmployees.free.length}
+          tone="bg-emerald-50 text-emerald-700"
+        >
+          {groupedEmployees.free.map((employee) => (
+            <EmployeeCard key={employee.id} employee={employee} canEdit={canEdit} />
+          ))}
+        </EmployeeSection>
+
+        <EmployeeSection
+          title="Off today"
+          count={groupedEmployees.off.length}
+          tone="bg-violet-50 text-violet-700"
+        >
+          {groupedEmployees.off.map((employee) => (
+            <EmployeeCard key={employee.id} employee={employee} canEdit={canEdit} />
+          ))}
+        </EmployeeSection>
+
+        <EmployeeSection
+          title="On leave"
+          count={groupedEmployees.leave.length}
+          tone="bg-amber-50 text-amber-700"
+        >
+          {groupedEmployees.leave.map((employee) => (
+            <EmployeeCard key={employee.id} employee={employee} canEdit={canEdit} />
+          ))}
+        </EmployeeSection>
       </div>
     );
 

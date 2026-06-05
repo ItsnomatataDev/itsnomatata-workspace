@@ -13,6 +13,7 @@ import type {
   LocationStatusEvent,
   MoveAssignmentInput,
   TlbEmployeeOffDay,
+  TlbEmployeeWeeklyOffDay,
 } from "../types";
 
 function parseConflictResult(value: unknown): ConflictResult {
@@ -267,6 +268,38 @@ export async function createTlbEmployeeOffDay(params: {
   return data as TlbEmployeeOffDay;
 }
 
+function isoDayOfWeek(dateKey: string) {
+  const date = new Date(`${dateKey}T12:00:00Z`);
+  const day = date.getUTCDay();
+  return day === 0 ? 7 : day;
+}
+
+export async function createTlbEmployeeWeeklyOffDay(params: {
+  organizationId: string;
+  officeId: string;
+  userId: string;
+  startDate: string;
+  reason?: string | null;
+  createdBy?: string | null;
+}): Promise<TlbEmployeeWeeklyOffDay> {
+  const { data, error } = await supabase
+    .from("tlb_employee_weekly_off_days")
+    .insert({
+      organization_id: params.organizationId,
+      office_id: params.officeId,
+      user_id: params.userId,
+      day_of_week: isoDayOfWeek(params.startDate),
+      start_date: params.startDate,
+      reason: params.reason?.trim() || null,
+      created_by: params.createdBy ?? null,
+    })
+    .select("*")
+    .single();
+
+  if (error) throw new Error(error.message);
+  return data as TlbEmployeeWeeklyOffDay;
+}
+
 export async function listTlbEmployeeOffDayHistory(params: {
   organizationId: string;
   limit?: number;
@@ -280,6 +313,19 @@ export async function listTlbEmployeeOffDayHistory(params: {
 
   if (error) throw new Error(error.message);
   return (data ?? []) as TlbEmployeeOffDay[];
+}
+
+export async function deleteTlbEmployeeWeeklyOffDay(params: {
+  organizationId: string;
+  ruleId: string;
+}): Promise<void> {
+  const { error } = await supabase
+    .from("tlb_employee_weekly_off_days")
+    .delete()
+    .eq("organization_id", params.organizationId)
+    .eq("id", params.ruleId);
+
+  if (error) throw new Error(error.message);
 }
 
 export async function deleteTlbEmployeeOffDay(params: {

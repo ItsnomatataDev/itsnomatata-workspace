@@ -105,6 +105,8 @@ export type PlannerAvailability = {
   id: string;
   user_id: string;
   kind: PlannerAvailabilityKind;
+  source?: "leave" | "one_off" | "weekly" | null;
+  recurrence_rule_id?: string | null;
   start_date: string;
   end_date: string;
   day_count?: number | null;
@@ -120,6 +122,20 @@ export type TlbEmployeeOffDay = {
   office_id: string;
   user_id: string;
   off_date: string;
+  reason: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type TlbEmployeeWeeklyOffDay = {
+  id: string;
+  organization_id: string;
+  office_id: string;
+  user_id: string;
+  day_of_week: number;
+  start_date: string;
+  end_date: string | null;
   reason: string | null;
   created_by: string | null;
   created_at: string;

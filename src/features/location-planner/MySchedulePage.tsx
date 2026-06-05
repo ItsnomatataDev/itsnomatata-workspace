@@ -290,6 +290,7 @@ export default function MySchedulePage() {
                                   </p>
                                   <p className="mt-1 text-white/55">
                                     {formatAvailabilityKind(item)} · {formatDayCount(item.day_count)}
+                                    {item.source === "weekly" ? " · repeats weekly" : ""}
                                   </p>
                                   <p className="mt-1 text-white/45">
                                     {formatAvailabilityRange(item)}

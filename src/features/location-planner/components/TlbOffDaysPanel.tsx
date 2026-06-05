@@ -26,7 +26,13 @@ type Props = {
     offDate: string;
     reason?: string | null;
   }) => Promise<void>;
+  onCreateWeeklyOffDay?: (input: {
+    userId: string;
+    startDate: string;
+    reason?: string | null;
+  }) => Promise<void>;
   onDeleteOffDay: (offDayId: string) => Promise<void>;
+  onDeleteWeeklyOffDay?: (ruleId: string) => Promise<void>;
 };
 
 export default function TlbOffDaysPanel({
@@ -36,11 +42,14 @@ export default function TlbOffDaysPanel({
   offDayHistory = [],
   saving,
   onCreateOffDay,
+  onCreateWeeklyOffDay,
   onDeleteOffDay,
+  onDeleteWeeklyOffDay,
 }: Props) {
   const [employeeId, setEmployeeId] = useState("");
   const [offDate, setOffDate] = useState(selectedDate);
   const [reason, setReason] = useState("");
+  const [repeatWeekly, setRepeatWeekly] = useState(true);
 
   useEffect(() => {
     setOffDate(selectedDate);
@@ -99,21 +108,37 @@ export default function TlbOffDaysPanel({
     event.preventDefault();
     const targetUserId = employeeId || employees[0]?.id;
     if (!targetUserId) return;
-    await onCreateOffDay({
-      userId: targetUserId,
-      offDate,
-      reason,
-    });
+    if (repeatWeekly && onCreateWeeklyOffDay) {
+      await onCreateWeeklyOffDay({
+        userId: targetUserId,
+        startDate: offDate,
+        reason: reason || "Weekly off day",
+      });
+    } else {
+      await onCreateOffDay({
+        userId: targetUserId,
+        offDate,
+        reason,
+      });
+    }
     setReason("");
   }
 
   async function handleAutoRotate() {
     if (!rotatedEmployee) return;
-    await onCreateOffDay({
-      userId: rotatedEmployee.id,
-      offDate,
-      reason: reason || "Auto-rotated off day",
-    });
+    if (repeatWeekly && onCreateWeeklyOffDay) {
+      await onCreateWeeklyOffDay({
+        userId: rotatedEmployee.id,
+        startDate: offDate,
+        reason: reason || "Auto-rotated weekly off day",
+      });
+    } else {
+      await onCreateOffDay({
+        userId: rotatedEmployee.id,
+        offDate,
+        reason: reason || "Auto-rotated off day",
+      });
+    }
     setEmployeeId(rotatedEmployee.id);
     setReason("");
   }
@@ -159,12 +184,23 @@ export default function TlbOffDaysPanel({
           placeholder="Reason, for example Off day"
           className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 outline-none placeholder:text-gray-400 focus:border-orange-500"
         />
+        <label className="flex items-start gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600">
+          <input
+            type="checkbox"
+            checked={repeatWeekly}
+            onChange={(event) => setRepeatWeekly(event.target.checked)}
+            className="mt-0.5"
+          />
+          <span>
+            Repeat every week on this weekday until an admin changes it.
+          </span>
+        </label>
         <button
           type="submit"
           disabled={saving || employees.length === 0}
           className="w-full rounded-xl bg-gray-950 px-3 py-2 text-sm font-semibold text-white hover:bg-gray-800 disabled:opacity-60"
         >
-          Add off day
+          {repeatWeekly ? "Add weekly off day" : "Add one-day off"}
         </button>
         <button
           type="button"
@@ -211,6 +247,7 @@ export default function TlbOffDaysPanel({
                           </p>
                           <p className="mt-1 text-gray-500">
                             {formatAvailabilityKind(item)} · {formatDayCount(item.day_count)}
+                            {item.source === "weekly" ? " · repeats weekly" : ""}
                           </p>
                           <p className="mt-1 text-[11px] text-gray-400">
                             {formatAvailabilityRange(item)}
@@ -220,9 +257,15 @@ export default function TlbOffDaysPanel({
                         {item.kind === "off_day" ? (
                           <button
                             type="button"
-                            onClick={() => void onDeleteOffDay(item.id)}
+                            onClick={() => {
+                              if (item.source === "weekly") {
+                                void onDeleteWeeklyOffDay?.(item.recurrence_rule_id ?? item.id);
+                                return;
+                              }
+                              void onDeleteOffDay(item.id);
+                            }}
                             className="rounded-lg p-1 text-red-500 hover:bg-red-50"
-                            aria-label="Remove off day"
+                            aria-label={item.source === "weekly" ? "Remove weekly off day" : "Remove off day"}
                           >
                             <Trash2 size={14} />
                           </button>

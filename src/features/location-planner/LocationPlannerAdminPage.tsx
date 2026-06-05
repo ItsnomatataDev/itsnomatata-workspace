@@ -30,6 +30,7 @@ import type {
   CompanyLocation,
   CompanyRole,
   ConflictResult,
+  PlannerAvailability,
   TlbEmployeeOffDay,
 } from "./types";
 import type {
@@ -41,12 +42,14 @@ import type {
 import {
   assignEmployeeToSlot,
   createTlbEmployeeOffDay,
+  createTlbEmployeeWeeklyOffDay,
   createAssignmentSlot,
   createLocationStatusEvent,
   deleteAssignment,
   deleteAssignmentSlot,
   deleteCompanyLocation,
   deleteTlbEmployeeOffDay,
+  deleteTlbEmployeeWeeklyOffDay,
   detectAssignmentConflicts,
   getAdminPlannerCalendar,
   listTlbEmployeeOffDayHistory,
@@ -263,21 +266,30 @@ export default function LocationPlannerAdminPage() {
 
   const unassignedEmployees = useMemo<PlannerEmployeeCardModel[]>(() => {
     const assignedIds = new Set(assignmentCards.map((assignment) => assignment.employeeId));
-    const unavailableIds = new Set(
-      (data?.availability ?? [])
-        .filter((item) => assignmentOnDay(item.start_date, item.end_date, selectedDate))
-        .map((item) => item.user_id),
-    );
+    const availabilityByEmployee = new Map<string, PlannerAvailability>();
+    (data?.availability ?? [])
+      .filter((item) => assignmentOnDay(item.start_date, item.end_date, selectedDate))
+      .forEach((item) => {
+        const current = availabilityByEmployee.get(item.user_id);
+        if (!current || item.kind === "leave" || item.start_date < current.start_date) {
+          availabilityByEmployee.set(item.user_id, item);
+        }
+      });
     return (data?.employees ?? [])
-      .filter((employee) => !assignedIds.has(employee.id) && !unavailableIds.has(employee.id))
-      .map((employee) => ({
-        id: employee.id,
-        name: employee.full_name ?? employee.email ?? "Employee",
-        email: employee.email,
-        primaryRole: employee.primary_role,
-        department: employee.department,
-        skills: employee.skills,
-      }));
+      .filter((employee) => !assignedIds.has(employee.id))
+      .map((employee) => {
+        const availability = availabilityByEmployee.get(employee.id);
+        return {
+          id: employee.id,
+          name: employee.full_name ?? employee.email ?? "Employee",
+          email: employee.email,
+          primaryRole: employee.primary_role,
+          department: employee.department,
+          skills: employee.skills,
+          availabilityKind: availability?.kind ?? null,
+          availabilityLabel: availability ? formatAvailabilitySummary(availability) : null,
+        };
+      });
   }, [assignmentCards, data?.availability, data?.employees, selectedDate]);
 
   const unavailableToday = useMemo(
@@ -531,6 +543,35 @@ export default function LocationPlannerAdminPage() {
     }
   };
 
+  const handleCreateWeeklyOffDay = async (input: {
+    userId: string;
+    startDate: string;
+    reason?: string | null;
+  }) => {
+    const officeId = profile?.office_id ?? profile?.office?.id ?? null;
+    if (!organizationId || !officeId) {
+      setError("Three Little Birds office is not set on your profile.");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await createTlbEmployeeWeeklyOffDay({
+        organizationId,
+        officeId,
+        userId: input.userId,
+        startDate: input.startDate,
+        reason: input.reason,
+        createdBy: auth?.user?.id ?? null,
+      });
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to add weekly off day.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleDeleteOffDay = async (offDayId: string) => {
     if (!organizationId) return;
     setSaving(true);
@@ -539,6 +580,19 @@ export default function LocationPlannerAdminPage() {
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to remove off day.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteWeeklyOffDay = async (ruleId: string) => {
+    if (!organizationId) return;
+    setSaving(true);
+    try {
+      await deleteTlbEmployeeWeeklyOffDay({ organizationId, ruleId });
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to remove weekly off day.");
     } finally {
       setSaving(false);
     }
@@ -750,7 +804,7 @@ export default function LocationPlannerAdminPage() {
                       canEdit={canEdit}
                       compact
                       title="Available employees"
-                      description="Only unassigned TLB staff who are not on leave or off today."
+                      description="Free staff are ready to drag. Off-day and leave staff are grouped below."
                     />
                     {calendarOpen ? (
                       <div className="space-y-5">
@@ -773,7 +827,9 @@ export default function LocationPlannerAdminPage() {
                           offDayHistory={offDayHistory}
                           saving={saving}
                           onCreateOffDay={handleCreateOffDay}
+                          onCreateWeeklyOffDay={handleCreateWeeklyOffDay}
                           onDeleteOffDay={handleDeleteOffDay}
+                          onDeleteWeeklyOffDay={handleDeleteWeeklyOffDay}
                         />
                       </div>
                     ) : null}

@@ -16,5 +16,6 @@ export function formatAvailabilityRange(item: PlannerAvailability) {
 }
 
 export function formatAvailabilitySummary(item: PlannerAvailability) {
-  return `${formatAvailabilityKind(item)} · ${formatDayCount(item.day_count)} · ${formatAvailabilityRange(item)}`;
+  const recurrence = item.source === "weekly" ? " · repeats weekly" : "";
+  return `${formatAvailabilityKind(item)} · ${formatDayCount(item.day_count)} · ${formatAvailabilityRange(item)}${recurrence}`;
 }
