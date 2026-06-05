@@ -88,8 +88,8 @@ self.addEventListener("push", function (event) {
 
   const options = {
     body: data.message || "",
-    icon: "/favicon.ico",
-    badge: "/favicon.ico",
+    icon: "/icons/icon-192.png",
+    badge: "/icons/favicon-32.png",
     tag: data.notificationId || undefined,
     renotify: Boolean(data.notificationId),
     data: {
