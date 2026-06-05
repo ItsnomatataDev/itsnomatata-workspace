@@ -9,11 +9,9 @@ import {
   addDays,
   assignmentOnDay,
   buildDayRange,
-  defaultWeekRange,
   formatDayLabel,
   formatTimeRange,
-  startOfWeek,
-  toDateKey,
+  getHarareWeekStart,
 } from "./utils/calendarDates";
 
 export default function MySchedulePage() {
@@ -22,8 +20,7 @@ export default function MySchedulePage() {
   const organizationId = profile?.organization_id ?? null;
   const viewerId = auth?.user?.id ?? null;
 
-  const initialRange = defaultWeekRange();
-  const [weekStart, setWeekStart] = useState(initialRange.start);
+  const [weekStart, setWeekStart] = useState(getHarareWeekStart());
   const [locationFilter, setLocationFilter] = useState("all");
   const [data, setData] = useState<EmployeePlannerCalendar | null>(null);
   const [loading, setLoading] = useState(true);
@@ -113,7 +110,7 @@ export default function MySchedulePage() {
                     </label>
                     <button
                       type="button"
-                      onClick={() => setWeekStart(toDateKey(startOfWeek(new Date())))}
+                      onClick={() => setWeekStart(getHarareWeekStart())}
                       className="px-3 py-2 text-sm font-semibold text-orange-600 hover:bg-orange-50"
                     >
                       This week

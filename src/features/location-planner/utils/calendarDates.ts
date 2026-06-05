@@ -2,14 +2,52 @@ export function toDateKey(value: Date) {
   return value.toISOString().slice(0, 10);
 }
 
+export const HARARE_TIME_ZONE = "Africa/Harare";
+
+export function toTimeZoneDateKey(
+  value = new Date(),
+  timeZone = HARARE_TIME_ZONE,
+) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(value);
+
+  const year = parts.find((part) => part.type === "year")?.value ?? "1970";
+  const month = parts.find((part) => part.type === "month")?.value ?? "01";
+  const day = parts.find((part) => part.type === "day")?.value ?? "01";
+
+  return `${year}-${month}-${day}`;
+}
+
+export function getHarareDateKey(value = new Date()) {
+  return toTimeZoneDateKey(value, HARARE_TIME_ZONE);
+}
+
 export function parseDateKey(key: string) {
   return new Date(`${key}T12:00:00`);
 }
 
 export function addDays(key: string, days: number) {
-  const date = parseDateKey(key);
-  date.setDate(date.getDate() + days);
+  const [year, month, day] = key.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  date.setUTCDate(date.getUTCDate() + days);
   return toDateKey(date);
+}
+
+export function startOfWeekDateKey(key: string) {
+  const [year, month, dayOfMonth] = key.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, dayOfMonth));
+  const day = date.getUTCDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  date.setUTCDate(date.getUTCDate() + diff);
+  return toDateKey(date);
+}
+
+export function getHarareWeekStart(value = new Date()) {
+  return startOfWeekDateKey(getHarareDateKey(value));
 }
 
 export function startOfWeek(date = new Date()) {

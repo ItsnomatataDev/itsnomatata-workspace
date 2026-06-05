@@ -49,7 +49,7 @@ import {
   upsertCompanyLocation,
   upsertCompanyRole,
 } from "./services/locationPlannerService";
-import { addDays, assignmentOnDay, defaultWeekRange, toDateKey } from "./utils/calendarDates";
+import { addDays, assignmentOnDay, getHarareDateKey } from "./utils/calendarDates";
 
 function mapAssignment(row: AdminAssignmentRow): PlannerAssignmentCardModel {
   return {
@@ -76,7 +76,7 @@ export default function LocationPlannerAdminPage() {
   const organizationId = profile?.organization_id ?? null;
   const canEdit = EDITOR_ROLES.has(String(profile?.primary_role ?? ""));
 
-  const initialDate = defaultWeekRange().start;
+  const initialDate = getHarareDateKey();
   const [selectedDate, setSelectedDate] = useState(initialDate);
   const [calendarOpen, setCalendarOpen] = useState(true);
   const [locationFilter, setLocationFilter] = useState("all");
@@ -508,7 +508,7 @@ export default function LocationPlannerAdminPage() {
                       />
                       <button
                         type="button"
-                        onClick={() => setSelectedDate(toDateKey(new Date()))}
+                        onClick={() => setSelectedDate(getHarareDateKey())}
                         className="px-3 py-2 text-sm font-semibold text-orange-600 hover:bg-orange-50"
                       >
                         Today
