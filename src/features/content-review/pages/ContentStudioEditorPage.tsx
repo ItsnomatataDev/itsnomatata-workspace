@@ -137,6 +137,9 @@ export default function ContentStudioEditorPage() {
   const profile = auth.profile;
   const userId = auth.user?.id ?? null;
   const organizationId = profile?.organization_id ?? null;
+  const contentStudioClientBasePath = location.pathname.startsWith("/content-studio")
+    ? "/content-studio/clients"
+    : "/admin/content-studio/clients";
   const [officeId, setOfficeId] = useState<string | null>(null);
   const [detail, setDetail] = useState<ContentReviewDetail | null>(null);
   const [clients, setClients] = useState<ContentClient[]>([]);
@@ -836,8 +839,8 @@ export default function ContentStudioEditorPage() {
       await deleteContentReviewDraft(detail.draft.id);
       navigate(
         detail.draft.client_id
-          ? `/admin/content-studio/clients/${detail.draft.client_id}`
-          : "/admin/content-studio/clients",
+          ? `${contentStudioClientBasePath}/${detail.draft.client_id}`
+          : contentStudioClientBasePath,
       );
     } catch (err) {
       setError(`Failed to delete draft: ${err instanceof Error ? err.message : "Unknown error"}`);
@@ -868,8 +871,8 @@ export default function ContentStudioEditorPage() {
   if (!detail || !form || !draftPreview || !officeId || !organizationId) return null;
 
   const clientDashboardPath = detail.draft.client_id
-    ? `/admin/content-studio/clients/${detail.draft.client_id}`
-    : "/admin/content-studio/clients";
+    ? `${contentStudioClientBasePath}/${detail.draft.client_id}`
+    : contentStudioClientBasePath;
 
   return (
     <main className="flex h-screen flex-col overflow-hidden bg-neutral-950 text-white">
@@ -1472,7 +1475,7 @@ function EditorSidePanel({
       <section className="space-y-2">
       {editorClient ? (
         <Link
-          to={`/admin/content-studio/clients/${editorClient.id}`}
+          to={clientDashboardPath}
           className="block rounded-xl border border-orange-500/30 bg-orange-500/10 px-4 py-3 text-center text-sm font-semibold text-orange-200"
         >
           Manage client library

@@ -86,7 +86,7 @@ import ClientPortalReviewPage from "../../features/content-review/pages/ClientPo
 
 function ContentStudioClientLegacyRedirect() {
   const { clientId } = useParams();
-  return <Navigate to={`/admin/content-studio/clients/${clientId ?? ""}`} replace />;
+  return <Navigate to={`/content-studio/clients/${clientId ?? ""}`} replace />;
 }
 
 const AppRouter = () => {
@@ -416,6 +416,10 @@ const AppRouter = () => {
           "/admin/content-studio/uploads",
           "/admin/content-studio/reviews",
           "/admin/content-studio/calendar",
+          "/content-studio/drafts",
+          "/content-studio/uploads",
+          "/content-studio/reviews",
+          "/content-studio/calendar",
         ].map((path) => (
           <Route
             key={path}
@@ -434,7 +438,7 @@ const AppRouter = () => {
 
         <Route
           path="/content-studio"
-          element={<Navigate to="/admin/content-studio/clients" replace />}
+          element={<Navigate to="/content-studio/clients" replace />}
         />
         <Route
           path="/content-studio/:clientId"
@@ -452,6 +456,8 @@ const AppRouter = () => {
         {[
           "/admin/content-studio/clients",
           "/admin/content-studio/clients/:clientId",
+          "/content-studio/clients",
+          "/content-studio/clients/:clientId",
         ].map((path) => (
           <Route
             key={path}
@@ -470,6 +476,19 @@ const AppRouter = () => {
 
         <Route
           path="/admin/content-studio/editor/:draftId"
+          element={
+            <ProtectedRoute>
+              <ContentStudioRoute>
+                <FeatureRoute feature="content_review">
+                  <ContentStudioEditorPage />
+                </FeatureRoute>
+              </ContentStudioRoute>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/content-studio/editor/:draftId"
           element={
             <ProtectedRoute>
               <ContentStudioRoute>

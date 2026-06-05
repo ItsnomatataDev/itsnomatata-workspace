@@ -16,7 +16,7 @@ import {
   useState,
   type FormEvent,
 } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import Sidebar from "../../../components/dashboard/components/Sidebar";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import { rememberAuthReturnPath } from "../../../lib/auth/returnPath";
@@ -154,18 +154,25 @@ function assetsForDraft(detail: ContentReviewDetail | undefined) {
 
 const CONTENT_STUDIO_LAST_CLIENT_KEY = "content-studio:last-client-id";
 
-function contentStudioClientPath(clientId: string) {
-  return `/admin/content-studio/clients/${clientId}`;
+function contentStudioClientPath(clientId: string, basePath: string) {
+  return `${basePath}/${clientId}`;
 }
 
 export default function ContentStudioClientsPage() {
   const { clientId } = useParams();
   const isClientRoute = Boolean(clientId);
+  const location = useLocation();
   const navigate = useNavigate();
   const auth = useAuth();
   const profile = auth.profile;
   const userId = auth.user?.id ?? null;
   const organizationId = profile?.organization_id ?? null;
+  const contentStudioBasePath = location.pathname.startsWith("/content-studio")
+    ? "/content-studio/clients"
+    : "/admin/content-studio/clients";
+  const contentStudioEditorBasePath = location.pathname.startsWith("/content-studio")
+    ? "/content-studio/editor"
+    : "/admin/content-studio/editor";
   const [officeId, setOfficeId] = useState<string | null>(null);
   const [clients, setClients] = useState<ContentClient[]>([]);
   const [client, setClient] = useState<ContentClient | null>(null);
@@ -398,7 +405,7 @@ export default function ContentStudioClientsPage() {
             ...(options.focusTab ? { focusTab: options.focusTab } : {}),
           }
         : undefined;
-    navigate(`/admin/content-studio/editor/${draftId}`, { state });
+    navigate(`${contentStudioEditorBasePath}/${draftId}`, { state });
   }
 
   const dashboardRows = useMemo<ClientProgress[]>(() => {
@@ -771,7 +778,7 @@ export default function ContentStudioClientsPage() {
       setSaving(true);
       await deleteContentClient(client.id);
       setMessage("Client, assigned drafts, and media deleted.");
-      window.location.href = "/admin/content-studio/clients";
+      window.location.href = contentStudioBasePath;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete client.");
     } finally {
@@ -923,7 +930,7 @@ export default function ContentStudioClientsPage() {
                 Retry
               </button>
               <Link
-                to="/admin/content-studio/clients"
+                to={contentStudioBasePath}
                 className="rounded-xl border border-white/10 px-4 py-3 text-sm font-semibold text-white/75"
               >
                 All clients
@@ -956,7 +963,7 @@ export default function ContentStudioClientsPage() {
             </div>
             {client ? (
               <Link
-                to="/admin/content-studio/clients"
+                to={contentStudioBasePath}
                 className="rounded-xl border border-white/10 px-4 py-3 text-sm font-semibold text-white/70 hover:bg-white/10"
               >
                 All clients
@@ -1170,7 +1177,7 @@ export default function ContentStudioClientsPage() {
                     >
                       <div>
                         <Link
-                          to={contentStudioClientPath(row.client.id)}
+                          to={contentStudioClientPath(row.client.id, contentStudioBasePath)}
                           className="font-semibold text-white hover:text-orange-200"
                         >
                           {row.client.company_name}
@@ -1218,7 +1225,7 @@ export default function ContentStudioClientsPage() {
                       </div>
                       <div>
                         <Link
-                          to={contentStudioClientPath(row.client.id)}
+                          to={contentStudioClientPath(row.client.id, contentStudioBasePath)}
                           target="_blank"
                           rel="noopener noreferrer"
                           title="Opens this client's workspace in a new tab. Client portal link is under Links in that workspace."
@@ -2088,7 +2095,7 @@ export default function ContentStudioClientsPage() {
                 </div>
                 <div className="flex flex-wrap gap-2 border-t border-white/10 p-4">
                   <Link
-                    to={`/admin/content-studio/editor/${previewDraft.id}`}
+                    to={`${contentStudioEditorBasePath}/${previewDraft.id}`}
                     onClick={() => setPreviewOpen(false)}
                     className="rounded-xl border border-orange-500/30 bg-orange-500/10 px-4 py-2 text-sm font-semibold text-orange-100"
                   >
