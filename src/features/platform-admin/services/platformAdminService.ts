@@ -6,6 +6,7 @@ import type {
   OrganizationBranding,
   OrganizationFeature,
   OrganizationInvitation,
+  OrganizationProfile,
   OrganizationRole,
   OrganizationRow,
   OrganizationSubscription,
@@ -407,6 +408,54 @@ export async function setCompanyOfficePrimary(params: {
   await createPlatformAuditLog({
     action: "company_office_primary_updated",
     targetOrganizationId: params.organizationId,
+    metadata: { officeId: params.officeId },
+  });
+}
+
+export async function getOrganizationProfiles(
+  organizationId: string,
+): Promise<OrganizationProfile[]> {
+  const { data, error } = await supabase
+    .from("profiles")
+    .select(
+      "id, organization_id, office_id, full_name, email, primary_role, organization_role_key, account_status, is_active",
+    )
+    .eq("organization_id", organizationId)
+    .order("full_name", { ascending: true, nullsFirst: false });
+
+  if (error) throw error;
+  return (data ?? []) as OrganizationProfile[];
+}
+
+export async function updateOrganizationProfileOffice(params: {
+  organizationId: string;
+  userId: string;
+  officeId: string | null;
+}): Promise<void> {
+  if (params.officeId) {
+    const { data: office, error: officeError } = await supabase
+      .from("company_offices")
+      .select("id")
+      .eq("organization_id", params.organizationId)
+      .eq("id", params.officeId)
+      .maybeSingle();
+
+    if (officeError) throw officeError;
+    if (!office) throw new Error("Selected office does not belong to this organization.");
+  }
+
+  const { error } = await supabase
+    .from("profiles")
+    .update({ office_id: params.officeId })
+    .eq("organization_id", params.organizationId)
+    .eq("id", params.userId);
+
+  if (error) throw error;
+
+  await createPlatformAuditLog({
+    action: "profile_office_updated",
+    targetOrganizationId: params.organizationId,
+    targetUserId: params.userId,
     metadata: { officeId: params.officeId },
   });
 }

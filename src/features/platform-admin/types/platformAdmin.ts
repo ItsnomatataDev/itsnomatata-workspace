@@ -32,6 +32,18 @@ export type CompanyOffice = {
   created_at: string;
 };
 
+export type OrganizationProfile = {
+  id: string;
+  organization_id: string | null;
+  office_id: string | null;
+  full_name: string | null;
+  email: string | null;
+  primary_role: string | null;
+  organization_role_key: string | null;
+  account_status: string | null;
+  is_active: boolean | null;
+};
+
 export type OrganizationBranding = {
   id: string;
   organization_id: string;

@@ -1237,9 +1237,74 @@ export async function updateEmployeeOffice(params: {
     change_reason: params.reason ?? null,
   });
 
-  if (error) throw error;
+  if (error && !String(error.message ?? "").includes("schema cache")) throw error;
 
-  const result = (data ?? {}) as {
+  let fallbackResult:
+    | {
+        changed?: boolean;
+        old_office_name?: string;
+        new_office_name?: string;
+      }
+    | null = null;
+
+  if (error) {
+    const { data: currentProfile, error: profileError } = await supabase
+      .from("profiles")
+      .select("office_id")
+      .eq("organization_id", params.organizationId)
+      .eq("id", params.userId)
+      .single();
+
+    if (profileError) throw profileError;
+
+    if (params.officeId) {
+      const { data: office, error: officeError } = await supabase
+        .from("company_offices")
+        .select("id")
+        .eq("organization_id", params.organizationId)
+        .eq("id", params.officeId)
+        .maybeSingle();
+
+      if (officeError) throw officeError;
+      if (!office) throw new Error("Selected office was not found in this organization.");
+    }
+
+    const { data: officeNames, error: officeNamesError } = await supabase
+      .from("company_offices")
+      .select("id, name")
+      .eq("organization_id", params.organizationId)
+      .in("id", [currentProfile.office_id, params.officeId].filter(Boolean) as string[]);
+
+    if (officeNamesError) throw officeNamesError;
+
+    const officeNameMap = new Map(
+      (officeNames ?? []).map((office) => [office.id as string, office.name as string]),
+    );
+
+    if (currentProfile.office_id === params.officeId) {
+      fallbackResult = { changed: false };
+    } else {
+      const { error: updateError } = await supabase
+        .from("profiles")
+        .update({ office_id: params.officeId })
+        .eq("organization_id", params.organizationId)
+        .eq("id", params.userId);
+
+      if (updateError) throw updateError;
+
+      fallbackResult = {
+        changed: true,
+        old_office_name: currentProfile.office_id
+          ? officeNameMap.get(currentProfile.office_id) ?? "Previous office"
+          : "Unassigned",
+        new_office_name: params.officeId
+          ? officeNameMap.get(params.officeId) ?? "New office"
+          : "Unassigned",
+      };
+    }
+  }
+
+  const result = (fallbackResult ?? data ?? {}) as {
     changed?: boolean;
     old_office_name?: string;
     new_office_name?: string;

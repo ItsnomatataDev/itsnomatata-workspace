@@ -332,13 +332,9 @@ export async function resolveContentStudioOffice(params: {
     }
   }
 
-  const fallback = pickContentStudioOffice(offices);
-  if (!fallback) {
-    throw new Error(
-      "No office in this organization is set up for Content Studio. Add a company office in organization settings (Three Little Birds offices cannot use Content Studio).",
-    );
-  }
-  return fallback;
+  throw new Error(
+    "Your user profile is not assigned to a Content Studio office. In Platform Admin, assign this user to the organization's media/content office first.",
+  );
 }
 
 export async function assertCanUseContentStudio(params: {
@@ -736,7 +732,14 @@ export async function createContentClient(params: {
     target_phone: params.phone ?? "",
     target_pin_expires_at: null,
   });
-  if (error) throw error;
+  if (error) {
+    if (String(error.message ?? "").toLowerCase().includes("not allowed")) {
+      throw new Error(
+        "Failed to create client because your profile is not assigned to this Content Studio office. In Platform Admin, assign this user to the organization's office and try again.",
+      );
+    }
+    throw error;
+  }
   return data as { ok: boolean; pin: string; client: ContentClient };
 }
 

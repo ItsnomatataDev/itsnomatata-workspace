@@ -33,6 +33,7 @@ import {
   getOrganizationBranding,
   getOrganizationFeatures,
   getOrganizationInvitations,
+  getOrganizationProfiles,
   getOrganizationRoles,
   getOrganizationSubscription,
   getOrganizations,
@@ -42,6 +43,7 @@ import {
   setCompanyOfficePrimary,
   suspendOrganization,
   updateOrganization,
+  updateOrganizationProfileOffice,
   updateOrganizationBranding,
   updateOrganizationFeature,
   updateOrganizationRole,
@@ -55,6 +57,7 @@ import type {
   OrganizationDomain,
   OrganizationFeature,
   OrganizationInvitation,
+  OrganizationProfile,
   OrganizationRole,
   OrganizationRow,
   OrganizationSubscription,
@@ -364,6 +367,7 @@ export default function PlatformAdminPage() {
   const [newDomain, setNewDomain] = useState("");
   const [invitations, setInvitations] = useState<OrganizationInvitation[]>([]);
   const [offices, setOffices] = useState<CompanyOffice[]>([]);
+  const [profiles, setProfiles] = useState<OrganizationProfile[]>([]);
   const [auditLogs, setAuditLogs] = useState<PlatformAuditLog[]>([]);
   const [analytics, setAnalytics] = useState<OrganizationAnalytics | null>(null);
   const [newOrgName, setNewOrgName] = useState("");
@@ -402,6 +406,7 @@ export default function PlatformAdminPage() {
   const [addingDomain, setAddingDomain] = useState(false);
   const [organizationSaving, setOrganizationSaving] = useState(false);
   const [officeSaving, setOfficeSaving] = useState(false);
+  const [profileOfficeSavingId, setProfileOfficeSavingId] = useState<string | null>(null);
   const [error, setError] = useState("");
 
   const isSystemOrg = Boolean(
@@ -434,6 +439,7 @@ export default function PlatformAdminPage() {
         orgInvitations,
         orgDomains,
         orgOffices,
+        orgProfiles,
         logs,
         orgAnalytics,
       ] = await Promise.all([
@@ -447,6 +453,9 @@ export default function PlatformAdminPage() {
         ),
         loadOptionalSection("company_offices", [] as CompanyOffice[], () =>
           getCompanyOffices(organizationId),
+        ),
+        loadOptionalSection("profiles", [] as OrganizationProfile[], () =>
+          getOrganizationProfiles(organizationId),
         ),
         loadOptionalSection("platform_audit_logs", [] as PlatformAuditLog[], () =>
           getPlatformAuditLogs({ organizationId, limit: 20 }),
@@ -462,6 +471,7 @@ export default function PlatformAdminPage() {
       setBranding({ ...defaultBranding, ...(orgBranding ?? {}) });
       setDomains(orgDomains);
       setOffices(orgOffices);
+      setProfiles(orgProfiles);
       setInvitations(orgInvitations);
       setAuditLogs(logs);
       setAnalytics(orgAnalytics);
@@ -751,6 +761,26 @@ export default function PlatformAdminPage() {
       setError(getErrorMessage(err, "Failed to update primary office."));
     } finally {
       setOfficeSaving(false);
+    }
+  }
+
+  async function handleUpdateProfileOffice(userId: string, officeId: string | null) {
+    if (!selectedOrg) return;
+
+    try {
+      setProfileOfficeSavingId(userId);
+      setError("");
+      await updateOrganizationProfileOffice({
+        organizationId: selectedOrg.id,
+        userId,
+        officeId,
+      });
+      setProfiles(await getOrganizationProfiles(selectedOrg.id));
+      setAuditLogs(await getPlatformAuditLogs({ organizationId: selectedOrg.id, limit: 20 }));
+    } catch (err) {
+      setError(getErrorMessage(err, "Failed to update user office assignment."));
+    } finally {
+      setProfileOfficeSavingId(null);
     }
   }
 
@@ -1542,6 +1572,63 @@ export default function PlatformAdminPage() {
                             No offices yet. Create an office so this organization can use Content Studio.
                           </div>
                         ) : null}
+                      </div>
+
+                      <div className="mt-5 rounded-2xl border border-white/10 bg-black p-4">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <p className="font-semibold text-white">User office assignments</p>
+                            <p className="mt-1 text-sm text-white/45">
+                              Content Studio creation requires the user profile to be assigned to the selected office.
+                            </p>
+                          </div>
+                          <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-white/55">
+                            {profiles.length} users
+                          </span>
+                        </div>
+
+                        <div className="mt-4 space-y-2">
+                          {profiles.map((profileRow) => (
+                            <div
+                              key={profileRow.id}
+                              className="flex flex-col gap-3 rounded-xl border border-white/10 bg-white/5 px-3 py-3 md:flex-row md:items-center md:justify-between"
+                            >
+                              <div>
+                                <p className="text-sm font-semibold text-white">
+                                  {profileRow.full_name || profileRow.email || "Unnamed user"}
+                                </p>
+                                <p className="mt-1 text-xs text-white/40">
+                                  {profileRow.email} / {profileRow.primary_role ?? profileRow.organization_role_key ?? "user"}
+                                </p>
+                              </div>
+                              <select
+                                value={profileRow.office_id ?? ""}
+                                disabled={profileOfficeSavingId === profileRow.id || offices.length === 0}
+                                onChange={(event) =>
+                                  void handleUpdateProfileOffice(
+                                    profileRow.id,
+                                    event.target.value || null,
+                                  )
+                                }
+                                className="min-w-[220px] rounded-xl border border-white/10 bg-black px-3 py-2 text-sm text-white outline-none focus:border-orange-500 disabled:opacity-50"
+                              >
+                                <option value="">No office assigned</option>
+                                {offices.map((office) => (
+                                  <option key={office.id} value={office.id}>
+                                    {office.name}
+                                    {office.is_primary ? " (primary)" : ""}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          ))}
+
+                          {profiles.length === 0 ? (
+                            <div className="rounded-xl border border-dashed border-white/10 p-5 text-center text-sm text-white/45">
+                              No users found for this organization.
+                            </div>
+                          ) : null}
+                        </div>
                       </div>
                     </section>
 
