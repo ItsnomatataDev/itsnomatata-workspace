@@ -153,11 +153,12 @@ export function getScheduleBatchReadiness(
   const internalApprovedOnActive = activeSlots.filter((slot) =>
     getInternalApprovedSlots(comments, expectedPosts).includes(slot),
   ).length;
+  const scheduleApproved = draftReadiness.internallyApproved;
   const allActiveInternallyApproved = areAllActiveSlotsInternallyApproved(
     comments,
     activeSlots,
   );
-  const internalApproved = internalApprovedOnActive;
+  const internalApproved = scheduleApproved ? postCount : internalApprovedOnActive;
 
   const sentToClient = draftReadiness.sentToClient ? postCount : 0;
   const clientApprovedOnActive = activeSlots.filter((slot) =>
@@ -173,7 +174,7 @@ export function getScheduleBatchReadiness(
   const allPostsInternallyReady =
     postCount > 0 &&
     captionsComplete === postCount &&
-    allActiveInternallyApproved;
+    (scheduleApproved || allActiveInternallyApproved);
 
   const canSendBatchToClient =
     allPostsInternallyReady && !draftReadiness.sentToClient;

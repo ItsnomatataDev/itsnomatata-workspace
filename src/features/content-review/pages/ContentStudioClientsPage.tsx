@@ -1192,11 +1192,7 @@ export default function ContentStudioClientsPage() {
                         </p>
                       </div>
                       <div className="text-xs">
-                        {row.batch.actualPosts}
-                        {row.batch.expectedPosts > 0
-                          ? ` / ${row.batch.expectedPosts}`
-                          : ""}{" "}
-                        posts
+                        {row.batch.actualPosts} / {CONTENT_STUDIO_POSTS_PER_SCHEDULE} max posts
                       </div>
                       <div className="text-xs font-medium text-white/80">
                         {row.batch.mediaProgress}%
@@ -1300,10 +1296,7 @@ export default function ContentStudioClientsPage() {
                     <div className="flex flex-wrap gap-4 text-sm">
                       <span>
                         <strong className="text-white">
-                          {clientBatch.actualPosts}
-                          {clientBatch.expectedPosts > 0
-                            ? ` / ${clientBatch.expectedPosts}`
-                            : ""}
+                          {clientBatch.actualPosts} / {CONTENT_STUDIO_POSTS_PER_SCHEDULE} max
                         </strong>{" "}
                         <span className="text-white/50">
                           Posts with media
@@ -1574,7 +1567,7 @@ export default function ContentStudioClientsPage() {
                       <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
                         <MiniStat
                           label="Posts in schedule"
-                          value={`${clientBatch.actualPosts}`}
+                          value={`${clientBatch.actualPosts} / ${CONTENT_STUDIO_POSTS_PER_SCHEDULE} max`}
                         />
                         <MiniStat
                           label="Internally approved"

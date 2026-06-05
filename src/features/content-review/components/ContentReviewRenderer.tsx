@@ -470,10 +470,11 @@ export function ContentReviewRenderer({
               <button
                 type="button"
                 onClick={() => setExpandedVideo(null)}
-                className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/20 bg-white/10 text-white hover:bg-white/20"
+                className="inline-flex items-center gap-2 rounded-full border border-white/25 bg-white px-4 py-2 text-sm font-bold text-black shadow-lg transition hover:bg-orange-100"
                 aria-label="Close video preview"
               >
-                <X size={20} />
+                <X size={18} />
+                Close video
               </button>
             </div>
             <ContentReviewVideoPlayer
