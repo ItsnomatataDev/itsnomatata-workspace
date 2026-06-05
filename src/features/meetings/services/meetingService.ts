@@ -16,7 +16,13 @@ function generateRoomCode() {
 }
 
 function generateGuestCode() {
-  return `G-${Math.random().toString(36).slice(2, 10).toUpperCase()}`;
+  const bytes = new Uint8Array(8);
+  crypto.getRandomValues(bytes);
+  const token = Array.from(bytes, (b) => b.toString(36).padStart(2, "0"))
+    .join("")
+    .slice(0, 12)
+    .toUpperCase();
+  return `G-${token}`;
 }
 
 export async function getMeetings(

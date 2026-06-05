@@ -41,14 +41,13 @@ function jsonResponse(body: unknown, status = 200) {
 }
 
 function hasValidInternalSecret(req: Request): boolean {
-  const secret = Deno.env.get("INTERNAL_API_KEY") ??
-    Deno.env.get("VITE_N8N_NOTIFICATION_WEBHOOK_SECRET");
+  const secret = Deno.env.get("INTERNAL_API_KEY")?.trim();
+  if (!secret) return false;
 
   const inbound = req.headers.get("x-internal-api-key") ??
-    req.headers.get("x-notification-secret") ??
-    req.headers.get("apikey");
+    req.headers.get("x-notification-secret");
 
-  return Boolean(secret) && inbound === secret;
+  return Boolean(inbound) && inbound === secret;
 }
 
 function getBearerToken(req: Request) {

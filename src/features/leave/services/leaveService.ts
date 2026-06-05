@@ -208,6 +208,17 @@ export async function getLeaveTypes(organizationId: string) {
   return (data ?? []) as LeaveTypeRow[];
 }
 
+export async function getPendingLeaveRequestCount(organizationId: string) {
+  const { count, error } = await supabase
+    .from("leave_requests")
+    .select("id", { count: "exact", head: true })
+    .eq("organization_id", organizationId)
+    .eq("status", "pending");
+
+  if (error) throw error;
+  return count ?? 0;
+}
+
 export async function getMyLeaveRequests(
   organizationId: string,
   userId: string,

@@ -89,12 +89,11 @@ async function handleJoin(
   },
 ) {
   const meetingCode = body.meetingCode?.trim();
-  const meetingId = body.meetingId?.trim();
   const name = body.name?.trim();
   const email = body.email?.trim() || null;
 
-  if (!meetingCode && !meetingId) {
-    return json(400, { error: "Meeting code or meeting ID is required" });
+  if (!meetingCode) {
+    return json(400, { error: "Meeting code is required" });
   }
 
   if (!name) {
@@ -109,7 +108,7 @@ async function handleJoin(
     return json(400, { error: "Guest email is too long" });
   }
 
-  const meeting = await findMeeting(adminClient, { meetingCode, meetingId });
+  const meeting = await findMeeting(adminClient, { meetingCode });
 
   if (!meeting) {
     return json(404, { error: "Meeting link is invalid" });
@@ -216,28 +215,16 @@ async function handleLeave(
 async function findMeeting(
   adminClient: ReturnType<typeof createClient>,
   params: {
-    meetingCode?: string;
-    meetingId?: string;
+    meetingCode: string;
   },
 ): Promise<MeetingRow | null> {
   const select =
     "id, title, meeting_type, status, started_at, allow_guest_access, guest_code, livekit_room_name";
 
-  if (params.meetingCode) {
-    const { data, error } = await adminClient
-      .from("meetings")
-      .select(select)
-      .eq("guest_code", params.meetingCode)
-      .maybeSingle();
-
-    if (error) throw error;
-    return (data as MeetingRow | null) ?? null;
-  }
-
   const { data, error } = await adminClient
     .from("meetings")
     .select(select)
-    .eq("id", params.meetingId)
+    .eq("guest_code", params.meetingCode)
     .maybeSingle();
 
   if (error) throw error;

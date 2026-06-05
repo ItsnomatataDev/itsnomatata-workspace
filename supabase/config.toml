@@ -12,3 +12,15 @@ verify_jwt = false
 
 [functions.codex-process-input]
 verify_jwt = false
+
+[functions.check-time-tracking]
+verify_jwt = false
+
+[functions.send-push-notification]
+verify_jwt = false
+
+[functions.send-direct-email]
+verify_jwt = false
+
+[functions.content-studio-analyze-image]
+verify_jwt = false

@@ -124,14 +124,8 @@ export function buildN8nNotificationEmailPayload(params: {
 }
 
 export function getN8nNotificationWebhookConfig() {
-  const webhookUrl =
-    Deno.env.get("N8N_NOTIFICATION_WEBHOOK_URL") ??
-    Deno.env.get("VITE_N8N_NOTIFICATION_WEBHOOK_URL") ??
-    "";
-  const webhookSecret =
-    Deno.env.get("N8N_NOTIFICATION_WEBHOOK_SECRET") ??
-    Deno.env.get("VITE_N8N_NOTIFICATION_WEBHOOK_SECRET") ??
-    "";
+  const webhookUrl = Deno.env.get("N8N_NOTIFICATION_WEBHOOK_URL") ?? "";
+  const webhookSecret = Deno.env.get("N8N_NOTIFICATION_WEBHOOK_SECRET") ?? "";
 
   return { webhookUrl: webhookUrl.trim(), webhookSecret: webhookSecret.trim() };
 }

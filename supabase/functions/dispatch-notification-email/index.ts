@@ -3,6 +3,7 @@ import {
   buildN8nNotificationEmailPayload,
   postNotificationEmailToN8n,
 } from "../_shared/n8nNotificationEmail.ts";
+import { hasInternalSecret, isServiceRoleRequest } from "../_shared/edgeAuth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -19,12 +20,7 @@ function jsonResponse(body: unknown, status = 200) {
 }
 
 function hasServiceAccess(req: Request, serviceRoleKey: string) {
-  const authorization = req.headers.get("authorization") ?? "";
-  const bearer = authorization.toLowerCase().startsWith("bearer ")
-    ? authorization.slice(7).trim()
-    : "";
-  const apikey = req.headers.get("apikey") ?? "";
-  return bearer === serviceRoleKey || apikey === serviceRoleKey;
+  return isServiceRoleRequest(req, serviceRoleKey) || hasInternalSecret(req);
 }
 
 type DispatchBody = {

@@ -202,6 +202,17 @@ export async function uploadEmployeeDocumentFile(params: {
   return params.path;
 }
 
+export async function getUnreadInboxDocumentCount(userId: string) {
+  const { count, error } = await supabase
+    .from("employee_document_recipients")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .eq("status", "unread");
+
+  if (error) throw error;
+  return count ?? 0;
+}
+
 export async function getMyDocuments(params?: {
   status?: EmployeeDocumentStatus | "all";
   documentType?: EmployeeDocumentType | "all";

@@ -1,6 +1,11 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import webpush from "npm:web-push@3.6.7";
+import {
+  getBearerToken,
+  getSupabaseEnv,
+  isServiceRoleRequest,
+} from "../_shared/edgeAuth.ts";
 
 type PushSubscriptionRow = {
   id: string;
@@ -12,7 +17,8 @@ type PushSubscriptionRow = {
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
+    "authorization, x-client-info, apikey, content-type, x-internal-api-key",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
 async function markDelivery(
@@ -22,6 +28,53 @@ async function markDelivery(
 ) {
   if (!deliveryId) return;
   await supabase.from("notification_deliveries").update(values).eq("id", deliveryId);
+}
+
+async function authorizePushRequest(
+  req: Request,
+  notificationUserId: string,
+): Promise<Response | null> {
+  const { supabaseUrl, anonKey, serviceRoleKey } = getSupabaseEnv();
+  if (!supabaseUrl || !anonKey || !serviceRoleKey) {
+    return Response.json(
+      { ok: false, error: "Server configuration error." },
+      { status: 500, headers: corsHeaders },
+    );
+  }
+
+  if (isServiceRoleRequest(req, serviceRoleKey)) {
+    return null;
+  }
+
+  const token = getBearerToken(req);
+  if (!token) {
+    return Response.json(
+      { ok: false, error: "Unauthorized" },
+      { status: 401, headers: corsHeaders },
+    );
+  }
+
+  const userClient = createClient(supabaseUrl, anonKey, {
+    global: { headers: { Authorization: `Bearer ${token}` } },
+    auth: { persistSession: false },
+  });
+
+  const { data: authData, error: authError } = await userClient.auth.getUser(token);
+  if (authError || !authData.user) {
+    return Response.json(
+      { ok: false, error: "Invalid or expired session." },
+      { status: 401, headers: corsHeaders },
+    );
+  }
+
+  if (authData.user.id !== notificationUserId) {
+    return Response.json(
+      { ok: false, error: "Forbidden" },
+      { status: 403, headers: corsHeaders },
+    );
+  }
+
+  return null;
 }
 
 serve(async (req) => {
@@ -43,6 +96,30 @@ serve(async (req) => {
       );
     }
 
+    const { serviceRoleKey } = getSupabaseEnv();
+    if (!serviceRoleKey) {
+      return Response.json(
+        { ok: false, error: "Server configuration error." },
+        { status: 500, headers: corsHeaders },
+      );
+    }
+
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      serviceRoleKey,
+    );
+
+    const { data: notification, error: notificationError } = await supabase
+      .from("notifications")
+      .select("*")
+      .eq("id", notificationId)
+      .single();
+
+    if (notificationError) throw notificationError;
+
+    const authError = await authorizePushRequest(req, notification.user_id);
+    if (authError) return authError;
+
     const vapidSubject = Deno.env.get("VAPID_SUBJECT") ?? "mailto:codex@itsnomatata.com";
     const vapidPublicKey = Deno.env.get("VAPID_PUBLIC_KEY");
     const vapidPrivateKey = Deno.env.get("VAPID_PRIVATE_KEY");
@@ -55,19 +132,6 @@ serve(async (req) => {
     }
 
     webpush.setVapidDetails(vapidSubject, vapidPublicKey, vapidPrivateKey);
-
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-    );
-
-    const { data: notification, error: notificationError } = await supabase
-      .from("notifications")
-      .select("*")
-      .eq("id", notificationId)
-      .single();
-
-    if (notificationError) throw notificationError;
 
     const { data: subscriptions, error: subscriptionsError } = await supabase
       .from("push_subscriptions")
@@ -176,16 +240,19 @@ serve(async (req) => {
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
     try {
-      const supabase = createClient(
-        Deno.env.get("SUPABASE_URL")!,
-        Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-      );
-      await markDelivery(supabase, deliveryId, {
-        status: "failed",
-        error_message: error,
-      });
+      const { serviceRoleKey } = getSupabaseEnv();
+      if (serviceRoleKey) {
+        const supabase = createClient(
+          Deno.env.get("SUPABASE_URL")!,
+          serviceRoleKey,
+        );
+        await markDelivery(supabase, deliveryId, {
+          status: "failed",
+          error_message: error,
+        });
+      }
     } catch {
-      // Ignore secondary logging failures; the response still carries the error.
+      // Ignore secondary logging failures.
     }
 
     return Response.json(

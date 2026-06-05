@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { requireAuthenticatedProfile } from "../_shared/edgeAuth.ts";
 
 // ============================================================
 // Types - AI Core Layer
@@ -429,18 +430,30 @@ Deno.serve(async (req) => {
   }
 
   try {
+    const auth = await requireAuthenticatedProfile(req);
+    if (auth instanceof Response) {
+      return new Response(await auth.text(), {
+        status: auth.status,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const body = (await req.json().catch(() => ({}))) as AIChatRequest;
 
     if (!body.message) {
       return jsonResponse({ error: "Message is required" }, 400);
     }
 
-    if (!body.context?.organizationId) {
-      return jsonResponse({ error: "Organization ID is required" }, 400);
-    }
-
     const supabase = getSupabaseClient();
-    const { organizationId } = body.context;
+    const organizationId = auth.profile.organization_id;
+    const trustedContext = {
+      ...(body.context ?? {}),
+      userId: auth.userId,
+      organizationId,
+      role: auth.profile.primary_role ?? body.context?.role,
+      fullName: auth.profile.full_name ?? body.context?.fullName,
+      department: auth.profile.department ?? body.context?.department,
+    };
 
     // Step 1: Load assistant configuration
     let assistant: AIAssistant | null = null;
@@ -473,19 +486,7 @@ Deno.serve(async (req) => {
       assistant = data as AIAssistant;
     }
 
-    // Step 2: Load user role and permissions
-    let userRole = 'employee';
-    if (body.context.userId) {
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('primary_role')
-        .eq('id', body.context.userId)
-        .single();
-      
-      if (profile) {
-        userRole = (profile as { primary_role?: string }).primary_role || 'employee';
-      }
-    }
+    const userRole = trustedContext.role || "employee";
 
     // Step 3: Retrieve relevant knowledge
     const knowledgeContext = await retrieveRelevantKnowledge(
@@ -497,7 +498,7 @@ Deno.serve(async (req) => {
     // Step 4: Build AI context and call OpenAI
     const systemPrompt = buildSystemPrompt(
       assistant!,
-      { ...body.context, role: userRole },
+      { ...trustedContext, role: userRole },
       knowledgeContext,
     );
 
@@ -506,7 +507,7 @@ Deno.serve(async (req) => {
     // Step 5: Get or create conversation
     const conversationId = await getOrCreateConversation(supabase, {
       organizationId,
-      userId: body.context.userId,
+      userId: auth.userId,
       customerId: body.customerId,
       assistantId: assistant!.id,
       channel: body.channel,
@@ -517,10 +518,10 @@ Deno.serve(async (req) => {
     await saveMessage(supabase, {
       conversationId,
       organizationId,
-      senderType: body.context.userId ? 'employee' : 'customer',
-      senderId: body.context.userId || body.customerId,
+      senderType: "employee",
+      senderId: auth.userId,
       content: body.message,
-      role: 'user',
+      role: "user",
     });
 
     await saveMessage(supabase, {
@@ -539,8 +540,8 @@ Deno.serve(async (req) => {
     // Step 7: Log activity
     await logAIActivity(supabase, {
       organizationId,
-      actorId: body.context.userId,
-      actorType: body.context.userId ? 'employee' : 'customer',
+      actorId: auth.userId,
+      actorType: "employee",
       eventType: 'ai_chat_message',
       referenceType: 'conversation',
       referenceId: conversationId,

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Pencil, Plus, X } from "lucide-react";
+import { Pencil, Plus, Trash2, X } from "lucide-react";
 import { LOCATION_STATUS_LABELS, LOCATION_TYPE_LABELS } from "../../constants";
 import type { CompanyLocation, LocationStatus, LocationType } from "../../types";
 
@@ -21,6 +21,7 @@ type Props = {
     end_date: string;
     reason?: string;
   }) => Promise<void>;
+  onDelete?: (locationId: string) => Promise<void>;
 };
 
 export default function ManageLocationsModal({
@@ -29,6 +30,7 @@ export default function ManageLocationsModal({
   organizationId,
   locations,
   onSave,
+  onDelete,
 }: Props) {
   const [editing, setEditing] = useState<Partial<CompanyLocation> | null>(null);
   const [restrictionStart, setRestrictionStart] = useState("");
@@ -54,8 +56,15 @@ export default function ManageLocationsModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-xl">
         <div className="flex items-center justify-between border-b border-gray-200 px-5 py-4">
-          <h2 className="text-lg font-semibold">Manage Locations</h2>
-          <button type="button" onClick={onClose}><X size={20} /></button>
+          <h2 className="text-lg font-semibold text-gray-900">Manage Locations</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close locations modal"
+            className="rounded-full p-1 text-gray-500 transition hover:bg-gray-100 hover:text-gray-900"
+          >
+            <X size={20} />
+          </button>
         </div>
         <div className="grid min-h-0 flex-1 lg:grid-cols-2">
           <div className="overflow-y-auto border-b border-gray-200 p-4 lg:border-b-0 lg:border-r">
@@ -115,7 +124,10 @@ export default function ManageLocationsModal({
             <select className={inputClass} value={form.status} onChange={(e) => setEditing({ ...form, status: e.target.value as LocationStatus })}>
               {Object.entries(LOCATION_STATUS_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
             </select>
-            <input type="number" min={1} className={inputClass} placeholder="Capacity" value={form.capacity ?? 8} onChange={(e) => setEditing({ ...form, capacity: Number(e.target.value) })} />
+            <label className="block text-xs font-semibold uppercase text-gray-500">
+              Location capacity (employees)
+              <input type="number" min={1} className={`${inputClass} mt-1`} placeholder="Number of employees this location can hold" value={form.capacity ?? 8} onChange={(e) => setEditing({ ...form, capacity: Number(e.target.value) })} />
+            </label>
             {(form.status === "closed" || form.status === "limited") && (
               <>
                 <input className={inputClass} placeholder="Alert title" value={alertTitle} onChange={(e) => setAlertTitle(e.target.value)} />
@@ -126,7 +138,30 @@ export default function ManageLocationsModal({
               </>
             )}
             <textarea className={`${inputClass} min-h-[72px]`} placeholder="Notes" value={form.notes ?? ""} onChange={(e) => setEditing({ ...form, notes: e.target.value })} />
-            <button type="submit" className="w-full rounded-xl bg-gray-900 py-2 text-sm font-semibold text-white">Save location</button>
+            <div className="flex flex-col gap-2">
+              <button type="submit" className="w-full rounded-xl bg-gray-900 py-2 text-sm font-semibold text-white">Save location</button>
+              {form.id && onDelete ? (
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const confirmed = window.confirm(
+                        `Delete ${form.name ?? "this location"}? It will be removed from the active planner.`,
+                      );
+                      if (!confirmed || !form.id) return;
+                      await onDelete(form.id);
+                      setEditing(null);
+                      onClose();
+                    }}
+                    aria-label={`Delete ${form.name ?? "location"}`}
+                    title="Delete location"
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-red-100 bg-red-50 text-red-500 shadow-sm transition hover:border-red-200 hover:bg-red-100 hover:text-red-700"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              ) : null}
+            </div>
           </form>
         </div>
       </div>

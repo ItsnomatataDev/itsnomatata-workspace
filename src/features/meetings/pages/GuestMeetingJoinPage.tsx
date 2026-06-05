@@ -49,7 +49,6 @@ export default function GuestMeetingJoinPage() {
 
       const result = await getGuestLivekitToken({
         meetingCode,
-        meetingId,
         name,
         email: email || null,
       });

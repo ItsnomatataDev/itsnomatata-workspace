@@ -119,6 +119,19 @@ export async function createAssignmentSlot(params: {
   return data as AssignmentSlot;
 }
 
+export async function deleteAssignmentSlot(params: {
+  organizationId: string;
+  slotId: string;
+}): Promise<void> {
+  const { error } = await supabase
+    .from("assignment_slots")
+    .delete()
+    .eq("organization_id", params.organizationId)
+    .eq("id", params.slotId);
+
+  if (error) throw new Error(error.message);
+}
+
 export async function assignEmployeeToSlot(params: {
   organizationId: string;
   input: AssignmentInput;
@@ -211,6 +224,19 @@ export async function upsertCompanyLocation(
     .single();
   if (error) throw new Error(error.message);
   return data as CompanyLocation;
+}
+
+export async function deleteCompanyLocation(params: {
+  organizationId: string;
+  locationId: string;
+}): Promise<void> {
+  const { error } = await supabase
+    .from("company_locations")
+    .update({ is_active: false })
+    .eq("organization_id", params.organizationId)
+    .eq("id", params.locationId);
+
+  if (error) throw new Error(error.message);
 }
 
 export async function upsertCompanyRole(

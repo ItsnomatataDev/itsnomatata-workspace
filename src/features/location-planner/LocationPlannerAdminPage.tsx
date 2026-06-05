@@ -6,14 +6,17 @@ import {
   useSensor,
   useSensors,
   type DragEndEvent,
+  type DragStartEvent,
 } from "@dnd-kit/core";
+import { CalendarDays, MapPin, Plus } from "lucide-react";
 import Sidebar from "../../components/dashboard/components/Sidebar";
 import { useAuth } from "../../app/providers/AuthProvider";
 import { EDITOR_ROLES } from "./constants";
-import PlannerTopBar from "./components/PlannerTopBar";
-import PlannerWeekCalendar from "./components/PlannerWeekCalendar";
 import StatusAlertBanner from "./components/StatusAlertBanner";
-import AssignmentCalendarCard from "./components/AssignmentCalendarCard";
+import LocationsBoard from "./components/LocationsBoard";
+import UnassignedEmployeesBoard from "./components/UnassignedEmployeesBoard";
+import AssignmentDatePanel from "./components/AssignmentDatePanel";
+import SimpleAssignmentCard from "./components/SimpleAssignmentCard";
 import CreateSlotModal from "./components/modals/CreateSlotModal";
 import AssignmentModal from "./components/modals/AssignmentModal";
 import ManageLocationsModal from "./components/modals/ManageLocationsModal";
@@ -22,16 +25,23 @@ import type {
   AdminAssignmentRow,
   AdminPlannerCalendar,
   AssignmentInput,
-  CalendarViewMode,
   CompanyLocation,
   CompanyRole,
   ConflictResult,
 } from "./types";
+import type {
+  PlannerAssignmentCardModel,
+  PlannerEmployeeCardModel,
+  PlannerLocationColumn,
+  PlannerWorkStream,
+} from "./components/plannerBoardTypes";
 import {
   assignEmployeeToSlot,
   createAssignmentSlot,
   createLocationStatusEvent,
   deleteAssignment,
+  deleteAssignmentSlot,
+  deleteCompanyLocation,
   detectAssignmentConflicts,
   getAdminPlannerCalendar,
   moveAssignment,
@@ -39,11 +49,26 @@ import {
   upsertCompanyLocation,
   upsertCompanyRole,
 } from "./services/locationPlannerService";
-import {
-  buildDayRange,
-  defaultWeekRange,
-  rangeForView,
-} from "./utils/calendarDates";
+import { addDays, assignmentOnDay, defaultWeekRange, toDateKey } from "./utils/calendarDates";
+
+function mapAssignment(row: AdminAssignmentRow): PlannerAssignmentCardModel {
+  return {
+    id: row.assignment.id,
+    employeeId: row.assignment.employee_id,
+    employeeName: row.employee_name,
+    employeeEmail: row.employee_email,
+    roleName: row.role_name,
+    locationName: row.location_name,
+    locationId: row.assignment.location_id,
+    slotId: row.assignment.slot_id,
+    temporaryRoleId: row.assignment.temporary_role_id,
+    startDate: row.assignment.start_date,
+    endDate: row.assignment.end_date,
+    startTime: row.assignment.start_time,
+    endTime: row.assignment.end_time,
+    status: row.assignment.status,
+  };
+}
 
 export default function LocationPlannerAdminPage() {
   const auth = useAuth();
@@ -51,20 +76,23 @@ export default function LocationPlannerAdminPage() {
   const organizationId = profile?.organization_id ?? null;
   const canEdit = EDITOR_ROLES.has(String(profile?.primary_role ?? ""));
 
-  const [viewMode, setViewMode] = useState<CalendarViewMode>("week");
-  const [anchorDate, setAnchorDate] = useState(defaultWeekRange().start);
-  const [range, setRange] = useState(defaultWeekRange());
+  const initialDate = defaultWeekRange().start;
+  const [selectedDate, setSelectedDate] = useState(initialDate);
+  const [calendarOpen, setCalendarOpen] = useState(true);
   const [locationFilter, setLocationFilter] = useState("all");
-  const [roleFilter, setRoleFilter] = useState("all");
-  const [employeeFilter, setEmployeeFilter] = useState("all");
   const [data, setData] = useState<AdminPlannerCalendar | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [selectedAssignmentId, setSelectedAssignmentId] = useState<string | null>(null);
+  const [activeDrag, setActiveDrag] = useState<{
+    type: "assignment" | "employee";
+    id: string;
+  } | null>(null);
   const [conflicts, setConflicts] = useState<ConflictResult | null>(null);
 
   const [createSlotOpen, setCreateSlotOpen] = useState(false);
+  const [createSlotLocationId, setCreateSlotLocationId] = useState<string | undefined>();
   const [assignmentModalOpen, setAssignmentModalOpen] = useState(false);
   const [assignmentModalMode, setAssignmentModalMode] = useState<"create" | "edit">("edit");
   const [locationsOpen, setLocationsOpen] = useState(false);
@@ -74,11 +102,9 @@ export default function LocationPlannerAdminPage() {
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
   );
 
-  const days = useMemo(() => buildDayRange(range.start, range.end), [range]);
-
-  const selectedRow = useMemo(
-    () => data?.assignments.find((r) => r.assignment.id === selectedAssignmentId) ?? null,
-    [data?.assignments, selectedAssignmentId],
+  const range = useMemo(
+    () => ({ start: selectedDate, end: selectedDate }),
+    [selectedDate],
   );
 
   const load = useCallback(async () => {
@@ -91,8 +117,6 @@ export default function LocationPlannerAdminPage() {
         startDate: range.start,
         endDate: range.end,
         locationId: locationFilter === "all" ? null : locationFilter,
-        roleId: roleFilter === "all" ? null : roleFilter,
-        employeeId: employeeFilter === "all" ? null : employeeFilter,
       });
       setData(next);
     } catch (err) {
@@ -100,36 +124,207 @@ export default function LocationPlannerAdminPage() {
     } finally {
       setLoading(false);
     }
-  }, [employeeFilter, locationFilter, organizationId, range.end, range.start, roleFilter]);
+  }, [locationFilter, organizationId, range.end, range.start]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  useEffect(() => {
-    setRange(rangeForView(anchorDate, viewMode));
-  }, [anchorDate, viewMode]);
+  const selectedRow = useMemo(
+    () => data?.assignments.find((r) => r.assignment.id === selectedAssignmentId) ?? null,
+    [data?.assignments, selectedAssignmentId],
+  );
+
+  const assignmentCards = useMemo(
+    () =>
+      (data?.assignments ?? [])
+        .filter((row) =>
+          assignmentOnDay(
+            row.assignment.start_date,
+            row.assignment.end_date,
+            selectedDate,
+          ),
+        )
+        .map(mapAssignment),
+    [data?.assignments, selectedDate],
+  );
+
+  const assignmentsById = useMemo(
+    () => new Map(assignmentCards.map((assignment) => [assignment.id, assignment])),
+    [assignmentCards],
+  );
+
+  const employeesById = useMemo(
+    () => new Map((data?.employees ?? []).map((employee) => [employee.id, employee])),
+    [data?.employees],
+  );
+
+  const workStreams = useMemo<PlannerWorkStream[]>(() => {
+    const slots = data?.slots ?? [];
+    const slotStreams = slots
+      .filter(
+        (slot) =>
+          slot.status === "open" &&
+          assignmentOnDay(slot.start_date, slot.end_date, selectedDate),
+      )
+      .map((slot) => {
+        const location = data?.locations.find((item) => item.id === slot.location_id);
+        const role = data?.roles.find((item) => item.id === slot.temporary_role_id);
+        return {
+          id: `slot-${slot.id}`,
+          title: slot.title,
+          subtitle: `${role?.name ?? "Work stream"} · ${location?.name ?? "No location"} · ${slot.required_count} needed`,
+          locationId: slot.location_id,
+          slotId: slot.id,
+          temporaryRoleId: slot.temporary_role_id,
+          startDate: slot.start_date,
+          endDate: slot.end_date,
+          startTime: slot.start_time,
+          endTime: slot.end_time,
+          requiredCount: slot.required_count,
+          assignments: assignmentCards.filter((assignment) => {
+            const matchesStreamDetails =
+              assignment.locationId === slot.location_id &&
+              assignment.temporaryRoleId === slot.temporary_role_id &&
+              assignment.startDate === slot.start_date &&
+              assignment.endDate === slot.end_date &&
+              assignment.startTime === slot.start_time &&
+              assignment.endTime === slot.end_time;
+
+            return matchesStreamDetails;
+          }),
+        };
+      });
+
+    const streamAssignmentIds = new Set(
+      slotStreams.flatMap((stream) =>
+        stream.assignments.map((assignment) => assignment.id),
+      ),
+    );
+    const ungrouped = assignmentCards.filter(
+      (assignment) => !streamAssignmentIds.has(assignment.id),
+    );
+    const roleStreams = Array.from(
+      ungrouped.reduce<Map<string, PlannerAssignmentCardModel[]>>((acc, assignment) => {
+        const key = assignment.temporaryRoleId ?? assignment.roleName ?? "General";
+        acc.set(key, [...(acc.get(key) ?? []), assignment]);
+        return acc;
+      }, new Map()),
+    ).map(([key, assignments]) => ({
+      id: `role-${key}`,
+      title: assignments[0]?.roleName ?? "General Work",
+      subtitle: "Assignments without a named slot",
+      locationId: assignments[0]?.locationId ?? null,
+      slotId: null,
+      temporaryRoleId: assignments[0]?.temporaryRoleId ?? null,
+      startDate: selectedDate,
+      endDate: selectedDate,
+      startTime: null,
+      endTime: null,
+      requiredCount: null,
+      assignments,
+    }));
+
+    return [...slotStreams, ...roleStreams];
+  }, [assignmentCards, data?.locations, data?.roles, data?.slots, selectedDate]);
+
+  const locationColumns = useMemo<PlannerLocationColumn[]>(
+    () =>
+      (data?.locations ?? []).map((location) => ({
+        id: location.id,
+        name: location.name,
+        status: location.status,
+        capacity: location.capacity,
+        assignments: assignmentCards.filter(
+          (assignment) => assignment.locationId === location.id,
+        ),
+        slots: workStreams.filter((stream) => stream.locationId === location.id),
+      })),
+    [assignmentCards, data?.locations, workStreams],
+  );
+
+  const unassignedEmployees = useMemo<PlannerEmployeeCardModel[]>(() => {
+    const assignedIds = new Set(assignmentCards.map((assignment) => assignment.employeeId));
+    return (data?.employees ?? [])
+      .filter((employee) => !assignedIds.has(employee.id))
+      .map((employee) => ({
+        id: employee.id,
+        name: employee.full_name ?? employee.email ?? "Employee",
+        email: employee.email,
+        primaryRole: employee.primary_role,
+        department: employee.department,
+        skills: employee.skills,
+      }));
+  }, [assignmentCards, data?.employees]);
+
+  const activeAssignment =
+    activeDrag?.type === "assignment" ? assignmentsById.get(activeDrag.id) : null;
+  const activeEmployee =
+    activeDrag?.type === "employee" ? employeesById.get(activeDrag.id) : null;
+
+  const handleDragStart = (event: DragStartEvent) => {
+    const type = event.active.data.current?.type;
+    if (type === "assignment") {
+      setActiveDrag({
+        type,
+        id: String(event.active.data.current?.assignmentId ?? ""),
+      });
+    }
+    if (type === "employee") {
+      setActiveDrag({
+        type,
+        id: String(event.active.data.current?.employeeId ?? ""),
+      });
+    }
+  };
 
   const handleDragEnd = async (event: DragEndEvent) => {
+    setActiveDrag(null);
     if (!canEdit || !organizationId) return;
-    const assignmentId = String(event.active.data.current?.assignmentId ?? "");
+
+    const active = event.active.data.current;
     const over = event.over?.data.current;
-    if (!assignmentId || !over || over.type !== "cell") return;
+    if (!active || !over) return;
+
+    const overType = String(over.type ?? "");
+    if (overType !== "stream" && overType !== "location") return;
+
+    const input = {
+      location_id: String(over.locationId ?? ""),
+      slot_id: over.slotId ? String(over.slotId) : null,
+      temporary_role_id: over.temporaryRoleId ? String(over.temporaryRoleId) : null,
+      start_date: String(over.startDate ?? selectedDate),
+      end_date: String(over.endDate ?? selectedDate),
+      start_time: over.startTime ? String(over.startTime) : null,
+      end_time: over.endTime ? String(over.endTime) : null,
+    };
+
+    if (!input.location_id) return;
 
     try {
       setSaving(true);
-      await moveAssignment({
-        organizationId,
-        assignmentId,
-        input: {
-          location_id: String(over.locationId),
-          start_date: String(over.dayKey),
-          end_date: String(over.dayKey),
-        },
-      });
+      if (active.type === "assignment") {
+        await moveAssignment({
+          organizationId,
+          assignmentId: String(active.assignmentId),
+          input,
+        });
+      }
+
+      if (active.type === "employee") {
+        await assignEmployeeToSlot({
+          organizationId,
+          input: {
+            employee_id: String(active.employeeId),
+            ...input,
+            status: "draft",
+          },
+        });
+      }
+
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to move assignment.");
+      setError(err instanceof Error ? err.message : "Failed to save assignment.");
     } finally {
       setSaving(false);
     }
@@ -168,9 +363,21 @@ export default function LocationPlannerAdminPage() {
     }
   };
 
-  const handleSaveRole = async (
-    role: Partial<CompanyRole> & { name: string },
-  ) => {
+  const handleDeleteLocation = async (locationId: string) => {
+    if (!organizationId) return;
+    setSaving(true);
+    try {
+      await deleteCompanyLocation({ organizationId, locationId });
+      setLocationsOpen(false);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete location.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSaveRole = async (role: Partial<CompanyRole> & { name: string }) => {
     if (!organizationId) return;
     setSaving(true);
     try {
@@ -188,8 +395,8 @@ export default function LocationPlannerAdminPage() {
       employeeId: draft.employee_id,
       locationId: draft.location_id ?? data?.locations[0]?.id ?? "",
       slotId: draft.slot_id,
-      startDate: draft.start_date ?? range.start,
-      endDate: draft.end_date ?? range.end,
+      startDate: draft.start_date ?? selectedDate,
+      endDate: draft.end_date ?? selectedDate,
       startTime: draft.start_time,
       endTime: draft.end_time,
       excludeAssignmentId: assignmentId,
@@ -229,108 +436,226 @@ export default function LocationPlannerAdminPage() {
     }
   };
 
-  const dragRow = selectedRow;
+  const handleDeleteSlot = async (slotId: string) => {
+    if (!organizationId || !slotId) return;
+    const confirmed = window.confirm(
+      "Delete this slot? Existing assignments will stay on the location but will no longer belong to this slot.",
+    );
+    if (!confirmed) return;
+
+    setSaving(true);
+    try {
+      await deleteAssignmentSlot({ organizationId, slotId });
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete slot.");
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-black text-white">
       <div className="flex min-h-screen flex-col lg:flex-row">
         <Sidebar role={profile?.primary_role} />
         <main className="min-w-0 flex-1 bg-gray-100 text-gray-900">
-          <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+          <DndContext
+            sensors={sensors}
+            onDragStart={handleDragStart}
+            onDragEnd={handleDragEnd}
+          >
             <div className="mx-auto max-w-[1800px] px-4 py-6 sm:px-6 lg:px-8">
-              <PlannerTopBar
-                title="Location Planner"
-                subtitle="Move employees across locations, roles, and dates."
-                rangeStart={range.start}
-                rangeEnd={range.end}
-                viewMode={viewMode}
-                locationFilter={locationFilter}
-                roleFilter={roleFilter}
-                employeeFilter={employeeFilter}
-                locations={(data?.locations ?? []).map((l) => ({ id: l.id, name: l.name }))}
-                roles={(data?.roles ?? []).map((r) => ({ id: r.id, name: r.name }))}
-                employees={(data?.employees ?? []).map((e) => ({
-                  id: e.id,
-                  name: e.full_name || e.email || "Employee",
-                }))}
-                showAdminActions={canEdit}
-                onRangeStartChange={(v) => setRange((r) => ({ ...r, start: v }))}
-                onRangeEndChange={(v) => setRange((r) => ({ ...r, end: v }))}
-                onViewModeChange={setViewMode}
-                onLocationFilterChange={setLocationFilter}
-                onRoleFilterChange={setRoleFilter}
-                onEmployeeFilterChange={setEmployeeFilter}
-                onCreateSlot={() => canEdit && setCreateSlotOpen(true)}
-                onManageLocations={() => canEdit && setLocationsOpen(true)}
-                onManageRoles={() => canEdit && setRolesOpen(true)}
-              />
+              <header className="mb-6 rounded-3xl border border-gray-200 bg-white p-5 shadow-sm">
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.25em] text-orange-500">
+                      Admin Planner
+                    </p>
+                    <h1 className="mt-2 text-3xl font-bold text-gray-950">
+                      Location Planner
+                    </h1>
+                    <p className="mt-2 max-w-2xl text-sm text-gray-500">
+                      Drag employees or assignments into work streams and locations for the selected date.
+                    </p>
+                  </div>
 
-              {canEdit && data && data.locations.length > 0 ? (
-                <div className="mb-4 flex justify-end">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedAssignmentId(null);
-                      setAssignmentModalMode("create");
-                      setAssignmentModalOpen(true);
-                    }}
-                    className="rounded-xl border border-orange-400 bg-white px-4 py-2 text-sm font-semibold text-orange-600 hover:bg-orange-50"
-                  >
-                    Assign employee
-                  </button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <select
+                      value={locationFilter}
+                      onChange={(event) => setLocationFilter(event.target.value)}
+                      className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:border-orange-500"
+                    >
+                      <option value="all">All locations</option>
+                      {(data?.locations ?? []).map((location) => (
+                        <option key={location.id} value={location.id}>
+                          {location.name}
+                        </option>
+                      ))}
+                    </select>
+                    <div className="inline-flex overflow-hidden rounded-xl border border-gray-200 bg-white">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedDate((date) => addDays(date, -1))}
+                        className="px-3 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-50"
+                      >
+                        Prev
+                      </button>
+                      <input
+                        type="date"
+                        value={selectedDate}
+                        onChange={(event) => setSelectedDate(event.target.value)}
+                        className="border-x border-gray-200 px-3 py-2 text-sm text-gray-900 outline-none focus:bg-orange-50"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setSelectedDate(toDateKey(new Date()))}
+                        className="px-3 py-2 text-sm font-semibold text-orange-600 hover:bg-orange-50"
+                      >
+                        Today
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedDate((date) => addDays(date, 1))}
+                        className="border-l border-gray-200 px-3 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-50"
+                      >
+                        Next
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setCalendarOpen((open) => !open)}
+                      className={[
+                        "inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold",
+                        calendarOpen
+                          ? "border-orange-400 bg-orange-50 text-orange-700"
+                          : "border-gray-200 bg-white text-gray-700",
+                      ].join(" ")}
+                    >
+                      <CalendarDays size={16} />
+                      Calendar
+                    </button>
+                    {canEdit ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCreateSlotLocationId(undefined);
+                            setCreateSlotOpen(true);
+                          }}
+                          className="inline-flex items-center gap-2 rounded-xl bg-orange-500 px-3 py-2 text-sm font-semibold text-white hover:bg-orange-600"
+                        >
+                          <Plus size={16} />
+                          Work Stream
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setLocationsOpen(true)}
+                          className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-700 hover:border-orange-200"
+                        >
+                          <MapPin size={16} />
+                          Locations
+                        </button>
+                      </>
+                    ) : null}
+                  </div>
                 </div>
-              ) : null}
+              </header>
 
               {!canEdit ? (
                 <p className="mb-4 rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-600">
-                  View-only. Admins can create slots and move assignments on the calendar.
+                  View-only. Admins can drag employees and assignments across the planner.
                 </p>
               ) : null}
 
               {error ? (
-                <p className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>
+                <p className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  {error}
+                </p>
               ) : null}
 
               <StatusAlertBanner events={data?.status_events ?? []} />
 
               {loading || !data ? (
                 <div className="rounded-2xl border border-gray-200 bg-white px-6 py-16 text-center text-gray-500">
-                  Loading calendar…
-                </div>
-              ) : data.locations.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-gray-300 bg-white px-6 py-16 text-center">
-                  <p className="text-lg font-semibold">No locations yet</p>
-                  <p className="mt-2 text-sm text-gray-600">Add your first location to start planning.</p>
-                  {canEdit ? (
-                    <button type="button" onClick={() => setLocationsOpen(true)} className="mt-4 rounded-xl bg-orange-500 px-4 py-2 text-sm font-semibold text-white">
-                      Manage Locations
-                    </button>
-                  ) : null}
+                  Loading planner...
                 </div>
               ) : (
-                <PlannerWeekCalendar
-                  days={days}
-                  locations={data.locations}
-                  assignments={data.assignments}
-                  slots={data.slots}
-                  statusEvents={data.status_events}
-                  selectedAssignmentId={selectedAssignmentId}
-                  canEdit={canEdit}
-                  onSelectAssignment={(id) => {
-                    setSelectedAssignmentId(id);
-                    setAssignmentModalMode("edit");
-                    setAssignmentModalOpen(true);
-                  }}
-                />
+                <>
+                  <div
+                    className={[
+                      "mt-5 grid gap-5",
+                      calendarOpen
+                        ? "xl:grid-cols-[minmax(0,1fr)_360px_360px]"
+                        : "xl:grid-cols-[minmax(0,1fr)_360px]",
+                    ].join(" ")}
+                  >
+                    <section>
+                      <div className="mb-4 rounded-2xl border border-gray-200 bg-white px-4 py-3">
+                        <p className="text-sm font-semibold text-gray-950">
+                          Locations and slots
+                        </p>
+                        <p className="mt-1 text-xs text-gray-500">
+                          Create slots inside locations, then drag free employees into the exact slot.
+                        </p>
+                      </div>
+                      <LocationsBoard
+                        locations={locationColumns}
+                        selectedDate={selectedDate}
+                        canEdit={canEdit}
+                        selectedAssignmentId={selectedAssignmentId}
+                        onCreateSlot={(locationId) => {
+                          setCreateSlotLocationId(locationId);
+                          setCreateSlotOpen(true);
+                        }}
+                        onDeleteSlot={handleDeleteSlot}
+                        onSelectAssignment={(id) => {
+                          setSelectedAssignmentId(id);
+                          setAssignmentModalMode("edit");
+                          setAssignmentModalOpen(true);
+                        }}
+                      />
+                    </section>
+                    <UnassignedEmployeesBoard
+                      employees={unassignedEmployees}
+                      canEdit={canEdit}
+                      compact
+                      title="Free employees"
+                      description="Always visible. Drag a person into a location slot."
+                    />
+                    {calendarOpen ? (
+                      <AssignmentDatePanel
+                        selectedDate={selectedDate}
+                        assignments={assignmentCards}
+                        onDateChange={setSelectedDate}
+                        selectedAssignmentId={selectedAssignmentId}
+                        canEdit={canEdit}
+                        onSelectAssignment={(id) => {
+                          setSelectedAssignmentId(id);
+                          setAssignmentModalMode("edit");
+                          setAssignmentModalOpen(true);
+                        }}
+                      />
+                    ) : null}
+                  </div>
+                </>
               )}
 
-              {saving ? <p className="mt-3 text-xs text-gray-500">Saving changes…</p> : null}
+              {saving ? <p className="mt-3 text-xs text-gray-500">Saving changes...</p> : null}
             </div>
 
             <DragOverlay>
-              {dragRow ? (
-                <div className="w-56 rounded-lg border-2 border-orange-500 bg-white p-2 shadow-lg">
-                  <AssignmentCalendarCard row={dragRow} />
+              {activeAssignment ? (
+                <div className="w-64">
+                  <SimpleAssignmentCard assignment={activeAssignment} />
+                </div>
+              ) : activeEmployee ? (
+                <div className="w-64 rounded-2xl border border-orange-300 bg-white p-4 text-gray-950 shadow-lg">
+                  <p className="font-semibold">
+                    {activeEmployee.full_name || activeEmployee.email || "Employee"}
+                  </p>
+                  <p className="mt-1 text-xs text-gray-500">
+                    {activeEmployee.primary_role ?? "No role"}
+                  </p>
                 </div>
               ) : null}
             </DragOverlay>
@@ -342,15 +667,20 @@ export default function LocationPlannerAdminPage() {
         <>
           <CreateSlotModal
             open={createSlotOpen}
-            onClose={() => setCreateSlotOpen(false)}
+            onClose={() => {
+              setCreateSlotOpen(false);
+              setCreateSlotLocationId(undefined);
+            }}
             locations={data.locations}
             roles={data.roles}
-            defaultStart={range.start}
-            defaultEnd={range.end}
+            defaultLocationId={createSlotLocationId}
+            defaultStart={selectedDate}
+            defaultEnd={selectedDate}
             saving={saving}
             onSave={async (input) => {
               await createAssignmentSlot({ organizationId, input });
               setCreateSlotOpen(false);
+              setCreateSlotLocationId(undefined);
               await load();
             }}
           />
@@ -385,6 +715,7 @@ export default function LocationPlannerAdminPage() {
             organizationId={organizationId}
             locations={data.locations}
             onSave={handleSaveLocation}
+            onDelete={handleDeleteLocation}
           />
           <ManageRolesModal
             open={rolesOpen}

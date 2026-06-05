@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { requireAuthenticatedProfile } from "../_shared/edgeAuth.ts";
 
 // ── Types ──────────────────────────────────────────────────
 
@@ -389,9 +390,16 @@ Deno.serve(async (req) => {
     }
 
     try {
+        const auth = await requireAuthenticatedProfile(req);
+        if (auth instanceof Response) {
+            return new Response(await auth.text(), {
+                status: auth.status,
+                headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+        }
+
         const body = (await req.json().catch(() => ({}))) as AIRequestBody;
 
-        // Extract the user message from either chatInput or message field
         const userMessage = body.chatInput ?? body.message ??
             body.metadata?.prompt as string ?? "";
 
@@ -402,8 +410,14 @@ Deno.serve(async (req) => {
             );
         }
 
-        // Parse context from the chatInput if it contains [Context] blocks
-        const context = body.context ?? {};
+        const context = {
+            ...(body.context ?? {}),
+            userId: auth.userId,
+            organizationId: auth.profile.organization_id,
+            role: auth.profile.primary_role ?? body.context?.role,
+            fullName: auth.profile.full_name ?? body.context?.fullName,
+            department: auth.profile.department ?? body.context?.department,
+        };
         const actionId = body.actionId ??
             (body.metadata?.actionId as string) ??
             extractActionFromMessage(userMessage);

@@ -62,7 +62,7 @@ export async function getGuestLivekitToken(params: {
   const meetingId = params.meetingId?.trim();
 
   if (!name) throw new Error("Please enter your name.");
-  if (!meetingCode && !meetingId) {
+  if (!meetingCode) {
     throw new Error("Meeting link is missing.");
   }
 
@@ -71,7 +71,6 @@ export async function getGuestLivekitToken(params: {
     {
       body: {
         meetingCode,
-        meetingId,
         name,
         email,
       },

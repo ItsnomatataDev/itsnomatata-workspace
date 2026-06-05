@@ -130,13 +130,6 @@ export async function sendBulkNotifications(params: SendBulkNotificationParams) 
 }
 
 
-const EMAIL_WEBHOOK_URL = import.meta.env.VITE_N8N_NOTIFICATION_WEBHOOK_URL as
-  | string
-  | undefined;
-
-const EMAIL_WEBHOOK_SECRET = import.meta.env
-  .VITE_N8N_NOTIFICATION_WEBHOOK_SECRET as string | undefined;
-
 export async function sendEmailOnly(params: {
   to: string;
   fullName?: string | null;
@@ -147,13 +140,6 @@ export async function sendEmailOnly(params: {
   actionUrl?: string | null;
   metadata?: Record<string, unknown>;
 }): Promise<{ ok: boolean; error?: string }> {
-  if (!EMAIL_WEBHOOK_URL) {
-    console.warn(
-      "sendEmailOnly: VITE_N8N_NOTIFICATION_WEBHOOK_URL is not set — skipping",
-    );
-    return { ok: false, error: "Webhook URL not configured" };
-  }
-
   if (!params.to) {
     console.warn("sendEmailOnly: no recipient email — skipping");
     return { ok: false, error: "No recipient email" };
@@ -179,18 +165,10 @@ export async function sendEmailOnly(params: {
       context,
     );
 
-    const response = await fetch(EMAIL_WEBHOOK_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(EMAIL_WEBHOOK_SECRET
-          ? { "x-notification-secret": EMAIL_WEBHOOK_SECRET }
-          : {}),
-      },
-      body: JSON.stringify({
+    const { data, error } = await supabase.functions.invoke("send-direct-email", {
+      body: {
         to: params.to,
         fullName,
-        firstName,
         title: params.title,
         message: params.message ?? "",
         type: params.type,
@@ -199,13 +177,17 @@ export async function sendEmailOnly(params: {
         metadata: params.metadata ?? {},
         emailHtml: emailTemplate.html,
         subject: emailTemplate.subject,
-      }),
+      },
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("sendEmailOnly: webhook failed", response.status, errorText);
-      return { ok: false, error: `Webhook returned ${response.status}` };
+    if (error) {
+      console.error("sendEmailOnly: edge function failed", error);
+      return { ok: false, error: error.message };
+    }
+
+    if (data && typeof data === "object" && "ok" in data && data.ok === false) {
+      const errMsg = typeof data.error === "string" ? data.error : "Email send failed";
+      return { ok: false, error: errMsg };
     }
 
     return { ok: true };

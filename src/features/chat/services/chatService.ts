@@ -542,6 +542,14 @@ export async function getConversations(
   }));
 }
 
+export async function getChatUnreadTotal(currentUserId: string): Promise<number> {
+  const conversations = await getConversations(currentUserId);
+  return conversations.reduce(
+    (total, conversation) => total + (conversation.unread_count ?? 0),
+    0,
+  );
+}
+
 export async function getMessages(
   conversationId: string,
 ): Promise<ChatMessage[]> {

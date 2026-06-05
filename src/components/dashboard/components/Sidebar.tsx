@@ -45,6 +45,7 @@ import {
 } from "../../../lib/offices";
 import { checkIsPlatformAdmin } from "../../../features/platform-admin/services/platformAdminService";
 import { useOrganizationFeatures, type FeatureKey } from "../../../lib/hooks/useOrganizationFeatures";
+import { useSidebarBadges } from "../../../lib/hooks/useSidebarBadges";
 
 type LinkItem = {
   to: string;
@@ -308,12 +309,27 @@ return [
   }
 }
 
+function resolveNavBadge(
+  to: string,
+  explicitBadge: number | undefined,
+  badges: ReturnType<typeof useSidebarBadges>,
+) {
+  if (typeof explicitBadge === "number") return explicitBadge;
+  if (to === "/inbox") return badges.inbox;
+  if (to === "/chat") return badges.chat;
+  if (to === "/leave") return badges.leave;
+  if (to === "/admin/leave") return badges.adminLeave;
+  return 0;
+}
+
 function NavGroup({
   item,
   onNavigate,
+  badges,
 }: {
   item: GroupItem;
   onNavigate: () => void;
+  badges: ReturnType<typeof useSidebarBadges>;
 }) {
   const location = useLocation();
   const isAnyChildActive =
@@ -365,11 +381,14 @@ function NavGroup({
               >
                 <ChildIcon size={15} />
                 <span className="flex-1">{child.label}</span>
-                {typeof child.badge === "number" && child.badge > 0 ? (
-                  <span className="rounded-full bg-orange-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
-                    {child.badge}
-                  </span>
-                ) : null}
+                {(() => {
+                  const badge = resolveNavBadge(child.to, child.badge, badges);
+                  return badge > 0 ? (
+                    <span className="rounded-full bg-orange-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                      {badge > 99 ? "99+" : badge}
+                    </span>
+                  ) : null;
+                })()}
               </NavLink>
             );
           })}
@@ -390,6 +409,7 @@ export default function Sidebar({
   const auth = useAuth();
   const { isEnabled } = useOrganizationFeatures();
   const { branding } = useOrganizationBranding();
+  const sidebarBadges = useSidebarBadges();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
 
@@ -522,6 +542,7 @@ export default function Sidebar({
                 key={`group-${item.label}-${index}`}
                 item={item}
                 onNavigate={closeMobileMenu}
+                badges={sidebarBadges}
               />
             );
           }
@@ -554,17 +575,20 @@ export default function Sidebar({
               <Icon size={18} />
               <span className="flex-1">{link.label}</span>
 
-              {typeof link.badge === "number" && link.badge > 0 ? (
-                <span
-                  className="rounded-full px-2 py-0.5 text-xs font-semibold"
-                  style={{
-                    backgroundColor: "var(--org-button)",
-                    color: "var(--org-button-text)",
-                  }}
-                >
-                  {link.badge}
-                </span>
-              ) : null}
+              {(() => {
+                const badge = resolveNavBadge(link.to, link.badge, sidebarBadges);
+                return badge > 0 ? (
+                  <span
+                    className="rounded-full px-2 py-0.5 text-xs font-semibold"
+                    style={{
+                      backgroundColor: "var(--org-button)",
+                      color: "var(--org-button-text)",
+                    }}
+                  >
+                    {badge > 99 ? "99+" : badge}
+                  </span>
+                ) : null;
+              })()}
             </NavLink>
           );
         })}

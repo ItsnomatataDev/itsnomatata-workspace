@@ -840,7 +840,7 @@ const AppRouter = () => {
           path="/location-planner"
           element={
             <ProtectedRoute>
-              <AdminLocationPlannerPage />
+              <MySchedulePage />
             </ProtectedRoute>
           }
         />

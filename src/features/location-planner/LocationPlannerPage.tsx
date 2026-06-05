@@ -1,1 +1,1 @@
-export { default } from "./LocationPlannerAdminPage";
+export { default } from "./MySchedulePage";

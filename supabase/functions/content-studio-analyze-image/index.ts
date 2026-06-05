@@ -1,4 +1,10 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import {
+  canUseContentStudio,
+  getSupabaseEnv,
+  isAllowedImageUrl,
+  requireAuthenticatedProfile,
+} from "../_shared/edgeAuth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -34,8 +40,8 @@ function bytesToBase64(bytes: Uint8Array) {
 function parseStoragePath(url: string, supabaseUrl: string) {
   const base = supabaseUrl.replace(/\/$/, "");
   const patterns = [
-    new RegExp(`${base}/storage/v1/object/(?:public|sign)/([^/]+)/(.+)$`),
-    /\/storage\/v1\/object\/(?:public|sign)\/([^/]+)\/(.+)$/,
+    new RegExp(`${base}/storage/v1/object/(?:public|sign|authenticated)/([^/]+)/(.+)$`),
+    /\/storage\/v1\/object\/(?:public|sign|authenticated)\/([^/]+)\/(.+)$/,
   ];
   for (const pattern of patterns) {
     const match = url.match(pattern);
@@ -49,15 +55,14 @@ function parseStoragePath(url: string, supabaseUrl: string) {
   return null;
 }
 
-async function loadImageAsDataUrl(imageUrl: string) {
+async function loadImageAsDataUrl(imageUrl: string, supabaseUrl: string) {
   if (imageUrl.startsWith("data:image/")) {
     return imageUrl;
   }
 
-  const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
-  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-  const admin = serviceKey && supabaseUrl
-    ? createClient(supabaseUrl, serviceKey)
+  const { serviceRoleKey } = getSupabaseEnv();
+  const admin = serviceRoleKey && supabaseUrl
+    ? createClient(supabaseUrl, serviceRoleKey)
     : null;
 
   let fetchUrl = imageUrl;
@@ -76,7 +81,7 @@ async function loadImageAsDataUrl(imageUrl: string) {
   });
   if (!response.ok) {
     throw new Error(
-      `Could not download image (${response.status}). If this is Supabase storage, ensure the bucket exists and the service role can sign URLs.`,
+      `Could not download image (${response.status}). Use a Supabase storage URL for this asset.`,
     );
   }
 
@@ -202,13 +207,27 @@ Deno.serve(async (req) => {
   }
 
   try {
+    const auth = await requireAuthenticatedProfile(req);
+    if (auth instanceof Response) return auth;
+
+    if (!canUseContentStudio(auth.profile)) {
+      return jsonResponse({ error: "Forbidden" }, 403);
+    }
+
+    const { supabaseUrl } = getSupabaseEnv();
     const body = (await req.json()) as AnalyzeRequest;
     const imageUrl = body.imageUrl?.trim();
     if (!imageUrl) {
       return jsonResponse({ error: "imageUrl is required." }, 400);
     }
 
-    const imageDataUrl = await loadImageAsDataUrl(imageUrl);
+    if (!isAllowedImageUrl(imageUrl, supabaseUrl)) {
+      return jsonResponse({
+        error: "imageUrl must be a Supabase storage URL or inline data:image payload.",
+      }, 400);
+    }
+
+    const imageDataUrl = await loadImageAsDataUrl(imageUrl, supabaseUrl);
     const aiText = await analyzeWithOpenAI(body, imageDataUrl);
     return jsonResponse(parseAnalysis(aiText));
   } catch (error) {
