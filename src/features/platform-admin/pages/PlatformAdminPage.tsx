@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Activity,
+  Building2,
   CheckCircle2,
   Lock,
   MailPlus,
   Plus,
   RefreshCw,
+  Save,
   Shield,
   Trash2,
   XCircle,
@@ -22,6 +24,7 @@ import RoleManagementTable from "../components/RoleManagementTable";
 import SubscriptionPanel from "../components/SubscriptionPanel";
 import {
   checkIsPlatformAdmin,
+  createCompanyOffice,
   createOrganization,
   createOrganizationRole,
   deleteOrganization,
@@ -33,9 +36,12 @@ import {
   getOrganizationRoles,
   getOrganizationSubscription,
   getOrganizations,
+  getCompanyOffices,
   getPlatformAuditLogs,
   reactivateOrganization,
+  setCompanyOfficePrimary,
   suspendOrganization,
+  updateOrganization,
   updateOrganizationBranding,
   updateOrganizationFeature,
   updateOrganizationRole,
@@ -43,6 +49,7 @@ import {
   DEFAULT_FEATURES,
 } from "../services/platformAdminService";
 import type {
+  CompanyOffice,
   OrganizationAnalytics,
   OrganizationBranding,
   OrganizationDomain,
@@ -356,6 +363,7 @@ export default function PlatformAdminPage() {
   const [domains, setDomains] = useState<OrganizationDomain[]>([]);
   const [newDomain, setNewDomain] = useState("");
   const [invitations, setInvitations] = useState<OrganizationInvitation[]>([]);
+  const [offices, setOffices] = useState<CompanyOffice[]>([]);
   const [auditLogs, setAuditLogs] = useState<PlatformAuditLog[]>([]);
   const [analytics, setAnalytics] = useState<OrganizationAnalytics | null>(null);
   const [newOrgName, setNewOrgName] = useState("");
@@ -378,6 +386,10 @@ export default function PlatformAdminPage() {
     useState<IndustryPresetKey>("technology");
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteName, setInviteName] = useState("");
+  const [orgNameDraft, setOrgNameDraft] = useState("");
+  const [newOfficeName, setNewOfficeName] = useState("");
+  const [newOfficeSlug, setNewOfficeSlug] = useState("");
+  const [newOfficePrimary, setNewOfficePrimary] = useState(false);
   const [creatingOrg, setCreatingOrg] = useState(false);
   const [loading, setLoading] = useState(true);
   const [detailsLoading, setDetailsLoading] = useState(false);
@@ -388,6 +400,8 @@ export default function PlatformAdminPage() {
   const [inviting, setInviting] = useState(false);
   const [domainBusyId, setDomainBusyId] = useState<string | null>(null);
   const [addingDomain, setAddingDomain] = useState(false);
+  const [organizationSaving, setOrganizationSaving] = useState(false);
+  const [officeSaving, setOfficeSaving] = useState(false);
   const [error, setError] = useState("");
 
   const isSystemOrg = Boolean(
@@ -419,6 +433,7 @@ export default function PlatformAdminPage() {
         orgBranding,
         orgInvitations,
         orgDomains,
+        orgOffices,
         logs,
         orgAnalytics,
       ] = await Promise.all([
@@ -429,6 +444,9 @@ export default function PlatformAdminPage() {
         loadSection("organization_invitations", () => getOrganizationInvitations(organizationId)),
         loadOptionalSection("organization_domains", [] as OrganizationDomain[], () =>
           getOrganizationDomains(organizationId),
+        ),
+        loadOptionalSection("company_offices", [] as CompanyOffice[], () =>
+          getCompanyOffices(organizationId),
         ),
         loadOptionalSection("platform_audit_logs", [] as PlatformAuditLog[], () =>
           getPlatformAuditLogs({ organizationId, limit: 20 }),
@@ -443,6 +461,7 @@ export default function PlatformAdminPage() {
       setRoles(orgRoles);
       setBranding({ ...defaultBranding, ...(orgBranding ?? {}) });
       setDomains(orgDomains);
+      setOffices(orgOffices);
       setInvitations(orgInvitations);
       setAuditLogs(logs);
       setAnalytics(orgAnalytics);
@@ -494,6 +513,13 @@ export default function PlatformAdminPage() {
     void loadOrganizations();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    setOrgNameDraft(selectedOrg?.name ?? "");
+    setNewOfficeName("");
+    setNewOfficeSlug("");
+    setNewOfficePrimary(false);
+  }, [selectedOrg?.id, selectedOrg?.name]);
 
   function handleNameChange(value: string) {
     setNewOrgName(value);
@@ -653,6 +679,78 @@ export default function PlatformAdminPage() {
       await loadOrganizations();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete organization.");
+    }
+  }
+
+  async function handleRenameOrganization() {
+    if (!selectedOrg) return;
+    const name = orgNameDraft.trim();
+    if (!name || name === selectedOrg.name) return;
+
+    try {
+      setOrganizationSaving(true);
+      setError("");
+      const updated = await updateOrganization({
+        organizationId: selectedOrg.id,
+        name,
+      });
+      setSelectedOrg(updated);
+      setOrganizations((current) =>
+        current.map((organization) =>
+          organization.id === updated.id ? updated : organization,
+        ),
+      );
+      setAuditLogs(await getPlatformAuditLogs({ organizationId: updated.id, limit: 20 }));
+    } catch (err) {
+      setError(getErrorMessage(err, "Failed to rename organization."));
+    } finally {
+      setOrganizationSaving(false);
+    }
+  }
+
+  async function handleCreateOffice() {
+    if (!selectedOrg) return;
+    const name = newOfficeName.trim();
+    if (!name) return;
+
+    try {
+      setOfficeSaving(true);
+      setError("");
+      const created = await createCompanyOffice({
+        organizationId: selectedOrg.id,
+        name,
+        slug: newOfficeSlug || name,
+        isPrimary: newOfficePrimary || offices.length === 0,
+      });
+      setOffices(await getCompanyOffices(selectedOrg.id));
+      setNewOfficeName("");
+      setNewOfficeSlug("");
+      setNewOfficePrimary(false);
+      setAuditLogs(await getPlatformAuditLogs({ organizationId: selectedOrg.id, limit: 20 }));
+      if (!created) throw new Error("Office was not created.");
+    } catch (err) {
+      setError(getErrorMessage(err, "Failed to create company office."));
+    } finally {
+      setOfficeSaving(false);
+    }
+  }
+
+  async function handleSetPrimaryOffice(office: CompanyOffice) {
+    if (!selectedOrg || office.is_primary) return;
+
+    try {
+      setOfficeSaving(true);
+      setError("");
+      await setCompanyOfficePrimary({
+        organizationId: selectedOrg.id,
+        officeId: office.id,
+      });
+      setOffices(await getCompanyOffices(selectedOrg.id));
+      setAuditLogs(await getPlatformAuditLogs({ organizationId: selectedOrg.id, limit: 20 }));
+    } catch (err) {
+      setError(getErrorMessage(err, "Failed to update primary office."));
+    } finally {
+      setOfficeSaving(false);
     }
   }
 
@@ -1329,6 +1427,123 @@ export default function PlatformAdminPage() {
                         hint={`${analytics?.failedAutomations ?? 0} failed`}
                       />
                     </div>
+
+                    <section className="rounded-2xl border border-white/10 bg-[#181818] p-4">
+                      <h3 className="flex items-center gap-2 font-semibold text-white">
+                        <Building2 size={16} className="text-orange-500" />
+                        Organization setup
+                      </h3>
+                      <p className="mt-1 text-sm text-white/45">
+                        Rename the customer organization and create offices used by Content Studio.
+                      </p>
+
+                      <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                        <div className="rounded-2xl border border-white/10 bg-black p-4">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-white/45">
+                            Organization name
+                          </p>
+                          <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                            <input
+                              value={orgNameDraft}
+                              onChange={(event) => setOrgNameDraft(event.target.value)}
+                              className="min-w-0 flex-1 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none focus:border-orange-500"
+                              placeholder="Organization name"
+                            />
+                            <button
+                              type="button"
+                              disabled={
+                                organizationSaving ||
+                                !orgNameDraft.trim() ||
+                                orgNameDraft.trim() === selectedOrg.name
+                              }
+                              onClick={() => void handleRenameOrganization()}
+                              className="inline-flex items-center justify-center gap-2 rounded-xl bg-orange-500 px-4 py-2 text-sm font-semibold text-black disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              <Save size={15} />
+                              {organizationSaving ? "Saving..." : "Save"}
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="rounded-2xl border border-white/10 bg-black p-4">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-white/45">
+                            Create office
+                          </p>
+                          <div className="mt-3 space-y-2">
+                            <input
+                              value={newOfficeName}
+                              onChange={(event) => {
+                                setNewOfficeName(event.target.value);
+                                if (!newOfficeSlug.trim()) {
+                                  setNewOfficeSlug(slugify(event.target.value));
+                                }
+                              }}
+                              placeholder="Office name, e.g. TMC Main Office"
+                              className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none placeholder:text-white/30 focus:border-orange-500"
+                            />
+                            <input
+                              value={newOfficeSlug}
+                              onChange={(event) => setNewOfficeSlug(slugify(event.target.value))}
+                              placeholder="office-slug"
+                              className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none placeholder:text-white/30 focus:border-orange-500"
+                            />
+                            <label className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/70">
+                              <input
+                                type="checkbox"
+                                checked={newOfficePrimary}
+                                onChange={(event) => setNewOfficePrimary(event.target.checked)}
+                              />
+                              Set as primary office
+                            </label>
+                            <button
+                              type="button"
+                              disabled={officeSaving || !newOfficeName.trim()}
+                              onClick={() => void handleCreateOffice()}
+                              className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-orange-500 px-3 py-2 text-sm font-semibold text-black disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              <Plus size={15} />
+                              {officeSaving ? "Creating..." : "Create office"}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                        {offices.map((office) => (
+                          <div
+                            key={office.id}
+                            className="rounded-2xl border border-white/10 bg-black px-4 py-3"
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <p className="font-semibold text-white">{office.name}</p>
+                                <p className="mt-1 text-xs text-white/40">{office.slug}</p>
+                              </div>
+                              {office.is_primary ? (
+                                <span className="rounded-full bg-orange-500 px-2 py-1 text-[10px] font-bold text-black">
+                                  Primary
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  disabled={officeSaving}
+                                  onClick={() => void handleSetPrimaryOffice(office)}
+                                  className="rounded-full border border-white/10 px-2 py-1 text-[10px] font-semibold text-white/55 hover:border-orange-500/40 hover:text-orange-200 disabled:opacity-40"
+                                >
+                                  Make primary
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+
+                        {offices.length === 0 ? (
+                          <div className="rounded-2xl border border-dashed border-white/10 p-6 text-center text-sm text-white/45 md:col-span-2 xl:col-span-3">
+                            No offices yet. Create an office so this organization can use Content Studio.
+                          </div>
+                        ) : null}
+                      </div>
+                    </section>
 
                     <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
                       <SubscriptionPanel

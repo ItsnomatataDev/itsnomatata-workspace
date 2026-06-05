@@ -1,5 +1,6 @@
 import { supabase } from "../../../lib/supabase/client";
 import type {
+  CompanyOffice,
   OperationsCenterMetrics,
   OrganizationAnalytics,
   OrganizationBranding,
@@ -47,6 +48,14 @@ const PROFILE_COMPATIBLE_ROLES = new Set([
 
 function toProfileCompatibleRole(roleKey: string) {
   return PROFILE_COMPATIBLE_ROLES.has(roleKey) ? roleKey : "user";
+}
+
+function slugify(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
 
 async function organizationHasInvitations(organizationId: string) {
@@ -321,6 +330,85 @@ export async function getOrganizations(): Promise<OrganizationRow[]> {
   if (error) throw error;
 
   return (data ?? []) as OrganizationRow[];
+}
+
+export async function getCompanyOffices(organizationId: string): Promise<CompanyOffice[]> {
+  const { data, error } = await supabase
+    .from("company_offices")
+    .select("*")
+    .eq("organization_id", organizationId)
+    .order("is_primary", { ascending: false })
+    .order("name", { ascending: true });
+
+  if (error) throw error;
+  return (data ?? []) as CompanyOffice[];
+}
+
+export async function createCompanyOffice(params: {
+  organizationId: string;
+  name: string;
+  slug?: string | null;
+  isPrimary?: boolean;
+}): Promise<CompanyOffice> {
+  const name = params.name.trim();
+  const slug = slugify(params.slug || name);
+  if (!name || !slug) throw new Error("Office name is required.");
+
+  if (params.isPrimary) {
+    const { error: primaryResetError } = await supabase
+      .from("company_offices")
+      .update({ is_primary: false })
+      .eq("organization_id", params.organizationId);
+
+    if (primaryResetError) throw primaryResetError;
+  }
+
+  const { data, error } = await supabase
+    .from("company_offices")
+    .insert({
+      organization_id: params.organizationId,
+      name,
+      slug,
+      is_primary: params.isPrimary ?? false,
+    })
+    .select("*")
+    .single();
+
+  if (error) throw error;
+
+  await createPlatformAuditLog({
+    action: "company_office_created",
+    targetOrganizationId: params.organizationId,
+    metadata: { name, slug, is_primary: params.isPrimary ?? false },
+  });
+
+  return data as CompanyOffice;
+}
+
+export async function setCompanyOfficePrimary(params: {
+  organizationId: string;
+  officeId: string;
+}): Promise<void> {
+  const { error: resetError } = await supabase
+    .from("company_offices")
+    .update({ is_primary: false })
+    .eq("organization_id", params.organizationId);
+
+  if (resetError) throw resetError;
+
+  const { error } = await supabase
+    .from("company_offices")
+    .update({ is_primary: true })
+    .eq("organization_id", params.organizationId)
+    .eq("id", params.officeId);
+
+  if (error) throw error;
+
+  await createPlatformAuditLog({
+    action: "company_office_primary_updated",
+    targetOrganizationId: params.organizationId,
+    metadata: { officeId: params.officeId },
+  });
 }
 
 export async function createOrganization(params: {

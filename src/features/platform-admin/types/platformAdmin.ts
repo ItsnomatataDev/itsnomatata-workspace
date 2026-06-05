@@ -23,6 +23,15 @@ export type OrganizationRow = {
   updated_at: string;
 };
 
+export type CompanyOffice = {
+  id: string;
+  organization_id: string;
+  name: string;
+  slug: string;
+  is_primary: boolean;
+  created_at: string;
+};
+
 export type OrganizationBranding = {
   id: string;
   organization_id: string;
