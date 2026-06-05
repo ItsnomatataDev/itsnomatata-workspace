@@ -79,9 +79,9 @@ export default function LocationPlannerAdminPage() {
   const profile = auth?.profile ?? null;
   const organizationId = profile?.organization_id ?? null;
   const officeCapabilities = getOfficeCapabilities(profile?.office);
-  const canUsePlanner = officeCapabilities.locationPlanner;
   const canEdit =
-    canUsePlanner && EDITOR_ROLES.has(String(profile?.primary_role ?? ""));
+    officeCapabilities.locationPlanner && EDITOR_ROLES.has(String(profile?.primary_role ?? ""));
+  const canUsePlanner = canEdit;
 
   const initialDate = getHarareDateKey();
   const [selectedDate, setSelectedDate] = useState(initialDate);
@@ -528,7 +528,7 @@ export default function LocationPlannerAdminPage() {
               </p>
               <h1 className="mt-3 text-2xl font-bold text-gray-950">Location Planner is not available here</h1>
               <p className="mt-2 text-sm text-gray-500">
-                This planner is only available to Three Little Birds admins. IT's Nomatata staff should not use this route.
+                This planner is available to IT's Nomatata office admins, and it manages Three Little Birds staff availability.
               </p>
             </div>
           </main>

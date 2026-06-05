@@ -67,6 +67,7 @@ export function getOfficeCapabilities(
       ? normalizeOfficeSlug(office)
       : normalizeOfficeSlug(office?.slug);
   const isThreeLittleBirds = slug === OFFICE_SLUGS.threeLittleBirds;
+  const isITsNoMatata = slug === OFFICE_SLUGS.itsNoMatata;
 
   return {
     slug,
@@ -76,7 +77,7 @@ export function getOfficeCapabilities(
     meetings: !isThreeLittleBirds,
     timesheetNav: !isThreeLittleBirds,
     contentStudio: !isThreeLittleBirds,
-    locationPlanner: isThreeLittleBirds,
+    locationPlanner: isITsNoMatata,
   };
 }
 
