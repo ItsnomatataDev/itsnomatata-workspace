@@ -1,4 +1,4 @@
-import { Maximize2, X } from "lucide-react";
+import { Play, X } from "lucide-react";
 import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import {
   type ContentReviewAsset,
@@ -68,20 +68,38 @@ function MediaSlide({
   asset,
   theme,
   viewport = "responsive",
+  onViewLarger,
 }: {
   asset: ContentReviewAsset;
   theme: PreviewTheme;
   viewport?: PreviewViewport;
+  onViewLarger?: (asset: ContentReviewAsset) => void;
 }) {
   const border = theme === "internal" ? "border-white/10" : "border-neutral-200";
 
   if (isVideo(asset)) {
+    const overlay =
+      theme === "internal"
+        ? "bg-black/45 text-white"
+        : "bg-black/50 text-white";
     return (
-      <div
-        className={`flex min-h-[200px] max-h-[70vh] items-center justify-center overflow-hidden rounded-2xl border ${border} bg-black`}
+      <button
+        type="button"
+        onClick={() => onViewLarger?.(asset)}
+        className={`group relative flex min-h-[200px] max-h-[70vh] w-full items-center justify-center overflow-hidden rounded-2xl border ${border} bg-black text-left`}
+        aria-label={`Open video preview for ${asset.heading ?? asset.caption ?? asset.file_name ?? "this post"}`}
       >
         <ContentReviewVideoThumb className="min-h-[200px] w-full" />
-      </div>
+        <span className={`absolute inset-0 flex items-center justify-center ${overlay}`}>
+          <span className="flex flex-col items-center gap-3 rounded-2xl border border-white/25 bg-black/45 px-5 py-4 text-center shadow-2xl backdrop-blur-sm transition group-hover:scale-105 group-hover:bg-black/60">
+            <span className="inline-flex h-14 w-14 items-center justify-center rounded-full bg-orange-500 text-black shadow-lg">
+              <Play size={26} fill="currentColor" />
+            </span>
+            <span className="text-sm font-bold">Click here to open video</span>
+            <span className="text-xs text-white/70">Video opens in a larger preview.</span>
+          </span>
+        </span>
+      </button>
     );
   }
 
@@ -126,7 +144,14 @@ function MediaFrame({
       <MediaCarousel
         assets={slot.assets}
         frameClassName="relative"
-        renderSlide={(slide) => <MediaSlide asset={slide} theme={theme} viewport={viewport} />}
+        renderSlide={(slide) => (
+          <MediaSlide
+            asset={slide}
+            theme={theme}
+            viewport={viewport}
+            onViewLarger={onViewLarger}
+          />
+        )}
       />
 
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -141,23 +166,7 @@ function MediaFrame({
         ) : (
           <span />
         )}
-        {onViewLarger && hasVideo ? (
-          <button
-            type="button"
-            onClick={() => {
-              const videoAsset = slot.assets.find((item) => isVideo(item));
-              if (videoAsset) onViewLarger(videoAsset);
-            }}
-            className={
-              theme === "internal"
-                ? "inline-flex items-center gap-2 rounded-xl border border-orange-500/30 bg-orange-500/10 px-3 py-2 text-sm font-semibold text-orange-200 hover:bg-orange-500/15"
-                : "inline-flex items-center gap-2 rounded-xl border border-orange-200 bg-orange-50 px-3 py-2 text-sm font-semibold text-orange-700 hover:bg-orange-100"
-            }
-          >
-            <Maximize2 size={15} />
-            View larger
-          </button>
-        ) : null}
+        {hasVideo ? <span /> : null}
       </div>
     </figure>
   );
