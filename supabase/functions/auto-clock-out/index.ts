@@ -225,7 +225,7 @@ Deno.serve(async (req) => {
     const hasInternalKey = Boolean(expectedInternalKey) &&
       internalKey === expectedInternalKey;
 
-    if (!hasServiceBearer && !hasInternalKey) {
+    if (!hasServiceBearer || !hasInternalKey) {
       return jsonResponse({ error: "Unauthorized" }, 401);
     }
 

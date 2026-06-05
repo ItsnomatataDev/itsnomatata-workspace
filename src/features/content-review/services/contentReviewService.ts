@@ -752,6 +752,29 @@ export async function regenerateContentClientPin(clientId: string) {
   return data as { ok: boolean; pin: string; client: ContentClient };
 }
 
+export async function updateContentClientDetails(params: {
+  clientId: string;
+  companyName: string;
+  contactName: string;
+  email: string;
+  phone?: string | null;
+}) {
+  const { data, error } = await supabase.rpc("update_content_client_details", {
+    target_client_id: params.clientId,
+    target_company_name: params.companyName,
+    target_contact_name: params.contactName,
+    target_email: params.email,
+    target_phone: params.phone ?? "",
+  });
+  if (error) {
+    if (String(error.message ?? "").toLowerCase().includes("not allowed")) {
+      throw new Error("You do not have permission to edit this client.");
+    }
+    throw error;
+  }
+  return data as { ok: boolean; client: ContentClient };
+}
+
 /** Rotates the internal preview token. Old preview URLs stop working. Not for client approval. */
 export async function regenerateContentReviewLink(draft: ContentReviewDraft) {
   const token = generateReviewToken();

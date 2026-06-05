@@ -136,6 +136,40 @@ function getEnv(name: string): string | undefined {
   return value?.trim() || undefined;
 }
 
+function shouldLogApiDebug() {
+  const env = (import.meta as ImportMeta & { env?: Record<string, string | boolean | undefined> })
+    .env;
+  return env?.DEV === true && env?.VITE_DEBUG_API_LOGS === "true";
+}
+
+function redactForDebug(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(redactForDebug);
+  }
+
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([key, nested]) => {
+      if (/email|token|authorization|api[-_]?key|secret|url|attachment|metadata/i.test(key)) {
+        return [key, "[redacted]"];
+      }
+      return [key, redactForDebug(nested)];
+    }),
+  );
+}
+
+function debugLog(label: string, event: string, data?: unknown) {
+  if (!shouldLogApiDebug()) return;
+  if (typeof data === "undefined") {
+    console.debug(`[${label}] ${event}`);
+    return;
+  }
+  console.debug(`[${label}] ${event}`, redactForDebug(data));
+}
+
 function getRequiredEnv(name: string): string {
   const value = getEnv(name);
 
@@ -199,8 +233,8 @@ async function postJson<TResponse>(
 ): Promise<TResponse> {
   const debugLabel = options?.debugLabel ?? "n8n";
 
-  console.log(`[${debugLabel}] POST`, url);
-  console.log(`[${debugLabel}] payload`, payload);
+  debugLog(debugLabel, "POST");
+  debugLog(debugLabel, "payload", payload);
 
   let response: Response;
 
@@ -216,14 +250,14 @@ async function postJson<TResponse>(
     });
   } catch (error) {
     const readableMessage = getReadableFetchError(error);
-    console.error(`[${debugLabel}] fetch failed`, error);
+    debugLog(debugLabel, "fetch failed", error);
     throw new Error(readableMessage);
   }
 
-  console.log(`[${debugLabel}] response status`, response.status);
+  debugLog(debugLabel, "response status", response.status);
 
   const json = await parseJsonSafe<TResponse & { message?: string }>(response);
-  console.log(`[${debugLabel}] response json`, json);
+  debugLog(debugLabel, "response json", json);
 
   if (!response.ok) {
     const errorMessage =
@@ -244,12 +278,8 @@ export async function sendAssistantMessageToN8n(
   input: AssistantMessageInput,
 ): Promise<AssistantResponse> {
   const webhookUrl = getRequiredEnv("VITE_N8N_AI_CHAT_WEBHOOK");
-  const apiKey = getEnv("VITE_N8N_AI_API_KEY");
-
-  console.log("[assistant-chat] webhook URL", webhookUrl);
 
   return postJson<AssistantResponse>(webhookUrl, input, {
-    apiKey,
     debugLabel: "assistant-chat",
   });
 }
@@ -264,12 +294,8 @@ export async function sendAssistantActionToN8n(input: {
   const webhookUrl =
     getEnv("VITE_N8N_AI_ACTION_WEBHOOK") ||
     getRequiredEnv("VITE_N8N_AI_CHAT_WEBHOOK");
-  const apiKey = getEnv("VITE_N8N_AI_API_KEY");
-
-  console.log("[assistant-action] webhook URL", webhookUrl);
 
   return postJson<AssistantResponse>(webhookUrl, input, {
-    apiKey,
     debugLabel: "assistant-action",
   });
 }
@@ -282,12 +308,8 @@ export async function sendAssistantIngestToN8n(input: {
   const webhookUrl =
     getEnv("VITE_N8N_AI_INGEST_WEBHOOK") ||
     getRequiredEnv("VITE_N8N_AI_CHAT_WEBHOOK");
-  const apiKey = getEnv("VITE_N8N_AI_API_KEY");
-
-  console.log("[assistant-ingest] webhook URL", webhookUrl);
 
   return postJson<AssistantResponse>(webhookUrl, input, {
-    apiKey,
     debugLabel: "assistant-ingest",
   });
 }
@@ -342,8 +364,8 @@ export async function triggerN8NFlow({
   apiKey,
   timeoutMs = DEFAULT_TIMEOUT_MS,
 }: TriggerN8NFlowInput): Promise<TriggerN8NFlowResult> {
-  console.log("[trigger-n8n-flow] webhook URL", webhookUrl);
-  console.log("[trigger-n8n-flow] payload", payload);
+  debugLog("trigger-n8n-flow", "POST");
+  debugLog("trigger-n8n-flow", "payload", payload);
 
   try {
     const response = await fetch(webhookUrl, {
@@ -356,10 +378,10 @@ export async function triggerN8NFlow({
       signal: withTimeoutSignal(timeoutMs),
     });
 
-    console.log("[trigger-n8n-flow] response status", response.status);
+    debugLog("trigger-n8n-flow", "response status", response.status);
 
     const json = await parseJsonSafe<Record<string, any>>(response);
-    console.log("[trigger-n8n-flow] response json", json);
+    debugLog("trigger-n8n-flow", "response json", json);
 
     if (!response.ok) {
       return {
@@ -378,7 +400,7 @@ export async function triggerN8NFlow({
       data: json ?? {},
     };
   } catch (error) {
-    console.error("[trigger-n8n-flow] fetch failed", error);
+    debugLog("trigger-n8n-flow", "fetch failed", error);
 
     return {
       ok: false,

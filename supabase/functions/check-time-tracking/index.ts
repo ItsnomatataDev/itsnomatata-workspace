@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { hasInternalSecret } from "../_shared/edgeAuth.ts";
+import { isPrivilegedServiceRequest } from "../_shared/edgeAuth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -24,15 +24,15 @@ Deno.serve(async (req) => {
     return jsonResponse({ error: "Method not allowed" }, 405);
   }
 
-  if (!hasInternalSecret(req)) {
-    return jsonResponse({ error: "Unauthorized" }, 401);
-  }
-
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
   const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
   if (!supabaseUrl || !supabaseServiceKey) {
     return jsonResponse({ error: "Import function is not configured." }, 500);
+  }
+
+  if (!isPrivilegedServiceRequest(req, supabaseServiceKey)) {
+    return jsonResponse({ error: "Unauthorized" }, 401);
   }
 
   try {

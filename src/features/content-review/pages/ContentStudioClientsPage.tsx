@@ -41,6 +41,7 @@ import {
   refreshContentReviewLinkExpiry,
   notifyContentReviewTeam,
   runContentReviewMaintenanceIfDue,
+  updateContentClientDetails,
   updateContentReviewDraft,
   type ContentReviewAsset,
   type ContentClient,
@@ -208,6 +209,12 @@ export default function ContentStudioClientsPage() {
   const [selectedScheduleId, setSelectedScheduleId] = useState<string | null>(
     null,
   );
+  const [clientDetailsForm, setClientDetailsForm] = useState({
+    companyName: "",
+    contactName: "",
+    email: "",
+    phone: "",
+  });
 
   const portalUrl = useMemo(
     () => (client ? buildClientPortalUrl(client.portal_token) : ""),
@@ -289,6 +296,12 @@ export default function ContentStudioClientsPage() {
           clientId,
         });
         setClient(nextClient);
+        setClientDetailsForm({
+          companyName: nextClient.company_name,
+          contactName: nextClient.contact_name,
+          email: nextClient.email,
+          phone: nextClient.phone ?? "",
+        });
         await ensureClientMonthlySchedule({
           organizationId,
           officeId: office.id,
@@ -317,9 +330,21 @@ export default function ContentStudioClientsPage() {
           clientId,
         });
         setClient(nextClient);
+        setClientDetailsForm({
+          companyName: nextClient.company_name,
+          contactName: nextClient.contact_name,
+          email: nextClient.email,
+          phone: nextClient.phone ?? "",
+        });
         setDrafts(draftMap[clientId] ?? []);
       } else {
         setClient(null);
+        setClientDetailsForm({
+          companyName: "",
+          contactName: "",
+          email: "",
+          phone: "",
+        });
         setDrafts([]);
       }
     } catch (err) {
@@ -568,6 +593,51 @@ export default function ContentStudioClientsPage() {
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to regenerate PIN.",
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleUpdateClientDetails(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!client) return;
+
+    if (
+      !clientDetailsForm.companyName.trim() ||
+      !clientDetailsForm.contactName.trim() ||
+      !clientDetailsForm.email.trim()
+    ) {
+      setError("Company, contact name, and email are required.");
+      return;
+    }
+
+    try {
+      setSaving(true);
+      setError("");
+      const result = await updateContentClientDetails({
+        clientId: client.id,
+        companyName: clientDetailsForm.companyName,
+        contactName: clientDetailsForm.contactName,
+        email: clientDetailsForm.email,
+        phone: clientDetailsForm.phone,
+      });
+      setClient(result.client);
+      setClients((current) =>
+        current.map((entry) =>
+          entry.id === result.client.id ? result.client : entry,
+        ),
+      );
+      setClientDetailsForm({
+        companyName: result.client.company_name,
+        contactName: result.client.contact_name,
+        email: result.client.email,
+        phone: result.client.phone ?? "",
+      });
+      setMessage("Client details updated.");
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to update client details.",
       );
     } finally {
       setSaving(false);
@@ -1410,6 +1480,95 @@ export default function ContentStudioClientsPage() {
                       </button>
                     </div>
                   ) : null}
+                  <form
+                    onSubmit={(event) => void handleUpdateClientDetails(event)}
+                    className="mt-4 rounded-2xl border border-white/10 bg-black/30 p-4"
+                  >
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <h3 className="font-semibold text-white">
+                          Edit client details
+                        </h3>
+                        <p className="mt-1 text-xs text-white/45">
+                          Update the contact name or email used for the client portal login.
+                        </p>
+                      </div>
+                      <button
+                        type="submit"
+                        disabled={saving}
+                        className="rounded-xl bg-orange-500 px-4 py-2 text-sm font-bold text-black hover:bg-orange-400 disabled:opacity-60"
+                      >
+                        Save details
+                      </button>
+                    </div>
+                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                      <label className="space-y-1.5">
+                        <span className="text-[11px] font-semibold uppercase tracking-wide text-white/40">
+                          Company
+                        </span>
+                        <input
+                          className={inputClassName()}
+                          value={clientDetailsForm.companyName}
+                          disabled={saving}
+                          onChange={(event) =>
+                            setClientDetailsForm((current) => ({
+                              ...current,
+                              companyName: event.target.value,
+                            }))
+                          }
+                        />
+                      </label>
+                      <label className="space-y-1.5">
+                        <span className="text-[11px] font-semibold uppercase tracking-wide text-white/40">
+                          Contact name
+                        </span>
+                        <input
+                          className={inputClassName()}
+                          value={clientDetailsForm.contactName}
+                          disabled={saving}
+                          onChange={(event) =>
+                            setClientDetailsForm((current) => ({
+                              ...current,
+                              contactName: event.target.value,
+                            }))
+                          }
+                        />
+                      </label>
+                      <label className="space-y-1.5">
+                        <span className="text-[11px] font-semibold uppercase tracking-wide text-white/40">
+                          Email
+                        </span>
+                        <input
+                          type="email"
+                          className={inputClassName()}
+                          value={clientDetailsForm.email}
+                          disabled={saving}
+                          onChange={(event) =>
+                            setClientDetailsForm((current) => ({
+                              ...current,
+                              email: event.target.value,
+                            }))
+                          }
+                        />
+                      </label>
+                      <label className="space-y-1.5">
+                        <span className="text-[11px] font-semibold uppercase tracking-wide text-white/40">
+                          Phone optional
+                        </span>
+                        <input
+                          className={inputClassName()}
+                          value={clientDetailsForm.phone}
+                          disabled={saving}
+                          onChange={(event) =>
+                            setClientDetailsForm((current) => ({
+                              ...current,
+                              phone: event.target.value,
+                            }))
+                          }
+                        />
+                      </label>
+                    </div>
+                  </form>
                   {clientBatch ? (
                     <>
                       <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">

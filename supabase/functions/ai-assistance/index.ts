@@ -551,9 +551,8 @@ Deno.serve(async (req) => {
             sources: [],
         });
     } catch (error) {
-        const message = error instanceof Error
-            ? error.message
-            : "Unknown error occurred.";
+        console.error("AI ASSISTANCE ERROR:", error);
+        const message = "AI assistance request failed.";
         return jsonResponse(
             {
                 success: false,

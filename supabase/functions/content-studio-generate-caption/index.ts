@@ -1,3 +1,8 @@
+import {
+  canUseContentStudio,
+  requireAuthenticatedProfile,
+} from "../_shared/edgeAuth.ts";
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
@@ -68,6 +73,18 @@ Deno.serve(async (req) => {
   }
 
   try {
+    const auth = await requireAuthenticatedProfile(req);
+    if (auth instanceof Response) {
+      return new Response(await auth.text(), {
+        status: auth.status,
+        headers: { "Content-Type": "application/json", ...corsHeaders },
+      });
+    }
+
+    if (!canUseContentStudio(auth.profile)) {
+      return jsonResponse({ error: "Forbidden" }, 403);
+    }
+
     const body = (await req.json()) as CaptionRequest;
     const prompt = [
       `Client: ${body.clientName ?? "Unknown client"}`,
@@ -97,7 +114,7 @@ Deno.serve(async (req) => {
       shortAlternative: parsed.shortAlternative ?? "",
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return jsonResponse({ error: message }, 500);
+    console.error("CONTENT CAPTION GENERATION ERROR", error);
+    return jsonResponse({ error: "Failed to generate caption." }, 500);
   }
 });

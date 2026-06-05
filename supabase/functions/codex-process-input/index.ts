@@ -1098,7 +1098,7 @@ Deno.serve(async (req) => {
   }
 
   const bearer = getBearerToken(req);
-  if (bearer !== serviceRole && !hasInternalSecret(req)) {
+  if (bearer !== serviceRole || !hasInternalSecret(req)) {
     return jsonResponse({ ok: false, error: "Unauthorized" }, 401);
   }
 

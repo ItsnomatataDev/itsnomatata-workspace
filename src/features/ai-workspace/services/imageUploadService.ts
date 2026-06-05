@@ -52,7 +52,11 @@ export class ImageUploadService {
         : file;
 
       // Generate unique filename
-      const fileName = this.generateUniqueFileName(file.name);
+      const { data: authData, error: authError } = await supabase.auth.getUser();
+      if (authError || !authData.user) {
+        throw new Error("Sign in before uploading chat images.");
+      }
+      const fileName = `${authData.user.id}/${this.generateUniqueFileName(file.name)}`;
       
       // Upload to Supabase storage
       const { data, error } = await supabase.storage
@@ -64,10 +68,14 @@ export class ImageUploadService {
 
       if (error) throw error;
 
-      // Get public URL
-      const { data: { publicUrl } } = supabase.storage
+      // Get short-lived URL for private/policy-gated bucket access.
+      const { data: signedUrl, error: signedUrlError } = await supabase.storage
         .from("chat-images")
-        .getPublicUrl(fileName);
+        .createSignedUrl(fileName, 60 * 60);
+
+      if (signedUrlError || !signedUrl?.signedUrl) {
+        throw new Error("Failed to create a secure image link.");
+      }
 
       // Get image dimensions
       const dimensions = await this.getImageDimensions(processedFile);
@@ -79,7 +87,7 @@ export class ImageUploadService {
       }
 
       return {
-        url: publicUrl,
+        url: signedUrl.signedUrl,
         name: fileName,
         size: processedFile.size,
         mimeType: processedFile.type,
@@ -117,8 +125,8 @@ export class ImageUploadService {
 
   static async deleteImage(url: string): Promise<void> {
     try {
-      // Extract filename from URL
-      const fileName = url.split("/").pop();
+      // Signed URLs include the object path before the query string.
+      const fileName = this.extractStoragePath(url);
       if (!fileName) throw new Error("Invalid URL");
 
       const { error } = await supabase.storage
@@ -138,8 +146,7 @@ export class ImageUploadService {
     dimensions?: { width: number; height: number };
   }> {
     try {
-      // Extract filename from URL
-      const fileName = url.split("/").pop();
+      const fileName = this.extractStoragePath(url);
       if (!fileName) throw new Error("Invalid URL");
 
       // Get file info from Supabase
@@ -183,6 +190,16 @@ export class ImageUploadService {
     const random = Math.random().toString(36).substring(2, 8);
     const extension = originalName.split(".").pop();
     return `${timestamp}_${random}.${extension}`;
+  }
+
+  private static extractStoragePath(url: string): string | null {
+    const cleanUrl = url.split("?")[0];
+    const marker = "/chat-images/";
+    const markerIndex = cleanUrl.indexOf(marker);
+    if (markerIndex >= 0) {
+      return decodeURIComponent(cleanUrl.slice(markerIndex + marker.length));
+    }
+    return cleanUrl.split("/").pop() ?? null;
   }
 
   private static formatFileSize(bytes: number): string {

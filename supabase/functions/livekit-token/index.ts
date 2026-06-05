@@ -46,17 +46,7 @@ serve(async (req) => {
       !livekitApiKey ||
       !livekitApiSecret
     ) {
-      return json(500, {
-        error: "Missing required environment variables",
-        missing: {
-          SUPABASE_URL: !supabaseUrl,
-          SUPABASE_ANON_KEY: !supabaseAnonKey,
-          SUPABASE_SERVICE_ROLE_KEY: !supabaseServiceRoleKey,
-          LIVEKIT_URL: !livekitUrl,
-          LIVEKIT_API_KEY: !livekitApiKey,
-          LIVEKIT_API_SECRET: !livekitApiSecret,
-        },
-      });
+      return json(500, { error: "LiveKit token service is not configured" });
     }
 
     const authClient = createClient(supabaseUrl, supabaseAnonKey, {
@@ -135,8 +125,6 @@ serve(async (req) => {
     if (!participant && meeting.host_id !== user.id) {
       return json(403, {
         error: "You are not a participant in this meeting",
-        userId: user.id,
-        meetingId,
       });
     }
 

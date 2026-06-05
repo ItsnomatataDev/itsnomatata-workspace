@@ -1,4 +1,21 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
+import {
+  canUseContentStudio,
+  requireAuthenticatedProfile,
+} from "../_shared/edgeAuth.ts";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+};
+
+function jsonResponse(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json", ...corsHeaders },
+  });
+}
 
 type InvitePayload = {
   email: string;
@@ -9,14 +26,20 @@ type InvitePayload = {
 
 serve(async (req) => {
   try {
+    if (req.method === "OPTIONS") {
+      return new Response("ok", { headers: corsHeaders });
+    }
+
     if (req.method !== "POST") {
-      return new Response(
-        JSON.stringify({ error: "Method not allowed" }),
-        {
-          status: 405,
-          headers: { "Content-Type": "application/json" },
-        },
-      );
+      return jsonResponse({ error: "Method not allowed" }, 405);
+    }
+
+    const auth = await requireAuthenticatedProfile(req);
+    if (auth instanceof Response) {
+      return new Response(await auth.text(), {
+        status: auth.status,
+        headers: { "Content-Type": "application/json", ...corsHeaders },
+      });
     }
 
     const body = (await req.json()) as Partial<InvitePayload>;
@@ -27,31 +50,35 @@ serve(async (req) => {
     const organizationId = body.organizationId?.trim();
 
     if (!email || !fullName || !clientId || !organizationId) {
-      return new Response(
-        JSON.stringify({
-          error:
-            "email, fullName, clientId, and organizationId are required",
-        }),
-        {
-          status: 400,
-          headers: { "Content-Type": "application/json" },
-        },
-      );
+      return jsonResponse({
+        error: "email, fullName, clientId, and organizationId are required",
+      }, 400);
+    }
+
+    if (organizationId !== auth.profile.organization_id || !canUseContentStudio(auth.profile)) {
+      return jsonResponse({ error: "Forbidden" }, 403);
+    }
+
+    const { data: client, error: clientError } = await auth.admin
+      .from("content_clients")
+      .select("id, organization_id, office_id")
+      .eq("id", clientId)
+      .eq("organization_id", organizationId)
+      .maybeSingle();
+
+    if (clientError) {
+      return jsonResponse({ error: "Failed to verify client." }, 400);
+    }
+
+    if (!client) {
+      return jsonResponse({ error: "Client not found." }, 404);
     }
 
     const webhookUrl = Deno.env.get("N8N_CLIENT_INVITE_WEBHOOK_URL");
     const webhookSecret = Deno.env.get("N8N_CLIENT_INVITE_WEBHOOK_SECRET");
 
     if (!webhookUrl) {
-      return new Response(
-        JSON.stringify({
-          error: "Missing N8N_CLIENT_INVITE_WEBHOOK_URL secret",
-        }),
-        {
-          status: 500,
-          headers: { "Content-Type": "application/json" },
-        },
-      );
+      return jsonResponse({ error: "Client invite service is not configured." }, 500);
     }
 
     const payload = {
@@ -77,38 +104,16 @@ serve(async (req) => {
     const responseText = await n8nResponse.text();
 
     if (!n8nResponse.ok) {
-      return new Response(
-        JSON.stringify({
-          error: "n8n webhook request failed",
-          status: n8nResponse.status,
-          details: responseText,
-        }),
-        {
-          status: 502,
-          headers: { "Content-Type": "application/json" },
-        },
-      );
+      console.warn("CLIENT INVITE WEBHOOK FAILED", n8nResponse.status, responseText);
+      return jsonResponse({ error: "Client invite dispatch failed." }, 502);
     }
 
-    return new Response(
-      JSON.stringify({
-        ok: true,
-        message: "Client invite event forwarded to n8n",
-      }),
-      {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      },
-    );
+    return jsonResponse({
+      ok: true,
+      message: "Client invite event forwarded.",
+    });
   } catch (error) {
-    return new Response(
-      JSON.stringify({
-        error: error instanceof Error ? error.message : "Unknown error",
-      }),
-      {
-        status: 500,
-        headers: { "Content-Type": "application/json" },
-      },
-    );
+    console.error("SEND CLIENT INVITE ERROR", error);
+    return jsonResponse({ error: "Client invite failed." }, 500);
   }
 });

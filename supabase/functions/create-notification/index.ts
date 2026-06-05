@@ -75,6 +75,21 @@ function normalizeChannels(body: CreateNotificationBody) {
   ) as Array<"in_app" | "email" | "push">;
 }
 
+const PRIVILEGED_NOTIFICATION_ROLES = new Set([
+  "admin",
+  "org_admin",
+  "super_admin",
+  "superadmin",
+  "manager",
+  "hr",
+  "it",
+  "it-superadmin",
+]);
+
+function isPrivilegedNotificationRole(role: string | null | undefined) {
+  return PRIVILEGED_NOTIFICATION_ROLES.has(String(role ?? ""));
+}
+
 async function createDelivery(
   supabase: ReturnType<typeof createClient>,
   params: {
@@ -155,6 +170,8 @@ Deno.serve(async (req) => {
 
     const hasInternalAccess = hasValidInternalSecret(req);
     const bearerToken = getBearerToken(req);
+    let authUserId: string | null = null;
+    let authProfileRole: string | null = null;
 
     if (!hasInternalAccess && !bearerToken) {
       return jsonResponse({ error: "Unauthorized" }, 401);
@@ -180,6 +197,7 @@ Deno.serve(async (req) => {
       if (authError || !authData.user) {
         return jsonResponse({ error: "Unauthorized" }, 401);
       }
+      authUserId = authData.user.id;
 
       const { data: membership, error: membershipError } = await supabase
         .from("organization_members")
@@ -192,7 +210,7 @@ Deno.serve(async (req) => {
       const { data: profileMembership, error: profileMembershipError } =
         await supabase
           .from("profiles")
-          .select("id")
+          .select("id, primary_role, account_status, is_suspended")
           .eq("id", authData.user.id)
           .eq("organization_id", organizationId)
           .maybeSingle();
@@ -210,6 +228,21 @@ Deno.serve(async (req) => {
           403,
         );
       }
+
+      if (
+        profileMembership?.account_status &&
+        profileMembership.account_status !== "active"
+      ) {
+        return jsonResponse({ error: "Forbidden" }, 403);
+      }
+
+      if (profileMembership?.is_suspended) {
+        return jsonResponse({ error: "Forbidden" }, 403);
+      }
+
+      authProfileRole = typeof profileMembership?.primary_role === "string"
+        ? profileMembership.primary_role
+        : null;
     }
 
     const directUserIds = normalizeIds([
@@ -219,6 +252,12 @@ Deno.serve(async (req) => {
 
     const targetRoles = normalizeIds(body.targetRoles);
     let roleUserIds: string[] = [];
+    const isPrivilegedActor = hasInternalAccess ||
+      isPrivilegedNotificationRole(authProfileRole);
+
+    if (!isPrivilegedActor && targetRoles.length > 0) {
+      return jsonResponse({ error: "Forbidden" }, 403);
+    }
 
     if (targetRoles.length > 0) {
       const { data: roleUsers, error: roleUsersError } = await supabase
@@ -245,6 +284,37 @@ Deno.serve(async (req) => {
         },
         400,
       );
+    }
+
+    if (!isPrivilegedActor && recipientIds.length > 25) {
+      return jsonResponse({ error: "Too many recipients." }, 400);
+    }
+
+    const { data: validRecipients, error: recipientsError } = await supabase
+      .from("profiles")
+      .select("id, account_status, is_suspended")
+      .eq("organization_id", organizationId)
+      .in("id", recipientIds);
+
+    if (recipientsError) {
+      return jsonResponse({ error: "Failed to validate recipients." }, 400);
+    }
+
+    const validRecipientIds = new Set(
+      (validRecipients ?? [])
+        .filter((row: {
+          id: string;
+          account_status?: string | null;
+          is_suspended?: boolean | null;
+        }) =>
+          (row.account_status ?? "active") === "active" &&
+          row.is_suspended !== true
+        )
+        .map((row: { id: string }) => row.id),
+    );
+
+    if (recipientIds.some((id) => !validRecipientIds.has(id))) {
+      return jsonResponse({ error: "One or more recipients are invalid." }, 400);
     }
 
     const dedupeKey = body.dedupeKey?.trim() || null;
@@ -294,11 +364,12 @@ Deno.serve(async (req) => {
       },
       reference_id: body.referenceId?.trim() || null,
       reference_type: body.referenceType?.trim() || null,
-      actor_user_id:
-        body.actorUserId?.trim() ||
-        (typeof body.metadata?.senderId === "string"
-          ? body.metadata.senderId
-          : null),
+      actor_user_id: hasInternalAccess
+        ? (body.actorUserId?.trim() ||
+          (typeof body.metadata?.senderId === "string"
+            ? body.metadata.senderId
+            : null))
+        : authUserId,
       category:
         body.category?.trim() ||
         (typeof body.metadata?.category === "string"
@@ -448,12 +519,9 @@ Deno.serve(async (req) => {
       deliveries: deliveryResults,
     });
   } catch (error) {
+    console.error("CREATE NOTIFICATION ERROR", error);
     return jsonResponse(
-      {
-        error: error instanceof Error
-          ? error.message
-          : "Unexpected function error",
-      },
+      { error: "Notification creation failed." },
       500,
     );
   }

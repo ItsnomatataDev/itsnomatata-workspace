@@ -231,7 +231,7 @@ Deno.serve(async (req) => {
     const aiText = await analyzeWithOpenAI(body, imageDataUrl);
     return jsonResponse(parseAnalysis(aiText));
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return jsonResponse({ error: message }, 500);
+    console.error("CONTENT IMAGE ANALYSIS ERROR", error);
+    return jsonResponse({ error: "Image analysis failed." }, 500);
   }
 });

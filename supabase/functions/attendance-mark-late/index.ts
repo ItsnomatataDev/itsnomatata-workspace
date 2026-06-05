@@ -49,6 +49,9 @@ async function createNotification(params: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${params.serviceRoleKey}`,
       apikey: params.serviceRoleKey,
+      ...(Deno.env.get("INTERNAL_API_KEY")
+        ? { "x-internal-api-key": Deno.env.get("INTERNAL_API_KEY")! }
+        : {}),
     },
     body: JSON.stringify({
       organizationId: params.organizationId,
@@ -86,7 +89,7 @@ Deno.serve(async (req) => {
     const internalKey = req.headers.get("x-internal-api-key") ?? "";
     const expectedInternalKey = Deno.env.get("INTERNAL_API_KEY") ?? "";
     if (
-      authorization !== `Bearer ${serviceRoleKey}` &&
+      authorization !== `Bearer ${serviceRoleKey}` ||
       !(expectedInternalKey && internalKey === expectedInternalKey)
     ) {
       return jsonResponse({ error: "Unauthorized" }, 401);

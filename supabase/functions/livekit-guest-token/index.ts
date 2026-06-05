@@ -51,7 +51,7 @@ serve(async (req) => {
       !livekitApiKey ||
       !livekitApiSecret
     ) {
-      return json(500, { error: "Missing required environment variables" });
+      return json(500, { error: "Guest meeting service is not configured" });
     }
 
     const adminClient = createClient(supabaseUrl, supabaseServiceRoleKey, {
@@ -73,9 +73,8 @@ serve(async (req) => {
       livekitApiSecret,
     });
   } catch (error) {
-    return json(500, {
-      error: error instanceof Error ? error.message : "Unexpected error",
-    });
+    console.error("LIVEKIT GUEST TOKEN ERROR", error);
+    return json(500, { error: "Guest meeting request failed" });
   }
 });
 
@@ -206,7 +205,8 @@ async function handleLeave(
     .is("left_at", null);
 
   if (error) {
-    return json(500, { error: error.message });
+    console.error("LIVEKIT GUEST LEAVE ERROR", error);
+    return json(500, { error: "Failed to leave meeting" });
   }
 
   return json(200, { ok: true });

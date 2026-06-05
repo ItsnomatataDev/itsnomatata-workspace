@@ -569,11 +569,10 @@ Deno.serve(async (req) => {
 
   } catch (error) {
     console.error('AI Chat error:', error);
-    const message = error instanceof Error ? error.message : "Unknown error occurred.";
     
     return jsonResponse({
       success: false,
-      error: message,
+      error: "AI chat request failed.",
     }, 500);
   }
 });

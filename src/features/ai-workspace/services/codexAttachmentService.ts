@@ -45,16 +45,25 @@ export async function uploadCodexChatFile(file: File): Promise<{
     throw new Error("Unsupported file type for Codex chat upload.");
   }
 
-  const path = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}-${file.name.replace(/[^\w.\-]+/g, "_")}`;
+  const { data: authData, error: authError } = await supabase.auth.getUser();
+  if (authError || !authData.user) {
+    throw new Error("Sign in before uploading Codex chat files.");
+  }
+
+  const path = `${authData.user.id}/${Date.now()}-${Math.random().toString(36).slice(2, 9)}-${file.name.replace(/[^\w.\-]+/g, "_")}`;
   const { error } = await supabase.storage
     .from("codex-chat-files")
     .upload(path, file, { contentType: mimeType, upsert: false });
 
   if (error) throw error;
 
-  const { data: { publicUrl } } = supabase.storage
+  const { data: signedUrl, error: signedUrlError } = await supabase.storage
     .from("codex-chat-files")
-    .getPublicUrl(path);
+    .createSignedUrl(path, 60 * 60);
+
+  if (signedUrlError || !signedUrl?.signedUrl) {
+    throw new Error("Failed to create a secure file link.");
+  }
 
   let textContent: string | undefined;
   const isSmallTextLike = file.size < 512_000 &&
@@ -66,8 +75,8 @@ export async function uploadCodexChatFile(file: File): Promise<{
   }
 
   return {
-    url: publicUrl,
-    download_url: publicUrl,
+    url: signedUrl.signedUrl,
+    download_url: signedUrl.signedUrl,
     name: file.name,
     size: file.size,
     mimeType,
