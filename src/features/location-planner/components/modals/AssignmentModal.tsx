@@ -113,7 +113,7 @@ export default function AssignmentModal({
             </select>
           </label>
           <label className="block text-xs font-semibold uppercase text-gray-500">
-            Temporary role
+            Role
             <select className={inputClass} value={temporaryRoleId} onChange={(e) => setTemporaryRoleId(e.target.value)}>
               {roles.map((role) => (
                 <option key={role.id} value={role.id}>{role.name}</option>

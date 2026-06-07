@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { useDraggable, useDroppable } from "@dnd-kit/core";
-import { Search, Trash2, Users } from "lucide-react";
+import { Search, Users } from "lucide-react";
 import type { PlannerEmployeeCardModel } from "./plannerBoardTypes";
 
 type Props = {
@@ -125,14 +125,14 @@ export default function UnassignedEmployeesBoard({
   employees,
   canEdit,
   title = "Free employees",
-  description = "Drag a person into a visible role slot.",
+  description = "Drag a person into a visible shift requirement.",
   compact,
   emptyTitle = "Everyone is assigned for this date",
   emptyDescription = "Unassigned employees will appear here when they have no active placement.",
 }: Props) {
   const [query, setQuery] = useState("");
-  const removeDrop = useDroppable({
-    id: "assignment-remove-zone",
+  const unassignedDrop = useDroppable({
+    id: "unassigned-employees-list",
     data: { type: "unassign" },
     disabled: !canEdit,
   });
@@ -217,52 +217,50 @@ export default function UnassignedEmployeesBoard({
 
   if (compact) {
     return (
-      <aside className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+      <aside
+        ref={unassignedDrop.setNodeRef}
+        className={[
+          "rounded-2xl border bg-white/[0.06] p-4 shadow-2xl shadow-black/25 transition",
+          unassignedDrop.isOver ? "border-red-300 bg-red-500/10" : "border-white/10",
+        ].join(" ")}
+      >
         <div className="mb-4 flex items-start justify-between gap-3">
           <div>
-            <p className="flex items-center gap-2 text-sm font-semibold text-gray-950">
+            <p className="flex items-center gap-2 text-sm font-semibold text-white">
               <Users size={17} className="text-orange-500" />
               {title}
             </p>
-            <p className="mt-1 text-xs text-gray-500">{description}</p>
+            <p className="mt-1 text-xs text-white/45">{description}</p>
           </div>
-          <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-semibold text-gray-700">
+          <span className="rounded-full bg-white/10 px-2.5 py-1 text-xs font-semibold text-white/65">
             {filteredEmployees.length} / {employees.length}
           </span>
         </div>
         {employees.length > 0 ? (
-          <label className="mb-4 flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-600 focus-within:border-orange-300 focus-within:bg-white">
-            <Search size={15} className="text-gray-400" />
+          <label className="mb-4 flex items-center gap-2 rounded-xl border border-white/10 bg-black/25 px-3 py-2 text-sm text-white/60 focus-within:border-orange-300">
+            <Search size={15} className="text-white/35" />
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search free employees"
-              className="min-w-0 flex-1 bg-transparent text-gray-900 outline-none placeholder:text-gray-400"
+              placeholder="Search available employees"
+              className="min-w-0 flex-1 bg-transparent text-white outline-none placeholder:text-white/35"
             />
           </label>
-        ) : null}
-        {canEdit ? (
-          <div
-            ref={removeDrop.setNodeRef}
-            className={[
-              "mb-4 rounded-xl border border-dashed px-3 py-3 text-center text-xs transition",
-              removeDrop.isOver
-                ? "border-red-300 bg-red-50 text-red-700"
-                : "border-gray-300 bg-gray-50 text-gray-500",
-            ].join(" ")}
-          >
-            <Trash2 size={16} className="mx-auto mb-1" />
-            Drop an assigned employee here to remove them from the location or role slot.
-          </div>
         ) : null}
         {content}
       </aside>
     );
   }
 
-  if (employees.length === 0) {
-    return content;
-  }
-
-  return content;
+  return (
+    <div
+      ref={unassignedDrop.setNodeRef}
+      className={[
+        "rounded-2xl transition",
+        unassignedDrop.isOver ? "bg-red-50/60 ring-2 ring-red-200" : "",
+      ].join(" ")}
+    >
+      {content}
+    </div>
+  );
 }

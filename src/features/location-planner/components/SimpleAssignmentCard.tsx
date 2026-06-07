@@ -25,10 +25,10 @@ export default function SimpleAssignmentCard({
 
   const statusClass =
     assignment.status === "confirmed"
-      ? "border-emerald-300 bg-emerald-50"
+      ? "border-emerald-300/30 bg-emerald-500/10"
       : assignment.status === "cancelled"
-        ? "border-gray-200 bg-gray-100 opacity-60"
-        : "border-orange-300 bg-orange-50";
+        ? "border-white/10 bg-white/5 opacity-60"
+        : "border-orange-300/30 bg-orange-500/10";
 
   return (
     <button
@@ -53,10 +53,10 @@ export default function SimpleAssignmentCard({
     >
       <div className="flex items-start justify-between gap-2">
         <div>
-          <p className="font-semibold text-gray-950">
+          <p className="font-semibold text-white">
             {assignment.employeeName || assignment.employeeEmail || "Employee"}
           </p>
-          <p className="mt-0.5 text-gray-600">{assignment.roleName ?? "Work stream"}</p>
+          <p className="mt-0.5 text-white/55">{assignment.roleName ?? "Assignment"}</p>
         </div>
         {assignment.isMine ? (
           <span className="rounded-full bg-orange-500 px-2 py-0.5 text-[9px] font-bold uppercase text-white">
@@ -64,14 +64,14 @@ export default function SimpleAssignmentCard({
           </span>
         ) : null}
       </div>
-      <div className="mt-2 flex flex-wrap gap-1.5 text-[10px] text-gray-600">
-        <span className="rounded-full bg-white/80 px-2 py-0.5">
+      <div className="mt-2 flex flex-wrap gap-1.5 text-[10px] text-white/60">
+        <span className="rounded-full bg-white/10 px-2 py-0.5">
           {assignment.locationName}
         </span>
-        <span className="rounded-full bg-white/80 px-2 py-0.5">
+        <span className="rounded-full bg-white/10 px-2 py-0.5">
           {formatDayLabel(assignment.startDate)}
         </span>
-        <span className="rounded-full bg-white/80 px-2 py-0.5">
+        <span className="rounded-full bg-white/10 px-2 py-0.5">
           {formatTimeRange(assignment.startTime, assignment.endTime)}
         </span>
       </div>

@@ -8,7 +8,7 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import { CalendarDays, MapPin, Plus } from "lucide-react";
+import { CalendarDays, MapPin, Plus, Settings2 } from "lucide-react";
 import Sidebar from "../../components/dashboard/components/Sidebar";
 import { useAuth } from "../../app/providers/AuthProvider";
 import { EDITOR_ROLES } from "./constants";
@@ -53,7 +53,6 @@ import {
   detectAssignmentConflicts,
   getAdminPlannerCalendar,
   listTlbEmployeeOffDayHistory,
-  moveAssignment,
   updateAssignment,
   upsertCompanyLocation,
   upsertCompanyRole,
@@ -187,6 +186,33 @@ export default function LocationPlannerAdminPage() {
 
   const workStreams = useMemo<PlannerWorkStream[]>(() => {
     const slots = data?.slots ?? [];
+    const streamKey = (input: {
+      locationId: string | null;
+      temporaryRoleId?: string | null;
+      roleName?: string | null;
+      startDate: string;
+      endDate: string;
+      startTime?: string | null;
+      endTime?: string | null;
+    }) =>
+      [
+        input.locationId ?? "",
+        input.temporaryRoleId ?? input.roleName ?? "General",
+        input.startDate,
+        input.endDate,
+        input.startTime ?? "",
+        input.endTime ?? "",
+      ].join(":");
+
+    const assignmentsBySlotKey = assignmentCards.reduce<
+      Map<string, PlannerAssignmentCardModel[]>
+    >((acc, assignment) => {
+      if (assignment.slotId) return acc;
+      const key = streamKey(assignment);
+      acc.set(key, [...(acc.get(key) ?? []), assignment]);
+      return acc;
+    }, new Map());
+
     const slotStreams = slots
       .filter(
         (slot) =>
@@ -196,6 +222,18 @@ export default function LocationPlannerAdminPage() {
       .map((slot) => {
         const location = data?.locations.find((item) => item.id === slot.location_id);
         const role = data?.roles.find((item) => item.id === slot.temporary_role_id);
+        const matchingLooseAssignments =
+          assignmentsBySlotKey.get(
+            streamKey({
+              locationId: slot.location_id,
+              temporaryRoleId: slot.temporary_role_id,
+              roleName: role?.name ?? slot.title,
+              startDate: slot.start_date,
+              endDate: slot.end_date,
+              startTime: slot.start_time,
+              endTime: slot.end_time,
+            }),
+          ) ?? [];
         return {
           id: `slot-${slot.id}`,
           title: slot.title,
@@ -208,9 +246,10 @@ export default function LocationPlannerAdminPage() {
           startTime: slot.start_time,
           endTime: slot.end_time,
           requiredCount: slot.required_count,
-          assignments: assignmentCards.filter(
-            (assignment) => assignment.slotId === slot.id,
-          ),
+          assignments: [
+            ...assignmentCards.filter((assignment) => assignment.slotId === slot.id),
+            ...matchingLooseAssignments,
+          ],
         };
       });
 
@@ -224,17 +263,14 @@ export default function LocationPlannerAdminPage() {
     );
     const roleStreams = Array.from(
       ungrouped.reduce<Map<string, PlannerAssignmentCardModel[]>>((acc, assignment) => {
-        const key = [
-          assignment.locationId,
-          assignment.temporaryRoleId ?? assignment.roleName ?? "General",
-        ].join(":");
+        const key = streamKey(assignment);
         acc.set(key, [...(acc.get(key) ?? []), assignment]);
         return acc;
       }, new Map()),
     ).map(([key, assignments]) => ({
       id: `role-${key}`,
       title: assignments[0]?.roleName ?? "General Work",
-      subtitle: "Assignments without a named role slot",
+      subtitle: "Assignments without a linked shift requirement",
       locationId: assignments[0]?.locationId ?? null,
       slotId: null,
       temporaryRoleId: assignments[0]?.temporaryRoleId ?? null,
@@ -364,7 +400,7 @@ export default function LocationPlannerAdminPage() {
     try {
       setSaving(true);
       if (active.type === "assignment") {
-        await moveAssignment({
+        await updateAssignment({
           organizationId,
           assignmentId: String(active.assignmentId),
           input,
@@ -499,7 +535,7 @@ export default function LocationPlannerAdminPage() {
   const handleDeleteSlot = async (slotId: string) => {
     if (!organizationId || !slotId) return;
     const confirmed = window.confirm(
-      "Delete this role slot? Existing assignments will stay on the location but will no longer belong to this role slot.",
+      "Delete this shift requirement? Existing assignments will stay on the location but will no longer belong to this requirement.",
     );
     if (!confirmed) return;
 
@@ -508,7 +544,7 @@ export default function LocationPlannerAdminPage() {
       await deleteAssignmentSlot({ organizationId, slotId });
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete role slot.");
+      setError(err instanceof Error ? err.message : "Failed to delete shift requirement.");
     } finally {
       setSaving(false);
     }
@@ -600,11 +636,11 @@ export default function LocationPlannerAdminPage() {
           <main className="flex-1 bg-gray-100 px-4 py-6 text-gray-900 sm:px-6 lg:px-8">
             <div className="mx-auto max-w-3xl rounded-3xl border border-gray-200 bg-white p-8 shadow-sm">
               <p className="text-xs font-semibold uppercase tracking-[0.25em] text-orange-500">
-                Three Little Birds only
+                Scheduling
               </p>
-              <h1 className="mt-3 text-2xl font-bold text-gray-950">Location Planner is not available here</h1>
+              <h1 className="mt-3 text-2xl font-bold text-gray-950">Workforce Planner is not available here</h1>
               <p className="mt-2 text-sm text-gray-500">
-                This planner is available to IT's Nomatata office admins, and it manages Three Little Birds staff availability.
+                Your organization does not currently have access to workforce scheduling.
               </p>
             </div>
           </main>
@@ -617,24 +653,24 @@ export default function LocationPlannerAdminPage() {
     <div className="min-h-screen bg-black text-white">
       <div className="flex min-h-screen flex-col lg:flex-row">
         <Sidebar role={profile?.primary_role} />
-        <main className="min-w-0 flex-1 bg-gray-100 text-gray-900">
+        <main className="min-w-0 flex-1 bg-black text-white">
           <DndContext
             sensors={sensors}
             onDragStart={handleDragStart}
             onDragEnd={handleDragEnd}
           >
             <div className="mx-auto max-w-[1800px] px-4 py-6 sm:px-6 lg:px-8">
-              <header className="mb-6 rounded-3xl border border-gray-200 bg-white p-5 shadow-sm">
+              <header className="mb-6 rounded-3xl border border-white/10 bg-white/[0.06] p-5 shadow-2xl shadow-black/30">
                 <div className="flex flex-wrap items-start justify-between gap-4">
                   <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.25em] text-orange-500">
-                      Admin Planner
+                    <p className="text-xs font-semibold uppercase tracking-[0.25em] text-orange-300">
+                      Scheduling
                     </p>
-                    <h1 className="mt-2 text-3xl font-bold text-gray-950">
-                      Location Planner
+                    <h1 className="mt-2 text-3xl font-bold text-white">
+                      Workforce Planner
                     </h1>
-                    <p className="mt-2 max-w-2xl text-sm text-gray-500">
-                      Drag employees into role slots inside each location for the selected date.
+                    <p className="mt-2 max-w-2xl text-sm text-white/50">
+                      Plan daily shift requirements by location, then assign available employees into the right roles.
                     </p>
                   </div>
 
@@ -642,7 +678,7 @@ export default function LocationPlannerAdminPage() {
                     <select
                       value={locationFilter}
                       onChange={(event) => setLocationFilter(event.target.value)}
-                      className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:border-orange-500"
+                      className="rounded-xl border border-white/10 bg-neutral-950 px-3 py-2 text-sm text-white outline-none focus:border-orange-500"
                     >
                       <option value="all">All locations</option>
                       {(data?.locations ?? []).map((location) => (
@@ -651,11 +687,11 @@ export default function LocationPlannerAdminPage() {
                         </option>
                       ))}
                     </select>
-                    <div className="inline-flex overflow-hidden rounded-xl border border-gray-200 bg-white">
+                    <div className="inline-flex overflow-hidden rounded-xl border border-white/10 bg-neutral-950">
                       <button
                         type="button"
                         onClick={() => setSelectedDate((date) => addDays(date, -1))}
-                        className="px-3 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-50"
+                        className="px-3 py-2 text-sm font-semibold text-white/65 hover:bg-white/10"
                       >
                         Prev
                       </button>
@@ -663,19 +699,19 @@ export default function LocationPlannerAdminPage() {
                         type="date"
                         value={selectedDate}
                         onChange={(event) => setSelectedDate(event.target.value)}
-                        className="border-x border-gray-200 px-3 py-2 text-sm text-gray-900 outline-none focus:bg-orange-50"
+                        className="border-x border-white/10 bg-transparent px-3 py-2 text-sm text-white outline-none focus:bg-orange-500/10"
                       />
                       <button
                         type="button"
                         onClick={() => setSelectedDate(getHarareDateKey())}
-                        className="px-3 py-2 text-sm font-semibold text-orange-600 hover:bg-orange-50"
+                        className="px-3 py-2 text-sm font-semibold text-orange-200 hover:bg-orange-500/10"
                       >
                         Today
                       </button>
                       <button
                         type="button"
                         onClick={() => setSelectedDate((date) => addDays(date, 1))}
-                        className="border-l border-gray-200 px-3 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-50"
+                        className="border-l border-white/10 px-3 py-2 text-sm font-semibold text-white/65 hover:bg-white/10"
                       >
                         Next
                       </button>
@@ -686,8 +722,8 @@ export default function LocationPlannerAdminPage() {
                       className={[
                         "inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold",
                         calendarOpen
-                          ? "border-orange-400 bg-orange-50 text-orange-700"
-                          : "border-gray-200 bg-white text-gray-700",
+                          ? "border-orange-400 bg-orange-500/15 text-orange-100"
+                          : "border-white/10 bg-neutral-950 text-white/70",
                       ].join(" ")}
                     >
                       <CalendarDays size={16} />
@@ -704,15 +740,23 @@ export default function LocationPlannerAdminPage() {
                           className="inline-flex items-center gap-2 rounded-xl bg-orange-500 px-3 py-2 text-sm font-semibold text-white hover:bg-orange-600"
                         >
                           <Plus size={16} />
-                          Role Slot
+                          Shift Requirement
                         </button>
                         <button
                           type="button"
                           onClick={() => setLocationsOpen(true)}
-                          className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-700 hover:border-orange-200"
+                          className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-neutral-950 px-3 py-2 text-sm font-semibold text-white/70 hover:border-orange-300"
                         >
                           <MapPin size={16} />
                           Locations
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setRolesOpen(true)}
+                          className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-neutral-950 px-3 py-2 text-sm font-semibold text-white/70 hover:border-orange-300"
+                        >
+                          <Settings2 size={16} />
+                          Roles
                         </button>
                       </>
                     ) : null}
@@ -721,27 +765,27 @@ export default function LocationPlannerAdminPage() {
               </header>
 
               {!canEdit ? (
-                <p className="mb-4 rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-600">
-                  View-only. Admins can drag employees and assignments across the planner.
+                <p className="mb-4 rounded-xl border border-white/10 bg-white/[0.06] px-4 py-3 text-sm text-white/60">
+                  View-only. Scheduling admins can drag employees and assignments across the planner.
                 </p>
               ) : null}
 
               {error ? (
-                <p className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                <p className="mb-4 rounded-xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
                   {error}
                 </p>
               ) : null}
 
               {unavailableToday.length > 0 ? (
-                <div className="mb-4 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3">
-                  <p className="text-sm font-semibold text-sky-900">
-                    {unavailableToday.length} TLB staff unavailable today
+                <div className="mb-4 rounded-2xl border border-sky-300/25 bg-sky-500/10 px-4 py-3">
+                  <p className="text-sm font-semibold text-sky-100">
+                    {unavailableToday.length} employee{unavailableToday.length === 1 ? "" : "s"} unavailable today
                   </p>
                   <div className="mt-2 flex flex-wrap gap-2">
                     {unavailableToday.map((item) => (
                       <span
                         key={`${item.kind}-${item.id}`}
-                        className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-sky-700 shadow-sm"
+                        className="rounded-full bg-white/10 px-2.5 py-1 text-xs font-semibold text-sky-100 shadow-sm"
                       >
                         {item.employee_name || item.employee_email || "Employee"} ·{" "}
                         {formatAvailabilitySummary(item)}
@@ -754,7 +798,7 @@ export default function LocationPlannerAdminPage() {
               <StatusAlertBanner events={data?.status_events ?? []} />
 
               {loading || !data ? (
-                <div className="rounded-2xl border border-gray-200 bg-white px-6 py-16 text-center text-gray-500">
+                <div className="rounded-2xl border border-white/10 bg-white/[0.06] px-6 py-16 text-center text-white/45">
                   Loading planner...
                 </div>
               ) : (
@@ -768,12 +812,12 @@ export default function LocationPlannerAdminPage() {
                     ].join(" ")}
                   >
                     <section>
-                      <div className="mb-4 rounded-2xl border border-gray-200 bg-white px-4 py-3">
-                        <p className="text-sm font-semibold text-gray-950">
-                          Locations and role slots
+                      <div className="mb-4 rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3">
+                        <p className="text-sm font-semibold text-white">
+                          Locations and shift requirements
                         </p>
-                        <p className="mt-1 text-xs text-gray-500">
-                          Create role slots inside locations, then drag available employees into the right role.
+                        <p className="mt-1 text-xs text-white/45">
+                          Create daily requirements inside locations, then drag available employees into each role.
                         </p>
                       </div>
                       <LocationsBoard
@@ -798,7 +842,7 @@ export default function LocationPlannerAdminPage() {
                       canEdit={canEdit}
                       compact
                       title="Available employees"
-                      description="Free staff are ready to drag. Off-day and leave staff are grouped below."
+                      description="Available employees are ready to assign. Off-day and leave employees are grouped below."
                     />
                     {calendarOpen ? (
                       <div className="space-y-5">
@@ -831,7 +875,7 @@ export default function LocationPlannerAdminPage() {
                 </>
               )}
 
-              {saving ? <p className="mt-3 text-xs text-gray-500">Saving changes...</p> : null}
+              {saving ? <p className="mt-3 text-xs text-white/45">Saving changes...</p> : null}
             </div>
 
             <DragOverlay>
@@ -868,9 +912,6 @@ export default function LocationPlannerAdminPage() {
             defaultStart={selectedDate}
             defaultEnd={selectedDate}
             saving={saving}
-            onCreateRole={async (role) =>
-              upsertCompanyRole({ ...role, organization_id: organizationId })
-            }
             onSave={async (input) => {
               await createAssignmentSlot({ organizationId, input });
               setCreateSlotOpen(false);

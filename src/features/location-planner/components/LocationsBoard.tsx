@@ -50,13 +50,13 @@ function SlotDropZone({
       ref={setNodeRef}
       className={[
         "rounded-xl border border-dashed p-3 transition",
-        isOver ? "border-orange-400 bg-orange-50" : "border-orange-200 bg-orange-50/40",
+        isOver ? "border-orange-300 bg-orange-500/15" : "border-orange-300/25 bg-orange-500/10",
       ].join(" ")}
     >
       <div className="flex items-start justify-between gap-2">
         <div>
-          <p className="text-xs font-semibold text-orange-900">{slot.title}</p>
-          <p className="mt-0.5 text-[10px] text-orange-700">
+          <p className="text-xs font-semibold text-orange-50">{slot.title}</p>
+          <p className="mt-0.5 text-[10px] text-orange-100/65">
             {slot.subtitle} · {formatTimeRange(slot.startTime, slot.endTime)}
           </p>
         </div>
@@ -64,7 +64,7 @@ function SlotDropZone({
           <span
             className={[
               "rounded-full px-2 py-0.5 text-[10px] font-semibold",
-              isFull ? "bg-emerald-100 text-emerald-700" : "bg-white text-orange-700",
+              isFull ? "bg-emerald-400/15 text-emerald-200" : "bg-white/10 text-orange-100",
             ].join(" ")}
           >
             {slot.requiredCount === null
@@ -75,9 +75,9 @@ function SlotDropZone({
             <button
               type="button"
               onClick={() => onDeleteSlot?.(slot.slotId ?? "")}
-              aria-label={`Delete ${slot.title} role slot`}
-              title="Delete role slot"
-              className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-red-100 bg-white text-red-500 shadow-sm transition hover:border-red-200 hover:bg-red-50 hover:text-red-700"
+              aria-label={`Delete ${slot.title} shift requirement`}
+              title="Delete shift requirement"
+              className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-red-400/20 bg-black/25 text-red-200 shadow-sm transition hover:border-red-300 hover:bg-red-500/10"
             >
               <Trash2 size={14} />
             </button>
@@ -97,7 +97,7 @@ function SlotDropZone({
             />
           ))
         ) : (
-          <p className="rounded-lg bg-white/70 px-3 py-4 text-center text-[11px] text-orange-700">
+          <p className="rounded-lg bg-black/20 px-3 py-4 text-center text-[11px] text-orange-100/65">
             Drop an available employee here
           </p>
         )}
@@ -147,22 +147,26 @@ function LocationColumn({
     <section
       ref={setNodeRef}
       className={[
-        "min-h-[280px] rounded-2xl border p-4 shadow-sm transition",
+        "min-h-[280px] rounded-2xl border p-4 shadow-2xl shadow-black/25 transition",
         closed ? "border-gray-800 bg-gray-950 text-white" : "bg-white",
-        isOver ? "border-orange-400 bg-orange-50 text-gray-950" : "border-gray-200",
+        isOver
+          ? "border-orange-300 bg-orange-500/15 text-white"
+          : closed
+            ? "border-white/10"
+            : "border-white/10 bg-white/[0.06] text-white",
       ].join(" ")}
     >
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-sm font-semibold">{location.name}</p>
-          <p className={["mt-1 text-xs", closed ? "text-white/50" : "text-gray-500"].join(" ")}>
+          <p className={["mt-1 text-xs", closed ? "text-white/50" : "text-white/45"].join(" ")}>
             {location.status} · cap {location.capacity ?? "none"}
           </p>
         </div>
         <span
           className={[
             "rounded-full px-2.5 py-1 text-xs font-semibold",
-            closed ? "bg-white/10 text-white" : "bg-gray-100 text-gray-600",
+            closed ? "bg-white/10 text-white" : "bg-white/10 text-white/70",
           ].join(" ")}
         >
           {location.assignments.length}
@@ -173,10 +177,10 @@ function LocationColumn({
         <button
           type="button"
           onClick={() => onCreateSlot?.(location.id)}
-          className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-orange-200 bg-orange-50 px-3 py-2 text-xs font-semibold text-orange-700 hover:bg-orange-100"
+          className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-orange-300/25 bg-orange-500/10 px-3 py-2 text-xs font-semibold text-orange-100 hover:bg-orange-500/15"
         >
           <Plus size={14} />
-          Create role slot in this location
+          Add shift requirement
         </button>
       ) : null}
 
@@ -196,17 +200,17 @@ function LocationColumn({
           <div
             className={[
               "rounded-xl border border-dashed px-3 py-8 text-center text-xs",
-              closed ? "border-white/10 text-white/35" : "border-gray-200 text-gray-400",
+              closed ? "border-white/10 text-white/35" : "border-white/10 text-white/35",
             ].join(" ")}
           >
-            {closed ? "Location closed" : "No role slots yet. Create a role slot here, then drag employees into it."}
+            {closed ? "Location closed" : "No shift requirements yet. Add a requirement, then assign employees."}
           </div>
         )}
       </div>
 
       {looseAssignments.length > 0 ? (
-        <div className="mt-4 space-y-2 border-t border-gray-100 pt-3">
-          <p className={["text-[10px] font-semibold uppercase tracking-wide", closed ? "text-white/45" : "text-gray-400"].join(" ")}>
+        <div className="mt-4 space-y-2 border-t border-white/10 pt-3">
+          <p className={["text-[10px] font-semibold uppercase tracking-wide", closed ? "text-white/45" : "text-white/35"].join(" ")}>
             Other assignments
           </p>
           {looseAssignments.map((assignment) => (
@@ -235,10 +239,10 @@ export default function LocationsBoard({
 }: Props) {
   if (locations.length === 0) {
     return (
-      <div className="rounded-2xl border border-dashed border-gray-300 bg-white px-6 py-14 text-center">
-        <MapPin size={32} className="mx-auto mb-3 text-gray-300" />
-        <p className="font-semibold text-gray-900">No locations yet</p>
-        <p className="mt-1 text-sm text-gray-500">Add locations to start planning assignments.</p>
+      <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.06] px-6 py-14 text-center">
+        <MapPin size={32} className="mx-auto mb-3 text-white/25" />
+        <p className="font-semibold text-white">No locations yet</p>
+        <p className="mt-1 text-sm text-white/45">Add locations to start planning assignments.</p>
       </div>
     );
   }

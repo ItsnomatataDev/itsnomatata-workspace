@@ -147,7 +147,7 @@ export default function PlannerTopBar({
               onClick={onCreateSlot}
               className="inline-flex items-center gap-2 rounded-xl bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600"
             >
-              <Plus size={16} /> Create Slot
+              <Plus size={16} /> Create Requirement
             </button>
             <button
               type="button"

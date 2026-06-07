@@ -54,7 +54,7 @@ export default function AssignmentCalendarCard({
       <p className="font-semibold text-gray-900">
         {row.employee_name || row.employee_email || "Employee"}
       </p>
-      <p className="text-gray-600">{row.role_name ?? "Temporary role"}</p>
+      <p className="text-gray-600">{row.role_name ?? "Role"}</p>
       <p className="text-gray-500">
         {formatTimeRange(assignment.start_time, assignment.end_time)}
       </p>

@@ -23,7 +23,7 @@ export default function ManageRolesModal({ open, onClose, roles, onSave }: Props
 
   if (!open) return null;
 
-  const form = editing ?? { name: "", category: "", description: "", required_skills: [], is_temporary: true, is_active: true };
+  const form = editing ?? { name: "", category: "", description: "", required_skills: [], is_temporary: false, is_active: true };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -34,7 +34,7 @@ export default function ManageRolesModal({ open, onClose, roles, onSave }: Props
         </div>
         <div className="grid lg:grid-cols-2">
           <div className="border-b border-gray-200 p-4 lg:border-b-0 lg:border-r">
-            <button type="button" onClick={() => setEditing({ name: "", category: "", description: "", required_skills: [], is_temporary: true })} className="mb-3 rounded-xl bg-orange-500 px-3 py-2 text-xs font-semibold text-white">
+            <button type="button" onClick={() => setEditing({ name: "", category: "", description: "", required_skills: [], is_temporary: false, is_active: true })} className="mb-3 rounded-xl bg-orange-500 px-3 py-2 text-xs font-semibold text-white">
               <Plus size={14} className="inline" /> Add role
             </button>
             <ul className="max-h-64 space-y-2 overflow-y-auto">

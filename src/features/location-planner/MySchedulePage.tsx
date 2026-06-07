@@ -1,5 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CalendarDays, Clock3, MapPin, Sparkles, SunMedium, Users } from "lucide-react";
+import {
+  BriefcaseBusiness,
+  CalendarCheck,
+  CalendarDays,
+  ChevronLeft,
+  ChevronRight,
+  Clock3,
+  MapPin,
+  SunMedium,
+  Users,
+} from "lucide-react";
 import Sidebar from "../../components/dashboard/components/Sidebar";
 import { useAuth } from "../../app/providers/AuthProvider";
 import StatusAlertBanner from "./components/StatusAlertBanner";
@@ -16,6 +26,7 @@ import {
   buildDayRange,
   formatDayLabel,
   formatTimeRange,
+  getHarareDateKey,
   getHarareWeekStart,
 } from "./utils/calendarDates";
 import {
@@ -107,6 +118,39 @@ export default function MySchedulePage() {
     [data?.assignments, data?.locations],
   );
 
+  const todayKey = getHarareDateKey();
+  const isCurrentWeek = todayKey >= weekStart && todayKey <= weekEnd;
+
+  const myAvailabilityByDay = useMemo(
+    () =>
+      days.reduce<Record<string, PlannerAvailability[]>>((acc, day) => {
+        acc[day] = (availabilityByDay[day] ?? []).filter((item) => item.user_id === viewerId);
+        return acc;
+      }, {}),
+    [availabilityByDay, days, viewerId],
+  );
+
+  const myAssignmentsByDay = useMemo(
+    () =>
+      days.reduce<Record<string, EmployeeAssignmentRow[]>>((acc, day) => {
+        acc[day] = (assignmentsByDay[day] ?? []).filter(
+          (row) => row.is_mine || row.employee_id === viewerId,
+        );
+        return acc;
+      }, {}),
+    [assignmentsByDay, days, viewerId],
+  );
+
+  const assignedDays = days.filter((day) => (myAssignmentsByDay[day] ?? []).length > 0).length;
+  const unavailableDays = days.filter((day) => (myAvailabilityByDay[day] ?? []).length > 0).length;
+  const freeDays = Math.max(0, days.length - assignedDays - unavailableDays);
+  const todayAssignments = myAssignmentsByDay[todayKey] ?? [];
+  const todayAvailability = myAvailabilityByDay[todayKey] ?? [];
+  const todayTeamAssignments = assignmentsByDay[todayKey] ?? [];
+  const nextAssignment = myAssignments
+    .filter((row) => row.assignment.end_date >= todayKey)
+    .sort((a, b) => a.assignment.start_date.localeCompare(b.assignment.start_date))[0];
+
   if (!canViewSchedule) {
     return (
       <div className="min-h-screen bg-black text-white">
@@ -117,7 +161,7 @@ export default function MySchedulePage() {
               <CalendarDays size={36} className="mx-auto text-orange-400" />
               <h1 className="mt-4 text-2xl font-bold">Schedule access is limited</h1>
               <p className="mt-2 text-sm text-white/55">
-                My Schedule is available to Three Little Birds staff and IT's Nomatata office admins.
+                My Schedule is available to employees and scheduling admins with workforce planning access.
               </p>
             </div>
           </main>
@@ -130,28 +174,27 @@ export default function MySchedulePage() {
     <div className="min-h-screen bg-black text-white">
       <div className="flex min-h-screen flex-col lg:flex-row">
         <Sidebar role={profile?.primary_role} />
-        <main className="min-w-0 flex-1 bg-[radial-gradient(circle_at_top_left,rgba(249,115,22,0.16),transparent_32%),#09090b] text-white">
-          <div className="mx-auto max-w-[1800px] px-4 py-6 sm:px-6 lg:px-8">
-            <header className="mb-6 overflow-hidden rounded-3xl border border-white/10 bg-white/6 shadow-2xl backdrop-blur">
-              <div className="flex flex-wrap items-start justify-between gap-4 p-6">
+        <main className="min-w-0 flex-1 bg-black">
+          <div className="mx-auto max-w-[1760px] px-4 py-5 sm:px-6 lg:px-8">
+            <header className="mb-5 rounded-2xl border border-white/10 bg-white/[0.06] p-4 shadow-2xl shadow-black/30">
+              <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
                 <div>
-                  <p className="inline-flex items-center gap-2 rounded-full border border-orange-400/25 bg-orange-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.22em] text-orange-200">
-                    <Sparkles size={13} />
-                    Three Little Birds
-                  </p>
-                  <h1 className="mt-4 text-3xl font-bold tracking-tight sm:text-4xl">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-orange-600">
                     My Schedule
+                  </p>
+                  <h1 className="mt-1 text-2xl font-bold tracking-tight text-white sm:text-3xl">
+                    {isCurrentWeek ? "This week" : `${formatDayLabel(weekStart)} to ${formatDayLabel(weekEnd)}`}
                   </h1>
-                  <p className="mt-2 max-w-2xl text-sm text-white/55">
-                    A clean weekly view of where TLB staff are assigned, with your own shifts highlighted.
+                  <p className="mt-1 text-sm text-white/50">
+                    Today is {formatDayLabel(todayKey)}
                   </p>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center xl:justify-end">
                   <select
                     value={locationFilter}
                     onChange={(event) => setLocationFilter(event.target.value)}
-                    className="rounded-xl border border-white/10 bg-black/50 px-3 py-2 text-sm text-white outline-none focus:border-orange-400"
+                    className="h-10 rounded-xl border border-white/10 bg-neutral-950 px-3 text-sm text-white outline-none focus:border-orange-400"
                   >
                     <option value="all">All locations</option>
                     {(data?.locations ?? []).map((location) => (
@@ -160,196 +203,386 @@ export default function MySchedulePage() {
                       </option>
                     ))}
                   </select>
-                  <div className="inline-flex overflow-hidden rounded-xl border border-white/10 bg-black/50">
+                  <div className="grid grid-cols-[40px_minmax(0,1fr)_40px] overflow-hidden rounded-xl border border-white/10 bg-neutral-950 sm:flex">
                     <button
                       type="button"
                       onClick={() => setWeekStart((date) => addDays(date, -7))}
-                      className="px-3 py-2 text-sm font-semibold text-white/65 hover:bg-white/10"
+                      aria-label="Previous week"
+                      className="flex h-10 items-center justify-center border-r border-white/10 text-white/70 hover:bg-white/10"
                     >
-                      Prev week
+                      <ChevronLeft size={18} />
                     </button>
-                    <label className="flex items-center gap-2 border-x border-white/10 px-3 py-2 text-sm text-white/75">
-                      <CalendarDays size={16} className="text-orange-300" />
-                      Week of
+                    <label className="flex h-10 min-w-0 items-center justify-center gap-2 px-3 text-sm text-white/70 sm:min-w-[220px]">
+                      <CalendarDays size={16} className="shrink-0 text-orange-500" />
                       <input
                         type="date"
                         value={weekStart}
                         onChange={(event) => setWeekStart(event.target.value)}
-                        className="bg-transparent text-white outline-none"
+                        className="min-w-0 bg-transparent text-white outline-none"
                       />
                     </label>
                     <button
                       type="button"
-                      onClick={() => setWeekStart(getHarareWeekStart())}
-                      className="px-3 py-2 text-sm font-semibold text-orange-200 hover:bg-orange-500/10"
-                    >
-                      This week
-                    </button>
-                    <button
-                      type="button"
                       onClick={() => setWeekStart((date) => addDays(date, 7))}
-                      className="border-l border-white/10 px-3 py-2 text-sm font-semibold text-white/65 hover:bg-white/10"
+                      aria-label="Next week"
+                      className="flex h-10 items-center justify-center border-l border-white/10 text-white/70 hover:bg-white/10"
                     >
-                      Next week
+                      <ChevronRight size={18} />
                     </button>
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => setWeekStart(getHarareWeekStart())}
+                    className="h-10 rounded-xl bg-orange-500 px-4 text-sm font-semibold text-white hover:bg-orange-600"
+                  >
+                    Today
+                  </button>
                 </div>
-              </div>
-
-              <div className="grid border-t border-white/10 bg-black/20 sm:grid-cols-2 xl:grid-cols-4">
-                {[
-                  { label: "My shifts", value: myAssignments.length, Icon: CalendarDays },
-                  { label: "Team assignments", value: data?.assignments.length ?? 0, Icon: Users },
-                  { label: "Active locations", value: activeLocations, Icon: MapPin },
-                  { label: "Leave / off days", value: data?.availability.length ?? 0, Icon: SunMedium },
-                ].map(({ label, value, Icon }) => (
-                  <div key={label} className="border-white/10 px-6 py-4 sm:border-r last:border-r-0">
-                    <div className="flex items-center justify-between">
-                      <p className="text-xs uppercase tracking-[0.18em] text-white/35">{label}</p>
-                      <Icon size={17} className="text-orange-300" />
-                    </div>
-                    <p className="mt-2 text-2xl font-bold">{value}</p>
-                  </div>
-                ))}
               </div>
             </header>
 
             {error ? (
-              <p className="mb-4 rounded-xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+              <p className="mb-4 rounded-xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
                 {error}
               </p>
             ) : null}
 
-            {myAssignments.length > 0 ? (
-              <div className="mb-5 rounded-2xl border border-orange-400/25 bg-orange-500/10 p-4">
-                <p className="text-sm font-semibold text-orange-100">Your assignments this week</p>
-                <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                  {myAssignments.slice(0, 6).map((row) => (
-                    <div key={row.assignment.id} className="rounded-xl border border-white/10 bg-black/35 p-3">
-                      <p className="font-semibold">{row.location_name}</p>
-                      <p className="mt-1 text-xs text-white/55">{formatDayLabel(row.assignment.start_date)}</p>
-                      <p className="mt-2 inline-flex items-center gap-1 rounded-full bg-white/10 px-2 py-1 text-[11px] text-orange-100">
-                        <Clock3 size={12} />
-                        {formatTimeRange(row.assignment.start_time, row.assignment.end_time)}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-
-            <StatusAlertBanner events={data?.status_events ?? []} />
-
             {loading || !data ? (
-              <div className="rounded-2xl border border-white/10 bg-white/6 px-6 py-16 text-center text-white/45">
+              <div className="rounded-2xl border border-white/10 bg-white/[0.06] px-6 py-16 text-center text-white/45">
                 Loading schedule...
               </div>
             ) : (
-              <div className="grid gap-4 lg:grid-cols-7">
-                {days.map((day) => {
-                  const dayAssignments = assignmentsByDay[day] ?? [];
-                  const dayAvailability = availabilityByDay[day] ?? [];
-                  const dayItemCount = dayAssignments.length + dayAvailability.length;
-                  return (
-                    <section
-                      key={day}
-                      className="min-h-[260px] rounded-3xl border border-white/10 bg-white/6 p-4 shadow-xl"
-                    >
-                      <div className="mb-4 flex items-center justify-between">
-                        <div>
-                          <p className="text-sm font-bold">{formatDayLabel(day)}</p>
-                          <p className="mt-1 text-xs text-white/40">
-                            {dayAssignments.length} assigned · {dayAvailability.length} off
-                          </p>
-                        </div>
-                        <span className="rounded-full bg-orange-500/15 px-2.5 py-1 text-xs font-bold text-orange-200">
-                          {dayItemCount}
-                        </span>
+              <div className="space-y-5">
+                <section className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.65fr)]">
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.06] p-5 shadow-2xl shadow-black/30">
+                    <div className="mb-4 flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                          Today
+                        </p>
+                        <h2 className="mt-1 text-xl font-bold text-white">
+                          {formatDayLabel(todayKey)}
+                        </h2>
                       </div>
+                      <span
+                        className={[
+                          "rounded-full px-3 py-1 text-xs font-semibold",
+                          todayAssignments.length > 0
+                            ? "bg-emerald-50 text-emerald-700"
+                            : todayAvailability.length > 0
+                              ? "bg-violet-50 text-violet-700"
+                            : "bg-white/10 text-white/65",
+                        ].join(" ")}
+                      >
+                        {todayAssignments.length > 0
+                          ? "Assigned"
+                          : todayAvailability.length > 0
+                            ? "Unavailable"
+                            : "Free"}
+                      </span>
+                    </div>
 
-                      {dayItemCount === 0 ? (
-                        <div className="rounded-2xl border border-dashed border-white/10 px-3 py-10 text-center text-xs text-white/35">
-                          No assignments or off days
-                        </div>
-                      ) : (
-                        <div className="space-y-3">
-                          {dayAvailability.map((item) => (
+                    {todayAssignments.length > 0 ? (
+                      <div className="grid gap-3 md:grid-cols-2">
+                        {todayAssignments.map((row) => (
+                          <article
+                            key={row.assignment.id}
+                            className="rounded-xl border border-emerald-400/25 bg-emerald-500/10 p-4"
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <p className="text-sm font-semibold text-emerald-50">
+                                  {row.role_name ?? "Role"}
+                                </p>
+                                <p className="mt-1 text-sm text-emerald-200/80">
+                                  {row.location_name}
+                                </p>
+                              </div>
+                              <BriefcaseBusiness size={18} className="text-emerald-300" />
+                            </div>
+                            <div className="mt-4 grid gap-2 text-sm text-emerald-100/80 sm:grid-cols-2">
+                              <p className="flex items-center gap-2">
+                                <Clock3 size={15} />
+                                {formatTimeRange(row.assignment.start_time, row.assignment.end_time)}
+                              </p>
+                              <p className="flex items-center gap-2">
+                                <MapPin size={15} />
+                                {row.location_name}
+                              </p>
+                            </div>
+                          </article>
+                        ))}
+                      </div>
+                    ) : todayAvailability.length > 0 ? (
+                      <div className="grid gap-3 md:grid-cols-2">
+                        {todayAvailability.map((item) => (
+                          <article
+                            key={`${item.kind}-${item.id}-today`}
+                            className="rounded-xl border border-violet-300/25 bg-violet-500/10 p-4"
+                          >
+                            <p className="font-semibold text-violet-50">
+                              {formatAvailabilityKind(item)}
+                            </p>
+                            <p className="mt-1 text-sm text-violet-100/75">
+                              {formatAvailabilityRange(item)}
+                              {item.source === "weekly" ? " · repeats weekly" : ""}
+                            </p>
+                            {item.reason ? (
+                              <p className="mt-3 text-sm text-violet-100/70">{item.reason}</p>
+                            ) : null}
+                          </article>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="rounded-xl border border-dashed border-white/10 bg-white/[0.04] px-4 py-10 text-center">
+                        <SunMedium size={28} className="mx-auto text-white/25" />
+                        <p className="mt-2 text-sm font-semibold text-white/80">Free today</p>
+                        {nextAssignment ? (
+                          <p className="mt-1 text-sm text-white/45">
+                            Next: {formatDayLabel(nextAssignment.assignment.start_date)} at {nextAssignment.location_name}
+                          </p>
+                        ) : null}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.06] p-4 shadow-2xl shadow-black/30">
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-white/40">
+                          Team today
+                        </p>
+                        <p className="mt-1 text-lg font-bold text-white">
+                          {todayTeamAssignments.length} assigned
+                        </p>
+                      </div>
+                      <Users size={20} className="text-orange-300" />
+                    </div>
+                    {todayTeamAssignments.length === 0 ? (
+                      <div className="rounded-xl border border-dashed border-white/10 px-4 py-8 text-center text-sm text-white/40">
+                        No team assignments today
+                      </div>
+                    ) : (
+                      <div className="grid gap-2 md:grid-cols-2">
+                        {todayTeamAssignments.slice(0, 8).map((row) => {
+                          const isMine = row.is_mine || row.employee_id === viewerId;
+                          return (
                             <div
-                              key={`${item.kind}-${item.id}-${day}`}
+                              key={`today-team-${row.assignment.id}`}
                               className={[
-                                "rounded-2xl border p-3 text-xs",
-                                item.kind === "leave"
-                                  ? "border-sky-300/40 bg-sky-500/10 text-sky-50"
-                                  : "border-purple-300/40 bg-purple-500/10 text-purple-50",
+                                "rounded-xl border p-3 text-sm",
+                                isMine
+                                  ? "border-orange-300/35 bg-orange-500/15"
+                                  : "border-white/10 bg-black/30",
                               ].join(" ")}
                             >
                               <div className="flex items-start justify-between gap-2">
-                                <div>
-                                  <p className="font-semibold">
-                                    {item.employee_name || item.employee_email || "Employee"}
+                                <div className="min-w-0">
+                                  <p className="truncate font-semibold text-white">
+                                    {row.employee_name || "Employee"}
                                   </p>
-                                  <p className="mt-1 text-white/55">
-                                    {formatAvailabilityKind(item)} · {formatDayCount(item.day_count)}
-                                    {item.source === "weekly" ? " · repeats weekly" : ""}
-                                  </p>
-                                  <p className="mt-1 text-white/45">
-                                    {formatAvailabilityRange(item)}
-                                    {item.reason ? ` · ${item.reason}` : ""}
+                                  <p className="mt-1 truncate text-xs text-white/50">
+                                    {row.role_name ?? "Role"}
                                   </p>
                                 </div>
-                                <span className="rounded-full bg-white/10 px-2 py-0.5 text-[9px] font-bold uppercase">
-                                  {item.kind === "leave" ? "Leave" : "Off"}
-                                </span>
+                                {isMine ? (
+                                  <span className="rounded-full bg-orange-400 px-2 py-0.5 text-[10px] font-bold uppercase text-black">
+                                    You
+                                  </span>
+                                ) : null}
+                              </div>
+                              <div className="mt-3 grid gap-1 text-xs text-white/60">
+                                <p className="flex items-center gap-1.5">
+                                  <MapPin size={12} className="text-orange-300" />
+                                  {row.location_name}
+                                </p>
+                                <p className="flex items-center gap-1.5">
+                                  <Clock3 size={12} className="text-orange-300" />
+                                  {formatTimeRange(row.assignment.start_time, row.assignment.end_time)}
+                                </p>
                               </div>
                             </div>
-                          ))}
-                          {dayAssignments.map((row) => {
-                            const isMine = row.is_mine || row.employee_id === viewerId;
-                            return (
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+                    {[
+                      { label: "Assigned days", value: assignedDays, Icon: CalendarCheck, tone: "text-emerald-600 bg-emerald-50" },
+                      { label: "Free days", value: freeDays, Icon: SunMedium, tone: "text-gray-600 bg-gray-100" },
+                      { label: "Off / leave days", value: unavailableDays, Icon: Clock3, tone: "text-violet-600 bg-violet-50" },
+                      { label: "Team assignments", value: data.assignments.length, Icon: Users, tone: "text-orange-600 bg-orange-50" },
+                    ].map(({ label, value, Icon, tone }) => (
+                      <div key={label} className="rounded-2xl border border-white/10 bg-white/[0.06] p-4 shadow-2xl shadow-black/30">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-sm font-medium text-white/50">{label}</p>
+                          <span className={`rounded-xl p-2 ${tone}`}>
+                            <Icon size={17} />
+                          </span>
+                        </div>
+                        <p className="mt-2 text-3xl font-bold text-white">{value}</p>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+
+                <StatusAlertBanner events={data.status_events ?? []} />
+
+                <section className="rounded-2xl border border-white/10 bg-white/[0.06] p-4 shadow-2xl shadow-black/30">
+                  <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-white">Week calendar</p>
+                      <p className="mt-1 text-xs text-white/45">
+                        {activeLocations} active locations
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2 text-xs font-medium">
+                      <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-emerald-700">Assigned</span>
+                      <span className="rounded-full bg-violet-50 px-2.5 py-1 text-violet-700">Off / leave</span>
+                      <span className="rounded-full bg-white/10 px-2.5 py-1 text-white/65">Free</span>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-3 lg:grid-cols-7">
+                    {days.map((day) => {
+                      const dayAssignments = assignmentsByDay[day] ?? [];
+                      const mineForDay = myAssignmentsByDay[day] ?? [];
+                      const otherAssignments = dayAssignments.filter(
+                        (row) => !(row.is_mine || row.employee_id === viewerId),
+                      );
+                      const myUnavailable = myAvailabilityByDay[day] ?? [];
+                      const dayAvailability = availabilityByDay[day] ?? [];
+                      const isToday = day === todayKey;
+                      const dayStatus =
+                        mineForDay.length > 0
+                          ? "assigned"
+                          : myUnavailable.length > 0
+                            ? "unavailable"
+                            : "free";
+
+                      return (
+                        <section
+                          key={day}
+                          className={[
+                            "min-h-[250px] rounded-xl border p-3 transition",
+                            isToday ? "border-orange-300/60 ring-2 ring-orange-400/20" : "border-white/10",
+                            dayStatus === "assigned"
+                              ? "bg-emerald-500/10"
+                              : dayStatus === "unavailable"
+                                ? "bg-violet-500/10"
+                                : "bg-white/[0.04]",
+                          ].join(" ")}
+                        >
+                          <div className="mb-3 flex items-start justify-between gap-2">
+                            <div>
+                              <p className="text-sm font-bold text-white">{formatDayLabel(day)}</p>
+                              <p className="mt-0.5 text-[11px] text-white/45">
+                                {mineForDay.length > 0
+                                  ? `${mineForDay.length} for you`
+                                  : myUnavailable.length > 0
+                                    ? "Unavailable"
+                                    : "Free"}
+                              </p>
+                            </div>
+                            <span
+                              className={[
+                                "rounded-full px-2 py-0.5 text-[10px] font-bold uppercase",
+                                dayStatus === "assigned"
+                                  ? "bg-emerald-400/15 text-emerald-200"
+                                  : dayStatus === "unavailable"
+                                    ? "bg-violet-400/15 text-violet-200"
+                                    : "bg-white/10 text-white/55",
+                              ].join(" ")}
+                            >
+                              {dayStatus}
+                            </span>
+                          </div>
+
+                          <div className="space-y-2">
+                            {myUnavailable.map((item) => (
+                              <div
+                                key={`${item.kind}-${item.id}-${day}`}
+                                className="rounded-lg border border-violet-300/25 bg-violet-500/10 p-2 text-xs"
+                              >
+                                <p className="font-semibold text-violet-50">
+                                  {formatAvailabilityKind(item)}
+                                </p>
+                                <p className="mt-1 text-violet-100/70">
+                                  {formatDayCount(item.day_count)}
+                                  {item.source === "weekly" ? " · weekly" : ""}
+                                </p>
+                              </div>
+                            ))}
+
+                            {mineForDay.map((row) => (
                               <div
                                 key={row.assignment.id}
-                                className={[
-                                  "rounded-2xl border p-3 text-xs transition",
-                                  isMine
-                                    ? "border-orange-300/60 bg-orange-500/15 text-orange-50 shadow-lg shadow-orange-950/20"
-                                    : "border-white/10 bg-black/35 text-white/75",
-                                ].join(" ")}
+                                className="rounded-lg border border-emerald-300/25 bg-emerald-500/10 p-2 text-xs shadow-sm"
                               >
-                                <div className="flex items-start justify-between gap-2">
-                                  <div>
-                                    <p className="font-semibold">{row.employee_name || "Employee"}</p>
-                                    <p className="mt-1 text-white/45">{row.role_name ?? "Work assignment"}</p>
-                                  </div>
-                                  {isMine ? (
-                                    <span className="rounded-full bg-orange-400 px-2 py-0.5 text-[9px] font-bold uppercase text-black">
-                                      Mine
-                                    </span>
+                                <p className="font-semibold text-emerald-50">
+                                  {row.role_name ?? "Role"}
+                                </p>
+                                <p className="mt-1 flex items-center gap-1 text-emerald-100/75">
+                                  <MapPin size={11} />
+                                  {row.location_name}
+                                </p>
+                                <p className="mt-1 flex items-center gap-1 text-emerald-100/75">
+                                  <Clock3 size={11} />
+                                  {formatTimeRange(row.assignment.start_time, row.assignment.end_time)}
+                                </p>
+                              </div>
+                            ))}
+
+                            {mineForDay.length === 0 && myUnavailable.length === 0 ? (
+                              <div className="rounded-lg border border-dashed border-white/10 bg-black/20 px-2 py-6 text-center text-xs text-white/35">
+                                Free
+                              </div>
+                            ) : null}
+
+                            {otherAssignments.length > 0 ? (
+                              <div className="rounded-lg border border-white/10 bg-black/25 p-2">
+                                <p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-white/35">
+                                  Team assigned
+                                </p>
+                                <div className="space-y-1.5">
+                                  {otherAssignments.slice(0, 4).map((row) => (
+                                    <div
+                                      key={`team-${day}-${row.assignment.id}`}
+                                      className="rounded-md bg-white/[0.06] px-2 py-1.5 text-[11px]"
+                                    >
+                                      <p className="truncate font-semibold text-white/85">
+                                        {row.employee_name || "Employee"}
+                                      </p>
+                                      <p className="mt-0.5 truncate text-white/45">
+                                        {row.role_name ?? "Role"} · {row.location_name}
+                                      </p>
+                                      <p className="mt-0.5 text-white/35">
+                                        {formatTimeRange(row.assignment.start_time, row.assignment.end_time)}
+                                      </p>
+                                    </div>
+                                  ))}
+                                  {otherAssignments.length > 4 ? (
+                                    <p className="px-1 text-[11px] font-medium text-white/40">
+                                      +{otherAssignments.length - 4} more
+                                    </p>
                                   ) : null}
                                 </div>
-                                <div className="mt-3 space-y-1.5">
-                                  <p className="flex items-center gap-1.5 text-white/60">
-                                    <MapPin size={12} className="text-orange-300" />
-                                    {row.location_name}
-                                  </p>
-                                  <p className="flex items-center gap-1.5 text-white/60">
-                                    <Clock3 size={12} className="text-orange-300" />
-                                    {formatTimeRange(row.assignment.start_time, row.assignment.end_time)}
-                                  </p>
-                                  <p className="flex items-center gap-1.5 text-white/60">
-                                    <CalendarDays size={12} className="text-orange-300" />
-                                    {row.assignment.start_date === row.assignment.end_date
-                                      ? "1 day assignment"
-                                      : `${formatDayLabel(row.assignment.start_date)} - ${formatDayLabel(row.assignment.end_date)}`}
-                                  </p>
-                                </div>
                               </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </section>
-                  );
-                })}
+                            ) : null}
+
+                            {dayAvailability.length > myUnavailable.length ? (
+                              <div className="rounded-lg bg-white/[0.06] px-2 py-1.5 text-[11px] font-medium text-white/45">
+                                {dayAvailability.length} team off / leave
+                              </div>
+                            ) : null}
+                          </div>
+                        </section>
+                      );
+                    })}
+                  </div>
+                </section>
               </div>
             )}
           </div>
