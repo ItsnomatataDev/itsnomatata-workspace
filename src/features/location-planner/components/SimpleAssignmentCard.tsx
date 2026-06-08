@@ -7,6 +7,7 @@ type Props = {
   draggable?: boolean;
   selected?: boolean;
   muted?: boolean;
+  tone?: "dark" | "light";
   onSelect?: () => void;
 };
 
@@ -15,6 +16,7 @@ export default function SimpleAssignmentCard({
   draggable = false,
   selected,
   muted,
+  tone = "dark",
   onSelect,
 }: Props) {
   const drag = useDraggable({
@@ -23,12 +25,21 @@ export default function SimpleAssignmentCard({
     disabled: !draggable,
   });
 
-  const statusClass =
-    assignment.status === "confirmed"
+  const statusClass = tone === "light"
+    ? assignment.status === "confirmed"
+      ? "border-emerald-300 bg-emerald-50"
+      : assignment.status === "cancelled"
+        ? "border-gray-200 bg-gray-100 opacity-60"
+        : "border-orange-300 bg-orange-50"
+    : assignment.status === "confirmed"
       ? "border-emerald-300/30 bg-emerald-500/10"
       : assignment.status === "cancelled"
         ? "border-white/10 bg-white/5 opacity-60"
         : "border-orange-300/30 bg-orange-500/10";
+  const primaryText = tone === "light" ? "text-gray-950" : "text-white";
+  const secondaryText = tone === "light" ? "text-gray-700" : "text-white/55";
+  const chipWrapText = tone === "light" ? "text-gray-700" : "text-white/60";
+  const chipClass = tone === "light" ? "bg-white text-gray-800 shadow-sm" : "bg-white/10";
 
   return (
     <button
@@ -53,10 +64,12 @@ export default function SimpleAssignmentCard({
     >
       <div className="flex items-start justify-between gap-2">
         <div>
-          <p className="font-semibold text-white">
+          <p className={["font-semibold", primaryText].join(" ")}>
             {assignment.employeeName || assignment.employeeEmail || "Employee"}
           </p>
-          <p className="mt-0.5 text-white/55">{assignment.roleName ?? "Assignment"}</p>
+          <p className={["mt-0.5", secondaryText].join(" ")}>
+            {assignment.roleName ?? "Assignment"}
+          </p>
         </div>
         {assignment.isMine ? (
           <span className="rounded-full bg-orange-500 px-2 py-0.5 text-[9px] font-bold uppercase text-white">
@@ -64,14 +77,14 @@ export default function SimpleAssignmentCard({
           </span>
         ) : null}
       </div>
-      <div className="mt-2 flex flex-wrap gap-1.5 text-[10px] text-white/60">
-        <span className="rounded-full bg-white/10 px-2 py-0.5">
+      <div className={["mt-2 flex flex-wrap gap-1.5 text-[10px]", chipWrapText].join(" ")}>
+        <span className={["rounded-full px-2 py-0.5", chipClass].join(" ")}>
           {assignment.locationName}
         </span>
-        <span className="rounded-full bg-white/10 px-2 py-0.5">
+        <span className={["rounded-full px-2 py-0.5", chipClass].join(" ")}>
           {formatDayLabel(assignment.startDate)}
         </span>
-        <span className="rounded-full bg-white/10 px-2 py-0.5">
+        <span className={["rounded-full px-2 py-0.5", chipClass].join(" ")}>
           {formatTimeRange(assignment.startTime, assignment.endTime)}
         </span>
       </div>

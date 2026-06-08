@@ -329,6 +329,7 @@ export async function upsertCompanyRole(
     name: row.name.trim(),
     category: row.category ?? null,
     description: row.description ?? null,
+    location_id: row.location_id ?? null,
     required_skills: row.required_skills ?? [],
     is_temporary: row.is_temporary ?? false,
     is_active: row.is_active ?? true,

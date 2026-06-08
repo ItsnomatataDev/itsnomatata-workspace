@@ -2122,6 +2122,17 @@ export async function importTrelloBoardJson(params: {
           profile.id as string,
         ]),
     );
+    const resolveTrelloProfileId = (member: JsonRecord | null) => {
+      const fullName = getString(member, ["fullName", "name"]);
+      const username = getString(member, ["username"]);
+      const email = getString(member, ["email"]);
+      return (
+        profileByEmail.get(normalizeKey(email)) ??
+        profileByName.get(normalizeKey(fullName)) ??
+        profileByEmailPrefix.get(normalizeKey(username)) ??
+        null
+      );
+    };
 
     const trelloMemberToProfile = new Map<string, string>();
     const trelloMemberRecords = new Map<string, JsonRecord>();
@@ -2132,9 +2143,7 @@ export async function importTrelloBoardJson(params: {
 
       const fullName = getString(member, ["fullName"]);
       const username = getString(member, ["username"]);
-      const profileId =
-        profileByName.get(normalizeKey(fullName)) ??
-        profileByEmailPrefix.get(normalizeKey(username));
+      const profileId = resolveTrelloProfileId(member);
 
       if (profileId) {
         trelloMemberToProfile.set(memberId, profileId);
@@ -2187,6 +2196,7 @@ export async function importTrelloBoardJson(params: {
 
     const commentsByCard = new Map<string, JsonRecord[]>();
     const actionsByCard = new Map<string, JsonRecord[]>();
+    const createActionByCard = new Map<string, JsonRecord>();
     for (const action of actionRecords) {
       const data = asRecord(action.data);
       const card = asRecord(data?.card);
@@ -2200,6 +2210,10 @@ export async function importTrelloBoardJson(params: {
         const list = commentsByCard.get(cardId) ?? [];
         list.push(action);
         commentsByCard.set(cardId, list);
+      }
+
+      if (getString(action, ["type"]) === "createCard") {
+        createActionByCard.set(cardId, action);
       }
     }
 
@@ -2244,6 +2258,20 @@ export async function importTrelloBoardJson(params: {
         const assigneeIds = memberIds
           .map((memberId) => trelloMemberToProfile.get(memberId))
           .filter((id): id is string => Boolean(id));
+        const createAction = trelloCardId ? createActionByCard.get(trelloCardId) ?? null : null;
+        const createActionMemberCreator = asRecord(createAction?.memberCreator);
+        const cardMemberCreator = asRecord(card.memberCreator);
+        const creatorMemberId =
+          getString(card, ["idMemberCreator", "memberCreatorId", "creatorMemberId"]) ??
+          getString(createActionMemberCreator, ["id"]) ??
+          getString(cardMemberCreator, ["id"]);
+        const creatorMemberRecord =
+          (creatorMemberId ? trelloMemberRecords.get(creatorMemberId) ?? null : null) ??
+          cardMemberCreator ??
+          createActionMemberCreator;
+        const creatorProfileId =
+          (creatorMemberId ? trelloMemberToProfile.get(creatorMemberId) ?? null : null) ??
+          resolveTrelloProfileId(creatorMemberRecord);
 
         const title = getString(card, ["name"]) ?? "Untitled Trello card";
         const status = getBoolean(card, ["closed"]) === true ||
@@ -2266,12 +2294,21 @@ export async function importTrelloBoardJson(params: {
         const sourceLastActivityAt = parseDate(getString(card, ["dateLastActivity"]));
         const nextTrelloMetadata = {
           imported_from: "trello_board_json",
+          imported_by: params.importedBy,
+          imported_at: new Date().toISOString(),
+          import_batch_id: importBatchId,
           trello_card_id: trelloCardId,
           trello_short_link: shortLink,
           trello_created_at: sourceCreatedAt,
           trello_url: getString(card, ["url", "shortUrl"]),
           trello_list_id: listId,
           trello_list_name: listName,
+          trello_member_ids: memberIds,
+          trello_assignee_profile_ids: assigneeIds,
+          trello_creator_member_id: creatorMemberId,
+          trello_creator_name: getString(creatorMemberRecord, ["fullName", "name"]),
+          trello_creator_username: getString(creatorMemberRecord, ["username"]),
+          trello_creator_profile_id: creatorProfileId,
           original_trello_list_name: listName,
           trello_closed: trelloClosed,
           trello_due_complete: trelloDueComplete,
@@ -2310,7 +2347,7 @@ export async function importTrelloBoardJson(params: {
               due_date: dueDate,
               position,
               is_billable: true,
-              created_by: params.importedBy,
+              created_by: creatorProfileId,
               created_at: sourceCreatedAt ?? undefined,
               updated_at: sourceLastActivityAt ?? undefined,
               imported_time_status: params.importTrackedTime === false ? "not_requested" : "no_time_data_found",
@@ -2325,7 +2362,7 @@ export async function importTrelloBoardJson(params: {
         } else {
           const { data: existingTask, error: existingTaskError } = await supabase
             .from("tasks")
-            .select("column_id, status, metadata")
+            .select("column_id, status, metadata, created_by")
             .eq("organization_id", params.organizationId)
             .eq("id", taskId)
             .maybeSingle();
@@ -2341,6 +2378,8 @@ export async function importTrelloBoardJson(params: {
             typeof existingTask?.status === "string" ? existingTask.status : status;
           const existingColumnId =
             typeof existingTask?.column_id === "string" ? existingTask.column_id : null;
+          const existingCreatedBy =
+            typeof existingTask?.created_by === "string" ? existingTask.created_by : null;
           const existingCardUpdates: JsonRecord = {
             column_id: manuallyManaged ? existingColumnId : columnId,
             status: manuallyManaged ? existingStatus : status,
@@ -2352,6 +2391,9 @@ export async function importTrelloBoardJson(params: {
               ...nextTrelloMetadata,
             },
           };
+          if (!existingCreatedBy || existingCreatedBy === params.importedBy) {
+            existingCardUpdates.created_by = creatorProfileId;
+          }
           if (!manuallyManaged) {
             existingCardUpdates.position = position;
           }

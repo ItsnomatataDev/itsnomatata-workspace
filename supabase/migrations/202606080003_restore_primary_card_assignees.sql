@@ -1,6 +1,3 @@
--- Creator auto-assignment should make the creator a collaborator, not always
--- the primary owner shown on personal dashboards.
-
 with preferred_assignees as (
   select distinct on (ta.task_id)
     ta.task_id,

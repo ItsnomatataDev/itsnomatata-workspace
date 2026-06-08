@@ -3,12 +3,13 @@ import {
   DndContext,
   DragOverlay,
   PointerSensor,
+  pointerWithin,
   useSensor,
   useSensors,
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import { CalendarDays, MapPin, Plus, Settings2 } from "lucide-react";
+import { CalendarDays, MapPin, Plus, Settings2, UserPlus } from "lucide-react";
 import Sidebar from "../../components/dashboard/components/Sidebar";
 import { useAuth } from "../../app/providers/AuthProvider";
 import { EDITOR_ROLES } from "./constants";
@@ -64,6 +65,10 @@ import {
   startOfWeekDateKey,
 } from "./utils/calendarDates";
 import { formatAvailabilitySummary } from "./utils/availabilityLabels";
+import { Briefcase, ChevronLeft, ChevronRight, Users } from "lucide-react";
+function normalizePlannerTime(value: string | null | undefined) {
+  return value ? value.slice(0, 5) : "";
+}
 
 function mapAssignment(row: AdminAssignmentRow): PlannerAssignmentCardModel {
   return {
@@ -90,7 +95,8 @@ export default function LocationPlannerAdminPage() {
   const organizationId = profile?.organization_id ?? null;
   const officeCapabilities = getOfficeCapabilities(profile?.office);
   const canEdit =
-    officeCapabilities.locationPlanner && EDITOR_ROLES.has(String(profile?.primary_role ?? ""));
+    officeCapabilities.locationPlanner &&
+    EDITOR_ROLES.has(String(profile?.primary_role ?? ""));
   const canUsePlanner = canEdit;
 
   const initialDate = getHarareDateKey();
@@ -102,7 +108,9 @@ export default function LocationPlannerAdminPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
-  const [selectedAssignmentId, setSelectedAssignmentId] = useState<string | null>(null);
+  const [selectedAssignmentId, setSelectedAssignmentId] = useState<
+    string | null
+  >(null);
   const [activeDrag, setActiveDrag] = useState<{
     type: "assignment" | "employee";
     id: string;
@@ -110,9 +118,13 @@ export default function LocationPlannerAdminPage() {
   const [conflicts, setConflicts] = useState<ConflictResult | null>(null);
 
   const [createSlotOpen, setCreateSlotOpen] = useState(false);
-  const [createSlotLocationId, setCreateSlotLocationId] = useState<string | undefined>();
+  const [createSlotLocationId, setCreateSlotLocationId] = useState<
+    string | undefined
+  >();
   const [assignmentModalOpen, setAssignmentModalOpen] = useState(false);
-  const [assignmentModalMode, setAssignmentModalMode] = useState<"create" | "edit">("edit");
+  const [assignmentModalMode, setAssignmentModalMode] = useState<
+    "create" | "edit"
+  >("edit");
   const [locationsOpen, setLocationsOpen] = useState(false);
   const [rolesOpen, setRolesOpen] = useState(false);
 
@@ -120,13 +132,10 @@ export default function LocationPlannerAdminPage() {
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
   );
 
-  const range = useMemo(
-    () => {
-      const weekStart = startOfWeekDateKey(selectedDate);
-      return { start: weekStart, end: addDays(weekStart, 6) };
-    },
-    [selectedDate],
-  );
+  const range = useMemo(() => {
+    const weekStart = startOfWeekDateKey(selectedDate);
+    return { start: weekStart, end: addDays(weekStart, 6) };
+  }, [selectedDate]);
 
   const load = useCallback(async () => {
     if (!organizationId) return;
@@ -156,7 +165,9 @@ export default function LocationPlannerAdminPage() {
   }, [load]);
 
   const selectedRow = useMemo(
-    () => data?.assignments.find((r) => r.assignment.id === selectedAssignmentId) ?? null,
+    () =>
+      data?.assignments.find((r) => r.assignment.id === selectedAssignmentId) ??
+      null,
     [data?.assignments, selectedAssignmentId],
   );
 
@@ -175,12 +186,16 @@ export default function LocationPlannerAdminPage() {
   );
 
   const assignmentsById = useMemo(
-    () => new Map(assignmentCards.map((assignment) => [assignment.id, assignment])),
+    () =>
+      new Map(assignmentCards.map((assignment) => [assignment.id, assignment])),
     [assignmentCards],
   );
 
   const employeesById = useMemo(
-    () => new Map((data?.employees ?? []).map((employee) => [employee.id, employee])),
+    () =>
+      new Map(
+        (data?.employees ?? []).map((employee) => [employee.id, employee]),
+      ),
     [data?.employees],
   );
 
@@ -203,15 +218,19 @@ export default function LocationPlannerAdminPage() {
         input.startTime ?? "",
         input.endTime ?? "",
       ].join(":");
-
-    const assignmentsBySlotKey = assignmentCards.reduce<
-      Map<string, PlannerAssignmentCardModel[]>
-    >((acc, assignment) => {
-      if (assignment.slotId) return acc;
-      const key = streamKey(assignment);
-      acc.set(key, [...(acc.get(key) ?? []), assignment]);
-      return acc;
-    }, new Map());
+    const assignmentMatchesSlot = (
+      assignment: PlannerAssignmentCardModel,
+      slot: AdminPlannerCalendar["slots"][number],
+    ) =>
+      !assignment.slotId &&
+      assignment.locationId === slot.location_id &&
+      assignment.temporaryRoleId === slot.temporary_role_id &&
+      assignmentOnDay(assignment.startDate, assignment.endDate, selectedDate) &&
+      assignmentOnDay(slot.start_date, slot.end_date, selectedDate) &&
+      normalizePlannerTime(assignment.startTime) ===
+        normalizePlannerTime(slot.start_time) &&
+      normalizePlannerTime(assignment.endTime) ===
+        normalizePlannerTime(slot.end_time);
 
     const slotStreams = slots
       .filter(
@@ -220,20 +239,15 @@ export default function LocationPlannerAdminPage() {
           assignmentOnDay(slot.start_date, slot.end_date, selectedDate),
       )
       .map((slot) => {
-        const location = data?.locations.find((item) => item.id === slot.location_id);
-        const role = data?.roles.find((item) => item.id === slot.temporary_role_id);
-        const matchingLooseAssignments =
-          assignmentsBySlotKey.get(
-            streamKey({
-              locationId: slot.location_id,
-              temporaryRoleId: slot.temporary_role_id,
-              roleName: role?.name ?? slot.title,
-              startDate: slot.start_date,
-              endDate: slot.end_date,
-              startTime: slot.start_time,
-              endTime: slot.end_time,
-            }),
-          ) ?? [];
+        const location = data?.locations.find(
+          (item) => item.id === slot.location_id,
+        );
+        const role = data?.roles.find(
+          (item) => item.id === slot.temporary_role_id,
+        );
+        const matchingLooseAssignments = assignmentCards.filter((assignment) =>
+          assignmentMatchesSlot(assignment, slot),
+        );
         return {
           id: `slot-${slot.id}`,
           title: slot.title,
@@ -247,14 +261,48 @@ export default function LocationPlannerAdminPage() {
           endTime: slot.end_time,
           requiredCount: slot.required_count,
           assignments: [
-            ...assignmentCards.filter((assignment) => assignment.slotId === slot.id),
+            ...assignmentCards.filter(
+              (assignment) => assignment.slotId === slot.id,
+            ),
             ...matchingLooseAssignments,
           ],
         };
       });
 
+    const permanentRoleStreams = (data?.roles ?? [])
+      .filter((role) => role.is_active && role.location_id)
+      .map((role) => {
+        const location = data?.locations.find(
+          (item) => item.id === role.location_id,
+        );
+        return {
+          id: `role-${role.id}-${role.location_id}`,
+          title: role.name,
+          subtitle: `${location?.name ?? "No location"} · permanent role`,
+          locationId: role.location_id,
+          slotId: null,
+          temporaryRoleId: role.id,
+          startDate: selectedDate,
+          endDate: selectedDate,
+          startTime: null,
+          endTime: null,
+          requiredCount: null,
+          assignments: assignmentCards.filter(
+            (assignment) =>
+              !assignment.slotId &&
+              assignment.locationId === role.location_id &&
+              assignment.temporaryRoleId === role.id &&
+              assignmentOnDay(
+                assignment.startDate,
+                assignment.endDate,
+                selectedDate,
+              ),
+          ),
+        };
+      });
+
     const streamAssignmentIds = new Set(
-      slotStreams.flatMap((stream) =>
+      [...slotStreams, ...permanentRoleStreams].flatMap((stream) =>
         stream.assignments.map((assignment) => assignment.id),
       ),
     );
@@ -262,15 +310,18 @@ export default function LocationPlannerAdminPage() {
       (assignment) => !streamAssignmentIds.has(assignment.id),
     );
     const roleStreams = Array.from(
-      ungrouped.reduce<Map<string, PlannerAssignmentCardModel[]>>((acc, assignment) => {
-        const key = streamKey(assignment);
-        acc.set(key, [...(acc.get(key) ?? []), assignment]);
-        return acc;
-      }, new Map()),
+      ungrouped.reduce<Map<string, PlannerAssignmentCardModel[]>>(
+        (acc, assignment) => {
+          const key = streamKey(assignment);
+          acc.set(key, [...(acc.get(key) ?? []), assignment]);
+          return acc;
+        },
+        new Map(),
+      ),
     ).map(([key, assignments]) => ({
       id: `role-${key}`,
       title: assignments[0]?.roleName ?? "General Work",
-      subtitle: "Assignments without a linked shift requirement",
+      subtitle: "Assignments without a linked permanent role",
       locationId: assignments[0]?.locationId ?? null,
       slotId: null,
       temporaryRoleId: assignments[0]?.temporaryRoleId ?? null,
@@ -282,8 +333,14 @@ export default function LocationPlannerAdminPage() {
       assignments,
     }));
 
-    return [...slotStreams, ...roleStreams];
-  }, [assignmentCards, data?.locations, data?.roles, data?.slots, selectedDate]);
+    return [...slotStreams, ...permanentRoleStreams, ...roleStreams];
+  }, [
+    assignmentCards,
+    data?.locations,
+    data?.roles,
+    data?.slots,
+    selectedDate,
+  ]);
 
   const locationColumns = useMemo<PlannerLocationColumn[]>(
     () =>
@@ -295,19 +352,29 @@ export default function LocationPlannerAdminPage() {
         assignments: assignmentCards.filter(
           (assignment) => assignment.locationId === location.id,
         ),
-        slots: workStreams.filter((stream) => stream.locationId === location.id),
+        slots: workStreams.filter(
+          (stream) => stream.locationId === location.id,
+        ),
       })),
     [assignmentCards, data?.locations, workStreams],
   );
 
   const unassignedEmployees = useMemo<PlannerEmployeeCardModel[]>(() => {
-    const assignedIds = new Set(assignmentCards.map((assignment) => assignment.employeeId));
+    const assignedIds = new Set(
+      assignmentCards.map((assignment) => assignment.employeeId),
+    );
     const availabilityByEmployee = new Map<string, PlannerAvailability>();
     (data?.availability ?? [])
-      .filter((item) => assignmentOnDay(item.start_date, item.end_date, selectedDate))
+      .filter((item) =>
+        assignmentOnDay(item.start_date, item.end_date, selectedDate),
+      )
       .forEach((item) => {
         const current = availabilityByEmployee.get(item.user_id);
-        if (!current || item.kind === "leave" || item.start_date < current.start_date) {
+        if (
+          !current ||
+          item.kind === "leave" ||
+          item.start_date < current.start_date
+        ) {
           availabilityByEmployee.set(item.user_id, item);
         }
       });
@@ -323,7 +390,9 @@ export default function LocationPlannerAdminPage() {
           department: employee.department,
           skills: employee.skills,
           availabilityKind: availability?.kind ?? null,
-          availabilityLabel: availability ? formatAvailabilitySummary(availability) : null,
+          availabilityLabel: availability
+            ? formatAvailabilitySummary(availability)
+            : null,
         };
       });
   }, [assignmentCards, data?.availability, data?.employees, selectedDate]);
@@ -335,9 +404,50 @@ export default function LocationPlannerAdminPage() {
       ),
     [data?.availability, selectedDate],
   );
+  const weekDays = useMemo(
+    () =>
+      Array.from({ length: 7 }, (_, index) => {
+        const date = addDays(range.start, index);
+        const count = (data?.assignments ?? []).filter((row) =>
+          assignmentOnDay(
+            row.assignment.start_date,
+            row.assignment.end_date,
+            date,
+          ),
+        ).length;
 
+        return {
+          date,
+          count,
+          label: new Date(`${date}T00:00:00`).toLocaleDateString("en-US", {
+            weekday: "short",
+          }),
+          day: new Date(`${date}T00:00:00`).getDate(),
+        };
+      }),
+    [data?.assignments, range.start],
+  );
+
+  const openSlotsToday = useMemo(
+    () =>
+      (data?.slots ?? []).filter(
+        (slot) =>
+          slot.status === "open" &&
+          assignmentOnDay(slot.start_date, slot.end_date, selectedDate),
+      ),
+    [data?.slots, selectedDate],
+  );
+
+  const activeLocationsCount = useMemo(
+    () =>
+      (data?.locations ?? []).filter((location) => location.status !== "closed")
+        .length,
+    [data?.locations],
+  );
   const activeAssignment =
-    activeDrag?.type === "assignment" ? assignmentsById.get(activeDrag.id) : null;
+    activeDrag?.type === "assignment"
+      ? assignmentsById.get(activeDrag.id)
+      : null;
   const activeEmployee =
     activeDrag?.type === "employee" ? employeesById.get(activeDrag.id) : null;
 
@@ -376,7 +486,9 @@ export default function LocationPlannerAdminPage() {
         });
         await load();
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to remove assignment.");
+        setError(
+          err instanceof Error ? err.message : "Failed to remove assignment.",
+        );
       } finally {
         setSaving(false);
       }
@@ -385,14 +497,39 @@ export default function LocationPlannerAdminPage() {
 
     if (overType !== "stream" && overType !== "location") return;
 
+    const targetStream = over.streamId
+      ? (workStreams.find((stream) => stream.id === String(over.streamId)) ??
+        null)
+      : null;
+    const targetSlotId = over.slotId
+      ? String(over.slotId)
+      : (targetStream?.slotId ?? null);
+    const targetSlot = targetSlotId
+      ? (data?.slots.find((slot) => slot.id === targetSlotId) ?? null)
+      : null;
+
     const input = {
-      location_id: String(over.locationId ?? ""),
-      slot_id: over.slotId ? String(over.slotId) : null,
-      temporary_role_id: over.temporaryRoleId ? String(over.temporaryRoleId) : null,
-      start_date: String(over.startDate ?? selectedDate),
-      end_date: String(over.endDate ?? selectedDate),
-      start_time: over.startTime ? String(over.startTime) : null,
-      end_time: over.endTime ? String(over.endTime) : null,
+      location_id: String(
+        targetSlot?.location_id ??
+          targetStream?.locationId ??
+          over.locationId ??
+          "",
+      ),
+      slot_id: targetSlot?.id ?? targetStream?.slotId ?? null,
+      temporary_role_id:
+        targetSlot?.temporary_role_id ??
+        targetStream?.temporaryRoleId ??
+        (over.temporaryRoleId ? String(over.temporaryRoleId) : null),
+      start_date: selectedDate,
+      end_date: selectedDate,
+      start_time:
+        targetSlot?.start_time ??
+        targetStream?.startTime ??
+        (over.startTime ? String(over.startTime) : null),
+      end_time:
+        targetSlot?.end_time ??
+        targetStream?.endTime ??
+        (over.endTime ? String(over.endTime) : null),
     };
 
     if (!input.location_id) return;
@@ -420,7 +557,9 @@ export default function LocationPlannerAdminPage() {
 
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save assignment.");
+      setError(
+        err instanceof Error ? err.message : "Failed to save assignment.",
+      );
     } finally {
       setSaving(false);
     }
@@ -432,7 +571,12 @@ export default function LocationPlannerAdminPage() {
       type: CompanyLocation["type"];
       status: CompanyLocation["status"];
     },
-    restriction?: { title: string; start_date: string; end_date: string; reason?: string },
+    restriction?: {
+      title: string;
+      start_date: string;
+      end_date: string;
+      reason?: string;
+    },
   ) => {
     if (!organizationId) return;
     setSaving(true);
@@ -467,13 +611,17 @@ export default function LocationPlannerAdminPage() {
       setLocationsOpen(false);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete location.");
+      setError(
+        err instanceof Error ? err.message : "Failed to delete location.",
+      );
     } finally {
       setSaving(false);
     }
   };
 
-  const handleSaveRole = async (role: Partial<CompanyRole> & { name: string }) => {
+  const handleSaveRole = async (
+    role: Partial<CompanyRole> & { name: string },
+  ) => {
     if (!organizationId) return;
     setSaving(true);
     try {
@@ -484,7 +632,10 @@ export default function LocationPlannerAdminPage() {
     }
   };
 
-  const handleCheckConflicts = async (draft: AssignmentInput, assignmentId?: string) => {
+  const handleCheckConflicts = async (
+    draft: AssignmentInput,
+    assignmentId?: string,
+  ) => {
     if (!organizationId) return;
     const result = await detectAssignmentConflicts({
       organizationId,
@@ -492,7 +643,7 @@ export default function LocationPlannerAdminPage() {
       locationId: draft.location_id ?? data?.locations[0]?.id ?? "",
       slotId: draft.slot_id,
       startDate: draft.start_date ?? selectedDate,
-      endDate: draft.end_date ?? selectedDate,
+      endDate: draft.start_date ?? selectedDate,
       startTime: draft.start_time,
       endTime: draft.end_time,
       excludeAssignmentId: assignmentId,
@@ -500,7 +651,10 @@ export default function LocationPlannerAdminPage() {
     setConflicts(result);
   };
 
-  const handleSaveAssignment = async (draft: AssignmentInput, assignmentId?: string) => {
+  const handleSaveAssignment = async (
+    draft: AssignmentInput,
+    assignmentId?: string,
+  ) => {
     if (!organizationId) return;
     setSaving(true);
     try {
@@ -512,7 +666,7 @@ export default function LocationPlannerAdminPage() {
             location_id: draft.location_id,
             temporary_role_id: draft.temporary_role_id,
             start_date: draft.start_date,
-            end_date: draft.end_date,
+            end_date: draft.start_date,
             start_time: draft.start_time,
             end_time: draft.end_time,
             status: draft.status,
@@ -520,13 +674,21 @@ export default function LocationPlannerAdminPage() {
           },
         });
       } else {
-        await assignEmployeeToSlot({ organizationId, input: draft });
+        await assignEmployeeToSlot({
+          organizationId,
+          input: {
+            ...draft,
+            end_date: draft.start_date,
+          },
+        });
       }
       setAssignmentModalOpen(false);
       setConflicts(null);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save assignment.");
+      setError(
+        err instanceof Error ? err.message : "Failed to save assignment.",
+      );
     } finally {
       setSaving(false);
     }
@@ -544,7 +706,11 @@ export default function LocationPlannerAdminPage() {
       await deleteAssignmentSlot({ organizationId, slotId });
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete shift requirement.");
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to delete shift requirement.",
+      );
     } finally {
       setSaving(false);
     }
@@ -596,7 +762,9 @@ export default function LocationPlannerAdminPage() {
       });
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to add weekly off day.");
+      setError(
+        err instanceof Error ? err.message : "Failed to add weekly off day.",
+      );
     } finally {
       setSaving(false);
     }
@@ -609,7 +777,9 @@ export default function LocationPlannerAdminPage() {
       await deleteTlbEmployeeOffDay({ organizationId, offDayId });
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to remove off day.");
+      setError(
+        err instanceof Error ? err.message : "Failed to remove off day.",
+      );
     } finally {
       setSaving(false);
     }
@@ -622,7 +792,9 @@ export default function LocationPlannerAdminPage() {
       await deleteTlbEmployeeWeeklyOffDay({ organizationId, ruleId });
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to remove weekly off day.");
+      setError(
+        err instanceof Error ? err.message : "Failed to remove weekly off day.",
+      );
     } finally {
       setSaving(false);
     }
@@ -630,22 +802,20 @@ export default function LocationPlannerAdminPage() {
 
   if (!canUsePlanner) {
     return (
-      <div className="min-h-screen bg-black text-white">
-        <div className="flex min-h-screen flex-col lg:flex-row">
-          <Sidebar role={profile?.primary_role} />
-          <main className="flex-1 bg-gray-100 px-4 py-6 text-gray-900 sm:px-6 lg:px-8">
-            <div className="mx-auto max-w-3xl rounded-3xl border border-gray-200 bg-white p-8 shadow-sm">
-              <p className="text-xs font-semibold uppercase tracking-[0.25em] text-orange-500">
-                Scheduling
-              </p>
-              <h1 className="mt-3 text-2xl font-bold text-gray-950">Workforce Planner is not available here</h1>
-              <p className="mt-2 text-sm text-gray-500">
-                Your organization does not currently have access to workforce scheduling.
-              </p>
-            </div>
-          </main>
+      <main className="min-h-screen bg-[#050505] px-4 py-8 text-white sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-3xl rounded-4xl border border-white/10 bg-white/4 p-8 shadow-2xl shadow-black/40">
+          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-orange-400">
+            Scheduling
+          </p>
+          <h1 className="mt-3 text-3xl font-bold text-white">
+            Workforce Planner is not available here
+          </h1>
+          <p className="mt-2 text-sm text-white/50">
+            Your organization does not currently have access to workforce
+            scheduling.
+          </p>
         </div>
-      </div>
+      </main>
     );
   }
 
@@ -656,11 +826,12 @@ export default function LocationPlannerAdminPage() {
         <main className="min-w-0 flex-1 bg-black text-white">
           <DndContext
             sensors={sensors}
+            collisionDetection={pointerWithin}
             onDragStart={handleDragStart}
             onDragEnd={handleDragEnd}
           >
-            <div className="mx-auto max-w-[1800px] px-4 py-6 sm:px-6 lg:px-8">
-              <header className="mb-6 rounded-3xl border border-white/10 bg-white/[0.06] p-5 shadow-2xl shadow-black/30">
+            <div className="mx-auto max-w-450 px-4 py-6 sm:px-6 lg:px-8">
+              <header className="mb-6 rounded-3xl border border-white/10 bg-white/6 p-5 shadow-2xl shadow-black/30">
                 <div className="flex flex-wrap items-start justify-between gap-4">
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-[0.25em] text-orange-300">
@@ -670,14 +841,17 @@ export default function LocationPlannerAdminPage() {
                       Workforce Planner
                     </h1>
                     <p className="mt-2 max-w-2xl text-sm text-white/50">
-                      Plan daily shift requirements by location, then assign available employees into the right roles.
+                      Plan daily shift requirements by location, then assign
+                      available employees into the right roles.
                     </p>
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2">
                     <select
                       value={locationFilter}
-                      onChange={(event) => setLocationFilter(event.target.value)}
+                      onChange={(event) =>
+                        setLocationFilter(event.target.value)
+                      }
                       className="rounded-xl border border-white/10 bg-neutral-950 px-3 py-2 text-sm text-white outline-none focus:border-orange-500"
                     >
                       <option value="all">All locations</option>
@@ -690,7 +864,9 @@ export default function LocationPlannerAdminPage() {
                     <div className="inline-flex overflow-hidden rounded-xl border border-white/10 bg-neutral-950">
                       <button
                         type="button"
-                        onClick={() => setSelectedDate((date) => addDays(date, -1))}
+                        onClick={() =>
+                          setSelectedDate((date) => addDays(date, -1))
+                        }
                         className="px-3 py-2 text-sm font-semibold text-white/65 hover:bg-white/10"
                       >
                         Prev
@@ -698,7 +874,9 @@ export default function LocationPlannerAdminPage() {
                       <input
                         type="date"
                         value={selectedDate}
-                        onChange={(event) => setSelectedDate(event.target.value)}
+                        onChange={(event) =>
+                          setSelectedDate(event.target.value)
+                        }
                         className="border-x border-white/10 bg-transparent px-3 py-2 text-sm text-white outline-none focus:bg-orange-500/10"
                       />
                       <button
@@ -710,7 +888,9 @@ export default function LocationPlannerAdminPage() {
                       </button>
                       <button
                         type="button"
-                        onClick={() => setSelectedDate((date) => addDays(date, 1))}
+                        onClick={() =>
+                          setSelectedDate((date) => addDays(date, 1))
+                        }
                         className="border-l border-white/10 px-3 py-2 text-sm font-semibold text-white/65 hover:bg-white/10"
                       >
                         Next
@@ -744,6 +924,19 @@ export default function LocationPlannerAdminPage() {
                         </button>
                         <button
                           type="button"
+                          onClick={() => {
+                            setSelectedAssignmentId(null);
+                            setConflicts(null);
+                            setAssignmentModalMode("create");
+                            setAssignmentModalOpen(true);
+                          }}
+                          className="inline-flex items-center gap-2 rounded-xl border border-orange-300/30 bg-orange-500/10 px-3 py-2 text-sm font-semibold text-orange-100 hover:bg-orange-500/15"
+                        >
+                          <UserPlus size={16} />
+                          Manual Assignment
+                        </button>
+                        <button
+                          type="button"
                           onClick={() => setLocationsOpen(true)}
                           className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-neutral-950 px-3 py-2 text-sm font-semibold text-white/70 hover:border-orange-300"
                         >
@@ -765,8 +958,9 @@ export default function LocationPlannerAdminPage() {
               </header>
 
               {!canEdit ? (
-                <p className="mb-4 rounded-xl border border-white/10 bg-white/[0.06] px-4 py-3 text-sm text-white/60">
-                  View-only. Scheduling admins can drag employees and assignments across the planner.
+                <p className="mb-4 rounded-xl border border-white/10 bg-white/6 px-4 py-3 text-sm text-white/60">
+                  View-only. Scheduling admins can drag employees and
+                  assignments across the planner.
                 </p>
               ) : null}
 
@@ -779,7 +973,8 @@ export default function LocationPlannerAdminPage() {
               {unavailableToday.length > 0 ? (
                 <div className="mb-4 rounded-2xl border border-sky-300/25 bg-sky-500/10 px-4 py-3">
                   <p className="text-sm font-semibold text-sky-100">
-                    {unavailableToday.length} employee{unavailableToday.length === 1 ? "" : "s"} unavailable today
+                    {unavailableToday.length} employee
+                    {unavailableToday.length === 1 ? "" : "s"} unavailable today
                   </p>
                   <div className="mt-2 flex flex-wrap gap-2">
                     {unavailableToday.map((item) => (
@@ -787,8 +982,10 @@ export default function LocationPlannerAdminPage() {
                         key={`${item.kind}-${item.id}`}
                         className="rounded-full bg-white/10 px-2.5 py-1 text-xs font-semibold text-sky-100 shadow-sm"
                       >
-                        {item.employee_name || item.employee_email || "Employee"} ·{" "}
-                        {formatAvailabilitySummary(item)}
+                        {item.employee_name ||
+                          item.employee_email ||
+                          "Employee"}{" "}
+                        · {formatAvailabilitySummary(item)}
                       </span>
                     ))}
                   </div>
@@ -798,7 +995,7 @@ export default function LocationPlannerAdminPage() {
               <StatusAlertBanner events={data?.status_events ?? []} />
 
               {loading || !data ? (
-                <div className="rounded-2xl border border-white/10 bg-white/[0.06] px-6 py-16 text-center text-white/45">
+                <div className="rounded-2xl border border-white/10 bg-white/6 px-6 py-16 text-center text-white/45">
                   Loading planner...
                 </div>
               ) : (
@@ -812,12 +1009,13 @@ export default function LocationPlannerAdminPage() {
                     ].join(" ")}
                   >
                     <section>
-                      <div className="mb-4 rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3">
+                      <div className="mb-4 rounded-2xl border border-white/10 bg-white/6 px-4 py-3">
                         <p className="text-sm font-semibold text-white">
                           Locations and shift requirements
                         </p>
                         <p className="mt-1 text-xs text-white/45">
-                          Create daily requirements inside locations, then drag available employees into each role.
+                          Create daily requirements inside locations, then drag
+                          available employees into each role.
                         </p>
                       </div>
                       <LocationsBoard
@@ -875,18 +1073,25 @@ export default function LocationPlannerAdminPage() {
                 </>
               )}
 
-              {saving ? <p className="mt-3 text-xs text-white/45">Saving changes...</p> : null}
+              {saving ? (
+                <p className="mt-3 text-xs text-white/45">Saving changes...</p>
+              ) : null}
             </div>
 
             <DragOverlay>
               {activeAssignment ? (
                 <div className="w-64">
-                  <SimpleAssignmentCard assignment={activeAssignment} />
+                  <SimpleAssignmentCard
+                    assignment={activeAssignment}
+                    tone="light"
+                  />
                 </div>
               ) : activeEmployee ? (
                 <div className="w-64 rounded-2xl border border-orange-300 bg-white p-4 text-gray-950 shadow-lg">
                   <p className="font-semibold">
-                    {activeEmployee.full_name || activeEmployee.email || "Employee"}
+                    {activeEmployee.full_name ||
+                      activeEmployee.email ||
+                      "Employee"}
                   </p>
                   <p className="mt-1 text-xs text-gray-500">
                     {activeEmployee.primary_role ?? "No role"}
@@ -930,6 +1135,8 @@ export default function LocationPlannerAdminPage() {
             locations={data.locations}
             roles={data.roles}
             initial={selectedRow}
+            defaultDate={selectedDate}
+            defaultLocationId={locationFilter === "all" ? null : locationFilter}
             conflicts={conflicts}
             saving={saving}
             onCheckConflicts={handleCheckConflicts}
@@ -937,7 +1144,10 @@ export default function LocationPlannerAdminPage() {
             onDelete={
               selectedRow
                 ? async (id) => {
-                    await deleteAssignment({ organizationId, assignmentId: id });
+                    await deleteAssignment({
+                      organizationId,
+                      assignmentId: id,
+                    });
                     setAssignmentModalOpen(false);
                     await load();
                   }
@@ -956,6 +1166,8 @@ export default function LocationPlannerAdminPage() {
             open={rolesOpen}
             onClose={() => setRolesOpen(false)}
             roles={data.roles}
+            locations={data.locations}
+            slots={data.slots}
             onSave={handleSaveRole}
           />
         </>

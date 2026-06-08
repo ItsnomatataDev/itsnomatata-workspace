@@ -30,6 +30,7 @@ export type CompanyRole = {
   name: string;
   category: string | null;
   description: string | null;
+  location_id: string | null;
   required_skills: string[];
   is_temporary: boolean;
   is_active: boolean;

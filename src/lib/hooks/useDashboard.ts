@@ -33,6 +33,7 @@ export type DashboardTask = {
   due_date: string | null;
   created_at: string;
   created_by: string | null;
+  assigned_to: string | null;
 
 
   client_id: string | null;
@@ -102,6 +103,7 @@ function mapDashboardTaskRow(task: Record<string, unknown>): DashboardTask {
     due_date: (task.due_date as string | null) ?? null,
     created_at: task.created_at as string,
     created_by: (task.created_by as string | null) ?? null,
+    assigned_to: (task.assigned_to as string | null) ?? null,
     client_id: (task.client_id as string | null) ?? null,
     office_id: (task.office_id as string | null) ?? null,
     project_id: (task.project_id as string | null) ?? null,
@@ -159,6 +161,7 @@ async function fetchDashboardTasksByIds(params: {
           due_date,
           created_at,
           created_by,
+          assigned_to,
           client_id,
           project_id,
           profiles:created_by (
@@ -169,7 +172,7 @@ async function fetchDashboardTasksByIds(params: {
         .eq("organization_id", params.organizationId)
         .in("id", chunk)
         .is("archived_at", null)
-        .not("status", "eq", "cancelled");
+        .not("status", "in", "(done,cancelled)");
 
       if (!params.includeAllOffices && params.officeId) {
         query = query.eq("office_id", params.officeId);
@@ -183,6 +186,18 @@ async function fetchDashboardTasksByIds(params: {
   if (firstError) throw firstError;
 
   return results.flatMap((result) => (result.data ?? []) as Record<string, unknown>[]);
+}
+
+function isDashboardTaskOwnedByUser(
+  task: DashboardTask,
+  userId: string,
+  assignedThroughAssigneeRows: Set<string>,
+) {
+  return (
+    task.created_by === userId ||
+    task.assigned_to === userId ||
+    assignedThroughAssigneeRows.has(task.id)
+  );
 }
 
 export function useDashboard(params: {
@@ -412,24 +427,59 @@ export function useDashboard(params: {
       }
       setError("");
 
-      const { data: directAssignments, error: directAssignmentsError } = await (() => {
-        let query = supabase
-          .from("tasks")
-          .select("id")
+      const [
+        { data: ownedTasks, error: ownedTasksError },
+        { data: directAssignments, error: directAssignmentsError },
+        { data: taskAssignments, error: taskAssignmentsError },
+      ] = await Promise.all([
+        (() => {
+          let query = supabase
+            .from("tasks")
+            .select("id")
+            .eq("organization_id", organizationId)
+            .eq("created_by", userId)
+            .is("archived_at", null)
+            .not("status", "in", "(done,cancelled)");
+          if (!includeAllOffices && officeId) {
+            query = query.eq("office_id", officeId);
+          }
+          return query;
+        })(),
+        (() => {
+          let query = supabase
+            .from("tasks")
+            .select("id")
+            .eq("organization_id", organizationId)
+            .eq("assigned_to", userId)
+            .is("archived_at", null)
+            .not("status", "in", "(done,cancelled)");
+          if (!includeAllOffices && officeId) {
+            query = query.eq("office_id", officeId);
+          }
+          return query;
+        })(),
+        supabase
+          .from("task_assignees")
+          .select("task_id")
           .eq("organization_id", organizationId)
-          .eq("assigned_to", userId)
-          .is("archived_at", null);
-        if (!includeAllOffices && officeId) {
-          query = query.eq("office_id", officeId);
-        }
-        return query;
-      })();
+          .eq("user_id", userId),
+      ]);
 
+      if (ownedTasksError) throw ownedTasksError;
       if (directAssignmentsError) throw directAssignmentsError;
+      if (taskAssignmentsError) throw taskAssignmentsError;
+
+      const assigneeTaskIds = new Set(
+        (taskAssignments?.map((assignment: { task_id: string }) => assignment.task_id) ?? []).filter(Boolean),
+      );
 
       const assignedTaskIds = Array.from(
         new Set(
-          (directAssignments?.map((row: { id: string }) => row.id) ?? []).filter(Boolean),
+          [
+            ...(ownedTasks?.map((row: { id: string }) => row.id) ?? []),
+            ...(directAssignments?.map((row: { id: string }) => row.id) ?? []),
+            ...assigneeTaskIds,
+          ].filter(Boolean),
         ),
       );
 
@@ -527,11 +577,13 @@ export function useDashboard(params: {
           includeAllOffices,
         });
 
-        const allMapped = taskRows.map(mapDashboardTaskRow);
-        doneTasks = allMapped.filter((task) => task.status === "done").length;
+        const allMapped = taskRows
+          .map(mapDashboardTaskRow)
+          .filter((task) => isDashboardTaskOwnedByUser(task, userId, assigneeTaskIds));
+        doneTasks = 0;
 
         const activeMapped = excludeOverdueTasks(
-          allMapped.filter((task) => task.status !== "done"),
+          allMapped.filter((task) => task.status !== "done" && task.status !== "cancelled"),
         );
         buckets = buildDashboardTaskBuckets(activeMapped);
       }

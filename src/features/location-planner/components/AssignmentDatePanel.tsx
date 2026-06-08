@@ -70,6 +70,7 @@ export default function AssignmentDatePanel({
                   <SimpleAssignmentCard
                     key={assignment.id}
                     assignment={assignment}
+                    tone="light"
                     draggable={canEdit}
                     selected={selectedAssignmentId === assignment.id}
                     onSelect={

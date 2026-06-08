@@ -70,6 +70,7 @@ function StreamColumn({
             <SimpleAssignmentCard
               key={assignment.id}
               assignment={assignment}
+              tone="light"
               draggable={canEdit}
               selected={selectedAssignmentId === assignment.id}
               onSelect={onSelectAssignment ? () => onSelectAssignment(assignment.id) : undefined}
@@ -94,7 +95,7 @@ export default function WorkStreamsBoard({
   if (streams.length === 0) {
     return (
       <div className="rounded-2xl border border-dashed border-gray-300 bg-white px-6 py-14 text-center">
-        <BriefcaseBusiness size={32} className="mx-auto mb-3 text-gray-300" />
+        <BriefcaseBusiness size={32} className="mx-auto mb-3 text-gray-500" />
         <p className="font-semibold text-gray-900">No work streams for this date</p>
         <p className="mt-1 text-sm text-gray-500">Create slots like Editor or Social Media to start assigning people.</p>
       </div>

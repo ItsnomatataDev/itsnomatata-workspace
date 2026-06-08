@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { X } from "lucide-react";
 import type {
   AdminAssignmentRow,
@@ -21,6 +21,8 @@ type Props = {
   locations: CompanyLocation[];
   roles: CompanyRole[];
   initial?: AdminAssignmentRow | null;
+  defaultDate?: string;
+  defaultLocationId?: string | null;
   conflicts?: ConflictResult | null;
   saving?: boolean;
   onSave: (input: AssignmentInput, assignmentId?: string) => Promise<void>;
@@ -36,6 +38,8 @@ export default function AssignmentModal({
   locations,
   roles,
   initial,
+  defaultDate = "",
+  defaultLocationId,
   conflicts,
   saving,
   onSave,
@@ -46,25 +50,36 @@ export default function AssignmentModal({
   const [locationId, setLocationId] = useState("");
   const [temporaryRoleId, setTemporaryRoleId] = useState("");
   const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
   const [startTime, setStartTime] = useState("");
   const [endTime, setEndTime] = useState("");
   const [status, setStatus] = useState<AssignmentStatus>("draft");
   const [notes, setNotes] = useState("");
+  const availableRoles = useMemo(
+    () => roles.filter((role) => !role.location_id || role.location_id === locationId),
+    [locationId, roles],
+  );
 
   useEffect(() => {
     if (!open) return;
     const a = initial?.assignment;
     setEmployeeId(a?.employee_id ?? employees[0]?.id ?? "");
-    setLocationId(a?.location_id ?? locations[0]?.id ?? "");
-    setTemporaryRoleId(a?.temporary_role_id ?? roles[0]?.id ?? "");
-    setStartDate(a?.start_date ?? "");
-    setEndDate(a?.end_date ?? "");
+    setLocationId(a?.location_id ?? defaultLocationId ?? locations[0]?.id ?? "");
+    const matchingRoles = roles.filter((role) =>
+      !role.location_id || role.location_id === (a?.location_id ?? defaultLocationId ?? locations[0]?.id),
+    );
+    setTemporaryRoleId(a?.temporary_role_id ?? matchingRoles[0]?.id ?? "");
+    setStartDate(a?.start_date ?? defaultDate);
     setStartTime(a?.start_time?.slice(0, 5) ?? "09:00");
     setEndTime(a?.end_time?.slice(0, 5) ?? "17:00");
     setStatus(a?.status ?? "draft");
     setNotes(a?.notes ?? "");
-  }, [employees, initial, locations, open, roles]);
+  }, [defaultDate, defaultLocationId, employees, initial, locations, open, roles]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (temporaryRoleId && availableRoles.some((role) => role.id === temporaryRoleId)) return;
+    setTemporaryRoleId(availableRoles[0]?.id ?? "");
+  }, [availableRoles, open, temporaryRoleId]);
 
   if (!open) return null;
 
@@ -73,7 +88,7 @@ export default function AssignmentModal({
     location_id: locationId,
     temporary_role_id: temporaryRoleId || null,
     start_date: startDate,
-    end_date: endDate,
+    end_date: startDate,
     start_time: startTime,
     end_time: endTime,
     status,
@@ -82,12 +97,12 @@ export default function AssignmentModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white shadow-xl">
+      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white text-gray-950 shadow-xl">
         <div className="flex items-center justify-between border-b border-gray-200 px-5 py-4">
           <h2 className="text-lg font-semibold text-gray-900">
             {mode === "create" ? "New assignment" : "Edit assignment"}
           </h2>
-          <button type="button" onClick={onClose} className="text-gray-500"><X size={20} /></button>
+          <button type="button" onClick={onClose} className="text-gray-700 hover:text-gray-950"><X size={20} /></button>
         </div>
         <form
           className="space-y-4 p-5"
@@ -105,7 +120,7 @@ export default function AssignmentModal({
             </select>
           </label>
           <label className="block text-xs font-semibold uppercase text-gray-500">
-            Assigned location
+            Location for this manual role
             <select className={inputClass} value={locationId} onChange={(e) => setLocationId(e.target.value)}>
               {locations.map((loc) => (
                 <option key={loc.id} value={loc.id}>{loc.name}</option>
@@ -113,23 +128,17 @@ export default function AssignmentModal({
             </select>
           </label>
           <label className="block text-xs font-semibold uppercase text-gray-500">
-            Role
+            Manual role
             <select className={inputClass} value={temporaryRoleId} onChange={(e) => setTemporaryRoleId(e.target.value)}>
-              {roles.map((role) => (
+              {availableRoles.map((role) => (
                 <option key={role.id} value={role.id}>{role.name}</option>
               ))}
             </select>
           </label>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="block text-xs font-semibold uppercase text-gray-500">
-              Start date
-              <input type="date" className={inputClass} value={startDate} onChange={(e) => setStartDate(e.target.value)} required />
-            </label>
-            <label className="block text-xs font-semibold uppercase text-gray-500">
-              End date
-              <input type="date" className={inputClass} value={endDate} onChange={(e) => setEndDate(e.target.value)} required />
-            </label>
-          </div>
+          <label className="block text-xs font-semibold uppercase text-gray-500">
+            Assignment date
+            <input type="date" className={inputClass} value={startDate} onChange={(e) => setStartDate(e.target.value)} required />
+          </label>
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="block text-xs font-semibold uppercase text-gray-500">
               Shift start
@@ -178,13 +187,13 @@ export default function AssignmentModal({
               {onCheckConflicts ? (
                 <button
                   type="button"
-                  className="rounded-xl border border-gray-200 px-4 py-2 text-sm"
+                  className="rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium text-gray-900 hover:border-orange-400"
                   onClick={() => void onCheckConflicts(draft, initial?.assignment.id)}
                 >
                   Check conflicts
                 </button>
               ) : null}
-              <button type="button" onClick={onClose} className="rounded-xl border border-gray-200 px-4 py-2 text-sm">Cancel</button>
+              <button type="button" onClick={onClose} className="rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium text-gray-900 hover:border-orange-400">Cancel</button>
               <button type="submit" disabled={saving} className="rounded-xl bg-orange-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">
                 {saving ? "Saving…" : "Save"}
               </button>

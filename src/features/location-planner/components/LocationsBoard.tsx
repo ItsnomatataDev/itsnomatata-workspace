@@ -29,6 +29,7 @@ function SlotDropZone({
 }) {
   const isFull =
     slot.requiredCount !== null && slot.assignments.length >= slot.requiredCount;
+  const isPermanentRole = !slot.slotId;
   const { setNodeRef, isOver } = useDroppable({
     id: `location-slot-${slot.id}`,
     data: {
@@ -56,8 +57,9 @@ function SlotDropZone({
       <div className="flex items-start justify-between gap-2">
         <div>
           <p className="text-xs font-semibold text-orange-50">{slot.title}</p>
-          <p className="mt-0.5 text-[10px] text-orange-100/65">
-            {slot.subtitle} · {formatTimeRange(slot.startTime, slot.endTime)}
+          <p className="mt-0.5 text-[10px] text-orange-100/70">
+            {slot.subtitle}
+            {slot.startTime || slot.endTime ? ` · ${formatTimeRange(slot.startTime, slot.endTime)}` : ""}
           </p>
         </div>
         <div className="flex flex-col items-end gap-1">
@@ -98,7 +100,7 @@ function SlotDropZone({
           ))
         ) : (
           <p className="rounded-lg bg-black/20 px-3 py-4 text-center text-[11px] text-orange-100/65">
-            Drop an available employee here
+            {isPermanentRole ? "Drop an available employee for this day" : "Drop an available employee here"}
           </p>
         )}
       </div>
@@ -148,7 +150,7 @@ function LocationColumn({
       ref={setNodeRef}
       className={[
         "min-h-[280px] rounded-2xl border p-4 shadow-2xl shadow-black/25 transition",
-        closed ? "border-gray-800 bg-gray-950 text-white" : "bg-white",
+        closed ? "border-gray-800 bg-gray-950 text-white" : "",
         isOver
           ? "border-orange-300 bg-orange-500/15 text-white"
           : closed
@@ -203,7 +205,7 @@ function LocationColumn({
               closed ? "border-white/10 text-white/35" : "border-white/10 text-white/35",
             ].join(" ")}
           >
-            {closed ? "Location closed" : "No shift requirements yet. Add a requirement, then assign employees."}
+            {closed ? "Location closed" : "No permanent roles or shift requirements yet."}
           </div>
         )}
       </div>
