@@ -22,7 +22,7 @@ const corsHeaders = {
 };
 
 async function markDelivery(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   deliveryId: string | null,
   values: Record<string, unknown>,
 ) {
@@ -175,11 +175,30 @@ serve(async (req) => {
         ? `/admin/content-studio/editor/${draftId}`
         : notification.action_url ?? "/notifications";
 
+    let unreadCount = 1;
+    let unreadQuery = supabase
+      .from("notifications")
+      .select("id", { head: true, count: "exact" })
+      .eq("user_id", notification.user_id)
+      .eq("is_read", false);
+
+    if (notification.organization_id) {
+      unreadQuery = unreadQuery.eq("organization_id", notification.organization_id);
+    }
+
+    const { count: unreadNotificationCount, error: unreadCountError } =
+      await unreadQuery;
+
+    if (!unreadCountError) {
+      unreadCount = unreadNotificationCount ?? unreadCount;
+    }
+
     const payload = JSON.stringify({
       notificationId: notification.id,
       title: notification.title,
       message: notification.message ?? "",
       actionUrl,
+      unreadCount,
       type: notification.type,
       priority: notification.priority,
       category: notification.category,

@@ -71,6 +71,29 @@ function isAppTabVisible(clientList) {
   });
 }
 
+async function syncAppBadge(unreadCount) {
+  if (
+    typeof self.registration.setAppBadge !== "function" ||
+    typeof self.registration.clearAppBadge !== "function"
+  ) {
+    return;
+  }
+
+  try {
+    const count = Number.isFinite(Number(unreadCount))
+      ? Math.max(0, Math.trunc(Number(unreadCount)))
+      : 0;
+
+    if (count > 0) {
+      await self.registration.setAppBadge(count);
+    } else {
+      await self.registration.clearAppBadge();
+    }
+  } catch (err) {
+    console.warn("APP BADGE SERVICE WORKER:", err);
+  }
+}
+
 self.addEventListener("push", function (event) {
   let data = {};
 
@@ -101,18 +124,21 @@ self.addEventListener("push", function (event) {
   };
 
   event.waitUntil(
-    clients
-      .matchAll({
-        type: "window",
-        includeUncontrolled: true,
-      })
-      .then(function (clientList) {
-        if (isAppTabVisible(clientList)) {
-          return;
-        }
+    Promise.all([
+      syncAppBadge(data.unreadCount ?? 1),
+      clients
+        .matchAll({
+          type: "window",
+          includeUncontrolled: true,
+        })
+        .then(function (clientList) {
+          if (isAppTabVisible(clientList)) {
+            return;
+          }
 
-        return self.registration.showNotification(title, options);
-      }),
+          return self.registration.showNotification(title, options);
+        }),
+    ]),
   );
 });
 

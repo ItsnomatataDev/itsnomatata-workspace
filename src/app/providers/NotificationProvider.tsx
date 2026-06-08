@@ -26,6 +26,7 @@ import {
   syncPushSubscriptionWithServer,
   unregisterPushNotifications,
 } from "../../features/notifications/services/pushService";
+import { syncAppBadge } from "../../features/notifications/services/appBadge";
 import { resolveNotificationActionUrl } from "../../features/notifications/utils/notificationLinks";
 import {
   playSystemSound,
@@ -111,6 +112,10 @@ export function NotificationProvider({
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  useEffect(() => {
+    void syncAppBadge(userId ? unreadCount : 0);
+  }, [unreadCount, userId]);
 
   useEffect(() => {
     const supportError = getPushSupportError();
