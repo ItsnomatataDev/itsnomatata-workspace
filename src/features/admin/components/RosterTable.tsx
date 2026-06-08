@@ -1,13 +1,23 @@
 import { CalendarDays, Sparkles, UserRound } from "lucide-react";
-import type {
-  DutyAssignmentPreview,
-  ProfileRosterUserRow,
+import {
+  getDutyCategoryLabel,
+  getExcludedUsersForDuty,
+  type DutyAssignmentPreview,
+  type DutyDefinitionRow,
+  type DutyEligibilityOverrideRow,
+  type DutyRosterMemberRow,
+  type ProfileRosterUserRow,
 } from "../services/adminService";
 
 type RosterTableProps = {
   assignments: DutyAssignmentPreview[];
   users: ProfileRosterUserRow[];
+  duties?: DutyDefinitionRow[];
+  rosterMembers?: DutyRosterMemberRow[];
+  overridesByDuty?: Map<string, DutyEligibilityOverrideRow[]>;
   currentUserId?: string | null;
+  nextAssignees?: Record<string, string | null>;
+  showMeta?: boolean;
 };
 
 const DAY_LABELS: Record<number, string> = {
@@ -30,9 +40,15 @@ function initials(name?: string | null, email?: string | null) {
 export default function RosterTable({
   assignments,
   users,
+  duties = [],
+  rosterMembers = [],
+  overridesByDuty,
   currentUserId,
+  nextAssignees = {},
+  showMeta = true,
 }: RosterTableProps) {
   const userMap = new Map(users.map((user) => [user.id, user]));
+  const dutyMap = new Map(duties.map((duty) => [duty.id, duty]));
 
   if (assignments.length === 0) {
     return (
@@ -46,7 +62,21 @@ export default function RosterTable({
     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
       {assignments.map((assignment) => {
         const user = userMap.get(assignment.user_id);
+        const duty = dutyMap.get(assignment.duty_id);
         const isMe = assignment.user_id === currentUserId;
+        const nextUserId = nextAssignees[assignment.duty_id];
+        const nextUser = nextUserId ? userMap.get(nextUserId) : null;
+        const excluded =
+          duty && showMeta
+            ? getExcludedUsersForDuty({
+                users,
+                rosterMembers,
+                duty,
+                overrides: overridesByDuty?.get(duty.id) ?? [],
+                allDuties: duties,
+                weekStart: assignment.week_start,
+              })
+            : [];
 
         return (
           <article
@@ -55,7 +85,7 @@ export default function RosterTable({
               "rounded-2xl border p-4 transition",
               isMe
                 ? "border-orange-500/40 bg-orange-500/12 shadow-lg shadow-orange-950/20"
-                : assignment.is_fat_friday
+                : assignment.is_special_day
                   ? "border-amber-500/30 bg-amber-500/10"
                   : "border-white/10 bg-white/5",
             ].join(" ")}
@@ -66,10 +96,12 @@ export default function RosterTable({
                   <h3 className="font-semibold text-white">
                     {assignment.duty_name}
                   </h3>
-                  {assignment.is_fat_friday ? (
+                  {assignment.is_special_day ? (
                     <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/25 bg-amber-500/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-200">
                       <Sparkles size={11} />
-                      Friday
+                      {assignment.day_of_week
+                        ? DAY_LABELS[assignment.day_of_week] ?? "Special"
+                        : "Special"}
                     </span>
                   ) : null}
                   {isMe ? (
@@ -78,11 +110,11 @@ export default function RosterTable({
                     </span>
                   ) : null}
                 </div>
-                <p className="mt-1 text-xs text-white/45">
-                  {assignment.duty_type === "single_day"
-                    ? `${DAY_LABELS[assignment.day_of_week ?? 5]} only`
-                    : "Weekly rotating duty"}
-                </p>
+                {showMeta ? (
+                  <p className="mt-1 text-xs text-white/45">
+                    {getDutyCategoryLabel(assignment.duty_category)}
+                  </p>
+                ) : null}
               </div>
               <CalendarDays size={18} className="text-orange-400" />
             </div>
@@ -108,6 +140,39 @@ export default function RosterTable({
                 </p>
               </div>
             </div>
+
+            {showMeta ? (
+              <div className="mt-4 space-y-2 text-xs text-white/45">
+                <div className="flex items-center justify-between gap-3">
+                  <span>Rotation status</span>
+                  <span className="text-white/70">{assignment.rotation_status}</span>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <span>Eligible pool</span>
+                  <span className="text-white/70">{assignment.eligible_count}</span>
+                </div>
+                {excluded.length > 0 ? (
+                  <div>
+                    <span className="block text-white/35">Excluded</span>
+                    <span className="mt-1 block text-white/60">
+                      {excluded
+                        .slice(0, 3)
+                        .map((item) => item.full_name || item.email || "Unknown")
+                        .join(", ")}
+                      {excluded.length > 3 ? ` +${excluded.length - 3} more` : ""}
+                    </span>
+                  </div>
+                ) : null}
+                {nextUser ? (
+                  <div className="rounded-xl border border-orange-500/20 bg-orange-500/5 px-3 py-2">
+                    <span className="block text-white/35">Next rotation preview</span>
+                    <span className="mt-1 block text-orange-100">
+                      {nextUser.full_name || nextUser.email || "Unknown user"}
+                    </span>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
           </article>
         );
       })}

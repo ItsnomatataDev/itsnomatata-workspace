@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import {
   createDutyRosterWithSetup,
@@ -50,17 +50,30 @@ export default function CreateRosterModal({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    if (!open) return;
+  const initializedRef = useRef<string | null>(null);
 
-    setTitle(roster?.title ?? "ITsNomatata Weekly Duties");
-    setDepartment(roster?.department ?? "ITsNomatata");
+  useEffect(() => {
+    if (!open) {
+      initializedRef.current = null;
+      return;
+    }
+
+    const initKey = roster?.id ?? "new";
+    if (initializedRef.current === initKey) return;
+    initializedRef.current = initKey;
+
+    const nextUsers = roster
+      ? rosterMembers.map((member) => member.user_id)
+      : users.map((item) => item.id);
+    const nextDuties = rosterDuties.map((item) => item.duty_id);
+    setTitle(roster?.title ?? `${office.name} Duty Roster`);
+    setDepartment(roster?.department ?? office.name);
     setWeekStart(roster?.week_start ?? getCurrentDutyWeekStart());
     setNotes(roster?.notes ?? "");
-    setSelectedUsers(rosterMembers.map((member) => member.user_id));
-    setSelectedDuties(rosterDuties.map((item) => item.duty_id));
+    setSelectedUsers(nextUsers);
+    setSelectedDuties(nextDuties);
     setError("");
-  }, [open, roster?.id]);
+  }, [open, office.name, roster?.id, rosterDuties, rosterMembers, users]);
 
   if (!open) return null;
 
@@ -73,11 +86,13 @@ export default function CreateRosterModal({
   };
 
   const toggleDuty = (dutyId: string) => {
-    setSelectedDuties((current) =>
-      current.includes(dutyId)
+    setSelectedDuties((current) => {
+      const next = current.includes(dutyId)
         ? current.filter((id) => id !== dutyId)
-        : [...current, dutyId],
-    );
+        : [...current, dutyId];
+
+      return next;
+    });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -85,7 +100,7 @@ export default function CreateRosterModal({
     setError("");
 
     if (selectedUsers.length === 0) {
-      setError("Select at least one ITsNomatata user for rotation.");
+      setError("Select at least one employee for the rotation pool.");
       return;
     }
 
@@ -93,6 +108,11 @@ export default function CreateRosterModal({
       setError("Assign at least one duty to this roster.");
       return;
     }
+
+    const rosterDutiesPayload = selectedDuties.map((dutyId) => ({
+      dutyId,
+      assignedUserId: null,
+    }));
 
     try {
       setBusy(true);
@@ -106,7 +126,7 @@ export default function CreateRosterModal({
         });
         await Promise.all([
           setDutyRosterMembers(roster.id, selectedUsers),
-          setDutyRosterDuties(roster.id, selectedDuties),
+          setDutyRosterDuties(roster.id, rosterDutiesPayload),
         ]);
       } else {
         await createDutyRosterWithSetup({
@@ -118,7 +138,7 @@ export default function CreateRosterModal({
           notes,
           createdBy: userId,
           userIds: selectedUsers,
-          dutyIds: selectedDuties,
+          duties: rosterDutiesPayload,
         });
       }
 
@@ -141,7 +161,8 @@ export default function CreateRosterModal({
               {roster ? "Edit Duty Roster" : "Create Duty Roster"}
             </h2>
             <p className="mt-1 text-sm text-white/55">
-              ITsNomatata-only weekly rotation setup.
+              Choose your team, assign week-one duties, then let rotation handle
+              the rest.
             </p>
           </div>
 
@@ -224,7 +245,7 @@ export default function CreateRosterModal({
             <section className="rounded-2xl border border-white/10 bg-black/40 p-4">
               <div className="mb-3 flex items-center justify-between">
                 <p className="text-sm font-semibold text-white">
-                  Rotation Users
+                  Rotation Pool
                 </p>
                 <span className="text-xs text-white/35">
                   {selectedUsers.length} selected
@@ -284,9 +305,7 @@ export default function CreateRosterModal({
                         {duty.name}
                       </span>
                       <span className="block text-xs text-white/35">
-                        {duty.duty_type === "single_day"
-                          ? "Single-day duty"
-                          : "Weekly rotating"}
+                        {duty.category.replaceAll("_", " ")}
                         {duty.is_active ? "" : " • inactive"}
                       </span>
                     </span>

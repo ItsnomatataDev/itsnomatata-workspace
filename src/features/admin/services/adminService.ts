@@ -22,6 +22,33 @@ import {
 export { isITsNomatataOfficeProfile } from "../../../lib/offices";
 import { getCompanyOfficeBySlug } from "../../../lib/supabase/queries/offices";
 import { createOrganizationInvitation } from "../../platform-admin/services/platformAdminService";
+import type {
+  DutyAssignmentHistoryRow,
+  DutyAssignmentPreview,
+  DutyCategory,
+  DutyDefinitionRow,
+  DutyEligibilityOverrideRow,
+  DutyFrequency,
+  DutyType,
+} from "./dutyRosterTypes";
+import {
+  buildEligiblePool,
+  generateDutyAssignments,
+  getDutyCategoryLabel,
+  getExcludedUsersForDuty,
+  isFixedDutyOwner,
+  previewNextRotationAssignee,
+  shouldExcludeFixedOwnerFromDuty,
+} from "./dutyRosterEngine";
+
+export {
+  buildEligiblePool,
+  getDutyCategoryLabel,
+  getExcludedUsersForDuty,
+  isFixedDutyOwner,
+  previewNextRotationAssignee,
+  shouldExcludeFixedOwnerFromDuty,
+};
 
 type NotificationSummary = {
   ok?: boolean;
@@ -386,21 +413,16 @@ export type LocationPlannerAssignmentRow = {
   notes: string | null;
 };
 
-export type DutyType = "weekly_rotating" | "single_day";
-
-export type DutyDefinitionRow = {
-  id: string;
-  organization_id: string;
-  office_id: string | null;
-  name: string;
-  description: string | null;
-  duty_type: DutyType;
-  day_of_week: number | null;
-  is_active: boolean;
-  created_by: string | null;
-  created_at: string;
-  updated_at: string;
-};
+export type {
+  DutyType,
+  DutyCategory,
+  DutyFrequency,
+  DutyAssignmentSource,
+  DutyDefinitionRow,
+  DutyEligibilityOverrideRow,
+  DutyAssignmentHistoryRow,
+  DutyAssignmentPreview,
+} from "./dutyRosterTypes";
 
 export type DutyRosterMemberRow = {
   id: string;
@@ -416,21 +438,13 @@ export type DutyRosterDutyRow = {
   duty_id: string;
   rotation_offset: number;
   sort_order: number;
+  assigned_user_id: string | null;
   created_at: string;
 };
 
-export type DutyAssignmentPreview = {
-  id: string;
-  roster_id: string;
-  duty_id: string;
-  duty_name: string;
-  description: string | null;
-  duty_type: DutyType;
-  day_of_week: number | null;
-  shift_date: string | null;
-  week_start: string;
-  user_id: string;
-  is_fat_friday: boolean;
+export type DutyRosterDutyInput = {
+  dutyId: string;
+  assignedUserId?: string | null;
 };
 
 export type EmployeeRow = {
@@ -1632,7 +1646,32 @@ const DUTY_ROSTER_SELECT =
   "id, organization_id, office_id, title, department, week_start, status, rotation_seed, notes, created_by, archived_at, archived_by, created_at";
 
 const DUTY_DEFINITION_SELECT =
-  "id, organization_id, office_id, name, description, duty_type, day_of_week, is_active, created_by, created_at, updated_at";
+  "id, organization_id, office_id, name, description, duty_type, category, frequency, day_of_week, is_active, allow_managers, allow_bosses, fixed_user_id, fixed_starts_at, fixed_ends_at, fixed_duty_participates_in_friday_rotation, included_roles, excluded_roles, created_by, created_at, updated_at";
+
+const DUTY_ELIGIBILITY_SELECT =
+  "id, duty_id, user_id, is_excluded, is_forced_included, reason, created_at";
+
+const DUTY_ASSIGNMENT_HISTORY_SELECT =
+  "id, organization_id, office_id, roster_id, duty_id, user_id, assignment_week, assignment_date, source, created_at";
+
+function categoryToDutyType(category: DutyCategory): DutyType {
+  if (category === "normal_rotation") return "weekly_rotating";
+  return "single_day";
+}
+
+function normalizeDutyDefinitionRow(row: DutyDefinitionRow): DutyDefinitionRow {
+  return {
+    ...row,
+    category: row.category ?? "normal_rotation",
+    frequency: row.frequency ?? "weekly",
+    allow_managers: row.allow_managers ?? true,
+    allow_bosses: row.allow_bosses ?? true,
+    included_roles: row.included_roles ?? [],
+    excluded_roles: row.excluded_roles ?? [],
+    fixed_duty_participates_in_friday_rotation:
+      row.fixed_duty_participates_in_friday_rotation ?? true,
+  };
+}
 
 function getWeekStartFromDate(date: Date) {
   const next = new Date(date);
@@ -1656,6 +1695,8 @@ function dayOfWeekToDate(weekStart: string, dayOfWeek: number | null) {
   return addDays(weekStart, dayOfWeek - 1);
 }
 
+export const DUTY_ROSTER_ROTATION_WEEKS = 4;
+
 export function getCurrentDutyWeekStart() {
   return getWeekStartFromDate(new Date());
 }
@@ -1665,60 +1706,504 @@ export function getUpcomingDutyWeekStarts(count = 4, from = new Date()) {
   return Array.from({ length: count }, (_, index) => addDays(start, index * 7));
 }
 
-export function getDutyAssignmentsForWeek(params: {
+export async function getDutyEligibilityOverrides(dutyIds: string[]) {
+  if (dutyIds.length === 0) return [] as DutyEligibilityOverrideRow[];
+
+  const { data, error } = await supabase
+    .from("duty_eligibility_overrides")
+    .select(DUTY_ELIGIBILITY_SELECT)
+    .in("duty_id", dutyIds);
+
+  if (error) throw error;
+  return (data ?? []) as DutyEligibilityOverrideRow[];
+}
+
+function normalizeEligibilityOverrides(
+  overrides: Array<{
+    userId: string;
+    isExcluded?: boolean;
+    isForcedIncluded?: boolean;
+    reason?: string | null;
+  }>,
+) {
+  const merged = new Map<
+    string,
+    {
+      userId: string;
+      isExcluded: boolean;
+      isForcedIncluded: boolean;
+      reason: string | null;
+    }
+  >();
+
+  for (const item of overrides) {
+    const current = merged.get(item.userId) ?? {
+      userId: item.userId,
+      isExcluded: false,
+      isForcedIncluded: false,
+      reason: null,
+    };
+
+    if (item.isExcluded) current.isExcluded = true;
+    if (item.isForcedIncluded) current.isForcedIncluded = true;
+    if (item.reason) current.reason = item.reason;
+
+    merged.set(item.userId, current);
+  }
+
+  return [...merged.values()]
+    .map((item) => {
+      if (item.isExcluded && item.isForcedIncluded) {
+        return {
+          ...item,
+          isExcluded: false,
+          isForcedIncluded: true,
+        };
+      }
+      return item;
+    })
+    .filter((item) => item.isExcluded || item.isForcedIncluded);
+}
+
+export async function setDutyEligibilityOverrides(
+  dutyId: string,
+  overrides: Array<{
+    userId: string;
+    isExcluded?: boolean;
+    isForcedIncluded?: boolean;
+    reason?: string | null;
+  }>,
+) {
+  const normalized = normalizeEligibilityOverrides(overrides);
+
+  const { error: deleteError } = await supabase
+    .from("duty_eligibility_overrides")
+    .delete()
+    .eq("duty_id", dutyId);
+  if (deleteError) throw deleteError;
+
+  if (normalized.length === 0) return [] as DutyEligibilityOverrideRow[];
+
+  const { data, error } = await supabase
+    .from("duty_eligibility_overrides")
+    .upsert(
+      normalized.map((item) => ({
+        duty_id: dutyId,
+        user_id: item.userId,
+        is_excluded: item.isExcluded,
+        is_forced_included: item.isForcedIncluded,
+        reason: item.reason,
+      })),
+      { onConflict: "duty_id,user_id" },
+    )
+    .select(DUTY_ELIGIBILITY_SELECT);
+
+  if (error) throw error;
+  return (data ?? []) as DutyEligibilityOverrideRow[];
+}
+
+export async function getDutyAssignmentHistory(params: {
+  rosterId: string;
+  beforeWeek?: string;
+  weekStart?: string;
+}) {
+  let query = supabase
+    .from("duty_assignment_history")
+    .select(DUTY_ASSIGNMENT_HISTORY_SELECT)
+    .eq("roster_id", params.rosterId)
+    .order("assignment_week", { ascending: false });
+
+  if (params.weekStart) {
+    query = query.eq("assignment_week", params.weekStart);
+  }
+  if (params.beforeWeek) {
+    query = query.lt("assignment_week", params.beforeWeek);
+  }
+
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data ?? []) as DutyAssignmentHistoryRow[];
+}
+
+async function persistGeneratedAssignments(params: {
+  roster: DutyRosterRow;
+  weekStart: string;
+  assignments: DutyAssignmentPreview[];
+  source?: DutyAssignmentHistoryRow["source"];
+}) {
+  if (params.assignments.length === 0) return;
+
+  const payload = params.assignments.map((assignment) => ({
+    organization_id: params.roster.organization_id,
+    office_id: params.roster.office_id ?? null,
+    roster_id: params.roster.id,
+    duty_id: assignment.duty_id,
+    user_id: assignment.user_id,
+    assignment_week: params.weekStart,
+    assignment_date: assignment.shift_date,
+    source: assignment.source ?? params.source ?? "generated",
+  }));
+
+  const { error } = await supabase
+    .from("duty_assignment_history")
+    .upsert(payload, { onConflict: "roster_id,duty_id,assignment_week" });
+
+  if (error) throw error;
+}
+
+export async function generateRosterForWeek(params: {
   roster: DutyRosterRow;
   weekStart: string;
   rosterMembers: DutyRosterMemberRow[];
   rosterDuties: DutyRosterDutyRow[];
   duties: DutyDefinitionRow[];
-}): DutyAssignmentPreview[] {
-  const members = [...params.rosterMembers].sort(
-    (a, b) => a.sort_order - b.sort_order,
+  users: ProfileRosterUserRow[];
+  overridesByDuty?: Map<string, DutyEligibilityOverrideRow[]>;
+  history?: DutyAssignmentHistoryRow[];
+  persist?: boolean;
+  replaceExisting?: boolean;
+  source?: DutyAssignmentHistoryRow["source"];
+}) {
+  const dutyIds = params.rosterDuties.map((item) => item.duty_id);
+  const [overrides, history, existingWeekHistory] = await Promise.all([
+    params.overridesByDuty
+      ? Promise.resolve(
+          [...params.overridesByDuty.values()].flat(),
+        )
+      : getDutyEligibilityOverrides(dutyIds),
+    params.history
+      ? Promise.resolve(params.history)
+      : getDutyAssignmentHistory({ rosterId: params.roster.id }),
+    getDutyAssignmentHistory({
+      rosterId: params.roster.id,
+      weekStart: params.weekStart,
+    }),
+  ]);
+
+  const overridesByDuty =
+    params.overridesByDuty ??
+    overrides.reduce((map, item) => {
+      const current = map.get(item.duty_id) ?? [];
+      current.push(item);
+      map.set(item.duty_id, current);
+      return map;
+    }, new Map<string, DutyEligibilityOverrideRow[]>());
+
+  if (params.replaceExisting && existingWeekHistory.length > 0) {
+    const { error } = await supabase
+      .from("duty_assignment_history")
+      .delete()
+      .eq("roster_id", params.roster.id)
+      .eq("assignment_week", params.weekStart);
+    if (error) throw error;
+  }
+
+  const assignments = generateDutyAssignments({
+    roster: params.roster,
+    weekStart: params.weekStart,
+    rosterMembers: params.rosterMembers,
+    rosterDuties: params.rosterDuties,
+    duties: params.duties.map(normalizeDutyDefinitionRow),
+    users: params.users,
+    overridesByDuty,
+    history,
+    existingWeekHistory: params.replaceExisting ? [] : existingWeekHistory,
+  });
+
+  const missingHistory = assignments.filter(
+    (assignment) =>
+      !existingWeekHistory.some((item) => item.duty_id === assignment.duty_id),
   );
-  const rosterDuties = [...params.rosterDuties].sort(
-    (a, b) => a.sort_order - b.sort_order,
+
+  if (params.persist !== false && missingHistory.length > 0) {
+    await persistGeneratedAssignments({
+      roster: params.roster,
+      weekStart: params.weekStart,
+      assignments: missingHistory,
+      source: params.source ?? "generated",
+    });
+  }
+
+  return assignments;
+}
+
+export async function regenerateRosterWeek(params: {
+  roster: DutyRosterRow;
+  weekStart: string;
+  rosterMembers: DutyRosterMemberRow[];
+  rosterDuties: DutyRosterDutyRow[];
+  duties: DutyDefinitionRow[];
+  users: ProfileRosterUserRow[];
+}) {
+  return generateRosterForWeek({
+    ...params,
+    replaceExisting: true,
+    source: "regenerated",
+  });
+}
+
+export async function generateRosterRotation(params: {
+  roster: DutyRosterRow;
+  startWeek?: string;
+  weekCount?: number;
+  rosterMembers: DutyRosterMemberRow[];
+  rosterDuties: DutyRosterDutyRow[];
+  duties: DutyDefinitionRow[];
+  users: ProfileRosterUserRow[];
+}) {
+  const startWeek = params.startWeek ?? getCurrentDutyWeekStart();
+  const weekCount = params.weekCount ?? DUTY_ROSTER_ROTATION_WEEKS;
+  const dutyIds = params.rosterDuties.map((item) => item.duty_id);
+  const normalizedDuties = params.duties.map(normalizeDutyDefinitionRow);
+
+  const [overrides, dbHistory] = await Promise.all([
+    getDutyEligibilityOverrides(dutyIds),
+    getDutyAssignmentHistory({ rosterId: params.roster.id }),
+  ]);
+
+  const overridesByDuty = overrides.reduce((map, item) => {
+    const current = map.get(item.duty_id) ?? [];
+    current.push(item);
+    map.set(item.duty_id, current);
+    return map;
+  }, new Map<string, DutyEligibilityOverrideRow[]>());
+
+  let history = [...dbHistory];
+  let assignmentCount = 0;
+  let weeksWritten = 0;
+
+  for (let weekIndex = 0; weekIndex < weekCount; weekIndex += 1) {
+    const weekStart = addDays(startWeek, weekIndex * 7);
+    const existingWeekHistory = history.filter(
+      (item) => item.assignment_week === weekStart,
+    );
+    const replaceThisWeek = weekIndex === 0;
+
+    if (replaceThisWeek && existingWeekHistory.length > 0) {
+      const { error } = await supabase
+        .from("duty_assignment_history")
+        .delete()
+        .eq("roster_id", params.roster.id)
+        .eq("assignment_week", weekStart);
+      if (error) throw error;
+      history = history.filter((item) => item.assignment_week !== weekStart);
+    }
+
+    const assignments = generateDutyAssignments({
+      roster: params.roster,
+      weekStart,
+      rosterMembers: params.rosterMembers,
+      rosterDuties: params.rosterDuties,
+      duties: normalizedDuties,
+      users: params.users,
+      overridesByDuty,
+      history,
+      existingWeekHistory: replaceThisWeek ? [] : existingWeekHistory,
+    });
+
+    const toPersist = replaceThisWeek
+      ? assignments
+      : assignments.filter(
+          (assignment) =>
+            !existingWeekHistory.some((item) => item.duty_id === assignment.duty_id),
+        );
+
+    if (toPersist.length > 0) {
+      await persistGeneratedAssignments({
+        roster: params.roster,
+        weekStart,
+        assignments: toPersist,
+        source: weekIndex === 0 ? "regenerated" : "generated",
+      });
+      assignmentCount += toPersist.length;
+      weeksWritten += 1;
+
+      for (const assignment of assignments) {
+        const existingIndex = history.findIndex(
+          (item) =>
+            item.assignment_week === weekStart &&
+            item.duty_id === assignment.duty_id,
+        );
+        const nextRow: DutyAssignmentHistoryRow = {
+          id: assignment.id,
+          organization_id: params.roster.organization_id,
+          office_id: params.roster.office_id ?? null,
+          roster_id: params.roster.id,
+          duty_id: assignment.duty_id,
+          user_id: assignment.user_id,
+          assignment_week: weekStart,
+          assignment_date: assignment.shift_date,
+          source: assignment.source ?? "generated",
+          created_at: new Date().toISOString(),
+        };
+
+        if (existingIndex >= 0) {
+          history[existingIndex] = nextRow;
+        } else {
+          history.push(nextRow);
+        }
+      }
+    }
+  }
+
+  return {
+    startWeek,
+    weekCount,
+    weeksWritten,
+    assignmentCount,
+  };
+}
+
+export async function saveManualDutyAssignment(params: {
+  roster: DutyRosterRow;
+  weekStart: string;
+  dutyId: string;
+  userId: string;
+  assignmentDate?: string | null;
+}) {
+  const { error } = await supabase.from("duty_assignment_history").upsert(
+    {
+      organization_id: params.roster.organization_id,
+      office_id: params.roster.office_id ?? null,
+      roster_id: params.roster.id,
+      duty_id: params.dutyId,
+      user_id: params.userId,
+      assignment_week: params.weekStart,
+      assignment_date: params.assignmentDate ?? null,
+      source: "manual",
+    },
+    { onConflict: "roster_id,duty_id,assignment_week" },
   );
 
-  if (members.length === 0 || rosterDuties.length === 0) return [];
+  if (error) throw error;
+}
 
-  const dutyMap = new Map(params.duties.map((duty) => [duty.id, duty]));
-  const weekOffset = getWeekDifference(
-    params.roster.week_start,
-    params.weekStart,
+export async function getDutyAssignmentsForWeek(params: {
+  roster: DutyRosterRow;
+  weekStart: string;
+  rosterMembers: DutyRosterMemberRow[];
+  rosterDuties: DutyRosterDutyRow[];
+  duties: DutyDefinitionRow[];
+  users?: ProfileRosterUserRow[];
+  persist?: boolean;
+}): Promise<DutyAssignmentPreview[]> {
+  if (params.rosterDuties.length === 0) return [];
+
+  let users = params.users;
+  if (!users) {
+    users = await getOrganizationUsersForRoster(
+      params.roster.organization_id,
+      params.roster.office_id,
+    );
+  }
+
+  return generateRosterForWeek({
+    roster: params.roster,
+    weekStart: params.weekStart,
+    rosterMembers: params.rosterMembers,
+    rosterDuties: params.rosterDuties,
+    duties: params.duties,
+    users,
+    persist: params.persist ?? true,
+  });
+}
+
+export function buildDefaultDutyAssignments(params: {
+  dutyIds: string[];
+  userIds: string[];
+  duties: DutyDefinitionRow[];
+}): Record<string, string | null> {
+  const assignments: Record<string, string | null> = {};
+  if (params.dutyIds.length === 0 || params.userIds.length === 0) {
+    return assignments;
+  }
+
+  const weekStart = getCurrentDutyWeekStart();
+  let rotatingIndex = 0;
+  let otherIndex = 0;
+
+  for (const dutyId of params.dutyIds) {
+    const duty = params.duties.find((item) => item.id === dutyId);
+    if (!duty) continue;
+
+    if (duty.category === "fixed_person") {
+      assignments[dutyId] = duty.fixed_user_id ?? null;
+      continue;
+    }
+
+    const eligibleUserIds = buildEligiblePool({
+      users: params.userIds.map((id) => ({
+        id,
+        full_name: null,
+        email: null,
+        primary_role: null,
+      })),
+      rosterMembers: params.userIds.map((userId, index) => ({
+        user_id: userId,
+        sort_order: index,
+      })),
+      duty,
+      overrides: [],
+      allDuties: params.duties,
+      weekStart,
+    }).map((user) => user.id);
+
+    if (eligibleUserIds.length === 0) {
+      assignments[dutyId] = null;
+      continue;
+    }
+
+    if (duty.category === "normal_rotation") {
+      assignments[dutyId] =
+        eligibleUserIds[rotatingIndex % eligibleUserIds.length] ?? null;
+      rotatingIndex += 1;
+    } else {
+      assignments[dutyId] =
+        eligibleUserIds[otherIndex % eligibleUserIds.length] ?? null;
+      otherIndex += 1;
+    }
+  }
+
+  return assignments;
+}
+
+export function validateDutyAssignments(params: {
+  dutyIds: string[];
+  assignments: Record<string, string | null>;
+  userIds: string[];
+  duties: DutyDefinitionRow[];
+}): string[] {
+  const issues: string[] = [];
+  const rotatingDutyIds = params.dutyIds.filter((dutyId) => {
+    const duty = params.duties.find((item) => item.id === dutyId);
+    return duty?.category === "normal_rotation";
+  });
+
+  const rotatingAssignees = rotatingDutyIds
+    .map((dutyId) => params.assignments[dutyId])
+    .filter((userId): userId is string => Boolean(userId));
+
+  const duplicateRotating = rotatingAssignees.filter(
+    (userId, index) => rotatingAssignees.indexOf(userId) !== index,
   );
-  const seed = params.roster.rotation_seed ?? 0;
+  if (duplicateRotating.length > 0) {
+    issues.push(
+      "Avoid assigning the same person to multiple normal duties in the same week when possible.",
+    );
+  }
 
-  return rosterDuties
-    .map((rosterDuty, dutyIndex) => {
-      const duty = dutyMap.get(rosterDuty.duty_id);
-      if (!duty || !duty.is_active) return null;
+  const fixedDutyIds = params.dutyIds.filter((dutyId) => {
+    const duty = params.duties.find((item) => item.id === dutyId);
+    return duty?.category === "fixed_person";
+  });
+  const unassignedFixed = fixedDutyIds.filter(
+    (dutyId) => !params.assignments[dutyId],
+  );
+  if (unassignedFixed.length > 0) {
+    issues.push("Fixed-person duties need an assigned owner.");
+  }
 
-      const memberIndex =
-        (((seed + rosterDuty.rotation_offset + dutyIndex + weekOffset) %
-          members.length) +
-          members.length) %
-        members.length;
-      const member = members[memberIndex];
-      const isFatFriday = duty.name.toLowerCase().includes("fat friday");
-
-      return {
-        id: `${params.roster.id}:${params.weekStart}:${duty.id}`,
-        roster_id: params.roster.id,
-        duty_id: duty.id,
-        duty_name: duty.name,
-        description: duty.description,
-        duty_type: duty.duty_type,
-        day_of_week: duty.day_of_week,
-        shift_date:
-          duty.duty_type === "single_day"
-            ? dayOfWeekToDate(params.weekStart, duty.day_of_week)
-            : null,
-        week_start: params.weekStart,
-        user_id: member.user_id,
-        is_fat_friday: isFatFriday,
-      } satisfies DutyAssignmentPreview;
-    })
-    .filter((assignment): assignment is DutyAssignmentPreview => Boolean(assignment));
+  return issues;
 }
 
 export async function getITsNomatataOffice(organizationId: string) {
@@ -1728,16 +2213,37 @@ export async function getITsNomatataOffice(organizationId: string) {
   });
 }
 
-export function canManageITDutyRoster(profile?: {
+const DUTY_ROSTER_MANAGER_ROLES = new Set([
+  "admin",
+  "manager",
+  "it-superadmin",
+  "superadmin",
+  "org_admin",
+]);
+
+export function canManageDutyRoster(profile?: {
   primary_role?: string | null;
+  office_id?: string | null;
   office?: { slug?: string | null } | null;
 } | null) {
   return (
-    isITsNomatataOfficeProfile(profile) &&
-    ["admin", "manager", "it-superadmin", "superadmin"].includes(
-      String(profile?.primary_role ?? ""),
-    )
+    Boolean(profile?.office_id) &&
+    DUTY_ROSTER_MANAGER_ROLES.has(String(profile?.primary_role ?? ""))
   );
+}
+
+export function canViewDutyRoster(profile?: {
+  office_id?: string | null;
+} | null) {
+  return Boolean(profile?.office_id);
+}
+
+export function canManageITDutyRoster(profile?: {
+  primary_role?: string | null;
+  office_id?: string | null;
+  office?: { slug?: string | null } | null;
+} | null) {
+  return canManageDutyRoster(profile);
 }
 
 export async function getDutyRosters(
@@ -1932,6 +2438,10 @@ export async function updateDutyRoster(params: {
 }
 
 export async function deleteDutyRosterSafely(rosterId: string) {
+  await supabase
+    .from("duty_assignment_history")
+    .delete()
+    .eq("roster_id", rosterId);
   await supabase.from("duty_roster_entries").delete().eq("roster_id", rosterId);
   await supabase.from("duty_roster_members").delete().eq("roster_id", rosterId);
   await supabase.from("duty_roster_duties").delete().eq("roster_id", rosterId);
@@ -1958,7 +2468,7 @@ export async function getDutyDefinitions(
 
   const { data, error } = await query;
   if (error) throw error;
-  return (data ?? []) as DutyDefinitionRow[];
+  return ((data ?? []) as DutyDefinitionRow[]).map(normalizeDutyDefinitionRow);
 }
 
 export async function upsertDutyDefinition(params: {
@@ -1967,19 +2477,67 @@ export async function upsertDutyDefinition(params: {
   officeId: string;
   name: string;
   description?: string | null;
-  dutyType: DutyType;
+  category: DutyCategory;
+  frequency?: DutyFrequency;
   dayOfWeek?: number | null;
   isActive: boolean;
+  allowManagers?: boolean;
+  allowBosses?: boolean;
+  fixedUserId?: string | null;
+  fixedStartsAt?: string | null;
+  fixedEndsAt?: string | null;
+  fixedDutyParticipatesInFridayRotation?: boolean;
+  includedRoles?: string[];
+  excludedRoles?: string[];
+  eligibilityOverrides?: Array<{
+    userId: string;
+    isExcluded?: boolean;
+    isForcedIncluded?: boolean;
+    reason?: string | null;
+  }>;
   createdBy?: string | null;
 }) {
+  const dutyType = categoryToDutyType(params.category);
+  const dayOfWeek =
+    params.category === "friday_rotation"
+      ? params.dayOfWeek ?? 5
+      : params.category === "custom_rotation"
+        ? params.dayOfWeek ?? null
+        : null;
+  const frequency =
+    params.frequency ??
+    (params.category === "friday_rotation"
+      ? "weekly_friday"
+      : params.category === "fixed_person"
+        ? "permanent"
+        : params.category === "custom_rotation" && dayOfWeek
+          ? "weekly_day"
+          : "weekly");
+
   const payload = {
     organization_id: params.organizationId,
     office_id: params.officeId,
     name: params.name.trim(),
     description: params.description?.trim() || null,
-    duty_type: params.dutyType,
-    day_of_week: params.dutyType === "single_day" ? params.dayOfWeek ?? 5 : null,
+    duty_type: dutyType,
+    category: params.category,
+    frequency,
+    day_of_week: dayOfWeek,
     is_active: params.isActive,
+    allow_managers: params.allowManagers ?? true,
+    allow_bosses: params.allowBosses ?? true,
+    fixed_user_id:
+      params.category === "fixed_person" ? params.fixedUserId ?? null : null,
+    fixed_starts_at:
+      params.category === "fixed_person" ? params.fixedStartsAt ?? null : null,
+    fixed_ends_at:
+      params.category === "fixed_person" ? params.fixedEndsAt ?? null : null,
+    fixed_duty_participates_in_friday_rotation:
+      params.category === "fixed_person"
+        ? params.fixedDutyParticipatesInFridayRotation ?? true
+        : true,
+    included_roles: params.includedRoles ?? [],
+    excluded_roles: params.excludedRoles ?? [],
     created_by: params.createdBy ?? null,
     updated_at: new Date().toISOString(),
   };
@@ -1993,7 +2551,13 @@ export async function upsertDutyDefinition(params: {
     .single();
 
   if (error) throw error;
-  return data as DutyDefinitionRow;
+  const duty = normalizeDutyDefinitionRow(data as DutyDefinitionRow);
+
+  if (params.eligibilityOverrides) {
+    await setDutyEligibilityOverrides(duty.id, params.eligibilityOverrides);
+  }
+
+  return duty;
 }
 
 export async function getDutyRosterMembers(rosterId: string) {
@@ -2034,7 +2598,9 @@ export async function setDutyRosterMembers(rosterId: string, userIds: string[]) 
 export async function getDutyRosterDuties(rosterId: string) {
   const { data, error } = await supabase
     .from("duty_roster_duties")
-    .select("id, roster_id, duty_id, rotation_offset, sort_order, created_at")
+    .select(
+      "id, roster_id, duty_id, rotation_offset, sort_order, assigned_user_id, created_at",
+    )
     .eq("roster_id", rosterId)
     .order("sort_order", { ascending: true });
 
@@ -2042,26 +2608,36 @@ export async function getDutyRosterDuties(rosterId: string) {
   return (data ?? []) as DutyRosterDutyRow[];
 }
 
-export async function setDutyRosterDuties(rosterId: string, dutyIds: string[]) {
+export async function setDutyRosterDuties(
+  rosterId: string,
+  duties: DutyRosterDutyInput[] | string[],
+) {
+  const normalizedDuties: DutyRosterDutyInput[] = duties.map((item) =>
+    typeof item === "string" ? { dutyId: item } : item,
+  );
+
   const { error: deleteError } = await supabase
     .from("duty_roster_duties")
     .delete()
     .eq("roster_id", rosterId);
   if (deleteError) throw deleteError;
 
-  if (dutyIds.length === 0) return [];
+  if (normalizedDuties.length === 0) return [];
 
   const { data, error } = await supabase
     .from("duty_roster_duties")
     .insert(
-      dutyIds.map((dutyId, index) => ({
+      normalizedDuties.map((item, index) => ({
         roster_id: rosterId,
-        duty_id: dutyId,
+        duty_id: item.dutyId,
         rotation_offset: index,
         sort_order: index,
+        assigned_user_id: item.assignedUserId ?? null,
       })),
     )
-    .select("id, roster_id, duty_id, rotation_offset, sort_order, created_at");
+    .select(
+      "id, roster_id, duty_id, rotation_offset, sort_order, assigned_user_id, created_at",
+    );
 
   if (error) throw error;
   return (data ?? []) as DutyRosterDutyRow[];
@@ -2076,7 +2652,7 @@ export async function createDutyRosterWithSetup(params: {
   notes?: string;
   createdBy?: string | null;
   userIds: string[];
-  dutyIds: string[];
+  duties: DutyRosterDutyInput[];
 }) {
   const roster = await createDutyRoster({
     organizationId: params.organizationId,
@@ -2090,7 +2666,7 @@ export async function createDutyRosterWithSetup(params: {
 
   await Promise.all([
     setDutyRosterMembers(roster.id, params.userIds),
-    setDutyRosterDuties(roster.id, params.dutyIds),
+    setDutyRosterDuties(roster.id, params.duties),
   ]);
 
   try {
@@ -2099,12 +2675,16 @@ export async function createDutyRosterWithSetup(params: {
       getDutyRosterDuties(roster.id),
       getDutyDefinitions(params.organizationId, params.office.id),
     ]);
-    const assignments = getDutyAssignmentsForWeek({
+    const assignments = await getDutyAssignmentsForWeek({
       roster,
       weekStart: getCurrentDutyWeekStart(),
       rosterMembers: members,
       rosterDuties,
       duties,
+      users: await getOrganizationUsersForRoster(
+        params.organizationId,
+        params.office.id,
+      ),
     });
     const assignmentsByUser = new Map<string, string[]>();
     for (const assignment of assignments) {

@@ -12,7 +12,11 @@ import {
 import { CalendarDays, MapPin, Plus, Settings2, UserPlus } from "lucide-react";
 import Sidebar from "../../components/dashboard/components/Sidebar";
 import { useAuth } from "../../app/providers/AuthProvider";
-import { EDITOR_ROLES } from "./constants";
+import {
+  DEFAULT_ASSIGNMENT_END_TIME,
+  DEFAULT_ASSIGNMENT_START_TIME,
+  EDITOR_ROLES,
+} from "./constants";
 import StatusAlertBanner from "./components/StatusAlertBanner";
 import LocationsBoard from "./components/LocationsBoard";
 import UnassignedEmployeesBoard from "./components/UnassignedEmployeesBoard";
@@ -65,10 +69,11 @@ import {
   startOfWeekDateKey,
 } from "./utils/calendarDates";
 import { formatAvailabilitySummary } from "./utils/availabilityLabels";
+import {
+  dayAssignmentFields,
+  normalizeAssignmentInput,
+} from "./utils/assignmentDefaults";
 import { Briefcase, ChevronLeft, ChevronRight, Users } from "lucide-react";
-function normalizePlannerTime(value: string | null | undefined) {
-  return value ? value.slice(0, 5) : "";
-}
 
 function mapAssignment(row: AdminAssignmentRow): PlannerAssignmentCardModel {
   return {
@@ -200,74 +205,18 @@ export default function LocationPlannerAdminPage() {
   );
 
   const workStreams = useMemo<PlannerWorkStream[]>(() => {
-    const slots = data?.slots ?? [];
-    const streamKey = (input: {
-      locationId: string | null;
-      temporaryRoleId?: string | null;
-      roleName?: string | null;
-      startDate: string;
-      endDate: string;
-      startTime?: string | null;
-      endTime?: string | null;
-    }) =>
-      [
-        input.locationId ?? "",
-        input.temporaryRoleId ?? input.roleName ?? "General",
-        input.startDate,
-        input.endDate,
-        input.startTime ?? "",
-        input.endTime ?? "",
-      ].join(":");
-    const assignmentMatchesSlot = (
-      assignment: PlannerAssignmentCardModel,
-      slot: AdminPlannerCalendar["slots"][number],
-    ) =>
-      !assignment.slotId &&
-      assignment.locationId === slot.location_id &&
-      assignment.temporaryRoleId === slot.temporary_role_id &&
-      assignmentOnDay(assignment.startDate, assignment.endDate, selectedDate) &&
-      assignmentOnDay(slot.start_date, slot.end_date, selectedDate) &&
-      normalizePlannerTime(assignment.startTime) ===
-        normalizePlannerTime(slot.start_time) &&
-      normalizePlannerTime(assignment.endTime) ===
-        normalizePlannerTime(slot.end_time);
-
-    const slotStreams = slots
-      .filter(
-        (slot) =>
-          slot.status === "open" &&
-          assignmentOnDay(slot.start_date, slot.end_date, selectedDate),
-      )
-      .map((slot) => {
-        const location = data?.locations.find(
-          (item) => item.id === slot.location_id,
-        );
-        const role = data?.roles.find(
-          (item) => item.id === slot.temporary_role_id,
-        );
-        const matchingLooseAssignments = assignmentCards.filter((assignment) =>
-          assignmentMatchesSlot(assignment, slot),
-        );
-        return {
-          id: `slot-${slot.id}`,
-          title: slot.title,
-          subtitle: `${role?.name ?? "Role"} · ${location?.name ?? "No location"} · ${slot.required_count} needed`,
-          locationId: slot.location_id,
-          slotId: slot.id,
-          temporaryRoleId: slot.temporary_role_id,
-          startDate: slot.start_date,
-          endDate: slot.end_date,
-          startTime: slot.start_time,
-          endTime: slot.end_time,
-          requiredCount: slot.required_count,
-          assignments: [
-            ...assignmentCards.filter(
-              (assignment) => assignment.slotId === slot.id,
-            ),
-            ...matchingLooseAssignments,
-          ],
-        };
-      });
+    const openSlots = (data?.slots ?? []).filter((slot) => slot.status === "open");
+    const slotByRoleLocation = new Map<
+      string,
+      AdminPlannerCalendar["slots"][number]
+    >();
+    for (const slot of openSlots) {
+      const key = `${slot.location_id}:${slot.temporary_role_id ?? ""}`;
+      const existing = slotByRoleLocation.get(key);
+      if (!existing || slot.required_count > existing.required_count) {
+        slotByRoleLocation.set(key, slot);
+      }
+    }
 
     const permanentRoleStreams = (data?.roles ?? [])
       .filter((role) => role.is_active && role.location_id)
@@ -275,21 +224,29 @@ export default function LocationPlannerAdminPage() {
         const location = data?.locations.find(
           (item) => item.id === role.location_id,
         );
+        const matchingSlot = slotByRoleLocation.get(
+          `${role.location_id}:${role.id}`,
+        );
         return {
           id: `role-${role.id}-${role.location_id}`,
           title: role.name,
-          subtitle: `${location?.name ?? "No location"} · permanent role`,
+          subtitle: [
+            location?.name ?? "No location",
+            "permanent role",
+            matchingSlot ? `${matchingSlot.required_count} needed` : null,
+          ]
+            .filter(Boolean)
+            .join(" · "),
           locationId: role.location_id,
-          slotId: null,
+          slotId: matchingSlot?.id ?? null,
           temporaryRoleId: role.id,
           startDate: selectedDate,
           endDate: selectedDate,
-          startTime: null,
-          endTime: null,
-          requiredCount: null,
+          startTime: DEFAULT_ASSIGNMENT_START_TIME,
+          endTime: DEFAULT_ASSIGNMENT_END_TIME,
+          requiredCount: matchingSlot?.required_count ?? null,
           assignments: assignmentCards.filter(
             (assignment) =>
-              !assignment.slotId &&
               assignment.locationId === role.location_id &&
               assignment.temporaryRoleId === role.id &&
               assignmentOnDay(
@@ -302,7 +259,7 @@ export default function LocationPlannerAdminPage() {
       });
 
     const streamAssignmentIds = new Set(
-      [...slotStreams, ...permanentRoleStreams].flatMap((stream) =>
+      permanentRoleStreams.flatMap((stream) =>
         stream.assignments.map((assignment) => assignment.id),
       ),
     );
@@ -312,7 +269,10 @@ export default function LocationPlannerAdminPage() {
     const roleStreams = Array.from(
       ungrouped.reduce<Map<string, PlannerAssignmentCardModel[]>>(
         (acc, assignment) => {
-          const key = streamKey(assignment);
+          const key = [
+            assignment.locationId ?? "",
+            assignment.temporaryRoleId ?? assignment.roleName ?? "General",
+          ].join(":");
           acc.set(key, [...(acc.get(key) ?? []), assignment]);
           return acc;
         },
@@ -327,13 +287,13 @@ export default function LocationPlannerAdminPage() {
       temporaryRoleId: assignments[0]?.temporaryRoleId ?? null,
       startDate: selectedDate,
       endDate: selectedDate,
-      startTime: null,
-      endTime: null,
+      startTime: DEFAULT_ASSIGNMENT_START_TIME,
+      endTime: DEFAULT_ASSIGNMENT_END_TIME,
       requiredCount: null,
       assignments,
     }));
 
-    return [...slotStreams, ...permanentRoleStreams, ...roleStreams];
+    return [...permanentRoleStreams, ...roleStreams];
   }, [
     assignmentCards,
     data?.locations,
@@ -428,15 +388,6 @@ export default function LocationPlannerAdminPage() {
     [data?.assignments, range.start],
   );
 
-  const openSlotsToday = useMemo(
-    () =>
-      (data?.slots ?? []).filter(
-        (slot) =>
-          slot.status === "open" &&
-          assignmentOnDay(slot.start_date, slot.end_date, selectedDate),
-      ),
-    [data?.slots, selectedDate],
-  );
 
   const activeLocationsCount = useMemo(
     () =>
@@ -520,16 +471,7 @@ export default function LocationPlannerAdminPage() {
         targetSlot?.temporary_role_id ??
         targetStream?.temporaryRoleId ??
         (over.temporaryRoleId ? String(over.temporaryRoleId) : null),
-      start_date: selectedDate,
-      end_date: selectedDate,
-      start_time:
-        targetSlot?.start_time ??
-        targetStream?.startTime ??
-        (over.startTime ? String(over.startTime) : null),
-      end_time:
-        targetSlot?.end_time ??
-        targetStream?.endTime ??
-        (over.endTime ? String(over.endTime) : null),
+      ...dayAssignmentFields(selectedDate),
     };
 
     if (!input.location_id) return;
@@ -637,15 +579,16 @@ export default function LocationPlannerAdminPage() {
     assignmentId?: string,
   ) => {
     if (!organizationId) return;
+    const normalized = normalizeAssignmentInput(draft, selectedDate);
     const result = await detectAssignmentConflicts({
       organizationId,
-      employeeId: draft.employee_id,
-      locationId: draft.location_id ?? data?.locations[0]?.id ?? "",
-      slotId: draft.slot_id,
-      startDate: draft.start_date ?? selectedDate,
-      endDate: draft.start_date ?? selectedDate,
-      startTime: draft.start_time,
-      endTime: draft.end_time,
+      employeeId: normalized.employee_id,
+      locationId: normalized.location_id ?? data?.locations[0]?.id ?? "",
+      slotId: normalized.slot_id,
+      startDate: normalized.start_date!,
+      endDate: normalized.end_date!,
+      startTime: normalized.start_time,
+      endTime: normalized.end_time,
       excludeAssignmentId: assignmentId,
     });
     setConflicts(result);
@@ -656,6 +599,7 @@ export default function LocationPlannerAdminPage() {
     assignmentId?: string,
   ) => {
     if (!organizationId) return;
+    const normalized = normalizeAssignmentInput(draft, selectedDate);
     setSaving(true);
     try {
       if (assignmentId) {
@@ -663,23 +607,20 @@ export default function LocationPlannerAdminPage() {
           organizationId,
           assignmentId,
           input: {
-            location_id: draft.location_id,
-            temporary_role_id: draft.temporary_role_id,
-            start_date: draft.start_date,
-            end_date: draft.start_date,
-            start_time: draft.start_time,
-            end_time: draft.end_time,
-            status: draft.status,
-            notes: draft.notes,
+            location_id: normalized.location_id,
+            temporary_role_id: normalized.temporary_role_id,
+            start_date: normalized.start_date,
+            end_date: normalized.end_date,
+            start_time: normalized.start_time,
+            end_time: normalized.end_time,
+            status: normalized.status,
+            notes: normalized.notes,
           },
         });
       } else {
         await assignEmployeeToSlot({
           organizationId,
-          input: {
-            ...draft,
-            end_date: draft.start_date,
-          },
+          input: normalized,
         });
       }
       setAssignmentModalOpen(false);
@@ -841,8 +782,8 @@ export default function LocationPlannerAdminPage() {
                       Workforce Planner
                     </h1>
                     <p className="mt-2 max-w-2xl text-sm text-white/50">
-                      Plan daily shift requirements by location, then assign
-                      available employees into the right roles.
+                      Roles stay linked to locations permanently. Assign employees
+                      for the selected day (8:00–17:00) and move them as needed.
                     </p>
                   </div>
 
@@ -1114,8 +1055,6 @@ export default function LocationPlannerAdminPage() {
             locations={data.locations}
             roles={data.roles}
             defaultLocationId={createSlotLocationId}
-            defaultStart={selectedDate}
-            defaultEnd={selectedDate}
             saving={saving}
             onSave={async (input) => {
               await createAssignmentSlot({ organizationId, input });

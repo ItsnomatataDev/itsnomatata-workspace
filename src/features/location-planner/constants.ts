@@ -50,3 +50,11 @@ export const EDITOR_ROLES = new Set([
   "super_admin",
   "superadmin",
 ]);
+
+/** Default shift window for daily employee assignments. */
+export const DEFAULT_ASSIGNMENT_START_TIME = "08:00";
+export const DEFAULT_ASSIGNMENT_END_TIME = "17:00";
+
+/** Open-ended range for permanent shift requirements (roles/slots). */
+export const PERMANENT_SLOT_START_DATE = "2000-01-01";
+export const PERMANENT_SLOT_END_DATE = "2099-12-31";

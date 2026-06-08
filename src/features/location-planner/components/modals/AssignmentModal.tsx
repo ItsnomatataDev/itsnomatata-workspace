@@ -1,5 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { X } from "lucide-react";
+import {
+  DEFAULT_ASSIGNMENT_END_TIME,
+  DEFAULT_ASSIGNMENT_START_TIME,
+} from "../../constants";
 import type {
   AdminAssignmentRow,
   AssignmentInput,
@@ -69,8 +73,8 @@ export default function AssignmentModal({
     );
     setTemporaryRoleId(a?.temporary_role_id ?? matchingRoles[0]?.id ?? "");
     setStartDate(a?.start_date ?? defaultDate);
-    setStartTime(a?.start_time?.slice(0, 5) ?? "09:00");
-    setEndTime(a?.end_time?.slice(0, 5) ?? "17:00");
+    setStartTime(a?.start_time?.slice(0, 5) ?? DEFAULT_ASSIGNMENT_START_TIME);
+    setEndTime(a?.end_time?.slice(0, 5) ?? DEFAULT_ASSIGNMENT_END_TIME);
     setStatus(a?.status ?? "draft");
     setNotes(a?.notes ?? "");
   }, [defaultDate, defaultLocationId, employees, initial, locations, open, roles]);

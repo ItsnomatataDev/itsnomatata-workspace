@@ -2,19 +2,21 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { CalendarClock, Sparkles, Users } from "lucide-react";
 import Sidebar from "../../../components/dashboard/components/Sidebar";
 import { useAuth } from "../../../app/providers/AuthProvider";
+import { getCompanyOffices } from "../../../lib/supabase/queries/offices";
 import RosterTable from "../components/RosterTable";
 import {
+  canViewDutyRoster,
   getCurrentDutyWeekStart,
   getDutyAssignmentsForWeek,
   getDutyDefinitions,
+  getDutyEligibilityOverrides,
   getDutyRosterDuties,
   getDutyRosterMembers,
   getDutyRosters,
-  getITsNomatataOffice,
   getOrganizationUsersForRoster,
-  isITsNomatataOfficeProfile,
   type DutyAssignmentPreview,
   type DutyDefinitionRow,
+  type DutyEligibilityOverrideRow,
   type DutyRosterDutyRow,
   type DutyRosterMemberRow,
   type DutyRosterRow,
@@ -32,7 +34,8 @@ export default function DutyRosterViewPage() {
   const profile = auth?.profile ?? null;
   const user = auth?.user ?? null;
   const organizationId = profile?.organization_id ?? null;
-  const isITOffice = isITsNomatataOfficeProfile(profile);
+  const officeId = profile?.office_id ?? null;
+  const canView = canViewDutyRoster(profile);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -41,6 +44,16 @@ export default function DutyRosterViewPage() {
   const [duties, setDuties] = useState<DutyDefinitionRow[]>([]);
   const [rosterMembers, setRosterMembers] = useState<DutyRosterMemberRow[]>([]);
   const [rosterDuties, setRosterDuties] = useState<DutyRosterDutyRow[]>([]);
+  const [thisWeekAssignments, setThisWeekAssignments] = useState<
+    DutyAssignmentPreview[]
+  >([]);
+  const [nextWeekAssignments, setNextWeekAssignments] = useState<
+    DutyAssignmentPreview[]
+  >([]);
+  const [overridesByDuty, setOverridesByDuty] = useState<
+    Map<string, DutyEligibilityOverrideRow[]>
+  >(new Map());
+  const [officeName, setOfficeName] = useState("Office");
 
   const selectedRoster = useMemo(
     () => rosters.find((roster) => (roster.status ?? "active") === "active") ?? rosters[0] ?? null,
@@ -50,21 +63,70 @@ export default function DutyRosterViewPage() {
   const currentWeek = getCurrentDutyWeekStart();
   const nextWeek = addDays(currentWeek, 7);
 
+  const loadAssignments = useCallback(
+    async (
+      roster: DutyRosterRow,
+      members: DutyRosterMemberRow[],
+      rosterDutyRows: DutyRosterDutyRow[],
+      dutyRows: DutyDefinitionRow[],
+      officeUsers: ProfileRosterUserRow[],
+    ) => {
+      const dutyIds = rosterDutyRows.map((item) => item.duty_id);
+      const overrides = await getDutyEligibilityOverrides(dutyIds);
+      const grouped = overrides.reduce((map, item) => {
+        const current = map.get(item.duty_id) ?? [];
+        current.push(item);
+        map.set(item.duty_id, current);
+        return map;
+      }, new Map<string, DutyEligibilityOverrideRow[]>());
+
+      const [currentAssignments, upcomingAssignments] = await Promise.all([
+        getDutyAssignmentsForWeek({
+          roster,
+          weekStart: currentWeek,
+          rosterMembers: members,
+          rosterDuties: rosterDutyRows,
+          duties: dutyRows,
+          users: officeUsers,
+          persist: true,
+        }),
+        getDutyAssignmentsForWeek({
+          roster,
+          weekStart: nextWeek,
+          rosterMembers: members,
+          rosterDuties: rosterDutyRows,
+          duties: dutyRows,
+          users: officeUsers,
+          persist: true,
+        }),
+      ]);
+
+      setOverridesByDuty(grouped);
+      setThisWeekAssignments(currentAssignments);
+      setNextWeekAssignments(upcomingAssignments);
+    },
+    [currentWeek, nextWeek],
+  );
+
   const loadPage = useCallback(async () => {
-    if (!organizationId) return;
+    if (!organizationId || !officeId) return;
 
     try {
       setLoading(true);
       setError("");
 
-      const office = await getITsNomatataOffice(organizationId);
+      const offices = await getCompanyOffices(organizationId);
+      const office = offices.find((item) => item.id === officeId) ?? null;
+      setOfficeName(office?.name ?? "Office");
 
-      if (!office || !isITOffice) {
+      if (!office || !canView) {
         setRosters([]);
         setUsers([]);
         setDuties([]);
         setRosterMembers([]);
         setRosterDuties([]);
+        setThisWeekAssignments([]);
+        setNextWeekAssignments([]);
         return;
       }
 
@@ -91,38 +153,29 @@ export default function DutyRosterViewPage() {
       setDuties(dutiesData);
       setRosterMembers(membersData);
       setRosterDuties(rosterDutiesData);
+
+      if (activeRoster) {
+        await loadAssignments(
+          activeRoster,
+          membersData,
+          rosterDutiesData,
+          dutiesData,
+          usersData,
+        );
+      } else {
+        setThisWeekAssignments([]);
+        setNextWeekAssignments([]);
+      }
     } catch (err: any) {
       setError(err?.message ?? "Failed to load duty roster.");
     } finally {
       setLoading(false);
     }
-  }, [isITOffice, organizationId]);
+  }, [canView, loadAssignments, officeId, organizationId]);
 
   useEffect(() => {
     void loadPage();
   }, [loadPage]);
-
-  const thisWeekAssignments = useMemo(() => {
-    if (!selectedRoster) return [];
-    return getDutyAssignmentsForWeek({
-      roster: selectedRoster,
-      weekStart: currentWeek,
-      rosterMembers,
-      rosterDuties,
-      duties,
-    });
-  }, [currentWeek, duties, rosterDuties, rosterMembers, selectedRoster]);
-
-  const nextWeekAssignments = useMemo(() => {
-    if (!selectedRoster) return [];
-    return getDutyAssignmentsForWeek({
-      roster: selectedRoster,
-      weekStart: nextWeek,
-      rosterMembers,
-      rosterDuties,
-      duties,
-    });
-  }, [duties, nextWeek, rosterDuties, rosterMembers, selectedRoster]);
 
   const myAssignments = useMemo(
     () =>
@@ -132,19 +185,21 @@ export default function DutyRosterViewPage() {
     [thisWeekAssignments, user?.id],
   );
 
-  const fatFriday = useMemo(
+  const specialDayAssignment = useMemo(
     () =>
-      thisWeekAssignments.find((assignment) => assignment.is_fat_friday) ??
+      thisWeekAssignments.find((assignment) => assignment.is_special_day) ??
       null,
     [thisWeekAssignments],
   );
 
   const userMap = useMemo(() => new Map(users.map((u) => [u.id, u])), [users]);
-  const fatFridayUser = fatFriday ? userMap.get(fatFriday.user_id) : null;
+  const specialDayUser = specialDayAssignment
+    ? userMap.get(specialDayAssignment.user_id)
+    : null;
 
   if (!profile || !user) return null;
 
-  if (!isITOffice) {
+  if (!canView) {
     return (
       <div className="min-h-screen bg-black text-white">
         <div className="flex min-h-screen flex-col lg:flex-row">
@@ -155,10 +210,11 @@ export default function DutyRosterViewPage() {
                 Duty Roster
               </p>
               <h1 className="mt-2 text-2xl font-bold text-white">
-                ITsNomatata office only
+                Office assignment required
               </h1>
               <p className="mt-3 text-white/55">
-                Duty roster is only available for the ITsNomatata office.
+                Duty roster is available once your profile is linked to an
+                office.
               </p>
             </div>
           </main>
@@ -175,7 +231,7 @@ export default function DutyRosterViewPage() {
         <main className="min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-8">
           <div className="mb-8">
             <p className="text-xs uppercase tracking-[0.3em] text-orange-500">
-              ITsNomatata
+              {officeName}
             </p>
             <h1 className="mt-2 text-3xl font-bold">Duty Roster</h1>
             <p className="mt-2 text-sm text-white/50">
@@ -201,7 +257,7 @@ export default function DutyRosterViewPage() {
                 No duty roster published yet
               </p>
               <p className="mt-2 text-sm text-white/50">
-                An ITsNomatata admin can create the first rotating duty roster.
+                An office admin can create the first duty roster for your team.
               </p>
             </div>
           ) : (
@@ -237,26 +293,26 @@ export default function DutyRosterViewPage() {
                 </div>
               </section>
 
-              {fatFriday ? (
+              {specialDayAssignment ? (
                 <section className="mb-6 rounded-3xl border border-amber-500/25 bg-amber-500/10 p-5">
                   <div className="flex flex-wrap items-center justify-between gap-4">
                     <div>
                       <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.25em] text-amber-200">
                         <Sparkles size={15} />
-                        Fat Friday
+                        {specialDayAssignment.duty_name}
                       </p>
                       <h2 className="mt-2 text-2xl font-bold text-white">
-                        {fatFridayUser?.full_name ||
-                          fatFridayUser?.email ||
+                        {specialDayUser?.full_name ||
+                          specialDayUser?.email ||
                           "Assigned user"}
                       </h2>
                       <p className="mt-1 text-sm text-amber-100/65">
-                        {fatFriday.description ||
-                          "Friday-only duty for the team."}
+                        {specialDayAssignment.description ||
+                          "Special day duty for the team."}
                       </p>
                     </div>
                     <div className="rounded-2xl border border-amber-500/20 bg-black/30 px-4 py-3 text-sm font-semibold text-amber-100">
-                      {fatFriday.shift_date ?? "Friday"}
+                      {specialDayAssignment.shift_date ?? "Scheduled day"}
                     </div>
                   </div>
                 </section>
@@ -272,7 +328,11 @@ export default function DutyRosterViewPage() {
                 <RosterTable
                   assignments={thisWeekAssignments}
                   users={users}
+                  duties={duties}
+                  rosterMembers={rosterMembers}
+                  overridesByDuty={overridesByDuty}
                   currentUserId={user.id}
+                  showMeta={false}
                 />
               </section>
 
@@ -286,7 +346,11 @@ export default function DutyRosterViewPage() {
                 <RosterTable
                   assignments={nextWeekAssignments}
                   users={users}
+                  duties={duties}
+                  rosterMembers={rosterMembers}
+                  overridesByDuty={overridesByDuty}
                   currentUserId={user.id}
+                  showMeta={false}
                 />
               </section>
 
