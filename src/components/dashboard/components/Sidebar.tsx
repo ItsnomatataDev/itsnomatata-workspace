@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import {
   LayoutDashboard,
   Users,
@@ -487,11 +487,17 @@ export default function Sidebar({
         return [link];
       });
   const roleNav = filterNavByFeatures(officeScopedRoleNav, isEnabled);
-  const allNav: NavItem[] = [
-    ...visibleCommonLinks.filter((link) => link.to !== "/my-schedule" || canUseMySchedule),
+  const mainNav = visibleCommonLinks.filter((link) => link.to !== "/my-schedule" || canUseMySchedule);
+  const roleSpecificNav = [
     ...roleNav,
     ...(canSeeSystemOwnerAdminLinks ? systemOwnerAdminLinks : []),
   ];
+  const allNav: NavItem[] = [
+    ...mainNav,
+    ...roleSpecificNav,
+  ];
+  const roleSectionStartsAt = mainNav.length;
+  const showRoleDivider = roleSectionStartsAt > 0 && roleSpecificNav.length > 0;
 
   const handleLogout = async () => {
     try {
@@ -546,14 +552,28 @@ export default function Sidebar({
 
       <nav className="flex-1 space-y-1 overflow-y-auto px-4 py-4">
         {allNav.map((item, index) => {
+          const divider = showRoleDivider && index === roleSectionStartsAt ? (
+            <div className="px-4 py-3" aria-hidden="true">
+              <div
+                className="h-px rounded-full"
+                style={{
+                  backgroundColor: "var(--org-button)",
+                  boxShadow: "0 0 16px color-mix(in srgb, var(--org-button) 45%, transparent)",
+                }}
+              />
+            </div>
+          ) : null;
+
           if ("type" in item && item.type === "group") {
             return (
-              <NavGroup
-                key={`group-${item.label}-${index}`}
-                item={item}
-                onNavigate={closeMobileMenu}
-                badges={sidebarBadges}
-              />
+              <Fragment key={`group-${item.label}-${index}`}>
+                {divider}
+                <NavGroup
+                  item={item}
+                  onNavigate={closeMobileMenu}
+                  badges={sidebarBadges}
+                />
+              </Fragment>
             );
           }
 
@@ -561,45 +581,47 @@ export default function Sidebar({
           const Icon = link.icon;
 
           return (
-            <NavLink
-              key={link.to}
-              to={link.to}
-              onClick={closeMobileMenu}
-              className={({ isActive }) =>
-                [
-                  "flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition-all",
+            <Fragment key={link.to}>
+              {divider}
+              <NavLink
+                to={link.to}
+                onClick={closeMobileMenu}
+                className={({ isActive }) =>
+                  [
+                    "flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition-all",
+                    isActive
+                      ? "text-white shadow-md"
+                      : "text-white/70 hover:bg-white/5 hover:text-white",
+                  ].join(" ")
+                }
+                style={({ isActive }) =>
                   isActive
-                    ? "text-white shadow-md"
-                    : "text-white/70 hover:bg-white/5 hover:text-white",
-                ].join(" ")
-              }
-              style={({ isActive }) =>
-                isActive
-                  ? {
-                      backgroundColor: "var(--org-button)",
-                      boxShadow: "0 10px 24px color-mix(in srgb, var(--org-button) 20%, transparent)",
-                    }
-                  : undefined
-              }
-            >
-              <Icon size={18} />
-              <span className="flex-1">{link.label}</span>
+                    ? {
+                        backgroundColor: "var(--org-button)",
+                        boxShadow: "0 10px 24px color-mix(in srgb, var(--org-button) 20%, transparent)",
+                      }
+                    : undefined
+                }
+              >
+                <Icon size={18} />
+                <span className="flex-1">{link.label}</span>
 
-              {(() => {
-                const badge = resolveNavBadge(link.to, link.badge, sidebarBadges);
-                return badge > 0 ? (
-                  <span
-                    className="rounded-full px-2 py-0.5 text-xs font-semibold"
-                    style={{
-                      backgroundColor: "var(--org-button)",
-                      color: "var(--org-button-text)",
-                    }}
-                  >
-                    {badge > 99 ? "99+" : badge}
-                  </span>
-                ) : null;
-              })()}
-            </NavLink>
+                {(() => {
+                  const badge = resolveNavBadge(link.to, link.badge, sidebarBadges);
+                  return badge > 0 ? (
+                    <span
+                      className="rounded-full px-2 py-0.5 text-xs font-semibold"
+                      style={{
+                        backgroundColor: "var(--org-button)",
+                        color: "var(--org-button-text)",
+                      }}
+                    >
+                      {badge > 99 ? "99+" : badge}
+                    </span>
+                  ) : null;
+                })()}
+              </NavLink>
+            </Fragment>
           );
         })}
       </nav>
