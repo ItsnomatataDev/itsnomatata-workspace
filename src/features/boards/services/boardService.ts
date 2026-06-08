@@ -524,7 +524,7 @@ export async function createCard(
 ): Promise<Card> {
   const assigneeIds = [
     ...new Set(
-      [input.assignedTo, ...(input.assigneeIds ?? [])]
+      [input.createdBy, input.assignedTo, ...(input.assigneeIds ?? [])]
         .map((id) => id?.trim())
         .filter((id): id is string => Boolean(id)),
     ),

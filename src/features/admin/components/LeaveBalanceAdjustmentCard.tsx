@@ -7,6 +7,8 @@ import type {
 
 type AdjustmentType = "add" | "subtract";
 
+const DEFAULT_LEAVE_DAYS_TOTAL = 22;
+
 type LeaveBalanceAdjustmentCardProps = {
   employees: LeaveBalanceEmployeeRow[];
   history: LeaveBalanceAuditHistoryRow[];
@@ -58,7 +60,7 @@ export default function LeaveBalanceAdjustmentCard({
   const signedDays = adjustmentType === "add" ? dayCount : -dayCount;
   const currentTotal = selectedEmployee?.leave_days_total ?? 0;
   const currentRemaining = selectedEmployee?.leave_days_remaining ?? 0;
-  const newTotal = currentTotal + signedDays;
+  const newTotal = DEFAULT_LEAVE_DAYS_TOTAL;
   const newRemaining = currentRemaining + signedDays;
   const isSubtract = adjustmentType === "subtract";
 
@@ -71,8 +73,8 @@ export default function LeaveBalanceAdjustmentCard({
     if (newRemaining < 0) {
       return "Remaining balance can be 0, but it cannot go below 0.";
     }
-    if (newTotal < 0) {
-      return "Total leave days cannot go below 0.";
+    if (newRemaining > DEFAULT_LEAVE_DAYS_TOTAL) {
+      return `Remaining balance cannot be more than the ${DEFAULT_LEAVE_DAYS_TOTAL}-day annual entitlement.`;
     }
     return "";
   };
@@ -106,7 +108,7 @@ export default function LeaveBalanceAdjustmentCard({
   };
 
   const confirmationText = selectedEmployee
-    ? `You are about to ${isSubtract ? "subtract" : "add"} ${dayCount} leave day${dayCount === 1 ? "" : "s"} ${isSubtract ? "from" : "to"} ${displayName(selectedEmployee)}. New remaining balance will be ${newRemaining} day${newRemaining === 1 ? "" : "s"}. Continue?`
+    ? `You are about to ${isSubtract ? "subtract" : "add"} ${dayCount} leave day${dayCount === 1 ? "" : "s"} ${isSubtract ? "from" : "to"} ${displayName(selectedEmployee)}. Total entitlement stays at ${DEFAULT_LEAVE_DAYS_TOTAL}; new remaining balance will be ${newRemaining} day${newRemaining === 1 ? "" : "s"}. Continue?`
     : "";
 
   return (
@@ -138,7 +140,7 @@ export default function LeaveBalanceAdjustmentCard({
             <div>
               <h3 className="font-semibold text-white">Team Leave Balances</h3>
               <p className="mt-1 text-sm text-white/50">
-                A remaining balance of 0 is allowed when an employee has used all available leave.
+                Total entitlement is fixed at {DEFAULT_LEAVE_DAYS_TOTAL}; balance changes only adjust remaining days.
               </p>
             </div>
             <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-white/60">
@@ -315,7 +317,7 @@ export default function LeaveBalanceAdjustmentCard({
               </p>
               <div className="mt-3 grid grid-cols-2 gap-3">
                 <div>
-                  <p className="text-xs text-orange-100/60">New total</p>
+                  <p className="text-xs text-orange-100/60">Total entitlement</p>
                   <p className="mt-1 text-2xl font-semibold text-orange-100">
                     {selectedEmployee && dayCount > 0 ? newTotal : "-"}
                   </p>

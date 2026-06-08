@@ -392,7 +392,13 @@ function buildTaskMutationPayload(
 
 export async function createTask(payload: CreateTaskPayload): Promise<TaskRow> {
   const organizationId = payload.organizationId ?? payload.organization_id;
-  const assigneeIds = payload.assigneeIds ?? [];
+  const assigneeIds = [
+    ...new Set(
+      [payload.created_by, payload.assigned_to, ...(payload.assigneeIds ?? [])]
+        .map((id) => id?.trim())
+        .filter((id): id is string => Boolean(id)),
+    ),
+  ];
   const insertPayload: Record<string, unknown> = {
     organization_id: organizationId,
     status: payload.status ?? "todo",
@@ -470,7 +476,11 @@ export async function createTask(payload: CreateTaskPayload): Promise<TaskRow> {
     }
   }
 
-  if (data.assigned_to && data.assigned_to !== data.created_by) {
+  if (
+    data.assigned_to &&
+    !assigneeIds.includes(data.assigned_to) &&
+    data.assigned_to !== data.created_by
+  ) {
     try {
       await notifyTaskAssigned({
         organizationId,

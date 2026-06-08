@@ -12,6 +12,8 @@ import type {
 } from "../../../lib/supabase/mutations/notifications";
 import type { PublicHolidayRow } from "../components/leaveCalender";
 
+const DEFAULT_LEAVE_DAYS_TOTAL = 22;
+
 export type LeaveTypeRow = {
   id: string;
   organization_id: string;
@@ -893,11 +895,17 @@ export async function modifyUserLeaveBalance(params: {
 
   const previousTotal = profile.leave_days_total;
   const previousRemaining = profile.leave_days_remaining;
-  const newTotal = params.newTotal ?? previousTotal;
+  const newTotal = DEFAULT_LEAVE_DAYS_TOTAL;
   const newRemaining = params.newRemaining ?? previousRemaining;
 
   if (newTotal < 0 || newRemaining < 0) {
     throw new Error("Leave balances cannot be below 0.");
+  }
+
+  if (newRemaining > DEFAULT_LEAVE_DAYS_TOTAL) {
+    throw new Error(
+      `Remaining leave days cannot be more than the ${DEFAULT_LEAVE_DAYS_TOTAL}-day annual entitlement.`,
+    );
   }
 
   // Update profile
