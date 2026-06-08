@@ -727,23 +727,40 @@ export async function generateImage(
 export async function generateDashboardSummary(
   input: GenerateDashboardSummaryInput,
 ): Promise<DashboardSummaryResult> {
-  const response = await askAssistant({
-    message:
-      "Generate a short dashboard summary for this user. Keep it concise, helpful, and operational. Also return 3 to 5 suggested prompts the user can click next.",
-    context: buildAssistantContext({
-      userId: input.userId,
-      organizationId: input.organizationId,
-      role: input.role ?? "employee",
-      fullName: input.userName ?? null,
-      currentModule: input.currentModule ?? "dashboard",
-      currentRoute: "/dashboard",
-      channel: "dashboard",
-      timezone: "Africa/Harare",
-    }),
-    metadata: {
-      source: "dashboard_summary",
-    },
-  });
+  let response: AssistantResponse;
+
+  try {
+    response = await askAssistant({
+      message:
+        "Generate a short dashboard summary for this user. Keep it concise, helpful, and operational. Also return 3 to 5 suggested prompts the user can click next.",
+      context: buildAssistantContext({
+        userId: input.userId,
+        organizationId: input.organizationId,
+        role: input.role ?? "employee",
+        fullName: input.userName ?? null,
+        currentModule: input.currentModule ?? "dashboard",
+        currentRoute: "/dashboard",
+        channel: "dashboard",
+        timezone: "Africa/Harare",
+      }),
+      metadata: {
+        source: "dashboard_summary",
+      },
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn("DASHBOARD AI SUMMARY UNAVAILABLE:", message);
+
+    return {
+      summary:
+        "AI summary is temporarily unavailable, but your dashboard data is still loaded. Review open tasks, approvals, team activity, and any items needing follow-up.",
+      suggestions: [
+        "Review pending work and overdue items.",
+        "Check approvals, announcements, and team activity.",
+        "Follow up on blockers and ownership gaps.",
+      ],
+    };
+  }
 
   const data = isRecord(response.data) ? response.data : {};
   const summary =

@@ -67,6 +67,11 @@ Deno.serve(async (req) => {
 
     const organizationId = profile.organization_id;
     const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const organizationNotificationIds = await getOrganizationNotificationIds(
+      adminClient,
+      organizationId,
+      since24h,
+    );
     const importantTables = [
       "profiles",
       "tasks",
@@ -109,8 +114,12 @@ Deno.serve(async (req) => {
         .eq("organization_id", organizationId).eq("status", "active").is("clock_out_at", null),
       adminClient.from("push_subscriptions").select("id", { head: true, count: "exact" })
         .eq("organization_id", organizationId),
-      adminClient.from("notification_deliveries").select("id", { head: true, count: "exact" })
-        .gte("created_at", since24h).in("status", ["failed", "error"]),
+      organizationNotificationIds.length > 0
+        ? adminClient.from("notification_deliveries").select("id", { head: true, count: "exact" })
+          .gte("created_at", since24h)
+          .in("status", ["failed", "error"])
+          .in("notification_id", organizationNotificationIds)
+        : Promise.resolve({ count: 0 }),
       adminClient.from("incidents").select("id", { head: true, count: "exact" })
         .eq("organization_id", organizationId).in("status", ["open", "investigating"]),
     ]);
@@ -154,3 +163,19 @@ Deno.serve(async (req) => {
     );
   }
 });
+
+async function getOrganizationNotificationIds(
+  adminClient: any,
+  organizationId: string,
+  since: string,
+) {
+  const { data, error } = await adminClient
+    .from("notifications")
+    .select("id")
+    .eq("organization_id", organizationId)
+    .gte("created_at", since)
+    .limit(1000);
+
+  if (error) throw error;
+  return ((data ?? []) as Array<{ id: string }>).map((item) => item.id);
+}

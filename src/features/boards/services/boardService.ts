@@ -522,14 +522,21 @@ export async function createCard(
     columnId?: string | null;
   },
 ): Promise<Card> {
-  const assigneeIds = [
+  const selectedAssigneeIds = [
     ...new Set(
-      [input.createdBy, input.assignedTo, ...(input.assigneeIds ?? [])]
+      [input.assignedTo, ...(input.assigneeIds ?? [])]
         .map((id) => id?.trim())
         .filter((id): id is string => Boolean(id)),
     ),
   ];
-  const primaryAssigneeId = assigneeIds[0] ?? null;
+  const assigneeIds = [
+    ...new Set(
+      [...selectedAssigneeIds, input.createdBy]
+        .map((id) => id?.trim())
+        .filter((id): id is string => Boolean(id)),
+    ),
+  ];
+  const primaryAssigneeId = selectedAssigneeIds[0] ?? input.createdBy ?? null;
   const { data: board, error: boardError } = await supabase
     .from("clients")
     .select("id, office_id")
@@ -603,7 +610,7 @@ export async function createCard(
     try {
       await Promise.all(
         assigneeIds
-          .filter((userId) => userId !== input.createdBy)
+          .filter((userId) => userId !== input.createdBy && userId !== input.assignedBy)
           .map((userId) =>
             notifyTaskAssigned({
               organizationId,

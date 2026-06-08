@@ -72,6 +72,12 @@ export type DashboardTaskBucketKey = "open" | "in_progress" | "review";
 export type DashboardTaskBuckets = Record<DashboardTaskBucketKey, DashboardTask[]>;
 
 const OPEN_TASK_STATUSES = new Set(["todo", "backlog", "blocked"]);
+const DASHBOARD_TASK_ID_CHUNK_SIZE = 75;
+
+function isNetworkFetchError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return /Failed to fetch|NetworkError|Load failed/i.test(message);
+}
 
 export function isDashboardTaskOverdue(dueDate: string | null) {
   if (!dueDate) return false;
@@ -127,6 +133,56 @@ function buildDashboardTaskBuckets(tasks: DashboardTask[]): DashboardTaskBuckets
   review.sort(byDueThenUpdated);
 
   return { open, in_progress: inProgress, review };
+}
+
+async function fetchDashboardTasksByIds(params: {
+  organizationId: string;
+  taskIds: string[];
+  officeId?: string | null;
+  includeAllOffices: boolean;
+}) {
+  const chunks: string[][] = [];
+  for (let index = 0; index < params.taskIds.length; index += DASHBOARD_TASK_ID_CHUNK_SIZE) {
+    chunks.push(params.taskIds.slice(index, index + DASHBOARD_TASK_ID_CHUNK_SIZE));
+  }
+
+  const results = await Promise.all(
+    chunks.map((chunk) => {
+      let query = supabase
+        .from("tasks")
+        .select(`
+          id,
+          office_id,
+          title,
+          status,
+          priority,
+          due_date,
+          created_at,
+          created_by,
+          client_id,
+          project_id,
+          profiles:created_by (
+            full_name,
+            email
+          )
+        `)
+        .eq("organization_id", params.organizationId)
+        .in("id", chunk)
+        .is("archived_at", null)
+        .not("status", "eq", "cancelled");
+
+      if (!params.includeAllOffices && params.officeId) {
+        query = query.eq("office_id", params.officeId);
+      }
+
+      return query;
+    }),
+  );
+
+  const firstError = results.find((result) => result.error)?.error;
+  if (firstError) throw firstError;
+
+  return results.flatMap((result) => (result.data ?? []) as Record<string, unknown>[]);
 }
 
 export function useDashboard(params: {
@@ -246,7 +302,9 @@ export function useDashboard(params: {
         cityLabel: cityLabel || "Your city",
       });
     } catch (err) {
-      console.error("WEATHER LOAD ERROR:", err);
+      if (!isNetworkFetchError(err)) {
+        console.warn("WEATHER LOAD ERROR:", err);
+      }
       setWeather(null);
     }
   }, [latitude, longitude, cityLabel]);
@@ -285,7 +343,9 @@ export function useDashboard(params: {
 
       setRoleNews(articles);
     } catch (err) {
-      console.error("ROLE NEWS LOAD ERROR:", err);
+      if (!isNetworkFetchError(err)) {
+        console.warn("ROLE NEWS LOAD ERROR:", err);
+      }
       setRoleNews([]);
     }
   }, [role, roleNewsTopic]);
@@ -352,60 +412,25 @@ export function useDashboard(params: {
       }
       setError("");
 
-      const [{ data: taskAssignments, error: taskAssignmentsError }, { data: directAssignments, error: directAssignmentsError }] =
-        await Promise.all([
-          supabase.from("task_assignees").select("task_id").eq("user_id", userId),
-          (() => {
-            let query = supabase
-              .from("tasks")
-              .select("id")
-              .eq("organization_id", organizationId)
-              .eq("assigned_to", userId)
-              .is("archived_at", null);
-            if (!includeAllOffices && officeId) {
-              query = query.eq("office_id", officeId);
-            }
-            return query;
-          })(),
-        ]);
+      const { data: directAssignments, error: directAssignmentsError } = await (() => {
+        let query = supabase
+          .from("tasks")
+          .select("id")
+          .eq("organization_id", organizationId)
+          .eq("assigned_to", userId)
+          .is("archived_at", null);
+        if (!includeAllOffices && officeId) {
+          query = query.eq("office_id", officeId);
+        }
+        return query;
+      })();
 
-      if (taskAssignmentsError) throw taskAssignmentsError;
       if (directAssignmentsError) throw directAssignmentsError;
 
       const assignedTaskIds = Array.from(
         new Set(
-          [
-            ...(taskAssignments?.map((assignment: { task_id: string }) => assignment.task_id) ?? []),
-            ...(directAssignments?.map((row: { id: string }) => row.id) ?? []),
-          ].filter(Boolean),
+          (directAssignments?.map((row: { id: string }) => row.id) ?? []).filter(Boolean),
         ),
-      );
-
-      let timeEntryTasksQuery = supabase
-          .from("time_entries")
-          .select("task_id")
-          .eq("organization_id", organizationId)
-          .eq("user_id", userId)
-          .not("task_id", "is", null)
-          .is("deleted_at", null)
-          .order("started_at", { ascending: false })
-          .limit(20);
-
-      if (!includeAllOffices && officeId) {
-        timeEntryTasksQuery = timeEntryTasksQuery.eq("office_id", officeId);
-      }
-
-      const { data: timeEntryTasks, error: timeEntryTasksError } =
-        await timeEntryTasksQuery;
-
-      if (timeEntryTasksError) throw timeEntryTasksError;
-
-      const trackedTaskIds =
-        timeEntryTasks?.map((entry: any) => entry.task_id).filter(Boolean) ||
-        [];
-
-      const allTaskIds = Array.from(
-        new Set([...assignedTaskIds, ...trackedTaskIds]),
       );
 
       const todayRange = getZimbabweTodayRangeIso();
@@ -494,38 +519,15 @@ export function useDashboard(params: {
       };
       let doneTasks = 0;
 
-      if (allTaskIds.length > 0) {
-        let taskRowsQuery = supabase
-          .from("tasks")
-          .select(`
-            id,
-            office_id,
-            title,
-            status,
-            priority,
-            due_date,
-            created_at,
-            created_by,
-            client_id,
-            project_id,
-            profiles:created_by (
-              full_name,
-              email
-            )
-          `)
-          .eq("organization_id", organizationId)
-          .in("id", allTaskIds)
-          .is("archived_at", null)
-          .not("status", "eq", "cancelled");
+      if (assignedTaskIds.length > 0) {
+        const taskRows = await fetchDashboardTasksByIds({
+          organizationId,
+          taskIds: assignedTaskIds,
+          officeId,
+          includeAllOffices,
+        });
 
-        if (!includeAllOffices && officeId) {
-          taskRowsQuery = taskRowsQuery.eq("office_id", officeId);
-        }
-
-        const { data: taskRows, error: taskRowsError } = await taskRowsQuery;
-        if (taskRowsError) throw taskRowsError;
-
-        const allMapped = ((taskRows ?? []) as Record<string, unknown>[]).map(mapDashboardTaskRow);
+        const allMapped = taskRows.map(mapDashboardTaskRow);
         doneTasks = allMapped.filter((task) => task.status === "done").length;
 
         const activeMapped = excludeOverdueTasks(

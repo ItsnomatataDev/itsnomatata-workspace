@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useState, type ReactNode } from "react";
 import { Sparkles, RefreshCw, AlertCircle } from "lucide-react";
 import { generateDashboardSummary } from "../../../lib/api/ai";
 import type {
@@ -16,6 +16,20 @@ type Props = {
   escalations: EscalationItem[];
   kpis: KPITile[];
 };
+
+function renderBoldText(text: string): ReactNode[] {
+  return text.split(/(\*\*.*?\*\*)/g).map((part, index) => {
+    if (part.startsWith("**") && part.endsWith("**") && part.length > 4) {
+      return (
+        <strong key={index} className="text-white">
+          {part.slice(2, -2)}
+        </strong>
+      );
+    }
+
+    return part;
+  });
+}
 
 export default function AIInsightsPanel({
   organizationId,
@@ -162,15 +176,9 @@ export default function AIInsightsPanel({
           <div className="rounded-xl border border-white/10 bg-black/30 p-4">
             <div className="prose prose-sm prose-invert max-w-none text-sm text-white/75">
               {insight.split("\n\n").map((paragraph, i) => (
-                <p
-                  key={i}
-                  dangerouslySetInnerHTML={{
-                    __html: paragraph.replace(
-                      /\*\*(.*?)\*\*/g,
-                      '<strong class="text-white">$1</strong>',
-                    ),
-                  }}
-                />
+                <p key={i}>
+                  {renderBoldText(paragraph)}
+                </p>
               ))}
             </div>
           </div>

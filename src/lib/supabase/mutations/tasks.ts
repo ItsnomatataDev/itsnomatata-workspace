@@ -459,7 +459,7 @@ export async function createTask(payload: CreateTaskPayload): Promise<TaskRow> {
     try {
       await Promise.all(
         assigneeIds
-          .filter((userId) => userId !== payload.created_by)
+          .filter((userId) => userId !== payload.created_by && userId !== payload.assigned_by)
           .map((userId) =>
             notifyTaskAssigned({
               organizationId,
@@ -479,7 +479,8 @@ export async function createTask(payload: CreateTaskPayload): Promise<TaskRow> {
   if (
     data.assigned_to &&
     !assigneeIds.includes(data.assigned_to) &&
-    data.assigned_to !== data.created_by
+    data.assigned_to !== data.created_by &&
+    data.assigned_to !== data.assigned_by
   ) {
     try {
       await notifyTaskAssigned({
@@ -562,8 +563,9 @@ export async function updateTask(
 
       // Notify all (re)assigned users
       try {
+        const actorUserId = data.assigned_by ?? data.created_by ?? null;
         const assigneeNotifications = fields.assigneeIds
-          .filter((userId) => userId !== data.created_by)
+          .filter((userId) => userId !== data.created_by && userId !== actorUserId)
           .map((userId) =>
             notifyTaskAssigned({
               organizationId: assigneeOrganizationId,
@@ -571,7 +573,7 @@ export async function updateTask(
               taskId,
               taskTitle: data.title,
               boardId: (data.client_id as string | null) ?? null,
-              actorUserId: data.assigned_by ?? data.created_by ?? null,
+              actorUserId,
             }),
           );
         await Promise.all(assigneeNotifications);

@@ -1740,16 +1740,18 @@ export default function CardDetailModal({
       if (error) throw error;
       await refreshAssignees();
 
-      // Notify the newly added assignee
-      void notifyTaskAssigned({
-        organizationId,
-        userId: user.id,
-        taskId: cardId,
-        taskTitle: title,
-        boardId: card.client_id ?? null,
-      }).catch((err) => {
-        console.error("ADD ASSIGNEE NOTIFICATION ERROR:", err);
-      });
+      if (user.id !== currentUserId) {
+        void notifyTaskAssigned({
+          organizationId,
+          userId: user.id,
+          taskId: cardId,
+          taskTitle: title,
+          boardId: card.client_id ?? null,
+          actorUserId: currentUserId,
+        }).catch((err) => {
+          console.error("ADD ASSIGNEE NOTIFICATION ERROR:", err);
+        });
+      }
     } catch (e) {
       console.error(e);
     } finally {
