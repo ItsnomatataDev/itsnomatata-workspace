@@ -61,6 +61,7 @@ export type AttendanceProfile = {
 
 export type AttendanceReportRow = {
   user_id: string;
+  active_session_id?: string | null;
   full_name: string | null;
   email: string | null;
   office_id?: string | null;

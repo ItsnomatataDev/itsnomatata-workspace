@@ -1149,11 +1149,16 @@ async function toolSearchAssets(
 ) {
   const queryText = readString(payload, "query") ??
     readString(payload, "search") ?? "";
+  const assetTag = readString(payload, "assetTag") ?? readString(payload, "asset_tag");
+  const serialNumber = readString(payload, "serialNumber") ?? readString(payload, "serial_number");
+  const brand = readString(payload, "brand");
+  const model = readString(payload, "model");
+  const status = readString(payload, "status");
   const limit = typeof payload.limit === "number" ? payload.limit : 15;
 
   let query = adminClient
     .from("assets")
-    .select("id, asset_name, asset_tag, serial_number, status, brand, model, condition")
+    .select("id, asset_name, asset_tag, serial_number, status, brand, model, condition, assigned_to, updated_at")
     .eq("organization_id", ctx.organizationId)
     .order("updated_at", { ascending: false })
     .limit(limit);
@@ -1163,15 +1168,38 @@ async function toolSearchAssets(
       `asset_name.ilike.%${queryText}%,asset_tag.ilike.%${queryText}%,serial_number.ilike.%${queryText}%,brand.ilike.%${queryText}%,model.ilike.%${queryText}%`,
     );
   }
+  if (assetTag) query = query.ilike("asset_tag", `%${assetTag}%`);
+  if (serialNumber) query = query.ilike("serial_number", `%${serialNumber}%`);
+  if (brand) query = query.ilike("brand", `%${brand}%`);
+  if (model) query = query.ilike("model", `%${model}%`);
+  if (status) query = query.ilike("status", `%${status}%`);
 
   const { data, error } = await query;
   if (error) throw error;
 
   return {
     ok: true,
-    assets: data ?? [],
+    assets: ((data ?? []) as DbRow[]).map((asset) => ({
+      id: asset.id,
+      name: asset.asset_name,
+      assetName: asset.asset_name,
+      assetTag: asset.asset_tag,
+      serialNumber: asset.serial_number,
+      status: asset.status,
+      brand: asset.brand,
+      model: asset.model,
+      condition: asset.condition,
+      assetUrl: typeof asset.id === "string" ? `/assets/${asset.id}` : null,
+    })),
     count: data?.length ?? 0,
-    query: queryText,
+    filters: {
+      query: queryText || null,
+      assetTag: assetTag || null,
+      serialNumber: serialNumber || null,
+      brand: brand || null,
+      model: model || null,
+      status: status || null,
+    },
   };
 }
 

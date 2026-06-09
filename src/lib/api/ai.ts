@@ -176,6 +176,48 @@ function extractTextFromHtml(value: string): string {
     .trim();
 }
 
+function extractReadableAiText(value: unknown): string {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (/^[{\[]/.test(trimmed)) {
+      try {
+        const parsed = JSON.parse(trimmed) as unknown;
+        const parsedText = extractReadableAiText(parsed);
+        if (parsedText && parsedText !== trimmed) return parsedText;
+      } catch {
+        // Keep the original text if it only resembles JSON.
+      }
+    }
+    return trimmed;
+  }
+
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+
+  if (Array.isArray(value)) {
+    return value.map(extractReadableAiText).filter(Boolean).join("\n");
+  }
+
+  if (!isRecord(value)) return "";
+
+  for (const key of [
+    "reply",
+    "message",
+    "output",
+    "text",
+    "content",
+    "summary",
+    "answer",
+    "result",
+  ]) {
+    const text = extractReadableAiText(value[key]);
+    if (text) return text;
+  }
+
+  return "";
+}
+
 function normalizeAssistantResponse(value: unknown): AssistantResponse {
   if (!isRecord(value)) {
     throw new Error("Invalid AI response: expected an object.");
@@ -197,14 +239,13 @@ function normalizeAssistantResponse(value: unknown): AssistantResponse {
     ? (value.type as AssistantResponse["type"])
     : "text";
 
-  // n8n chatTrigger returns { output: "..." }
-  const message = typeof value.output === "string"
-    ? value.output
-    : typeof value.message === "string"
-    ? value.message
-    : typeof value.summary === "string"
-    ? value.summary
-    : "AI request completed successfully.";
+  // n8n chatTrigger returns { output: "..." }, but some workflows return
+  // nested response objects. Normalize them before the chat UI renders them.
+  const message = extractReadableAiText(value.output) ||
+    extractReadableAiText(value.message) ||
+    extractReadableAiText(value.summary) ||
+    extractReadableAiText(value) ||
+    "AI request completed successfully.";
 
   const success = typeof value.success === "boolean"
     ? value.success

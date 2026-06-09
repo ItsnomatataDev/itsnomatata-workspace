@@ -107,6 +107,57 @@ function groupTimeEntriesByBoardAndTask(entries: unknown[]) {
   return [...groups.values()].sort((a, b) => b.seconds - a.seconds);
 }
 
+function cleanSearchText(value: string) {
+  return value
+    .replace(/^["'\s]+|["'\s.,?!]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function extractAssetPayload(message: string): Record<string, unknown> {
+  const lower = message.toLowerCase();
+  const normalized = message.replace(/\s+/g, " ").trim();
+  const payload: Record<string, unknown> = { limit: 10 };
+
+  const namedMatch = normalized.match(
+    /\b(?:named|called|name is|asset name is)\s+["']?([^"',?.]+)["']?/i,
+  );
+  const tagMatch = normalized.match(
+    /\b(?:tag|asset tag)\s*(?:is|=|:)?\s*["']?([a-z0-9._-]+)["']?/i,
+  );
+  const serialMatch = normalized.match(
+    /\b(?:serial|serial number)\s*(?:is|=|:)?\s*["']?([a-z0-9._-]+)["']?/i,
+  );
+  const brandMatch = normalized.match(
+    /\bbrand\s*(?:is|=|:)?\s*["']?([^"',?.]+)["']?/i,
+  );
+  const modelMatch = normalized.match(
+    /\bmodel\s*(?:is|=|:)?\s*["']?([^"',?.]+)["']?/i,
+  );
+
+  if (namedMatch?.[1]) payload.query = cleanSearchText(namedMatch[1]);
+  if (tagMatch?.[1]) payload.assetTag = cleanSearchText(tagMatch[1]);
+  if (serialMatch?.[1]) payload.serialNumber = cleanSearchText(serialMatch[1]);
+  if (brandMatch?.[1]) payload.brand = cleanSearchText(brandMatch[1]);
+  if (modelMatch?.[1]) payload.model = cleanSearchText(modelMatch[1]);
+
+  if (/\b(in stock|available|active)\b/.test(lower)) payload.status = "available";
+  if (/\b(assigned|allocated)\b/.test(lower)) payload.status = "assigned";
+  if (/\b(repair|maintenance|broken)\b/.test(lower)) payload.status = "maintenance";
+
+  if (!payload.query && !payload.assetTag && !payload.serialNumber) {
+    const stripped = normalized
+      .replace(/\b(show|list|find|search|any|all|the|assets?|equipment|stock|named|called|with|that|are|is|please)\b/gi, " ")
+      .replace(/\b(in stock|available|active|assigned|allocated|repair|maintenance|broken)\b/gi, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    if (stripped) payload.query = cleanSearchText(stripped);
+  }
+
+  return payload;
+}
+
 export function detectAiTool(message: string): {
   toolId: AiRouterToolId;
   payload: Record<string, unknown>;
@@ -152,10 +203,7 @@ export function detectAiTool(message: string): {
   }
 
   if (/asset|equipment|serial|stock/.test(lower)) {
-    const query = message
-      .replace(/search assets?|find assets?|assets?/gi, "")
-      .trim();
-    return { toolId: "search_assets", payload: { query } };
+    return { toolId: "search_assets", payload: extractAssetPayload(message) };
   }
 
   if (/board/.test(lower)) {
@@ -206,12 +254,13 @@ export function formatToolReply(
     case "list_boards": {
       const boards = Array.isArray(data.boards) ? data.boards : [];
       if (boards.length === 0) return "No boards found for your organization.";
-      return boards
+      const lines = boards
         .map((board) => {
           const row = board as Record<string, unknown>;
-          return `- ${row.name ?? "Board"} (${row.id})`;
+          return `- ${row.name ?? "Board"}${row.status ? ` (${row.status})` : ""}${row.id ? `\n  Open board: /boards/${row.id}` : ""}`;
         })
         .join("\n");
+      return `I found ${boards.length} board${boards.length === 1 ? "" : "s"}:\n\n${lines}`;
     }
     case "get_active_time_trackers": {
       const trackers = Array.isArray(data.trackers) ? data.trackers : [];
@@ -249,8 +298,17 @@ export function formatToolReply(
       return `${name} tracked ${formatHours(totalSeconds)}${rangeLabel}.\n\n${lines.join("\n")}`;
     }
     case "get_attendance_summary": {
-      const sessions = Array.isArray(data.sessions) ? data.sessions : [];
-      return `Attendance summary: ${sessions.length} session(s) in range.`;
+      const records = Array.isArray(data.records) ? data.records : [];
+      const counts = data.counts as Record<string, unknown> | undefined;
+      const countLine = counts
+        ? Object.entries(counts).map(([status, count]) => `${status}: ${count}`).join(", ")
+        : "";
+      if (records.length === 0) return "I could not find attendance records for that period.";
+      const lines = records.slice(0, 10).map((item) => {
+        const row = item as Record<string, unknown>;
+        return `- ${row.name ?? "Team member"}: ${row.status ?? "unknown"} on ${row.date ?? "unknown date"}`;
+      }).join("\n");
+      return `Attendance summary${countLine ? ` (${countLine})` : ""}.\n\n${lines}`;
     }
     case "search_notifications": {
       const notifications = Array.isArray(data.notifications)
@@ -267,15 +325,40 @@ export function formatToolReply(
     }
     case "search_assets": {
       const assets = Array.isArray(data.assets) ? data.assets : [];
-      if (assets.length === 0) return "No assets matched that search.";
-      return assets
-        .map((item) => {
-          const row = item as Record<string, unknown>;
-          return `- ${row.asset_name ?? "Asset"} (${row.asset_tag ?? row.serial_number ?? row.id})`;
-        })
-        .join("\n");
+      const filters = data.filters as Record<string, unknown> | undefined;
+      const filterLabel = [
+        filters?.query,
+        filters?.assetTag ? `tag ${filters.assetTag}` : null,
+        filters?.serialNumber ? `serial ${filters.serialNumber}` : null,
+        filters?.brand ? `brand ${filters.brand}` : null,
+        filters?.model ? `model ${filters.model}` : null,
+        filters?.status ? `status ${filters.status}` : null,
+      ].filter(Boolean).join(", ");
+
+      if (assets.length === 0) {
+        return filterLabel
+          ? `I could not find any assets matching ${filterLabel}.`
+          : "I could not find any assets.";
+      }
+
+      const lines = assets.map((item) => {
+        const row = item as Record<string, unknown>;
+        const name = row.assetName ?? row.asset_name ?? row.name ?? "Asset";
+        const details = [
+          row.assetTag ? `tag ${row.assetTag}` : null,
+          row.serialNumber ? `serial ${row.serialNumber}` : null,
+          row.brand || row.model ? `${row.brand ?? ""} ${row.model ?? ""}`.trim() : null,
+          row.status ? `status ${row.status}` : null,
+          row.condition ? `condition ${row.condition}` : null,
+        ].filter(Boolean).join(", ");
+        return `- ${name}${details ? ` (${details})` : ""}${row.assetUrl ? `\n  Open asset: ${row.assetUrl}` : ""}`;
+      });
+
+      return `I found ${assets.length} asset${assets.length === 1 ? "" : "s"}${filterLabel ? ` matching ${filterLabel}` : ""}:\n\n${lines.join("\n")}`;
     }
     default:
-      return JSON.stringify(data, null, 2);
+      return typeof data.message === "string" && data.message.trim()
+        ? data.message.trim()
+        : "I found matching workspace data, but there is no readable summary available yet.";
   }
 }

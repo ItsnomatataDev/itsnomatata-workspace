@@ -236,7 +236,9 @@ export async function clockOut(input: ClockOutInput): Promise<AttendanceSession>
       clock_out_method: input.method ?? "web",
       status: "completed",
       work_seconds: workSeconds,
-      notes: input.notes ?? session.notes ?? null,
+      notes: input.notes
+        ? [session.notes, input.notes].filter(Boolean).join("\n")
+        : session.notes ?? null,
       updated_at: new Date().toISOString(),
     })
     .eq("id", input.sessionId)
@@ -453,6 +455,9 @@ export async function getAttendanceReport(params: {
     const active = userSessions.some(
       (session) => session.status === "active" && !session.clock_out_at,
     );
+    const activeSession = userSessions.find(
+      (session) => session.status === "active" && !session.clock_out_at,
+    );
     const missed = userSessions.some((session) => session.status === "missed_clock_out");
     const hasAutoClockOut = userSessions.some(
       (session) => session.clock_out_method === "auto",
@@ -460,6 +465,7 @@ export async function getAttendanceReport(params: {
 
     return {
       user_id: profile.id,
+      active_session_id: activeSession?.id ?? null,
       full_name: profile.full_name,
       email: profile.email,
       office_id: profile.office_id ?? null,

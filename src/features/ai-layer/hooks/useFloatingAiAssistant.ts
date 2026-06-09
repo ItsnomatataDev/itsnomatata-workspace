@@ -19,7 +19,19 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function stringifyAssistantValue(value: unknown): string {
-  if (typeof value === "string") return value.trim();
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (/^[{\[]/.test(trimmed)) {
+      try {
+        const parsed = JSON.parse(trimmed) as unknown;
+        const parsedText = stringifyAssistantValue(parsed);
+        if (parsedText && parsedText !== trimmed) return parsedText;
+      } catch {
+        // Keep plain text if it only looks like JSON.
+      }
+    }
+    return trimmed;
+  }
   if (typeof value === "number" || typeof value === "boolean") {
     return String(value);
   }
@@ -50,7 +62,17 @@ function stringifyAssistantValue(value: unknown): string {
     : "";
   if (dataText) return dataText;
 
-  return JSON.stringify(value, null, 2);
+  const readableEntries = Object.entries(value)
+    .filter(([, nested]) =>
+      typeof nested === "string" ||
+      typeof nested === "number" ||
+      typeof nested === "boolean"
+    )
+    .map(([key, nested]) => `${key}: ${nested}`);
+
+  return readableEntries.length > 0
+    ? readableEntries.join("\n")
+    : "I got a response, but it did not include readable text.";
 }
 
 function formatHours(seconds: unknown) {
@@ -135,6 +157,144 @@ function formatTimeToolReply(toolId: AiRouterToolId, data: Record<string, unknow
   return "";
 }
 
+function formatAssetToolReply(data: Record<string, unknown>) {
+  const assets = Array.isArray(data.assets) ? data.assets : [];
+  const filters = isRecord(data.filters) ? data.filters : {};
+  const filterLabel = [
+    filters.query,
+    filters.assetTag ? `tag ${filters.assetTag}` : null,
+    filters.serialNumber ? `serial ${filters.serialNumber}` : null,
+    filters.brand ? `brand ${filters.brand}` : null,
+    filters.model ? `model ${filters.model}` : null,
+    filters.status ? `status ${filters.status}` : null,
+  ].filter(Boolean).join(", ");
+
+  if (assets.length === 0) {
+    return filterLabel
+      ? `I could not find any assets matching ${filterLabel}.`
+      : "I could not find any assets.";
+  }
+
+  const lines = assets.map((item) => {
+    const row = item as Record<string, unknown>;
+    const name = row.assetName ?? row.asset_name ?? row.name ?? "Asset";
+    const details = [
+      row.assetTag ? `tag ${row.assetTag}` : null,
+      row.serialNumber ? `serial ${row.serialNumber}` : null,
+      row.brand || row.model ? `${row.brand ?? ""} ${row.model ?? ""}`.trim() : null,
+      row.status ? `status ${row.status}` : null,
+      row.condition ? `condition ${row.condition}` : null,
+    ].filter(Boolean).join(", ");
+
+    return `- ${name}${details ? ` (${details})` : ""}${row.assetUrl ? `\n  Open asset: ${row.assetUrl}` : ""}`;
+  });
+
+  return `I found ${assets.length} asset${assets.length === 1 ? "" : "s"}${filterLabel ? ` matching ${filterLabel}` : ""}:\n\n${lines.join("\n")}`;
+}
+
+function formatWorkspaceToolReply(
+  toolId: AiRouterToolId | null | undefined,
+  data: Record<string, unknown> | undefined,
+) {
+  if (!toolId || !data) return "";
+
+  const timeReply = formatTimeToolReply(toolId, data);
+  if (timeReply) return timeReply;
+  if (toolId === "search_assets") return formatAssetToolReply(data);
+
+  if (toolId === "summarize_my_tasks") {
+    const openCount = Number(data.openCount ?? 0);
+    const overdueCount = Number(data.overdueCount ?? 0);
+    const tasks = Array.isArray(data.tasks) ? data.tasks : [];
+
+    if (tasks.length === 0) {
+      return "You do not have any open assigned tasks right now.";
+    }
+
+    const lines = tasks.slice(0, 10).map((item) => {
+      const row = item as Record<string, unknown>;
+      const title = row.title ?? "Untitled task";
+      const status = row.status ? `, ${row.status}` : "";
+      const priority = row.priority ? `, ${row.priority} priority` : "";
+      const board = row.boardName ? ` on ${row.boardName}` : "";
+      const link = taskLink(row.boardId, row.id ?? row.taskId);
+      return `- ${title}${board}${status}${priority}${link ? `\n  Open task: ${link}` : ""}`;
+    });
+
+    return `You have ${openCount} open task${openCount === 1 ? "" : "s"}${overdueCount > 0 ? `, with ${overdueCount} overdue` : ""}.\n\n${lines.join("\n")}`;
+  }
+
+  if (toolId === "list_boards") {
+    const boards = Array.isArray(data.boards) ? data.boards : [];
+    if (boards.length === 0) return "I could not find any boards.";
+
+    const lines = boards.slice(0, 12).map((item) => {
+      const row = item as Record<string, unknown>;
+      const id = typeof row.id === "string" ? row.id : null;
+      return `- ${row.name ?? "Untitled board"}${row.status ? ` (${row.status})` : ""}${id ? `\n  Open board: /boards/${id}` : ""}`;
+    });
+
+    return `I found ${boards.length} board${boards.length === 1 ? "" : "s"}:\n\n${lines.join("\n")}`;
+  }
+
+  if (toolId === "search_notifications") {
+    const notifications = Array.isArray(data.notifications)
+      ? data.notifications
+      : [];
+    if (notifications.length === 0) return "You do not have matching notifications.";
+
+    const lines = notifications.slice(0, 10).map((item) => {
+      const row = item as Record<string, unknown>;
+      const readLabel = row.is_read ? "read" : "unread";
+      return `- ${row.title ?? "Notification"} (${readLabel})${row.message ? `\n  ${row.message}` : ""}${row.action_url ? `\n  Open: ${row.action_url}` : ""}`;
+    });
+
+    return `I found ${notifications.length} notification${notifications.length === 1 ? "" : "s"}:\n\n${lines.join("\n")}`;
+  }
+
+  if (toolId === "get_attendance_summary") {
+    const records = Array.isArray(data.records) ? data.records : [];
+    const counts = isRecord(data.counts) ? data.counts : {};
+    const countLine = Object.entries(counts)
+      .map(([status, count]) => `${status}: ${count}`)
+      .join(", ");
+
+    if (records.length === 0) return "I could not find attendance records for that period.";
+
+    const lines = records.slice(0, 8).map((item) => {
+      const row = item as Record<string, unknown>;
+      return `- ${row.name ?? "Team member"}: ${row.status ?? "unknown"} on ${row.date ?? "unknown date"}`;
+    });
+
+    return `Attendance summary${countLine ? ` (${countLine})` : ""}.\n\n${lines.join("\n")}`;
+  }
+
+  const message = typeof data.message === "string" ? data.message.trim() : "";
+  return message || "I found matching workspace data, but there is no readable summary available yet.";
+}
+
+function buildBrainMessageWithToolResult(params: {
+  originalMessage: string;
+  toolId: AiRouterToolId;
+  toolReply: string;
+  toolData?: Record<string, unknown>;
+}) {
+  return [
+    params.originalMessage,
+    "",
+    "[Workspace data already retrieved]",
+    `Tool: ${params.toolId}`,
+    "Use the workspace data below to answer the user's exact request in friendly plain text.",
+    "Do not show JSON. Do not list unrelated records. If the user asked for a filter, only discuss matching records.",
+    "",
+    "[Readable tool summary]",
+    params.toolReply,
+    "",
+    "[Structured tool data for accuracy]",
+    JSON.stringify(params.toolData ?? {}, null, 2),
+  ].join("\n");
+}
+
 export function useFloatingAiAssistant() {
   const auth = useAuth();
   const { isEnabled, loading: featuresLoading } = useOrganizationFeatures();
@@ -200,16 +360,57 @@ export function useFloatingAiAssistant() {
             conversationId,
             context,
           });
+          const toolReply =
+            formatWorkspaceToolReply(response.toolId ?? routerTool, response.data) ||
+            stringifyAssistantValue(response.reply);
 
-          setConversationId(response.conversationId);
+          let finalReply = toolReply;
+          let finalConversationId = response.conversationId;
+
+          try {
+            const brainResponse = await askAssistant({
+              message: buildBrainMessageWithToolResult({
+                originalMessage: trimmed,
+                toolId: response.toolId ?? routerTool,
+                toolReply,
+                toolData: response.data,
+              }),
+              conversationId,
+              context: {
+                userId: context.userId,
+                organizationId: context.organizationId,
+                fullName: context.fullName,
+                role: context.role,
+                department: context.department,
+                currentRoute: context.currentRoute,
+                currentModule: context.currentModule ?? "floating_ai",
+                channel: "web",
+                timezone: "Africa/Harare",
+              },
+              metadata: {
+                source: "floating_ai_assistant",
+                route: context.currentRoute,
+                workspaceToolId: response.toolId ?? routerTool,
+                workspaceToolUsed: true,
+              },
+            });
+
+            finalReply = stringifyAssistantValue(
+              brainResponse.message || brainResponse.raw,
+            ) || toolReply;
+            finalConversationId = brainResponse.conversationId ??
+              response.conversationId;
+          } catch {
+            finalReply = toolReply;
+          }
+
+          setConversationId(finalConversationId);
           setMessages((current) => [
             ...current,
             {
               id: response.messageId,
               role: "assistant",
-              content:
-                formatTimeToolReply(response.toolId ?? routerTool, response.data ?? {}) ||
-                stringifyAssistantValue(response.reply),
+              content: finalReply,
               createdAt: new Date().toISOString(),
               toolId: response.toolId ?? null,
               data: response.data,
@@ -251,6 +452,25 @@ export function useFloatingAiAssistant() {
           },
         ]);
       } catch (assistantError) {
+        const fallbackTool = detectFallbackTool(trimmed);
+        if (!fallbackTool) {
+          const message = assistantError instanceof Error
+            ? assistantError.message
+            : "The n8n assistant webhook is unavailable right now.";
+          setError(message);
+          setMessages((current) => [
+            ...current,
+            {
+              id: createMessageId("assistant"),
+              role: "assistant",
+              content: message,
+              createdAt: new Date().toISOString(),
+              error: true,
+            },
+          ]);
+          return;
+        }
+
         try {
           const response = await sendAiRouterMessage({
             message: trimmed,
@@ -264,7 +484,9 @@ export function useFloatingAiAssistant() {
             {
               id: response.messageId,
               role: "assistant",
-              content: stringifyAssistantValue(response.reply),
+              content:
+                formatWorkspaceToolReply(response.toolId ?? fallbackTool, response.data) ||
+                stringifyAssistantValue(response.reply),
               createdAt: new Date().toISOString(),
               toolId: response.toolId ?? null,
               data: response.data,
@@ -272,9 +494,6 @@ export function useFloatingAiAssistant() {
           ]);
         } catch (routerError) {
           try {
-            const fallbackTool = detectFallbackTool(trimmed);
-            if (!fallbackTool) throw routerError;
-
             const data = await runAiToolFallback(fallbackTool, context);
             setMessages((current) => [
               ...current,
@@ -353,6 +572,5 @@ function formatFallbackReply(
 ): string {
   const timeReply = formatTimeToolReply(toolId, data);
   if (timeReply) return timeReply;
-
-  return `I pulled this from your workspace (${toolId}):\n\n\`\`\`json\n${JSON.stringify(data, null, 2)}\n\`\`\``;
+  return formatWorkspaceToolReply(toolId, data);
 }

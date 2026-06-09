@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Activity, CalendarDays, Clock3, ShieldCheck, UserCheck } from "lucide-react";
+import { Activity, CalendarDays, Clock3, LogOut, ShieldCheck, UserCheck } from "lucide-react";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import Sidebar from "../../../components/dashboard/components/Sidebar";
-import { getAttendanceReport } from "../services/attendanceService";
+import { clockOut, getAttendanceReport } from "../services/attendanceService";
 import type { AttendanceReportRow } from "../types/attendance";
 import {
   getZimbabweDateKey,
@@ -61,6 +61,7 @@ export default function AdminAttendancePage() {
   const [offices, setOffices] = useState<CompanyOffice[]>([]);
   const [officeFilter, setOfficeFilter] = useState("mine");
   const [loading, setLoading] = useState(true);
+  const [clockingOutUserId, setClockingOutUserId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const canViewAllOffices = canManageAllOffices(profile);
 
@@ -112,6 +113,29 @@ export default function AdminAttendancePage() {
     const interval = window.setInterval(() => void load(), 30000);
     return () => window.clearInterval(interval);
   }, [load]);
+
+  const handleAdminClockOut = useCallback(async (row: AttendanceReportRow) => {
+    if (!row.active_session_id) return;
+    const name = row.full_name || row.email || "this user";
+    const confirmed = window.confirm(`Clock out ${name} now?`);
+    if (!confirmed) return;
+
+    try {
+      setClockingOutUserId(row.user_id);
+      setError("");
+      await clockOut({
+        sessionId: row.active_session_id,
+        userId: row.user_id,
+        method: "admin",
+        notes: `Clocked out by admin ${profile?.full_name || profile?.email || profile?.id || "unknown"}.`,
+      });
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to clock out user.");
+    } finally {
+      setClockingOutUserId(null);
+    }
+  }, [load, profile?.email, profile?.full_name, profile?.id]);
 
   if (!profile || !organizationId) {
     return <div className="min-h-screen bg-black px-4 py-6 text-white sm:px-6">Loading...</div>;
@@ -212,18 +236,19 @@ export default function AdminAttendancePage() {
                     <th className="px-4 py-3">Task tracked</th>
                     <th className="px-4 py-3">Untracked</th>
                     <th className="px-4 py-3">Flags</th>
+                    <th className="px-4 py-3">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/5">
                   {loading ? (
                     <tr>
-                      <td colSpan={9} className="px-4 py-8 text-center text-white/50">
+                      <td colSpan={10} className="px-4 py-8 text-center text-white/50">
                         Loading attendance...
                       </td>
                     </tr>
                   ) : rows.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="px-4 py-8 text-center text-white/50">
+                      <td colSpan={10} className="px-4 py-8 text-center text-white/50">
                         No attendance rows found.
                       </td>
                     </tr>
@@ -270,6 +295,21 @@ export default function AdminAttendancePage() {
                               </span>
                             ) : null}
                           </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          {row.status === "active" && row.active_session_id ? (
+                            <button
+                              type="button"
+                              onClick={() => void handleAdminClockOut(row)}
+                              disabled={clockingOutUserId === row.user_id}
+                              className="inline-flex items-center gap-2 rounded-full border border-orange-400/30 bg-orange-500/10 px-3 py-1.5 text-xs font-semibold text-orange-200 transition hover:bg-orange-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              <LogOut size={14} />
+                              {clockingOutUserId === row.user_id ? "Clocking out..." : "Clock out"}
+                            </button>
+                          ) : (
+                            <span className="text-white/30">-</span>
+                          )}
                         </td>
                       </tr>
                     ))
