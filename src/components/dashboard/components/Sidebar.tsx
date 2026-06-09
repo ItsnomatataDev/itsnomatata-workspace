@@ -28,6 +28,7 @@ import {
   Package,
   ClipboardList,
   Settings,
+  UserCircle,
   Inbox,
   FileText,
   Camera,
@@ -94,6 +95,24 @@ const systemOwnerAdminLinks: LinkItem[] = [
   { to: "/admin/platform-admin", label: "Platform Admin", icon: ShieldCheck },
   { to: "/admin/operations-center", label: "Operations Center", icon: Activity },
 ];
+
+function tourismOperationsNav(): GroupItem {
+  return {
+    type: "group",
+    label: "Tourism Ops",
+    icon: MapPinned,
+    color: "text-teal-300",
+    activePaths: ["/tourism"],
+    featureKey: "tourism_operations",
+    children: [
+      { to: "/tourism", label: "Operations", icon: LayoutDashboard, featureKey: "tourism_operations" },
+      { to: "/tourism/bookings", label: "Bookings", icon: ClipboardList, featureKey: "tourism_operations" },
+      { to: "/tourism/itineraries", label: "Itineraries", icon: CalendarClock, featureKey: "tourism_operations" },
+      { to: "/tourism/guests", label: "Guests", icon: Users, featureKey: "tourism_operations" },
+      { to: "/tourism/transfers", label: "Transfers", icon: Truck, featureKey: "tourism_operations" },
+    ],
+  };
+}
 
 function filterNavByFeatures(items: NavItem[], isEnabled: (featureKey?: string | null) => boolean) {
   return items.flatMap((item) => {
@@ -172,6 +191,75 @@ function getRoleNav(role?: string | null, counts?: SidebarCounts): NavItem[] {
     case "seo_specialist":
       return [{ to: "/seo", label: "SEO", icon: Search }];
 
+    case "tourism_operations_manager":
+      return [
+        tourismOperationsNav(),
+        { to: "/location-planner", label: "Location Planner", icon: MapPinned },
+        { to: "/fleet", label: "Fleet", icon: Truck, featureKey: "fleet" },
+        { to: "/reports", label: "Reports", icon: BarChart3, featureKey: "reports" },
+      ];
+
+    case "reservations_agent":
+      return [
+        {
+          ...tourismOperationsNav(),
+          children: tourismOperationsNav().children.filter((child) =>
+            ["/tourism", "/tourism/bookings", "/tourism/itineraries", "/tourism/guests"].includes(child.to),
+          ),
+        },
+      ];
+
+    case "guest_relations":
+      return [
+        {
+          ...tourismOperationsNav(),
+          children: tourismOperationsNav().children.filter((child) =>
+            ["/tourism", "/tourism/itineraries", "/tourism/guests"].includes(child.to),
+          ),
+        },
+      ];
+
+    case "tour_guide":
+      return [
+        {
+          ...tourismOperationsNav(),
+          children: tourismOperationsNav().children.filter((child) =>
+            ["/tourism", "/tourism/itineraries"].includes(child.to),
+          ),
+        },
+      ];
+
+    case "driver":
+      return [
+        {
+          ...tourismOperationsNav(),
+          children: tourismOperationsNav().children.filter((child) =>
+            ["/tourism", "/tourism/transfers"].includes(child.to),
+          ),
+        },
+      ];
+
+    case "activity_coordinator":
+      return [
+        {
+          ...tourismOperationsNav(),
+          children: tourismOperationsNav().children.filter((child) =>
+            ["/tourism", "/tourism/bookings", "/tourism/itineraries"].includes(child.to),
+          ),
+        },
+      ];
+
+    case "fleet_coordinator":
+      return [
+        {
+          ...tourismOperationsNav(),
+          children: tourismOperationsNav().children.filter((child) =>
+            ["/tourism", "/tourism/transfers"].includes(child.to),
+          ),
+        },
+        { to: "/fleet", label: "Fleet", icon: Truck, featureKey: "fleet" },
+      ];
+
     case "it":
       return [
         { to: "/it/war-room", label: "War Room", icon: LayoutDashboard },
@@ -228,6 +316,7 @@ function getRoleNav(role?: string | null, counts?: SidebarCounts): NavItem[] {
 
 case "manager":
 return [
+tourismOperationsNav(),
 { to: "/location-planner", label: "Location Planner", icon: MapPinned },
 { type: "group", label: "Assets", icon: Package, color: "text-blue-400", activePaths: ["/assets", "/scan", "/fleet"], children: [
 { to: "/assets", label: "Assets", icon: ShieldCheck, featureKey: "stock" },
@@ -243,8 +332,9 @@ return [
 
  case "org_admin":
  case "admin":
-  return [
+ return [
     {to: "/admin/dashboard", label: "Admin Dashboard", icon: LayoutDashboard, featureKey: "admin_dashboard",},
+    tourismOperationsNav(),
     { to: "/admin/employees", label: "Employees", icon: Users, featureKey: "admin_users" },
     { to: "/admin/leave", label: "Leave Request", icon: CalendarDays, featureKey: "admin_leave" },
     { to: "/admin/roster", label: "Duty Roster", icon: CalendarClock, featureKey: "admin_roster" },
@@ -627,6 +717,54 @@ export default function Sidebar({
       </nav>
 
       <div className="border-t border-white/10 p-4">
+        <NavLink
+          to="/profile"
+          onClick={closeMobileMenu}
+          className={({ isActive }) =>
+            [
+              "mb-2 flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition-all",
+              isActive
+                ? "text-white shadow-md"
+                : "text-white/70 hover:bg-white/5 hover:text-white",
+            ].join(" ")
+          }
+          style={({ isActive }) =>
+            isActive
+              ? {
+                  backgroundColor: "var(--org-button)",
+                  boxShadow: "0 10px 24px color-mix(in srgb, var(--org-button) 20%, transparent)",
+                }
+              : undefined
+          }
+        >
+          <UserCircle size={18} />
+          Profile
+        </NavLink>
+
+        <NavLink
+          to="/settings"
+          onClick={closeMobileMenu}
+          className={({ isActive }) =>
+            [
+              "mb-2 flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition-all",
+              isActive
+                ? "text-white shadow-md"
+                : "text-white/70 hover:bg-white/5 hover:text-white",
+            ].join(" ")
+          }
+          style={({ isActive }) =>
+            isActive
+              ? {
+                  backgroundColor: "var(--org-button)",
+                  boxShadow: "0 10px 24px color-mix(in srgb, var(--org-button) 20%, transparent)",
+                }
+              : undefined
+          }
+        >
+          <Settings size={18} />
+          Settings
+        </NavLink>
+
         <button
           type="button"
           onClick={handleLogout}

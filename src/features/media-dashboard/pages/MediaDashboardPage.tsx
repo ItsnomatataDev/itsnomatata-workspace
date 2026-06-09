@@ -16,10 +16,10 @@ import {
   Users,
 } from "lucide-react";
 import Sidebar from "../../../components/dashboard/components/Sidebar";
+import UserAvatar from "../../../components/common/UserAvatar";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import {
   getMediaDashboardData,
-  getMediaInitials,
   type MediaAsset,
   type MediaDashboardData,
   type MediaSocialPost,
@@ -115,13 +115,12 @@ function TaskCard({ task }: { task: MediaTask }) {
       <div className="mt-4 flex items-center justify-between gap-3">
         <div className="flex -space-x-2">
           {task.assignees.slice(0, 4).map((assignee) => (
-            <div
+            <UserAvatar
               key={assignee.id}
-              title={assignee.full_name || assignee.email || "Assignee"}
-              className="flex h-7 w-7 items-center justify-center rounded-full border border-orange-500/30 bg-orange-500/20 text-[10px] font-bold text-orange-200 ring-2 ring-neutral-950"
-            >
-              {getMediaInitials(assignee.full_name, assignee.email)}
-            </div>
+              person={assignee}
+              size="md"
+              className="h-7 w-7 border-orange-500/30 bg-orange-500/20 text-orange-200 ring-2 ring-neutral-950"
+            />
           ))}
           {task.assignees.length === 0 ? (
             <span className="text-xs text-white/30">Unassigned</span>
@@ -193,9 +192,11 @@ function WorkloadRow({ item }: { item: MediaWorkload }) {
   return (
     <div className="rounded-2xl border border-white/10 bg-neutral-950 p-4">
       <div className="flex items-center gap-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-orange-500/20 text-sm font-bold text-orange-200">
-          {getMediaInitials(item.profile.full_name, item.profile.email)}
-        </div>
+        <UserAvatar
+          person={item.profile}
+          size="lg"
+          className="bg-orange-500/20 text-orange-200"
+        />
         <div className="min-w-0">
           <p className="truncate font-semibold text-white">{item.profile.full_name || item.profile.email || "Team member"}</p>
           <p className="text-xs text-white/40">{item.profile.primary_role || item.profile.department || "Media"}</p>

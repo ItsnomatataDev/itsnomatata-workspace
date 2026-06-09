@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import {
   CalendarClock,
   Clock3,
-  Eye,
   Flag,
   Globe,
   Image,
@@ -20,14 +19,8 @@ import {
   Trash2,
 } from "lucide-react";
 import { formatRelativeDate } from "../../../lib/utils/formatRelativeDate";
-
-function getInitials(name?: string | null, email?: string | null) {
-  const source = name?.trim() || email?.trim() || "?";
-  const parts = source.split(" ").filter(Boolean);
-  return parts.length >= 2
-    ? `${parts[0][0]}${parts[1][0]}`.toUpperCase()
-    : source.slice(0, 2).toUpperCase();
-}
+import { getSafeExternalUrl } from "../../../lib/utils/safeExternalUrl";
+import UserAvatar from "../../../components/common/UserAvatar";
 import type {
   TaskCommentItem,
   TaskInvitableUser,
@@ -92,7 +85,6 @@ export default function TaskDetailsModal({
   hasRunningTimer,
   canEditDeadline,
   canEditStatus,
-  organizationId: _organizationId,
   currentUserRole,
   submissions,
   clientInvites,
@@ -1171,11 +1163,11 @@ export default function TaskDetailsModal({
                             </div>
                           </div>
 
-                          {submission.link_url ? (
+                          {getSafeExternalUrl(submission.link_url) ? (
                             <a
-                              href={submission.link_url}
+                              href={getSafeExternalUrl(submission.link_url) ?? undefined}
                               target="_blank"
-                              rel="noreferrer"
+                              rel="noopener noreferrer"
                               className="mt-3 block text-sm text-orange-400 underline"
                             >
                               Open link
@@ -1309,23 +1301,19 @@ export default function TaskDetailsModal({
                   </p>
                 ) : (
                   comments.map((item) => {
-                    const authorInitials = getInitials(
-                      item.author_name,
-                      item.author_email,
-                    );
                     return (
                       <div
                         key={item.id}
                         className="flex gap-3 rounded-xl border border-white/10 bg-black px-4 py-3"
                       >
-                        <div
-                          title={
-                            item.author_name || item.author_email || "Unknown"
-                          }
-                          className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10 border border-white/10 text-[11px] font-bold text-white/80 shrink-0"
-                        >
-                          {authorInitials}
-                        </div>
+                        <UserAvatar
+                          person={{
+                            full_name: item.author_name,
+                            email: item.author_email,
+                            avatar_url: item.author_avatar_url,
+                          }}
+                          size="md"
+                        />
                         <div className="min-w-0 flex-1">
                           <p className="text-sm font-medium text-white truncate">
                             {item.author_name ||

@@ -85,7 +85,7 @@ function ToggleRow({
   onChange: (checked: boolean) => void;
 }) {
   return (
-    <label className="flex items-start justify-between gap-4 border border-white/10 bg-black/40 p-4">
+    <label className="flex items-start justify-between gap-4 rounded-xl border border-white/10 bg-black/40 p-4">
       <span>
         <span className="block text-sm font-semibold text-white">{label}</span>
         <span className="mt-1 block text-sm leading-6 text-white/45">
@@ -198,7 +198,7 @@ export default function SettingsPage() {
         <Sidebar role={profile.primary_role ?? "manager"} />
 
         <main className="min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-8">
-          <div className="mb-8 border border-white/10 bg-[#050505] p-5">
+          <div className="mb-8 rounded-2xl border border-white/10 bg-[#050505] p-5">
             <p className="text-xs uppercase tracking-[0.3em] text-orange-500">
               Workspace
             </p>
@@ -208,9 +208,9 @@ export default function SettingsPage() {
             </p>
           </div>
 
-          <section className="border border-white/10 bg-[#050505] p-5">
+          <section className="rounded-2xl border border-white/10 bg-[#050505] p-5">
             <div className="mb-5 flex items-center gap-3">
-              <div className="border border-orange-500/20 bg-orange-500/10 p-2 text-orange-400">
+              <div className="rounded-xl border border-orange-500/20 bg-orange-500/10 p-2 text-orange-400">
                 <Bell size={18} />
               </div>
               <div>
@@ -225,7 +225,7 @@ export default function SettingsPage() {
             </div>
 
             {loading ? (
-              <div className="flex items-center gap-2 border border-white/10 bg-black/40 p-4 text-sm text-white/50">
+              <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-black/40 p-4 text-sm text-white/50">
                 <Loader2 size={16} className="animate-spin" />
                 Loading preferences...
               </div>
@@ -245,9 +245,9 @@ export default function SettingsPage() {
                   ))}
                 </div>
 
-                <div className="border border-white/10 bg-black/40 p-4">
+                <div className="rounded-xl border border-white/10 bg-black/40 p-4">
                   <div className="mb-4 flex items-center gap-3">
-                    <div className="border border-orange-500/20 bg-orange-500/10 p-2 text-orange-400">
+                    <div className="rounded-xl border border-orange-500/20 bg-orange-500/10 p-2 text-orange-400">
                       <Smartphone size={18} />
                     </div>
                     <div>
@@ -296,7 +296,7 @@ export default function SettingsPage() {
                           }
                         });
                       }}
-                      className="border border-orange-500 bg-orange-500 px-4 py-2 text-sm font-semibold text-black disabled:opacity-50"
+                      className="rounded-xl border border-orange-500 bg-orange-500 px-4 py-2 text-sm font-semibold text-black disabled:opacity-50"
                     >
                       {pushLoading ? "Working..." : "Enable on this device"}
                     </button>
@@ -312,7 +312,7 @@ export default function SettingsPage() {
                           }
                         });
                       }}
-                      className="border border-white/10 px-4 py-2 text-sm text-white/80 disabled:opacity-50"
+                      className="rounded-xl border border-white/10 px-4 py-2 text-sm text-white/80 disabled:opacity-50"
                     >
                       Disable on this device
                     </button>
@@ -340,7 +340,7 @@ export default function SettingsPage() {
                   ) : null}
                 </div>
 
-                <div className="grid gap-4 border border-white/10 bg-black/40 p-4 md:grid-cols-2">
+                <div className="grid gap-4 rounded-xl border border-white/10 bg-black/40 p-4 md:grid-cols-2">
                   <label className="block">
                     <span className="mb-2 block text-sm font-medium text-white/70">
                       Quiet hours start
@@ -358,7 +358,7 @@ export default function SettingsPage() {
                             : current,
                         )
                       }
-                      className="w-full border border-white/10 bg-black px-4 py-3 text-white outline-none focus:border-orange-500"
+                      className="w-full rounded-xl border border-white/10 bg-black px-4 py-3 text-white outline-none focus:border-orange-500"
                     />
                   </label>
 
@@ -379,7 +379,7 @@ export default function SettingsPage() {
                             : current,
                         )
                       }
-                      className="w-full border border-white/10 bg-black px-4 py-3 text-white outline-none focus:border-orange-500"
+                      className="w-full rounded-xl border border-white/10 bg-black px-4 py-3 text-white outline-none focus:border-orange-500"
                     />
                   </label>
                 </div>
@@ -394,7 +394,7 @@ export default function SettingsPage() {
                     type="button"
                     onClick={() => void handleSave()}
                     disabled={saving}
-                    className="inline-flex items-center gap-2 border border-orange-500 bg-orange-500 px-5 py-3 text-sm font-semibold text-black transition hover:bg-orange-400 disabled:opacity-60"
+                    className="inline-flex items-center gap-2 rounded-xl border border-orange-500 bg-orange-500 px-5 py-3 text-sm font-semibold text-black transition hover:bg-orange-400 disabled:opacity-60"
                   >
                     {saving ? (
                       <Loader2 size={15} className="animate-spin" />
@@ -408,13 +408,13 @@ export default function SettingsPage() {
             ) : null}
 
             {message ? (
-              <div className="mt-5 border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
+              <div className="mt-5 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
                 {message}
               </div>
             ) : null}
 
             {error ? (
-              <div className="mt-5 border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+              <div className="mt-5 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">
                 {error}
               </div>
             ) : null}

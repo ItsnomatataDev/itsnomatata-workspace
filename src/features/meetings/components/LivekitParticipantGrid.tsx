@@ -11,17 +11,9 @@ import {
 import { VideoTrack, useTracks } from "@livekit/components-react";
 import type { TrackReferenceOrPlaceholder } from "@livekit/components-core";
 import { Track } from "livekit-client";
+import UserAvatar from "../../../components/common/UserAvatar";
 
 type ViewMode = "auto" | "grid" | "focus";
-
-function getInitials(label: string) {
-  return label
-    .split(" ")
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase() ?? "")
-    .join("");
-}
 
 function hasPublication(
   trackRef: TrackReferenceOrPlaceholder,
@@ -127,9 +119,11 @@ function TrackTile({
       <div className="flex h-full min-h-60 items-center justify-center bg-black">
         {!hasPublication(trackRef) ? (
           <div className="flex h-full min-h-60 w-full flex-col items-center justify-center bg-[radial-gradient(circle_at_center,rgba(249,115,22,0.14),transparent_55%)]">
-            <div className="flex h-24 w-24 items-center justify-center rounded-full border border-orange-500/20 bg-white/5 text-3xl font-bold text-orange-400">
-              {getInitials(participantName)}
-            </div>
+            <UserAvatar
+              person={{ full_name: participantName }}
+              size="xl"
+              className="h-24 w-24 border-orange-500/20 bg-white/5 text-orange-400"
+            />
             <div className="mt-4 inline-flex items-center gap-2 rounded-full bg-black/40 px-3 py-1 text-sm text-white/45">
               <VideoOff size={14} />
               Camera off

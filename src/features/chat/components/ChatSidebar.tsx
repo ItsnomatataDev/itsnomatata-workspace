@@ -1,6 +1,7 @@
 import { MessageSquare, Plus, Trash2, Users } from "lucide-react";
 import type { ChatConversation } from "../types/chat";
 import { formatMessagePreview } from "../utils/parseMessageContent";
+import UserAvatar from "../../../components/common/UserAvatar";
 
 function formatConversationTime(value?: string | null) {
   if (!value) return "";
@@ -46,18 +47,6 @@ function getMessagePreview(
   }
 
   return `${prefix}${formatMessagePreview(conversation.last_message.body)}`;
-}
-
-function getInitials(value?: string | null) {
-  const clean = value?.trim();
-  if (!clean) return "?";
-
-  const parts = clean.split(/\s+/).filter(Boolean);
-  if (parts.length >= 2) {
-    return `${parts[0][0] ?? ""}${parts[1][0] ?? ""}`.toUpperCase();
-  }
-
-  return clean.slice(0, 2).toUpperCase();
 }
 
 function getConversationDisplayName(
@@ -209,7 +198,11 @@ export default function ChatSidebar({
                       ].join(" ")}
                     >
                       {conversation.type === "direct" ? (
-                        getInitials(displayName)
+                        <UserAvatar
+                          person={otherMember?.profile ?? { full_name: displayName }}
+                          size="lg"
+                          className="h-full w-full rounded-2xl border-0 bg-transparent"
+                        />
                       ) : (
                         <Users size={18} className="text-orange-300" />
                       )}

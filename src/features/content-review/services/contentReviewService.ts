@@ -2079,6 +2079,7 @@ export async function notifyContentReviewTeam(params: {
           priority: params.priority ?? "medium",
           category: "content_review",
           dedupeKey: params.dedupeKey ? `${params.dedupeKey}:${userId}` : undefined,
+          channels: ["in_app", "email", "push"],
         }),
       ),
     );

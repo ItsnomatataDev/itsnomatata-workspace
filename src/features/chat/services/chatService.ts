@@ -1,4 +1,5 @@
 import { supabase } from "../../../lib/supabase/client";
+import { getProfileDisplayName, withProfileDisplayName } from "../../../lib/utils/profileDisplay";
 import {
   sendBulkNotifications,
 } from "../../notifications/services/notificationService";
@@ -126,7 +127,7 @@ function getConversationDisplayName(params: {
     );
 
     return (
-      otherMember?.profile?.full_name?.trim() ||
+      getProfileDisplayName(otherMember?.profile, "") ||
       otherMember?.profile?.email?.trim() ||
       "Unknown user"
     );
@@ -141,7 +142,7 @@ function getConversationDisplayName(params: {
     .filter((member) => member.user_id !== params.currentUserId)
     .map(
       (member) =>
-        member.profile?.full_name?.trim() ||
+        getProfileDisplayName(member.profile, "") ||
         member.profile?.email?.trim() ||
         null,
     )
@@ -409,11 +410,13 @@ export async function getConversations(
     profileIds.length > 0
       ? await supabase
           .from("profiles")
-          .select("id, full_name, email, last_seen_at")
+          .select("id, username, full_name, email, avatar_url, last_seen_at")
           .in("id", profileIds)
       : { data: [], error: null };
 
-  const profilesData = profilesResult.data as ChatConversationMemberProfile[];
+  const profilesData = (profilesResult.data ?? []).map(
+    withProfileDisplayName,
+  ) as ChatConversationMemberProfile[];
   const profilesError = profilesResult.error;
 
   if (profilesError) logChatError("Failed to fetch profiles:", profilesError);
@@ -574,11 +577,11 @@ export async function getMessages(
   const profilesResult = profileIds.length > 0
     ? await supabase
         .from("profiles")
-        .select("id, full_name, email")
+        .select("id, username, full_name, email, avatar_url")
         .in("id", profileIds)
     : { data: [], error: null };
 
-  const profilesData = profilesResult.data;
+  const profilesData = (profilesResult.data ?? []).map(withProfileDisplayName);
   const profilesError = profilesResult.error;
 
   if (profilesError) {
@@ -624,7 +627,7 @@ export async function getMessageReactions(
   const profilesResult = userIds.length > 0
     ? await supabase
         .from("profiles")
-        .select("id, full_name, email")
+        .select("id, username, full_name, email, avatar_url")
         .in("id", userIds)
     : { data: [], error: null };
 
@@ -633,7 +636,10 @@ export async function getMessageReactions(
   }
 
   const profileMap = new Map(
-    (profilesResult.data ?? []).map((profile) => [profile.id, profile]),
+    (profilesResult.data ?? []).map((profile) => [
+      profile.id,
+      withProfileDisplayName(profile),
+    ]),
   );
 
   return reactions.map((reaction) => ({
@@ -707,11 +713,12 @@ export async function sendMessage(
     // Get sender name from profiles table
     const { data: senderProfile } = await supabase
       .from("profiles")
-      .select("full_name, email")
+      .select("username, full_name, email")
       .eq("id", params.userId)
       .single();
 
-    const senderName = senderProfile?.full_name?.trim() ||
+    const senderName = getProfileDisplayName(senderProfile, "") ||
+      senderProfile?.full_name?.trim() ||
       senderProfile?.email?.trim() ||
       "Someone";
 
@@ -825,13 +832,13 @@ export async function getOrganizationUsers(
 ): Promise<ChatUser[]> {
   const { data, error } = await supabase
     .from("profiles")
-    .select("id, full_name, email, primary_role, last_seen_at")
+    .select("id, username, full_name, email, avatar_url, primary_role, last_seen_at")
     .eq("organization_id", organizationId)
     .neq("id", currentUserId)
     .order("full_name", { ascending: true });
 
   if (error) throw error;
-  return (data ?? []) as ChatUser[];
+  return (data ?? []).map(withProfileDisplayName) as ChatUser[];
 }
 
 export async function findOrCreateDirectConversation(params: {

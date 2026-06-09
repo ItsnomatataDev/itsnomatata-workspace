@@ -9,8 +9,10 @@ export interface ChatMessage {
   created_at: string;
   sender?: {
     id: string;
+    username?: string | null;
     full_name: string | null;
     email: string | null;
+    avatar_url?: string | null;
   };
 }
 
@@ -63,7 +65,9 @@ export class MeetingChatService {
           *,
           sender:profiles!meeting_messages_sender_id_fkey (
             id,
+            username,
             full_name,
+            avatar_url,
             email
           )
         `)
@@ -100,7 +104,9 @@ export class MeetingChatService {
           *,
           sender:profiles!meeting_messages_sender_id_fkey (
             id,
+            username,
             full_name,
+            avatar_url,
             email
           )
         `)
@@ -295,7 +301,9 @@ export class MeetingChatService {
           *,
           sender:profiles!meeting_messages_sender_id_fkey (
             id,
+            username,
             full_name,
+            avatar_url,
             email
           )
         `)

@@ -1,4 +1,5 @@
-import { CalendarDays, Sparkles, UserRound } from "lucide-react";
+import { CalendarDays, Sparkles } from "lucide-react";
+import UserAvatar from "../../../components/common/UserAvatar";
 import {
   getDutyCategoryLabel,
   getExcludedUsersForDuty,
@@ -29,13 +30,6 @@ const DAY_LABELS: Record<number, string> = {
   6: "Saturday",
   7: "Sunday",
 };
-
-function initials(name?: string | null, email?: string | null) {
-  const value = name || email || "?";
-  const parts = value.split(" ").filter(Boolean);
-  if (parts.length > 1) return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
-  return value.slice(0, 2).toUpperCase();
-}
 
 export default function RosterTable({
   assignments,
@@ -126,9 +120,11 @@ export default function RosterTable({
             ) : null}
 
             <div className="flex items-center gap-3 rounded-xl border border-white/8 bg-black/30 px-3 py-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-orange-500/15 text-sm font-bold text-orange-200">
-                {user ? initials(user.full_name, user.email) : <UserRound size={16} />}
-              </div>
+              <UserAvatar
+                person={user}
+                size="lg"
+                className="bg-orange-500/15 text-orange-200"
+              />
               <div className="min-w-0">
                 <p className="truncate text-sm font-medium text-white">
                   {user?.full_name || user?.email || "Unknown user"}

@@ -10,7 +10,11 @@ import {
   type ClientItem,
   type ClientWorkspaceTaskItem,
 } from "../services/clientService";
-import { getTaskSubmissions } from "../../../lib/supabase/queries/taskSubmissions";
+import {
+  getTaskSubmissions,
+  type TaskSubmissionItem,
+} from "../../../lib/supabase/queries/taskSubmissions";
+import { getSafeExternalUrl } from "../../../lib/utils/safeExternalUrl";
 
 function formatDurationHms(seconds?: number | null) {
   const total = Math.max(0, Math.floor(Number(seconds ?? 0)));
@@ -38,26 +42,25 @@ export default function ClientWorkspacePage() {
   const auth = useAuth();
   const navigate = useNavigate();
   const { clientId } = useParams();
-
-  if (!auth?.user || !auth?.profile) return null;
-
-  const { profile } = auth;
-  const organizationId = profile.organization_id;
-
-  if (!organizationId || !clientId) return null;
-
   const [client, setClient] = useState<ClientItem | null>(null);
   const [tasks, setTasks] = useState<ClientWorkspaceTaskItem[]>([]);
   const [timeMap, setTimeMap] = useState<Record<string, number>>({});
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
-  const [selectedTaskSubmissions, setSelectedTaskSubmissions] = useState<any[]>(
-    [],
-  );
+  const [selectedTaskSubmissions, setSelectedTaskSubmissions] = useState<
+    TaskSubmissionItem[]
+  >([]);
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
   const [error, setError] = useState("");
+  const profile = auth?.profile ?? null;
+  const organizationId = profile?.organization_id ?? null;
 
   useEffect(() => {
+    if (!organizationId || !clientId) {
+      setLoading(false);
+      return;
+    }
+
     const load = async () => {
       try {
         setLoading(true);
@@ -115,6 +118,8 @@ export default function ClientWorkspacePage() {
   };
 
   const selectedTask = tasks.find((task) => task.id === selectedTaskId) ?? null;
+
+  if (!auth?.user || !profile || !organizationId || !clientId) return null;
 
   return (
     <div className="min-h-screen bg-black text-white">
@@ -269,11 +274,11 @@ export default function ClientWorkspacePage() {
                                   {submission.approval_status}
                                 </p>
 
-                                {submission.link_url ? (
+                                {getSafeExternalUrl(submission.link_url) ? (
                                   <a
-                                    href={submission.link_url}
+                                    href={getSafeExternalUrl(submission.link_url) ?? undefined}
                                     target="_blank"
-                                    rel="noreferrer"
+                                    rel="noopener noreferrer"
                                     className="mt-3 block text-sm text-orange-400 underline"
                                   >
                                     Open link

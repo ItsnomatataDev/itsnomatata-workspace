@@ -14,6 +14,14 @@ export type N8nNotificationEmailPayload = {
   notificationId?: string | null;
 };
 
+export type NotificationEmailResult = {
+  ok: boolean;
+  provider: "resend" | "n8n";
+  status?: number;
+  providerMessageId?: string | null;
+  error?: string;
+};
+
 const APP_URL = "https://codex.itsnomatata.com";
 const APP_NAME = "Nomatata";
 
@@ -130,17 +138,119 @@ export function getN8nNotificationWebhookConfig() {
   return { webhookUrl: webhookUrl.trim(), webhookSecret: webhookSecret.trim() };
 }
 
-export async function postNotificationEmailToN8n(
-  payload: N8nNotificationEmailPayload,
-): Promise<{ ok: boolean; status?: number; error?: string }> {
-  const { webhookUrl, webhookSecret } = getN8nNotificationWebhookConfig();
+export function getNotificationEmailProviderName(): "resend" | "n8n" {
+  const configured = Deno.env.get("EMAIL_PROVIDER")?.trim().toLowerCase();
+  if (configured === "n8n") return "n8n";
+  if (configured === "resend") return "resend";
+  return Deno.env.get("RESEND_API_KEY")?.trim() ? "resend" : "n8n";
+}
 
-  if (!webhookUrl) {
-    return { ok: false, error: "N8N_NOTIFICATION_WEBHOOK_URL is not configured" };
+function getResendConfig() {
+  return {
+    apiKey: Deno.env.get("RESEND_API_KEY")?.trim() ?? "",
+    from: Deno.env.get("RESEND_FROM_EMAIL")?.trim() ?? "",
+    replyTo: Deno.env.get("RESEND_REPLY_TO_EMAIL")?.trim() ?? "",
+  };
+}
+
+function buildPlainTextBody(payload: N8nNotificationEmailPayload) {
+  return [
+    payload.title,
+    "",
+    `Hi ${payload.firstName},`,
+    payload.message,
+    "",
+    payload.actionUrl.startsWith("http")
+      ? payload.actionUrl
+      : `${APP_URL}${payload.actionUrl.startsWith("/") ? payload.actionUrl : `/${payload.actionUrl}`}`,
+  ].join("\n");
+}
+
+export async function postNotificationEmailToResend(
+  payload: N8nNotificationEmailPayload,
+): Promise<NotificationEmailResult> {
+  const { apiKey, from, replyTo } = getResendConfig();
+
+  if (!apiKey) {
+    return { ok: false, provider: "resend", error: "RESEND_API_KEY is not configured" };
+  }
+
+  if (!from) {
+    return { ok: false, provider: "resend", error: "RESEND_FROM_EMAIL is not configured" };
   }
 
   if (!payload.to) {
-    return { ok: false, error: "Missing recipient email" };
+    return { ok: false, provider: "resend", error: "Missing recipient email" };
+  }
+
+  try {
+    const response = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        "User-Agent": "itsnomatata-codex-supabase-edge/1.0",
+        ...(payload.deliveryId
+          ? { "Idempotency-Key": `notification-delivery-${payload.deliveryId}` }
+          : {}),
+      },
+      body: JSON.stringify({
+        from,
+        to: [payload.to],
+        subject: payload.subject,
+        html: payload.emailHtml,
+        text: buildPlainTextBody(payload),
+        ...(replyTo ? { reply_to: replyTo } : {}),
+        tags: [
+          { name: "source", value: "codex" },
+          { name: "type", value: payload.type.slice(0, 256) },
+          { name: "priority", value: payload.priority.slice(0, 256) },
+        ],
+      }),
+    });
+
+    const responseBody = await response.json().catch(() => null) as
+      | { id?: string; message?: string; error?: string }
+      | null;
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        provider: "resend",
+        status: response.status,
+        error:
+          responseBody?.message ||
+          responseBody?.error ||
+          `Resend returned ${response.status}`,
+      };
+    }
+
+    return {
+      ok: true,
+      provider: "resend",
+      status: response.status,
+      providerMessageId: responseBody?.id ?? null,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      provider: "resend",
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+export async function postNotificationEmailToN8n(
+  payload: N8nNotificationEmailPayload,
+): Promise<NotificationEmailResult> {
+  const { webhookUrl, webhookSecret } = getN8nNotificationWebhookConfig();
+
+  if (!webhookUrl) {
+    return { ok: false, provider: "n8n", error: "N8N_NOTIFICATION_WEBHOOK_URL is not configured" };
+  }
+
+  if (!payload.to) {
+    return { ok: false, provider: "n8n", error: "Missing recipient email" };
   }
 
   try {
@@ -159,16 +269,27 @@ export async function postNotificationEmailToN8n(
       const text = await response.text().catch(() => "");
       return {
         ok: false,
+        provider: "n8n",
         status: response.status,
         error: text || `Webhook returned ${response.status}`,
       };
     }
 
-    return { ok: true, status: response.status };
+    return { ok: true, provider: "n8n", status: response.status };
   } catch (error) {
     return {
       ok: false,
+      provider: "n8n",
       error: error instanceof Error ? error.message : String(error),
     };
   }
+}
+
+export async function sendNotificationEmail(
+  payload: N8nNotificationEmailPayload,
+): Promise<NotificationEmailResult> {
+  const provider = getNotificationEmailProviderName();
+  return provider === "resend"
+    ? postNotificationEmailToResend(payload)
+    : postNotificationEmailToN8n(payload);
 }

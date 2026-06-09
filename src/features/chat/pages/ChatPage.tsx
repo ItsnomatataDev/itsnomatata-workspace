@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { ArrowLeft, Loader2, MessageSquareX } from "lucide-react";
 import { useAuth } from "../../../lib/hooks/useAuth";
 import { supabase } from "../../../lib/supabase/client";
+import { withProfileDisplayName } from "../../../lib/utils/profileDisplay";
 import ChatSidebar from "../components/ChatSidebar";
 import MessageInput from "../components/MessageInput";
 import MessageList from "../components/MessageList";
@@ -413,11 +414,13 @@ export default function ChatPage() {
         if (incomingMessage.sender_id) {
           const { data: senderProfile } = await supabase
             .from("profiles")
-            .select("id, full_name, email, last_seen_at")
+            .select("id, username, full_name, email, avatar_url, last_seen_at")
             .eq("id", incomingMessage.sender_id)
             .single();
 
-          incomingMessage.sender_profile = senderProfile;
+          incomingMessage.sender_profile = senderProfile
+            ? withProfileDisplayName(senderProfile)
+            : null;
         }
 
         setMessages((current) => {
@@ -460,13 +463,13 @@ export default function ChatPage() {
       onReactionInsert: async (reaction) => {
         const { data: profileData } = await supabase
           .from("profiles")
-          .select("id, full_name, email")
+          .select("id, username, full_name, email, avatar_url")
           .eq("id", reaction.user_id)
           .maybeSingle();
 
         const hydratedReaction = {
           ...reaction,
-          profile: profileData ?? null,
+          profile: profileData ? withProfileDisplayName(profileData) : null,
         };
 
         setMessages((current) =>
@@ -875,7 +878,8 @@ export default function ChatPage() {
       created_at: new Date().toISOString(),
       profile: {
         id: user.id,
-        full_name: profile?.full_name ?? null,
+        username: profile?.username ?? null,
+        full_name: profile?.display_name ?? profile?.full_name ?? null,
         email: profile?.email ?? null,
       },
     };

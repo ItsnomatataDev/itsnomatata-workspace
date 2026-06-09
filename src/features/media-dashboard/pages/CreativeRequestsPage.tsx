@@ -15,10 +15,10 @@ import {
   X,
 } from "lucide-react";
 import Sidebar from "../../../components/dashboard/components/Sidebar";
+import UserAvatar from "../../../components/common/UserAvatar";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import {
   getMediaDashboardData,
-  getMediaInitials,
   type MediaCreativeRequest,
   type MediaProfile,
 } from "../services/mediaDashboardService";
@@ -109,9 +109,11 @@ function RequestCard({ request }: { request: MediaCreativeRequest }) {
             <div>
               <p className="text-white/40">Requested by</p>
               <div className="mt-1 flex items-center gap-2">
-                <div className="flex h-6 w-6 items-center justify-center rounded-full bg-purple-500/20 text-[10px] font-bold text-purple-200">
-                  {getMediaInitials(request.requester.full_name, request.requester.email)}
-                </div>
+                <UserAvatar
+                  person={request.requester}
+                  size="sm"
+                  className="bg-purple-500/20 text-purple-200"
+                />
                 <span className="text-white/70">{request.requester.full_name || request.requester.email}</span>
               </div>
             </div>
@@ -121,9 +123,11 @@ function RequestCard({ request }: { request: MediaCreativeRequest }) {
               <div className="mt-1 flex items-center gap-2">
                 {request.assigned_to ? (
                   <>
-                    <div className="flex h-6 w-6 items-center justify-center rounded-full bg-orange-500/20 text-[10px] font-bold text-orange-200">
-                      {getMediaInitials(request.assigned_to.full_name, request.assigned_to.email)}
-                    </div>
+                    <UserAvatar
+                      person={request.assigned_to}
+                      size="sm"
+                      className="bg-orange-500/20 text-orange-200"
+                    />
                     <span className="text-white/70">{request.assigned_to.full_name || request.assigned_to.email}</span>
                   </>
                 ) : (

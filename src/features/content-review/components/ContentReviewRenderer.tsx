@@ -1,5 +1,5 @@
 import { Play, X } from "lucide-react";
-import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import {
   type ContentReviewAsset,
   type ContentReviewDraft,
@@ -18,6 +18,7 @@ import {
   ContentReviewVideoThumb,
 } from "./ContentReviewVideo";
 import { isVideoAsset } from "../utils/mediaUpload";
+import { getSafeExternalUrl } from "../../../lib/utils/safeExternalUrl";
 
 type PreviewTheme = "public" | "internal";
 type PreviewViewport = "responsive" | "mobile";
@@ -133,7 +134,6 @@ function MediaFrame({
   onViewLarger?: (asset: ContentReviewAsset) => void;
   showText?: boolean;
 }) {
-  const border = theme === "internal" ? "border-white/10" : "border-neutral-200";
   const captionColor = theme === "internal" ? "text-white/55" : "text-neutral-600";
   const asset = slot.primary;
   const displayHeading = asset.heading?.trim();
@@ -259,6 +259,7 @@ export function ContentReviewRenderer({
     extraSlots.length <= 1 ? "md:grid-cols-1" : extraSlots.length <= 2 ? "md:grid-cols-2" : "md:grid-cols-2 xl:grid-cols-3";
   const hideBodyScheduleHeader = hideScheduleHeaderInBody;
   const hideInternalNotes = theme === "public";
+  const safeCtaUrl = getSafeExternalUrl(draft.cta_url);
 
   const unifiedTextBlock = () => (
     <div className={`flex min-w-0 flex-col justify-center ${viewport === "mobile" ? "p-6" : "p-6 sm:p-8"}`}>
@@ -288,11 +289,11 @@ export function ContentReviewRenderer({
         </p>
       ) : null}
       {!hideInternalNotes && draft.notes ? <div className={`mt-6 rounded-2xl border p-4 text-sm ${note}`}>{draft.notes}</div> : null}
-      {draft.cta_label && draft.cta_url ? (
+      {draft.cta_label && safeCtaUrl ? (
         <a
-          href={draft.cta_url}
+          href={safeCtaUrl}
           target="_blank"
-          rel="noreferrer"
+          rel="noopener noreferrer"
           className="mt-6 inline-flex w-fit rounded-xl bg-orange-500 px-4 py-3 text-sm font-bold text-black hover:bg-orange-400"
         >
           {draft.cta_label}
@@ -349,11 +350,11 @@ export function ContentReviewRenderer({
       {index === 0 && !hideInternalNotes && draft.notes ? (
         <div className={`mt-6 rounded-2xl border p-4 text-sm ${note}`}>{draft.notes}</div>
       ) : null}
-      {index === 0 && draft.cta_label && draft.cta_url ? (
+      {index === 0 && draft.cta_label && safeCtaUrl ? (
         <a
-          href={draft.cta_url}
+          href={safeCtaUrl}
           target="_blank"
-          rel="noreferrer"
+          rel="noopener noreferrer"
           className="mt-6 inline-flex w-fit rounded-xl bg-orange-500 px-4 py-3 text-sm font-bold text-black hover:bg-orange-400"
         >
           {draft.cta_label}

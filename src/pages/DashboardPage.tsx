@@ -381,7 +381,7 @@ export default function DashboardPage() {
                 {String(profile.primary_role || "").replaceAll("_", " ")}
               </p>
               <h1 className="mt-2 text-3xl font-bold">
-                Welcome back, {profile.full_name || "User"}
+                Welcome back, {profile.display_name || profile.full_name || "User"}
               </h1>
               <p className="mt-2 text-sm text-white/50">
                 {dashboardGreeting}

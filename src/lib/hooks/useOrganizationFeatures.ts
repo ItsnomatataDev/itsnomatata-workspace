@@ -24,6 +24,7 @@ export type FeatureKey =
   | "media_dashboard"
   | "content_review"
   | "social_media"
+  | "tourism_operations"
   | "automation"
   | "notifications"
   | "tasks"
@@ -117,7 +118,11 @@ export function useOrganizationFeatures() {
       loading,
       isPlatformAdmin,
       isEnabled: (featureKey?: FeatureKey | string | null) => {
-        if (!featureKey || isSystemOrganization) return true;
+        if (!featureKey) return true;
+        if (featureKey === "tourism_operations") {
+          return features[featureKey] === true;
+        }
+        if (isSystemOrganization) return true;
         return features[featureKey] !== false;
       },
     }),

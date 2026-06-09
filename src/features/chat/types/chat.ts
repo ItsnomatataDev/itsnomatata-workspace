@@ -6,8 +6,10 @@ export type ChatConversationType =
 
 export type ChatConversationMemberProfile = {
   id: string;
+  username?: string | null;
   full_name: string | null;
   email: string | null;
+  avatar_url?: string | null;
   last_seen_at?: string | null;
 };
 
@@ -72,15 +74,19 @@ export type ChatMessageReaction = {
   created_at: string;
   profile?: {
     id: string;
+    username?: string | null;
     full_name: string | null;
     email: string | null;
+    avatar_url?: string | null;
   } | null;
 };
 
 export type ChatMessageSender = {
   id: string;
+  username?: string | null;
   full_name: string | null;
   email: string | null;
+  avatar_url?: string | null;
   last_seen_at?: string | null;
 };
 
@@ -107,8 +113,10 @@ export type ChatMessage = {
 
 export type ChatUser = {
   id: string;
+  username?: string | null;
   full_name: string | null;
   email: string | null;
+  avatar_url?: string | null;
   primary_role: string | null;
   last_seen_at?: string | null;
 };

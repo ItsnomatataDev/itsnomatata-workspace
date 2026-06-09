@@ -35,6 +35,8 @@ import type {
   TaskItem,
   TaskAssigneeItem,
 } from "../../../lib/supabase/queries/tasks";
+import UserAvatar from "../../../components/common/UserAvatar";
+import { withProfileDisplayName } from "../../../lib/utils/profileDisplay";
 import {
   getCardComments,
   getCardAssignees,
@@ -86,8 +88,10 @@ interface CardDetailModalProps {
     estimated_seconds?: number | null;
     archived_at?: string | null;
     archived_by?: string | null;
+    created_by_username?: string | null;
     created_by_full_name?: string | null;
     created_by_email?: string | null;
+    created_by_avatar_url?: string | null;
   };
   isOpen: boolean;
   onClose: () => void;
@@ -110,17 +114,21 @@ interface DBComment {
   created_at: string;
   author_name: string | null;
   author_email: string | null;
+  author_avatar_url?: string | null;
 }
 
 interface InvitableUser {
   id: string;
+  username?: string | null;
   full_name: string | null;
   email: string | null;
+  avatar_url?: string | null;
   primary_role: string | null;
 }
 
 interface TimeEntryProfile {
   id: string;
+  username?: string | null;
   full_name: string | null;
   email: string | null;
 }
@@ -225,14 +233,6 @@ function minutesToStartedEnded(minutes: number) {
     startedAt: startedAt.toISOString(),
     endedAt: endedAt.toISOString(),
   };
-}
-
-function getInitials(name?: string | null, email?: string | null) {
-  const src = name?.trim() || email?.trim() || "?";
-  const parts = src.split(" ").filter(Boolean);
-  return parts.length >= 2
-    ? `${parts[0][0]}${parts[1][0]}`.toUpperCase()
-    : src.slice(0, 2).toUpperCase();
 }
 
 function getCardDisplayCreatedAt(card: CardDetailModalProps["card"]) {
@@ -1087,14 +1087,17 @@ export default function CardDetailModal({
       } else {
         const { data: profiles, error: profilesError } = await supabase
           .from("profiles")
-          .select("id, full_name, email")
+          .select("id, username, full_name, email")
           .in("id", userIds);
 
         if (profilesError) throw profilesError;
 
         setTimeEntryProfiles(
           Object.fromEntries(
-            (profiles ?? []).map((profile) => [profile.id, profile]),
+            (profiles ?? []).map((profile) => [
+              profile.id,
+              withProfileDisplayName(profile),
+            ]),
           ),
         );
       }
@@ -1521,14 +1524,16 @@ export default function CardDetailModal({
     const search = inviteSearch.trim();
     let q = supabase
       .from("profiles")
-      .select("id, full_name, email, primary_role")
+      .select("id, username, full_name, email, avatar_url, primary_role")
       .eq("organization_id", organizationId)
       .order("full_name", { ascending: true })
       .limit(10);
     if (boardOfficeId) q = q.eq("office_id", boardOfficeId);
     if (search) q = q.or(`full_name.ilike.%${search}%,email.ilike.%${search}%`);
     Promise.resolve(q)
-      .then(({ data }) => setInvitableUsers((data ?? []) as InvitableUser[]))
+      .then(({ data }) =>
+        setInvitableUsers((data ?? []).map(withProfileDisplayName) as InvitableUser[]),
+      )
       .catch(console.error)
       .finally(() => setLoadingUsers(false));
   }, [showInvite, inviteSearch, organizationId, boardOfficeId]);
@@ -2358,9 +2363,11 @@ export default function CardDetailModal({
                       key={a.user_id}
                       className="group flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-2.5 py-1.5"
                     >
-                      <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-orange-500/20 border border-orange-500/30 text-[9px] font-bold text-orange-400">
-                        {getInitials(a.full_name, a.email)}
-                      </div>
+                      <UserAvatar
+                        person={a}
+                        size="sm"
+                        className="border-orange-500/30 bg-orange-500/20 text-orange-400"
+                      />
                       <span className="text-xs text-white/80">
                         {a.full_name || a.email}
                       </span>
@@ -2378,9 +2385,14 @@ export default function CardDetailModal({
                       className="flex items-center gap-2 rounded-xl border border-orange-500/20 bg-orange-500/10 px-2.5 py-1.5"
                       title={`Tracked imported time via ${participant.source}`}
                     >
-                      <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-orange-500/30 bg-orange-500/20 text-[9px] font-bold text-orange-300">
-                        {getInitials(participant.name, participant.email)}
-                      </div>
+                      <UserAvatar
+                        person={{
+                          full_name: participant.name,
+                          email: participant.email,
+                        }}
+                        size="sm"
+                        className="border-orange-500/30 bg-orange-500/20 text-orange-300"
+                      />
                       <span className="text-xs text-orange-100">
                         {participant.name}
                       </span>
@@ -2426,9 +2438,11 @@ export default function CardDetailModal({
                               disabled={already || addingUser === u.id}
                               className={`w-full flex items-center gap-3 px-3 py-2.5 text-left transition ${already ? "opacity-50 cursor-default" : "hover:bg-white/5"}`}
                             >
-                              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-orange-500/20 text-[10px] font-bold text-orange-400">
-                                {getInitials(u.full_name, u.email)}
-                              </div>
+                              <UserAvatar
+                                person={u}
+                                size="md"
+                                className="h-7 w-7 bg-orange-500/20 text-orange-400"
+                              />
                               <div className="flex-1 min-w-0">
                                 <p className="text-xs font-medium text-white truncate">
                                   {u.full_name || u.email}
@@ -2537,9 +2551,15 @@ export default function CardDetailModal({
                 <div className="space-y-3">
                   {comments.map((c) => (
                     <div key={c.id} className="flex gap-3">
-                      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/10 text-[10px] font-bold text-white/70">
-                        {getInitials(c.author_name, c.author_email)}
-                      </div>
+                      <UserAvatar
+                        person={{
+                          full_name: c.author_name,
+                          email: c.author_email,
+                          avatar_url: c.author_avatar_url,
+                        }}
+                        size="md"
+                        className="h-7 w-7"
+                      />
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
                           <span className="text-xs font-semibold text-white">

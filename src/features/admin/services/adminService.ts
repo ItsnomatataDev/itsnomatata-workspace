@@ -377,6 +377,7 @@ export type ProfileRosterUserRow = {
   id: string;
   full_name: string | null;
   email: string | null;
+  avatar_url?: string | null;
   primary_role: string | null;
   department: string | null;
   office_id?: string | null;
@@ -2282,7 +2283,7 @@ export async function getOrganizationUsersForRoster(
 ) {
   let query = supabase
     .from("profiles")
-    .select("id, full_name, email, primary_role, department, office_id")
+    .select("id, full_name, email, avatar_url, primary_role, department, office_id")
     .eq("organization_id", organizationId)
     .order("full_name", { ascending: true });
 

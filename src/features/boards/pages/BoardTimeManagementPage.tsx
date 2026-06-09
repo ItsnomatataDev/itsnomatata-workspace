@@ -23,6 +23,8 @@ import {
   ListPlus,
 } from "lucide-react";
 import { useAuth } from "../../../app/providers/AuthProvider";
+import UserAvatar from "../../../components/common/UserAvatar";
+import { withProfileDisplayName } from "../../../lib/utils/profileDisplay";
 import { useNavigate } from "react-router-dom";
 import Sidebar from "../../../components/dashboard/components/Sidebar";
 import CreateCardModal from "../components/CreateCardModal";
@@ -66,10 +68,10 @@ interface BoardTimeData extends Board {
 interface BoardAssignee {
   id: string;
   user_id: string;
+  username?: string | null;
   full_name: string | null;
   email: string | null;
-  initials: string;
-  avatar?: string;
+  avatar_url?: string | null;
 }
 
 interface CreateBoardForm {
@@ -251,7 +253,7 @@ export default function BoardTimeManagementPage() {
       // Get organization members
       let profilesQuery = supabase
         .from("profiles")
-        .select("id, full_name, email")
+        .select("id, username, full_name, email, avatar_url")
         .eq("organization_id", organizationId);
       if (effectiveOfficeId) profilesQuery = profilesQuery.eq("office_id", effectiveOfficeId);
       const { data: profiles } = await profilesQuery;
@@ -290,7 +292,7 @@ export default function BoardTimeManagementPage() {
           if (missingUserIds.length > 0) {
             const { data: additionalProfiles } = await supabase
               .from("profiles")
-              .select("id, full_name, email")
+              .select("id, username, full_name, email, avatar_url")
               .in("id", missingUserIds);
             
             if (additionalProfiles) {
@@ -303,23 +305,18 @@ export default function BoardTimeManagementPage() {
             .map((userId) => {
               const profile = profileMap.get(userId);
               if (!profile) return null;
+              const displayProfile = withProfileDisplayName(profile);
               
-              const initials = (profile.full_name || profile.email || "?")
-                .split(" ")
-                .map((n: string) => n[0])
-                .join("")
-                .toUpperCase()
-                .slice(0, 2);
-
               return {
                 id: profile.id,
                 user_id: profile.id,
-                full_name: profile.full_name,
+                username: profile.username ?? null,
+                full_name: displayProfile.full_name,
                 email: profile.email,
-                initials,
+                avatar_url: profile.avatar_url ?? null,
               };
             })
-            .filter((user): user is BoardAssignee => user !== null);
+            .filter(Boolean) as BoardAssignee[];
 
           return {
             ...board,
@@ -355,7 +352,7 @@ export default function BoardTimeManagementPage() {
     try {
       const { data: profiles } = await supabase
         .from("profiles")
-        .select("id, full_name, email")
+        .select("id, full_name, email, avatar_url")
         .eq("organization_id", organizationId)
         .eq("office_id", createForm.officeId || ((auth?.profile?.office_id as string | null | undefined) ?? ""))
         .order("full_name");
@@ -713,7 +710,7 @@ export default function BoardTimeManagementPage() {
 
       let usersQuery = supabase
         .from("profiles")
-        .select("id, full_name, email, primary_role")
+        .select("id, username, full_name, email, avatar_url, primary_role")
         .eq("organization_id", organizationId)
         .eq("is_active", true)
         .order("full_name", { ascending: true });
@@ -726,12 +723,16 @@ export default function BoardTimeManagementPage() {
       if (profilesError) throw profilesError;
 
       setAssignableUsers(
-        (profiles ?? []).map((profile) => ({
+        (profiles ?? []).map((profile) => {
+          const displayProfile = withProfileDisplayName(profile);
+          return {
           id: profile.id,
-          full_name: profile.full_name ?? null,
+          username: profile.username ?? null,
+          full_name: displayProfile.full_name ?? null,
           email: profile.email ?? null,
           primary_role: profile.primary_role ?? null,
-        })),
+          };
+        }),
       );
       setIsCreateCardModalOpen(true);
     } catch (error) {
@@ -1010,12 +1011,12 @@ export default function BoardTimeManagementPage() {
                         <div className="flex items-center gap-3">
                           <div className="flex items-center -space-x-2">
                             {(board.assignedUsers || []).slice(0, 3).map((user) => (
-                              <div
+                              <UserAvatar
                                 key={user.id}
-                                className="w-6 h-6 rounded-full bg-orange-500/20 border border-orange-500/30 flex items-center justify-center text-xs font-medium text-orange-400"
-                              >
-                                {user.initials}
-                              </div>
+                                person={user}
+                                size="sm"
+                                className="border-orange-500/30 bg-orange-500/20 text-orange-400"
+                              />
                             ))}
                             {((board.assignedUsers || []).length || 0) > 3 && (
                               <div className="w-6 h-6 rounded-full bg-white/10 border border-white/20 flex items-center justify-center text-xs font-medium text-white/60">

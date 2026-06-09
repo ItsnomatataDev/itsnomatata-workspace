@@ -6,6 +6,7 @@ import { deleteMessage } from "../services/chatService";
 import MessageReactions from "./MessageReactions";
 import FormattedMessageBody from "./FormattedMessageBody";
 import { isRecentlyOnline } from "../utils/presence";
+import UserAvatar from "../../../components/common/UserAvatar";
 
 type ImagePreview = {
   url: string;
@@ -292,7 +293,14 @@ export default function MessageList({
               </div>
             ) : null}
 
-            <div className={`group flex ${isMine ? "justify-end" : "justify-start"}`}>
+            <div className={`group flex gap-2 ${isMine ? "justify-end" : "justify-start"}`}>
+              {!isMine ? (
+                <UserAvatar
+                  person={message.sender_profile}
+                  size="md"
+                  className="mt-1"
+                />
+              ) : null}
               <div
                 className={[
                   "max-w-[92%] overflow-hidden rounded-2xl px-4 py-3 text-sm shadow-sm transition-shadow sm:max-w-[82%]",

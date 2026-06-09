@@ -43,8 +43,10 @@ export async function getMeetings(
         is_camera_on,
         profile:profiles (
           id,
+          username,
           full_name,
           email,
+          avatar_url,
           last_seen_at
         )
       )
@@ -143,7 +145,7 @@ export async function createMeeting(
     if (participantUserIds.length > 0 && input.notifyParticipants !== false) {
       const { data: hostProfile, error: hostError } = await supabase
         .from("profiles")
-        .select("full_name, email")
+        .select("username, full_name, email")
         .eq("id", input.host_id)
         .maybeSingle();
 
@@ -213,8 +215,10 @@ export async function getMeetingById(
         is_camera_on,
         profile:profiles (
           id,
+          username,
           full_name,
           email,
+          avatar_url,
           last_seen_at
         )
       )
@@ -296,7 +300,7 @@ export async function joinMeeting(params: {
     if (meetingData) {
       const { data: joinerProfile } = await supabase
         .from("profiles")
-        .select("full_name, email")
+        .select("username, full_name, email")
         .eq("id", params.userId)
         .single();
 
@@ -449,7 +453,9 @@ export async function getMeetingMessages(
       *,
       sender:profiles!meeting_messages_sender_id_fkey (
         id,
+        username,
         full_name,
+        avatar_url,
         email
       )
     `)
@@ -479,7 +485,9 @@ export async function sendMeetingMessage(params: {
       *,
       sender:profiles!meeting_messages_sender_id_fkey (
         id,
+        username,
         full_name,
+        avatar_url,
         email
       )
     `)

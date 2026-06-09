@@ -9,6 +9,7 @@ import {
   Tag,
 } from "lucide-react";
 import { formatRelativeDate } from "../../../lib/utils/formatRelativeDate";
+import UserAvatar from "../../../components/common/UserAvatar";
 import type {
   TaskAssigneeItem,
   TaskItem,
@@ -42,14 +43,6 @@ function formatDuration(seconds?: number | null) {
   const hrs = Math.floor(total / 3600);
   const mins = Math.floor((total % 3600) / 60);
   return hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m`;
-}
-
-function getInitials(name?: string | null, email?: string | null) {
-  const source = name?.trim() || email?.trim() || "?";
-  const parts = source.split(" ").filter(Boolean);
-  return parts.length >= 2
-    ? `${parts[0][0]}${parts[1][0]}`.toUpperCase()
-    : source.slice(0, 2).toUpperCase();
 }
 
 function getPriorityClasses(priority: TaskItem["priority"]) {
@@ -234,19 +227,12 @@ export default function EnhancedTaskCard({
         {visibleAssignees.length > 0 && (
           <div className="flex -space-x-2">
             {visibleAssignees.map((a) => (
-              <div
+              <UserAvatar
                 key={a.id}
-                title={a.full_name || a.email || "Team member"}
-                className="
-                  flex h-6 w-6 items-center justify-center
-                  rounded-full bg-linear-to-br from-orange-400 to-orange-600
-                  text-[9px] font-bold text-black
-                  ring-2 ring-[#0f0f0f]
-                  shadow-md
-                "
-              >
-                {getInitials(a.full_name, a.email)}
-              </div>
+                person={a}
+                size="sm"
+                className="ring-2 ring-[#0f0f0f] shadow-md"
+              />
             ))}
             {extraAssignees > 0 && (
               <div className="flex h-6 w-6 items-center justify-center rounded-full border border-white/20 bg-white/10 text-[9px] font-bold text-white/70 ring-2 ring-[#0f0f0f]">
@@ -272,37 +258,27 @@ export default function EnhancedTaskCard({
       </div>
       <div className="flex items-center gap-2 pt-2 border-t border-white/5">
         <div className="flex items-center gap-2">
-          <div
-            title={`Created by ${task.created_by_full_name || task.created_by_email || "unknown"}`}
-            className="
-                flex h-7 w-7 items-center justify-center
-                rounded-full bg-white/10 border border-white/10
-                text-[9px] font-bold text-white/80
-              "
-          >
-            {getInitials(
-              task.created_by_full_name ?? task.created_by,
-              task.created_by_email,
-            )}
-          </div>
+          <UserAvatar
+            person={{
+              full_name: task.created_by_full_name ?? task.created_by,
+              email: task.created_by_email,
+              avatar_url: task.created_by_avatar_url,
+            }}
+            size="md"
+            className="h-7 w-7"
+          />
           <span className="text-[10px] text-white/50">
             {formatRelativeDate(task.created_at)}
           </span>
           {task.watchers && task.watchers.length > 0 && (
             <div className="flex -space-x-1">
               {task.watchers.slice(0, 2).map((watcher, idx) => (
-                <div
+                <UserAvatar
                   key={idx}
-                  title={`Invited: ${watcher.full_name || watcher.email}`}
-                  className="
-                      flex h-5 w-5 items-center justify-center
-                      rounded-full bg-gray-500/50 border border-white/20
-                      text-[8px] font-bold text-white
-                      ring-1 ring-background
-                    "
-                >
-                  {getInitials(watcher.full_name, watcher.email)}
-                </div>
+                  person={watcher}
+                  size="xs"
+                  className="ring-1 ring-background"
+                />
               ))}
               {task.watchers.length > 2 && (
                 <div className="flex h-5 w-5 items-center justify-center rounded-full bg-gray-500/30 border border-white/20 text-[8px] font-bold text-white/70 ring-1 ring-background">

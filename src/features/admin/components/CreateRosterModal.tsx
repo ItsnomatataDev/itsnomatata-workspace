@@ -13,6 +13,7 @@ import {
   type ProfileRosterUserRow,
 } from "../services/adminService";
 import type { CompanyOffice } from "../../../lib/offices";
+import UserAvatar from "../../../components/common/UserAvatar";
 
 type CreateRosterModalProps = {
   open: boolean;
@@ -263,9 +264,11 @@ export default function CreateRosterModal({
                       onChange={() => toggleUser(item.id)}
                       className="h-4 w-4 accent-orange-500"
                     />
-                    <span className="flex h-7 w-7 items-center justify-center rounded-full bg-orange-500/15 text-xs font-bold text-orange-200">
-                      {(item.full_name || item.email || "?").charAt(0)}
-                    </span>
+                    <UserAvatar
+                      person={item}
+                      size="md"
+                      className="h-7 w-7 bg-orange-500/15 text-orange-200"
+                    />
                     <span className="min-w-0">
                       <span className="block truncate text-sm text-white">
                         {item.full_name || item.email || "Unknown user"}

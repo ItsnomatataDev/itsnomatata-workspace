@@ -1,6 +1,16 @@
-# Notification email via n8n (Content Studio + Codex)
+# Codex notification email via n8n + Microsoft 365
 
-Sends workspace notification emails through n8n → **Microsoft Outlook** (same pattern as WhatsApp escalation and EziTrack import).
+Sends workspace notification emails through n8n → **Microsoft Outlook / Microsoft 365** from the mailbox:
+
+```text
+codex@itsnomatata.com
+```
+
+The workflow file is:
+
+```text
+n8n/itsnomatata-notification-email.workflow.json
+```
 
 Covers:
 
@@ -14,8 +24,11 @@ Covers:
 
 1. In n8n: **Workflows → Import from file**
 2. Choose `n8n/itsnomatata-notification-email.workflow.json`
-3. Open **04 Outlook — Send Email** and attach your **Microsoft Outlook** credential (e.g. `codex@itsnomatata.com`, same as WhatsApp workflow).
-4. Replace `REPLACE_WITH_CODEX_OUTLOOK_CREDENTIAL_ID` in the JSON before import, or re-select credentials after import.
+3. Open **04 Outlook — Send Email**.
+4. Attach the **Microsoft Outlook OAuth2** credential that is signed in as `codex@itsnomatata.com`.
+5. Save the node, then activate the workflow.
+
+Important: the Microsoft Outlook node sends from the authenticated mailbox. To send from `codex@itsnomatata.com`, the selected credential must either be logged in as `codex@itsnomatata.com`, or it must have Microsoft 365 **Send As** permission for that mailbox.
 
 ---
 
@@ -23,7 +36,7 @@ Covers:
 
 | Variable | Example / purpose |
 |----------|-------------------|
-| `NOTIFICATION_WEBHOOK_SECRET` | Same value as app `VITE_N8N_NOTIFICATION_WEBHOOK_SECRET` |
+| `NOTIFICATION_WEBHOOK_SECRET` | Same value as Supabase `N8N_NOTIFICATION_WEBHOOK_SECRET` |
 | `SUPABASE_URL` | `https://zirftywinscopzuuwdlg.supabase.co` |
 | `SUPABASE_SERVICE_ROLE_KEY` | Service role (queue backup node only) |
 
@@ -42,7 +55,7 @@ Covers:
 
 ## 4. App & Supabase secrets
 
-### Local `.env` (Vite — browser emails e.g. client portal feedback)
+### Local `.env` (Vite — browser emails, e.g. client portal feedback)
 
 ```env
 VITE_N8N_NOTIFICATION_WEBHOOK_URL=https://n8n.srv883957.hstgr.cloud/webhook/itsnomatata-notification-email
@@ -58,6 +71,7 @@ In **Supabase Dashboard → Edge Functions → Secrets** (or CLI):
 ```bash
 supabase secrets set N8N_NOTIFICATION_WEBHOOK_URL=https://n8n.srv883957.hstgr.cloud/webhook/itsnomatata-notification-email
 supabase secrets set N8N_NOTIFICATION_WEBHOOK_SECRET=your-long-random-secret
+supabase secrets set INTERNAL_API_KEY=your-long-random-secret-for-server-to-server-calls
 ```
 
 Deploy functions:
@@ -65,9 +79,12 @@ Deploy functions:
 ```bash
 supabase functions deploy create-notification
 supabase functions deploy dispatch-notification-email
+supabase functions deploy send-direct-email
 ```
 
 `N8N_NOTIFICATION_WEBHOOK_SECRET` must match `NOTIFICATION_WEBHOOK_SECRET` in n8n Variables and `VITE_N8N_NOTIFICATION_WEBHOOK_SECRET` in `.env`.
+
+`INTERNAL_API_KEY` should match the value used by any backend/server-to-server requests that call protected notification functions.
 
 ---
 
@@ -91,7 +108,7 @@ flowchart LR
   Studio -->|sendEmailOnly| WH
   CN -->|POST payload| WH
   DQ -->|POST payload| WH
-  WH --> OL
+  WH --> OL[Microsoft 365: codex@itsnomatata.com]
 ```
 
 | Source | Path |
@@ -135,7 +152,7 @@ curl -sS -X POST 'https://n8n.srv883957.hstgr.cloud/webhook/itsnomatata-notifica
 
 Replace `CREATOR_EMAIL_FROM_PROFILES_TABLE` with the real creator inbox. The app chooses that address automatically from `content_review_drafts.created_by` — it does **not** default to `test@itsnomatata.com`.
 
-Expect `{"ok":true,"sent":true,...}` and an inbox message from your Outlook sender.
+Expect `{"ok":true,"sent":true,...}` and an inbox message from `codex@itsnomatata.com`.
 
 ### B. Content review (end-to-end)
 
@@ -168,7 +185,8 @@ curl -sS -X POST 'https://zirftywinscopzuuwdlg.supabase.co/functions/v1/dispatch
 | Webhook 404 | Workflow not **Active** or wrong production URL |
 | In-app notification but no email | Set `N8N_NOTIFICATION_WEBHOOK_URL` on Supabase and redeploy `create-notification` |
 | `notification_deliveries` stuck `queued` | Activate workflow (schedule node) or call `dispatch-notification-email` manually |
-| Outlook node fails | Re-auth Microsoft credential; confirm sender can send externally |
+| Outlook node fails | Re-auth Microsoft credential; confirm `codex@itsnomatata.com` can send externally |
+| Email sends from the wrong address | Re-select the Outlook credential signed in as `codex@itsnomatata.com`, or grant Send As permission in Microsoft 365 |
 
 ---
 

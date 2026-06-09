@@ -20,6 +20,8 @@ import {
   Zap,
 } from "lucide-react";
 import { useAuth } from "../../../app/providers/AuthProvider";
+import UserAvatar from "../../../components/common/UserAvatar";
+import { withProfileDisplayName } from "../../../lib/utils/profileDisplay";
 import { getBoard, createCard } from "../services/boardService";
 import { getAdminTimeEntries } from "../../../lib/supabase/queries/adminTime";
 import { getBoardTimeSettings, getBoardAssignments } from "../services/boardTimeService";
@@ -147,18 +149,10 @@ export default function BoardDetailView() {
           // Get user profiles for assigned users
           const { data: profiles } = await supabase
             .from("profiles")
-            .select("id, full_name, email")
+            .select("id, username, full_name, email, avatar_url")
             .in("id", assignedUserIds);
 
-          const usersWithInitials = (profiles || []).map((profile: any) => ({
-            ...profile,
-            initials: (profile.full_name || profile.email || "?")
-              .split(" ")
-              .map((n: string) => n[0])
-              .join("")
-              .toUpperCase()
-              .slice(0, 2)
-          }));
+          const usersWithInitials = (profiles || []).map(withProfileDisplayName);
           
           setAssignedUsers(usersWithInitials);
         } else {
@@ -595,9 +589,11 @@ export default function BoardDetailView() {
                   className="flex items-center justify-between p-4 bg-linear-to-r from-white/5 to-transparent border border-white/10 rounded-xl hover:from-white/10 hover:border-white/20 transition-all group"
                 >
                   <div className="flex items-center gap-4">
-                    <div className="w-10 h-10 rounded-xl bg-linear-to-br from-orange-500/20 to-orange-600/20 border border-orange-500/30 flex items-center justify-center text-sm font-bold text-orange-400 group-hover:scale-110 transition-transform">
-                      {member.user_name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2)}
-                    </div>
+                    <UserAvatar
+                      person={{ full_name: member.user_name }}
+                      size="lg"
+                      className="rounded-xl border-orange-500/30 bg-orange-500/20 text-orange-400 transition-transform group-hover:scale-110"
+                    />
                     <div>
                       <div className="font-semibold text-white">{member.user_name}</div>
                       <div className="text-sm text-white/50">
@@ -633,9 +629,11 @@ export default function BoardDetailView() {
                     className="flex items-center justify-between p-4 bg-linear-to-r from-white/5 to-transparent border border-white/10 rounded-xl hover:from-white/10 hover:border-white/20 transition-all group"
                   >
                     <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 rounded-xl bg-linear-to-br from-purple-500/20 to-purple-600/20 border border-purple-500/30 flex items-center justify-center text-sm font-bold text-purple-400 group-hover:scale-110 transition-transform">
-                        {user.initials}
-                      </div>
+                      <UserAvatar
+                        person={user}
+                        size="xl"
+                        className="h-12 w-12 rounded-xl border-purple-500/30 bg-purple-500/20 text-purple-400 transition-transform group-hover:scale-110"
+                      />
                       <div>
                         <div className="font-semibold text-white">{user.full_name || 'Unknown User'}</div>
                         <div className="text-sm text-white/50">{user.email}</div>

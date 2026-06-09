@@ -3,6 +3,7 @@ import type { NotificationRow } from "../queries/notifications";
 
 export type NotificationPriority = "low" | "medium" | "high" | "urgent";
 export type NotificationChannel = "in_app" | "email" | "push";
+type NotificationDeliveryState = "pending" | "processing" | "delivered" | "partial" | "failed";
 
 export type NotificationType =
   | "welcome_user"
@@ -81,6 +82,8 @@ const NOTIFICATION_SELECT = `
       created_at
       `;
 
+const SYSTEM_NOTIFICATION_CHANNELS: NotificationChannel[] = ["in_app", "email", "push"];
+
 function shouldDispatchPush(deliveryState?: string | null) {
   return !deliveryState || deliveryState === "pending";
 }
@@ -97,6 +100,74 @@ function dispatchBrowserPush(notificationIds: string[]) {
         }
       });
   }
+}
+
+function shouldDispatchEmail(params: {
+  channels?: NotificationChannel[];
+  sendEmail?: boolean;
+}) {
+  return params.sendEmail !== false && params.channels?.includes("email");
+}
+
+async function dispatchBrowserEmail(notifications: NotificationRow[]) {
+  const rows = notifications.filter((row) => row.id && row.user_id);
+  const userIds = [...new Set(rows.map((row) => row.user_id).filter(Boolean))];
+  if (userIds.length === 0) return;
+
+  const { data: profiles, error } = await supabase
+    .from("profiles")
+    .select("id, full_name, email")
+    .in("id", userIds);
+
+  if (error) {
+    console.warn("Notification email dispatch skipped: profile lookup failed.", error);
+    return;
+  }
+
+  const profilesById = new Map(
+    (profiles ?? []).map((profile) => [profile.id as string, profile]),
+  );
+
+  await Promise.allSettled(
+    rows.map(async (notification) => {
+      const profile = profilesById.get(notification.user_id);
+      const to = typeof profile?.email === "string" ? profile.email.trim() : "";
+      if (!to) return;
+
+      const { error: emailError } = await supabase.functions.invoke(
+        "send-direct-email",
+        {
+          body: {
+            to,
+            fullName: profile?.full_name ?? null,
+            title: notification.title,
+            message: notification.message ?? notification.title,
+            type: notification.type,
+            priority: notification.priority ?? "medium",
+            actionUrl: notification.action_url ?? "/notifications",
+            metadata:
+              notification.metadata && typeof notification.metadata === "object"
+                ? notification.metadata
+                : {},
+          },
+        },
+      );
+
+      if (emailError) {
+        console.warn("Notification email dispatch failed.", {
+          notificationId: notification.id,
+          userId: notification.user_id,
+          error: emailError.message,
+        });
+      }
+    }),
+  );
+}
+
+function queueBrowserEmailDispatch(notifications: NotificationRow[]) {
+  void dispatchBrowserEmail(notifications).catch((error) => {
+    console.warn("Notification email dispatch failed.", error);
+  });
 }
 
 export async function markNotificationAsRead(notificationId: string) {
@@ -151,7 +222,9 @@ export async function createNotification(params: {
   actorUserId?: string | null;
   category?: string | null;
   dedupeKey?: string | null;
-  deliveryState?: "pending" | "processing" | "delivered" | "partial" | "failed";
+  deliveryState?: NotificationDeliveryState;
+  channels?: NotificationChannel[];
+  sendEmail?: boolean;
 }) {
   const payload = {
     organization_id: params.organizationId,
@@ -198,6 +271,9 @@ export async function createNotification(params: {
   if (shouldDispatchPush(params.deliveryState)) {
     dispatchBrowserPush([data.id]);
   }
+  if (shouldDispatchEmail(params)) {
+    queueBrowserEmailDispatch([data as NotificationRow]);
+  }
 
   return data as NotificationRow;
 }
@@ -218,7 +294,9 @@ export async function createBulkNotifications(params: {
   actorUserId?: string | null;
   category?: string | null;
   dedupeKey?: string | null;
-  deliveryState?: "pending" | "processing" | "delivered" | "partial" | "failed";
+  deliveryState?: NotificationDeliveryState;
+  channels?: NotificationChannel[];
+  sendEmail?: boolean;
 }) {
   const uniqueUserIds = [...new Set(params.userIds)].filter(Boolean);
 
@@ -253,6 +331,9 @@ export async function createBulkNotifications(params: {
   if (shouldDispatchPush(params.deliveryState)) {
     dispatchBrowserPush((data ?? []).map((row) => row.id));
   }
+  if (shouldDispatchEmail(params)) {
+    queueBrowserEmailDispatch((data ?? []) as NotificationRow[]);
+  }
   return (data ?? []) as NotificationRow[];
 }
 
@@ -281,6 +362,7 @@ export async function notifySystemUsers(params: {
     metadata: params.metadata,
     referenceId: params.referenceId,
     referenceType: params.referenceType,
+    channels: SYSTEM_NOTIFICATION_CHANNELS,
   });
 }
 
@@ -315,6 +397,7 @@ export async function notifyProjectEvent(params: {
     },
     referenceId: params.projectId,
     referenceType: "project",
+    channels: SYSTEM_NOTIFICATION_CHANNELS,
   });
 }
 
@@ -359,6 +442,7 @@ export async function notifyTaskEvent(params: {
     },
     referenceId: params.taskId,
     referenceType: "task",
+    channels: SYSTEM_NOTIFICATION_CHANNELS,
   });
 }
 
@@ -393,6 +477,7 @@ export async function notifyMeetingEvent(params: {
     },
     referenceId: params.meetingId,
     referenceType: "meeting",
+    channels: SYSTEM_NOTIFICATION_CHANNELS,
   });
 }
 
@@ -427,6 +512,7 @@ export async function notifyChatEvent(params: {
     },
     referenceId: params.chatId,
     referenceType: "chat",
+    channels: SYSTEM_NOTIFICATION_CHANNELS,
   });
 }
 
@@ -468,6 +554,7 @@ export async function notifyApprovalEvent(params: {
     },
     referenceId: params.approvalId,
     referenceType: "approval",
+    channels: SYSTEM_NOTIFICATION_CHANNELS,
   });
 }
 
@@ -511,6 +598,7 @@ export async function notifyLeaveEvent(params: {
     },
     referenceId: params.leaveRequestId,
     referenceType: "leave_request",
+    channels: SYSTEM_NOTIFICATION_CHANNELS,
   });
 }
 
@@ -539,6 +627,7 @@ export async function notifyStockAlert(params: {
     metadata: params.metadata,
     referenceId: params.referenceId,
     referenceType: params.referenceType,
+    channels: SYSTEM_NOTIFICATION_CHANNELS,
   });
 }
 
@@ -564,6 +653,7 @@ export async function notifyVehicleAlert(params: {
     metadata: params.metadata,
     referenceId: params.referenceId,
     referenceType: params.referenceType,
+    channels: SYSTEM_NOTIFICATION_CHANNELS,
   });
 }
 
@@ -598,5 +688,6 @@ export async function notifyCustomEvent(params: {
     metadata: params.metadata,
     referenceId: params.referenceId,
     referenceType: params.referenceType,
+    channels: SYSTEM_NOTIFICATION_CHANNELS,
   });
 }

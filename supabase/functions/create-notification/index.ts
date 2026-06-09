@@ -1,7 +1,8 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   buildN8nNotificationEmailPayload,
-  postNotificationEmailToN8n,
+  getNotificationEmailProviderName,
+  sendNotificationEmail,
 } from "../_shared/n8nNotificationEmail.ts";
 
 type CreateNotificationBody = {
@@ -435,7 +436,7 @@ Deno.serve(async (req) => {
             notificationId: notification.id,
             channel: "email",
             status: "queued",
-            provider: "n8n",
+            provider: getNotificationEmailProviderName(),
           });
 
           const { data: profile } = await supabase
@@ -480,14 +481,16 @@ Deno.serve(async (req) => {
             notificationId: notification.id,
           });
 
-          const sent = await postNotificationEmailToN8n(payload);
+          const sent = await sendNotificationEmail(payload);
 
           await supabase
             .from("notification_deliveries")
             .update({
               status: sent.ok ? "sent" : "failed",
               destination: email,
-              error_message: sent.ok ? null : sent.error ?? "n8n dispatch failed",
+              provider: sent.provider,
+              provider_message_id: sent.providerMessageId ?? null,
+              error_message: sent.ok ? null : sent.error ?? "Email dispatch failed",
               attempted_at: new Date().toISOString(),
               delivered_at: sent.ok ? new Date().toISOString() : null,
             })

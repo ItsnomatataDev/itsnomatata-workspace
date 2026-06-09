@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import UserAvatar from "../../../components/common/UserAvatar";
 import type { TeamPulseMember } from "../services/controlCentreService";
 
 const statusColors: Record<TeamPulseMember["status"], string> = {
@@ -14,18 +15,6 @@ const statusLabels: Record<TeamPulseMember["status"], string> = {
   idle: "Idle",
   offline: "Offline",
 };
-
-function getInitials(name: string | null, email: string) {
-  if (name) {
-    return name
-      .split(" ")
-      .map((w) => w[0])
-      .join("")
-      .slice(0, 2)
-      .toUpperCase();
-  }
-  return email.slice(0, 2).toUpperCase();
-}
 
 type Props = {
   members: TeamPulseMember[];
@@ -97,17 +86,7 @@ export default function TeamPulseStrip({ members, loading }: Props) {
             title={`${member.full_name ?? member.email} — ${activeLabel}`}
           >
             <div className="relative">
-              {member.avatar_url ? (
-                <img
-                  src={member.avatar_url}
-                  alt=""
-                  className="h-10 w-10 rounded-full object-cover"
-                />
-              ) : (
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-xs font-semibold text-white/60">
-                  {getInitials(member.full_name, member.email)}
-                </div>
-              )}
+              <UserAvatar person={member} size="lg" />
               <span
                 className={`absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full ring-2 ring-black ${statusColors[member.status]}`}
               />

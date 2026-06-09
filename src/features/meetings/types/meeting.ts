@@ -24,8 +24,10 @@ export type Meeting = {
 
 export type MeetingParticipantProfile = {
   id: string;
+  username?: string | null;
   full_name: string | null;
   email: string | null;
+  avatar_url?: string | null;
   last_seen_at?: string | null;
 };
 
@@ -49,8 +51,10 @@ export type MeetingMessage = {
   created_at: string;
   sender?: {
     id: string;
+    username?: string | null;
     full_name: string | null;
     email: string | null;
+    avatar_url?: string | null;
   } | null;
 };
 

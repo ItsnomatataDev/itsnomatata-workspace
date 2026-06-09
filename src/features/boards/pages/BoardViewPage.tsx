@@ -8,7 +8,6 @@ import {
   Loader2,
   Flag,
   MessageSquare,
-  User,
   CheckCircle2,
   ChevronDown,
   Pause,
@@ -19,6 +18,7 @@ import {
 import CardTimeIndicator from "../components/CardTimeIndicator";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import Sidebar from "../../../components/dashboard/components/Sidebar";
+import UserAvatar from "../../../components/common/UserAvatar";
 import {
   getBoard,
   getCards,
@@ -59,8 +59,10 @@ function cardToTask(card: any): Task {
       task_id: card.id,
       user_id: a.user_id ?? a.id ?? "",
       created_at: a.created_at ?? new Date().toISOString(),
+      username: a.username ?? null,
       full_name: a.full_name ?? null,
       email: a.email ?? null,
+      avatar_url: a.avatar_url ?? null,
     })),
     commentsCount: card.commentsCount ?? 0,
   } as Task;
@@ -242,14 +244,6 @@ function KanbanCard({
     .map((assignee) => assignee.full_name || assignee.email)
     .filter(Boolean)
     .join(", ");
-  const initialsFor = (assignee: any) => {
-    const src = assignee.full_name ?? assignee.email ?? "";
-    const parts = src.split(" ").filter(Boolean);
-    return parts.length >= 2
-      ? `${parts[0][0]}${parts[1][0]}`.toUpperCase()
-      : src.slice(0, 2).toUpperCase();
-  };
-
   const formatLiveTime = (seconds: number) => {
     const hrs = Math.floor(seconds / 3600);
     const mins = Math.floor((seconds % 3600) / 60);
@@ -401,13 +395,12 @@ function KanbanCard({
           {visibleAssignees.length > 0 ? (
             <div className="flex -space-x-1">
               {visibleAssignees.map((assignee) => (
-                <div
+                <UserAvatar
                   key={assignee.user_id ?? assignee.id}
-                  className="flex h-6 w-6 items-center justify-center rounded-full border border-orange-500/30 bg-orange-500/20 text-[10px] font-bold text-orange-400 ring-2 ring-[#131313]"
-                  title={assignee.full_name || assignee.email || "Team member"}
-                >
-                  {initialsFor(assignee)}
-                </div>
+                  person={assignee}
+                  size="sm"
+                  className="border-orange-500/30 ring-2 ring-[#131313]"
+                />
               ))}
               {extraAssignees > 0 && (
                 <div className="flex h-6 w-6 items-center justify-center rounded-full border border-white/10 bg-white/10 text-[9px] font-bold text-white/50 ring-2 ring-[#131313]">
@@ -416,9 +409,16 @@ function KanbanCard({
               )}
             </div>
           ) : (
-            <div className="flex h-6 w-6 items-center justify-center rounded-full border border-dashed border-white/15">
-              <User size={10} className="text-white/25" />
-            </div>
+            <UserAvatar
+              person={{
+                username: task.created_by_username,
+                full_name: task.created_by_full_name ?? task.created_by,
+                email: task.created_by_email,
+                avatar_url: task.created_by_avatar_url,
+              }}
+              size="sm"
+              className="border-dashed border-white/15 ring-2 ring-[#131313]"
+            />
           )}
         </div>
       </div>

@@ -1,4 +1,5 @@
 import { supabase } from "../client";
+import { withProfileDisplayName } from "../../utils/profileDisplay";
 
 export type TaskStatus =
   | "backlog"
@@ -53,8 +54,10 @@ export interface TaskItem {
   assigned_to: string | null;
   assigned_by: string | null;
   created_by: string | null;
+  created_by_username?: string | null;
   created_by_full_name?: string | null;
   created_by_email?: string | null;
+  created_by_avatar_url?: string | null;
   department: string | null;
   due_date: string | null;
   start_date: string | null;
@@ -80,8 +83,10 @@ export interface TaskItem {
 
 interface ProfileShort {
   id: string;
+  username?: string | null;
   full_name: string | null;
   email: string | null;
+  avatar_url?: string | null;
 }
 
 async function getProfilesByIds(
@@ -91,11 +96,11 @@ async function getProfilesByIds(
 
   const { data, error } = await supabase
     .from("profiles")
-    .select("id, full_name, email")
+    .select("id, username, full_name, email, avatar_url")
     .in("id", userIds);
 
   if (error) throw error;
-  return (data ?? []) as ProfileShort[];
+  return (data ?? []).map(withProfileDisplayName) as ProfileShort[];
 }
 
 function attachCreatorProfiles(tasks: TaskItem[], profiles: ProfileShort[]) {
@@ -106,8 +111,14 @@ function attachCreatorProfiles(tasks: TaskItem[], profiles: ProfileShort[]) {
     created_by_full_name: task.created_by
       ? profileMap.get(task.created_by)?.full_name ?? null
       : null,
+    created_by_username: task.created_by
+      ? profileMap.get(task.created_by)?.username ?? null
+      : null,
     created_by_email: task.created_by
       ? profileMap.get(task.created_by)?.email ?? null
+      : null,
+    created_by_avatar_url: task.created_by
+      ? profileMap.get(task.created_by)?.avatar_url ?? null
       : null,
   }));
 }
@@ -123,6 +134,7 @@ export interface TaskCommentItem {
   updated_at?: string;
   author_name?: string | null;
   author_email?: string | null;
+  author_avatar_url?: string | null;
 }
 
 export interface TaskWatcherItem {
@@ -130,8 +142,10 @@ export interface TaskWatcherItem {
   task_id: string;
   user_id: string;
   created_at: string;
+  username?: string | null;
   full_name?: string | null;
   email?: string | null;
+  avatar_url?: string | null;
 }
 
 export interface TaskAssigneeItem {
@@ -139,6 +153,7 @@ export interface TaskAssigneeItem {
   task_id: string;
   user_id: string;
   created_at: string;
+  username?: string | null;
   full_name?: string | null;
   email?: string | null;
   avatar_url?: string | null;
@@ -153,10 +168,12 @@ export interface TaskRuntimeInfo {
 
 export interface TaskInvitableUser {
   id: string;
+  username?: string | null;
   full_name: string | null;
   email: string | null;
   primary_role: string | null;
   department: string | null;
+  avatar_url: string | null;
 }
 
 export interface TaskWatcherCountItem {
@@ -483,13 +500,16 @@ export const getTaskComments = async (
 
   const { data: profilesData, error: profilesError } = await supabase
     .from("profiles")
-    .select("id, full_name, email")
+    .select("id, username, full_name, email, avatar_url")
     .in("id", userIds);
 
   if (profilesError) throw profilesError;
 
   const profileMap = new Map(
-    (profilesData ?? []).map((profile) => [profile.id, profile]),
+    (profilesData ?? []).map((profile) => [
+      profile.id,
+      withProfileDisplayName(profile),
+    ]),
   );
 
   return comments.map((comment) => {
@@ -499,6 +519,7 @@ export const getTaskComments = async (
       ...comment,
       author_name: author?.full_name ?? null,
       author_email: author?.email ?? null,
+      author_avatar_url: author?.avatar_url ?? null,
     };
   });
 };
@@ -567,13 +588,16 @@ export const getTaskWatchers = async (
 
   const { data: profilesData, error: profilesError } = await supabase
     .from("profiles")
-    .select("id, full_name, email")
+    .select("id, username, full_name, email, avatar_url")
     .in("id", userIds);
 
   if (profilesError) throw profilesError;
 
   const profileMap = new Map(
-    (profilesData ?? []).map((profile) => [profile.id, profile]),
+    (profilesData ?? []).map((profile) => [
+      profile.id,
+      withProfileDisplayName(profile),
+    ]),
   );
 
   return watchers.map((watcher) => {
@@ -583,6 +607,7 @@ export const getTaskWatchers = async (
       ...watcher,
       full_name: profile?.full_name ?? null,
       email: profile?.email ?? null,
+      avatar_url: profile?.avatar_url ?? null,
     };
   });
 };
@@ -651,13 +676,16 @@ export const getTaskAssignees = async (
 
   const { data: profilesData, error: profilesError } = await supabase
     .from("profiles")
-    .select("id, full_name, email, primary_role, department")
+    .select("id, username, full_name, email, avatar_url, primary_role, department")
     .in("id", userIds);
 
   if (profilesError) throw profilesError;
 
   const profileMap = new Map(
-    (profilesData ?? []).map((profile) => [profile.id, profile]),
+    (profilesData ?? []).map((profile) => [
+      profile.id,
+      withProfileDisplayName(profile),
+    ]),
   );
 
   return assignees.map((assignee) => {
@@ -667,6 +695,7 @@ export const getTaskAssignees = async (
       ...assignee,
       full_name: profile?.full_name ?? null,
       email: profile?.email ?? null,
+      avatar_url: profile?.avatar_url ?? null,
       primary_role: profile?.primary_role ?? null,
       department: profile?.department ?? null,
     };
@@ -728,7 +757,7 @@ export const searchTaskInvitableUsers = async ({
 
   let query = supabase
     .from("profiles")
-    .select("id, full_name, email, primary_role, department")
+    .select("id, username, full_name, email, avatar_url, primary_role, department")
     .eq("organization_id", organizationId)
     .or(`full_name.ilike.%${trimmed}%,email.ilike.%${trimmed}%`)
     .order("full_name", { ascending: true })
@@ -741,7 +770,7 @@ export const searchTaskInvitableUsers = async ({
   const { data, error } = await query;
   if (error) throw error;
 
-  return (data ?? []) as TaskInvitableUser[];
+  return (data ?? []).map(withProfileDisplayName) as TaskInvitableUser[];
 };
 
 /* ---------------------------------------
@@ -871,13 +900,16 @@ export async function getBulkTaskWatchers(
 
   const { data: profilesData, error: profilesError } = await supabase
     .from("profiles")
-    .select("id, full_name, email")
+    .select("id, username, full_name, email, avatar_url")
     .in("id", userIds);
 
   if (profilesError) throw profilesError;
 
   const profileMap = new Map(
-    (profilesData ?? []).map((profile) => [profile.id, profile]),
+    (profilesData ?? []).map((profile) => [
+      profile.id,
+      withProfileDisplayName(profile),
+    ]),
   );
 
   return watchers.map((watcher) => {
@@ -887,6 +919,7 @@ export async function getBulkTaskWatchers(
       ...watcher,
       full_name: profile?.full_name ?? null,
       email: profile?.email ?? null,
+      avatar_url: profile?.avatar_url ?? null,
     };
   });
 }
@@ -911,13 +944,16 @@ export async function getBulkTaskAssignees(
 
   const { data: profilesData, error: profilesError } = await supabase
     .from("profiles")
-    .select("id, full_name, email, primary_role, department")
+    .select("id, username, full_name, email, avatar_url, primary_role, department")
     .in("id", userIds);
 
   if (profilesError) throw profilesError;
 
   const profileMap = new Map(
-    (profilesData ?? []).map((profile) => [profile.id, profile]),
+    (profilesData ?? []).map((profile) => [
+      profile.id,
+      withProfileDisplayName(profile),
+    ]),
   );
 
   return assignees.map((assignee) => {
@@ -927,6 +963,7 @@ export async function getBulkTaskAssignees(
       ...assignee,
       full_name: profile?.full_name ?? null,
       email: profile?.email ?? null,
+      avatar_url: profile?.avatar_url ?? null,
       primary_role: profile?.primary_role ?? null,
       department: profile?.department ?? null,
     };

@@ -12,6 +12,7 @@ import {
   BarChart3,
 } from "lucide-react";
 import Sidebar from "../../../components/dashboard/components/Sidebar";
+import UserAvatar from "../../../components/common/UserAvatar";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import { useTeamTimesheetsRealtime } from "../../../lib/hooks/useTeamTimesheetsRealtime";
 import { supabase } from "../../../lib/supabase/client";
@@ -30,6 +31,7 @@ type UserSummary = {
   id: string;
   name: string;
   email: string | null;
+  avatar_url?: string | null;
   totalSeconds: number;
   running: boolean;
   recentBoard: string | null;
@@ -320,7 +322,7 @@ export default function TeamTimesheetsPage() {
     const fetchMembers = async () => {
       const { data, error } = await supabase
         .from("profiles")
-        .select("id, full_name, email")
+        .select("id, full_name, email, avatar_url")
         .eq("organization_id", profile.organization_id);
 
       if (!error && data) {
@@ -351,6 +353,7 @@ export default function TeamTimesheetsPage() {
         id: member.id,
         name: member.full_name || "Unknown",
         email: member.email || null,
+        avatar_url: member.avatar_url ?? null,
         totalSeconds: 0,
         running: false,
         recentBoard: null,
@@ -615,15 +618,15 @@ export default function TeamTimesheetsPage() {
                             : "border-white/8 bg-black/40 hover:border-white/15 hover:bg-white/3"
                         }`}
                       >
-                        <div
-                          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-xs font-bold text-white"
-                          style={{
-                            backgroundColor: `${accent}25`,
-                            color: accent,
+                        <UserAvatar
+                          person={{
+                            full_name: u.name,
+                            email: u.email,
+                            avatar_url: u.avatar_url,
                           }}
-                        >
-                          {u.name.charAt(0).toUpperCase()}
-                        </div>
+                          size="md"
+                          className="rounded-xl"
+                        />
 
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-sm font-semibold text-white">
@@ -713,15 +716,15 @@ export default function TeamTimesheetsPage() {
                           key={u.id}
                           className="flex items-center gap-3 rounded-xl border border-green-500/20 bg-green-500/5 p-3"
                         >
-                          <div
-                            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-xs font-bold text-white"
-                            style={{
-                              backgroundColor: `${getUserAccent(u.id)}25`,
-                              color: getUserAccent(u.id),
+                          <UserAvatar
+                            person={{
+                              full_name: u.name,
+                              email: u.email,
+                              avatar_url: u.avatar_url,
                             }}
-                          >
-                            {u.name.charAt(0).toUpperCase()}
-                          </div>
+                            size="md"
+                            className="rounded-lg"
+                          />
                           <div className="min-w-0 flex-1">
                             <p className="truncate text-sm font-semibold text-white">
                               {u.name}
@@ -902,15 +905,15 @@ export default function TeamTimesheetsPage() {
                   {/* User header */}
                   <div className="mb-5 flex items-start justify-between gap-4">
                     <div className="flex items-center gap-3">
-                      <div
-                        className="flex h-11 w-11 items-center justify-center rounded-2xl text-lg font-bold text-white"
-                        style={{
-                          backgroundColor: `${getUserAccent(selectedUser.id)}20`,
-                          color: getUserAccent(selectedUser.id),
+                      <UserAvatar
+                        person={{
+                          full_name: selectedUser.name,
+                          email: selectedUser.email,
+                          avatar_url: selectedUser.avatar_url,
                         }}
-                      >
-                        {selectedUser.name.charAt(0)}
-                      </div>
+                        size="lg"
+                        className="h-11 w-11 rounded-2xl"
+                      />
                       <div>
                         <h2 className="text-xl font-bold text-white">
                           {selectedUser.name}

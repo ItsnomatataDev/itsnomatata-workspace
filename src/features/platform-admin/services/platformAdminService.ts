@@ -129,6 +129,7 @@ export const DEFAULT_FEATURES = [
   { key: "duty_roster", label: "Duty Roster", category: "HR" },
   { key: "media_dashboard", label: "Media Dashboard", category: "Media" },
   { key: "social_media", label: "Social Media", category: "Media" },
+  { key: "tourism_operations", label: "Tourism Operations", category: "Tourism" },
   { key: "automation", label: "Automation", category: "Operations" },
   { key: "notifications", label: "Notifications", category: "Operations" },
   { key: "boards", label: "Boards", category: "Work Management" },
@@ -239,6 +240,129 @@ const DEFAULT_ROLES = [
       finance: true,
       invoices: true,
       expenses: true,
+    },
+  },
+  {
+    role_key: "tourism_operations_manager",
+    role_label: "Tourism Operations Manager",
+    department: "tourism",
+    description: "Coordinates guest movements, bookings, itineraries, activity schedules, transfers and service incidents.",
+    is_admin_role: false,
+    is_manager_role: true,
+    is_default_signup_role: false,
+    requires_approval: true,
+    is_active: true,
+    permissions: {
+      tourism_operations: true,
+      bookings: true,
+      guests: true,
+      itineraries: true,
+      transfers: true,
+      fleet: true,
+      reports: true,
+      broadcast_team: true,
+    },
+  },
+  {
+    role_key: "reservations_agent",
+    role_label: "Reservations Agent",
+    department: "tourism",
+    description: "Manages bookings, guest details, confirmations and itinerary preparation.",
+    is_admin_role: false,
+    is_manager_role: false,
+    is_default_signup_role: false,
+    requires_approval: true,
+    is_active: true,
+    permissions: {
+      tourism_operations: true,
+      bookings: true,
+      guests: true,
+      itineraries: true,
+    },
+  },
+  {
+    role_key: "guest_relations",
+    role_label: "Guest Relations",
+    department: "tourism",
+    description: "Handles arrivals, special requests, guest notes, escalations and service quality follow-up.",
+    is_admin_role: false,
+    is_manager_role: false,
+    is_default_signup_role: false,
+    requires_approval: true,
+    is_active: true,
+    permissions: {
+      tourism_operations: true,
+      guests: true,
+      itineraries: true,
+      incidents: true,
+    },
+  },
+  {
+    role_key: "tour_guide",
+    role_label: "Tour Guide",
+    department: "tourism",
+    description: "Views assigned activities, itinerary details, guest lists and operational notes.",
+    is_admin_role: false,
+    is_manager_role: false,
+    is_default_signup_role: false,
+    requires_approval: true,
+    is_active: true,
+    permissions: {
+      assigned_tours: true,
+      itineraries: true,
+      incidents: true,
+      time_tracking: true,
+    },
+  },
+  {
+    role_key: "driver",
+    role_label: "Driver",
+    department: "tourism",
+    description: "Views assigned transfers, pickup windows, routing notes and vehicle allocation.",
+    is_admin_role: false,
+    is_manager_role: false,
+    is_default_signup_role: false,
+    requires_approval: true,
+    is_active: true,
+    permissions: {
+      assigned_transfers: true,
+      fleet_assigned: true,
+      incidents: true,
+      time_tracking: true,
+    },
+  },
+  {
+    role_key: "activity_coordinator",
+    role_label: "Activity Coordinator",
+    department: "tourism",
+    description: "Coordinates activities, guide allocation, capacity and daily schedule readiness.",
+    is_admin_role: false,
+    is_manager_role: true,
+    is_default_signup_role: false,
+    requires_approval: true,
+    is_active: true,
+    permissions: {
+      tourism_operations: true,
+      activities: true,
+      itineraries: true,
+      schedule_team: true,
+    },
+  },
+  {
+    role_key: "fleet_coordinator",
+    role_label: "Fleet Coordinator",
+    department: "tourism",
+    description: "Coordinates tourism transfers, vehicles, driver allocation, fuel and service readiness.",
+    is_admin_role: false,
+    is_manager_role: true,
+    is_default_signup_role: false,
+    requires_approval: true,
+    is_active: true,
+    permissions: {
+      tourism_operations: true,
+      transfers: true,
+      fleet: true,
+      drivers: true,
     },
   },
   {
@@ -770,22 +894,39 @@ async function createDefaultBranding(
 }
 
 async function createDefaultFeatures(organizationId: string) {
-  const payload = DEFAULT_FEATURES.map((feature) => ({
+  const org = await getOrganizationById(organizationId);
+  const { data: existingRows, error: existingError } = await supabase
+    .from("organization_features")
+    .select("feature_key")
+    .eq("organization_id", organizationId);
+
+  if (existingError) throw existingError;
+
+  const existingKeys = new Set(
+    (existingRows ?? []).map((row: { feature_key: string }) => row.feature_key),
+  );
+
+  const payload = DEFAULT_FEATURES.filter(
+    (feature) => !existingKeys.has(feature.key),
+  ).map((feature) => ({
     organization_id: organizationId,
     feature_key: feature.key,
     module_label: feature.label,
     module_category: feature.category,
-    enabled: true,
+    enabled:
+      feature.key === "tourism_operations" && isSystemOrganization(org)
+        ? false
+        : true,
     limits: {},
     configuration: {},
     permissions: {},
   }));
 
+  if (payload.length === 0) return;
+
   const { error } = await supabase
     .from("organization_features")
-    .upsert(payload, {
-      onConflict: "organization_id,feature_key",
-    });
+    .insert(payload);
 
   if (error) throw error;
 }
@@ -1038,7 +1179,7 @@ export async function updateOrganizationFeature(params: {
 
   if (featureReadError) throw featureReadError;
 
-  if (!params.enabled) {
+  if (!params.enabled && currentFeature.feature_key !== "tourism_operations") {
     await assertSystemOrganizationMayChange(
       currentFeature.organization_id,
       "restricted by disabling modules",

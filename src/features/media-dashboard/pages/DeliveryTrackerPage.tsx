@@ -16,7 +16,6 @@ import Sidebar from "../../../components/dashboard/components/Sidebar";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import {
   getMediaDashboardData,
-  getMediaInitials,
   type MediaDelivery,
 } from "../services/mediaDashboardService";
 

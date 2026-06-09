@@ -117,13 +117,14 @@ export default function ITDashboardPage() {
 
   const firstName = useMemo(() => {
     const fullName =
+      profile?.display_name ||
       profile?.full_name ||
       user?.user_metadata?.full_name ||
       user?.email ||
       "User";
 
     return String(fullName).split(" ")[0];
-  }, [profile?.full_name, user?.user_metadata?.full_name, user?.email]);
+  }, [profile?.display_name, profile?.full_name, user?.user_metadata?.full_name, user?.email]);
 
   const organizationId = profile?.organization_id ?? null;
   const userId = user?.id ?? undefined;
@@ -637,7 +638,7 @@ export default function ITDashboardPage() {
                     organizationId={organizationId}
                     userId={userId}
                     role={profile.primary_role ?? "employee"}
-                    userName={profile.full_name ?? null}
+                    userName={profile.display_name ?? profile.full_name ?? null}
                     modules={modules}
                     escalations={escalations}
                     kpis={kpis}
@@ -650,7 +651,7 @@ export default function ITDashboardPage() {
                     organizationId={organizationId}
                     userId={userId}
                     role={profile.primary_role ?? "employee"}
-                    fullName={profile.full_name ?? null}
+                    fullName={profile.display_name ?? profile.full_name ?? null}
                     email={user.email ?? ""}
                   />
 

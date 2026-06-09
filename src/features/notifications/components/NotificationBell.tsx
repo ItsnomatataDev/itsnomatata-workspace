@@ -95,6 +95,7 @@ export default function NotificationBell() {
         message: "If you see this, insert + read are working.",
         actionUrl: "/notifications",
         priority: "high",
+        channels: ["in_app", "email", "push"],
       });
       setTestResult("Sent! Reloading...");
       await reload();

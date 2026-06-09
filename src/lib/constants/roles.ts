@@ -11,6 +11,13 @@ export const APP_ROLES = [
   "seo_specialist",
   "social_media",
   "media_team",
+  "tourism_operations_manager",
+  "reservations_agent",
+  "guest_relations",
+  "tour_guide",
+  "driver",
+  "activity_coordinator",
+  "fleet_coordinator",
 ] as const;
 
 export type AppRole = (typeof APP_ROLES)[number];
@@ -28,6 +35,13 @@ export const ROLE_LABELS: Record<AppRole, string> = {
   seo_specialist: "SEO Specialist",
   social_media: "Social Media",
   media_team: "Media Team",
+  tourism_operations_manager: "Tourism Operations Manager",
+  reservations_agent: "Reservations Agent",
+  guest_relations: "Guest Relations",
+  tour_guide: "Tour Guide",
+  driver: "Driver",
+  activity_coordinator: "Activity Coordinator",
+  fleet_coordinator: "Fleet Coordinator",
 };
 
 export function isAppRole(value: unknown): value is AppRole {
@@ -46,6 +60,13 @@ export const ADMIN_ROLE_ASSIGNMENT_OPTIONS: Array<{
   { value: "social_media", label: "Social Media" },
   { value: "media_team", label: "Media Team" },
   { value: "seo_specialist", label: "SEO Specialist" },
+  { value: "tourism_operations_manager", label: "Tourism Operations Manager" },
+  { value: "reservations_agent", label: "Reservations Agent" },
+  { value: "guest_relations", label: "Guest Relations" },
+  { value: "tour_guide", label: "Tour Guide" },
+  { value: "driver", label: "Driver" },
+  { value: "activity_coordinator", label: "Activity Coordinator" },
+  { value: "fleet_coordinator", label: "Fleet Coordinator" },
 ];
 
 export const SUPER_ADMIN_ALLOWLIST = [

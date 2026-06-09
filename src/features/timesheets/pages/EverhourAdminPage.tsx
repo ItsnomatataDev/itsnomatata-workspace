@@ -23,6 +23,7 @@ import {
   X,
 } from "lucide-react";
 import Sidebar from "../../../components/dashboard/components/Sidebar";
+import UserAvatar from "../../../components/common/UserAvatar";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import { deleteBoard, getBoards } from "../../boards/services/boardService";
 import { useTeamTimesheetsRealtime } from "../../../lib/hooks/useTeamTimesheetsRealtime";
@@ -62,6 +63,7 @@ interface BoardWithTime extends Board {
     id: string;
     name: string | null;
     email: string | null;
+    avatar_url?: string | null;
   }>;
   billing: BoardBillingConfig;
 }
@@ -227,17 +229,6 @@ function getEntryDate(entry: any): Date | null {
   if (Number.isNaN(date.getTime())) return null;
 
   return date;
-}
-
-function getInitials(
-  name: string | null | undefined,
-  email?: string | null,
-): string {
-  const src = name?.trim() || email?.trim() || "?";
-  const parts = src.split(" ").filter(Boolean);
-  return parts.length >= 2
-    ? `${parts[0][0]}${parts[1][0]}`.toUpperCase()
-    : src.slice(0, 2).toUpperCase();
 }
 
 const AVATAR_COLORS = [
@@ -644,13 +635,16 @@ function BoardRow({
       <div className="flex min-w-0 items-center gap-1.5">
         <div className="flex -space-x-1.5">
           {displayedMembers.map((m) => (
-            <div
+            <UserAvatar
               key={m.id}
-              title={m.name ?? m.email ?? m.id}
-              className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[9px] font-bold text-white ring-2 ring-[#080808] ${avatarColor(m.id)}`}
-            >
-              {getInitials(m.name, m.email)}
-            </div>
+              person={{
+                full_name: m.name,
+                email: m.email,
+                avatar_url: m.avatar_url,
+              }}
+              size="sm"
+              className={`ring-2 ring-[#080808] ${avatarColor(m.id)}`}
+            />
           ))}
           {extraCount > 0 && (
             <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white/10 text-[9px] font-bold text-white/60 ring-2 ring-[#080808]">
@@ -1225,7 +1219,7 @@ export default function EverhourAdminPage() {
   const [membersByBoard, setMembersByBoard] = useState<
     Record<
       string,
-      Array<{ id: string; name: string | null; email: string | null }>
+      Array<{ id: string; name: string | null; email: string | null; avatar_url?: string | null }>
     >
   >({});
   const [searchValue, setSearchValue] = useState("");
@@ -1370,12 +1364,12 @@ export default function EverhourAdminPage() {
 
         const { data: assignees } = await supabase
           .from("task_assignees")
-          .select("task_id, user_id, profiles:user_id(id, full_name, email)")
+          .select("task_id, user_id, profiles:user_id(id, full_name, email, avatar_url)")
           .in("task_id", taskIds);
 
         const byBoard: Record<
           string,
-          Array<{ id: string; name: string | null; email: string | null }>
+          Array<{ id: string; name: string | null; email: string | null; avatar_url?: string | null }>
         > = {};
 
         const seen = new Map<string, Set<string>>();
@@ -1389,6 +1383,7 @@ export default function EverhourAdminPage() {
             id: string;
             full_name: string | null;
             email: string | null;
+            avatar_url?: string | null;
           } | null;
 
           if (rowProfile && !seen.get(boardId)!.has(rowProfile.id)) {
@@ -1398,6 +1393,7 @@ export default function EverhourAdminPage() {
               id: rowProfile.id,
               name: rowProfile.full_name,
               email: rowProfile.email,
+              avatar_url: rowProfile.avatar_url ?? null,
             });
           }
         }

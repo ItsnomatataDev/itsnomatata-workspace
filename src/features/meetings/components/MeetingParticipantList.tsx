@@ -5,12 +5,12 @@ import {
   Mic,
   MicOff,
   MoreVertical,
-  User,
   UserMinus,
   Volume2,
   X,
 } from "lucide-react";
 import { useAuth } from "../../../app/providers/AuthProvider";
+import UserAvatar from "../../../components/common/UserAvatar";
 import type { MeetingParticipant } from "../types/meeting";
 import {
   requestCameraOn,
@@ -190,15 +190,11 @@ export default function MeetingParticipantList({
             >
               <div className="flex items-center justify-between">
                 <div className="flex min-w-0 items-center gap-2">
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-orange-500/20 text-orange-400">
-                    {participant.profile?.full_name ? (
-                      <span className="text-xs font-medium">
-                        {participant.profile.full_name.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase()}
-                      </span>
-                    ) : (
-                      <User size={14} />
-                    )}
-                  </div>
+                  <UserAvatar
+                    person={participant.profile}
+                    size="md"
+                    className="bg-orange-500/20 text-orange-400"
+                  />
                   
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">

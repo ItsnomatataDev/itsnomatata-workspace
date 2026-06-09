@@ -1,4 +1,4 @@
-import { CircleDot, Play, Clock3 } from "lucide-react";
+import { CircleDot, Clock3 } from "lucide-react";
 import { useCardTimeTracking } from "../../../lib/hooks/useCardTimeTracking";
 import { useAuth } from "../../../app/providers/AuthProvider";
 
@@ -18,16 +18,7 @@ export default function CardTimeIndicator({
   todayOnly = false,
 }: CardTimeIndicatorProps) {
   const auth = useAuth();
-  
-  // Add defensive check to prevent initialization errors
-  if (!auth?.profile?.organization_id) {
-    return (
-      <div className={`text-xs text-zinc-500 ${className}`}>
-        <Clock3 className="w-3 h-3" />
-        Loading...
-      </div>
-    );
-  }
+  const organizationId = auth?.profile?.organization_id ?? "";
 
   const {
     isTracking,
@@ -36,11 +27,20 @@ export default function CardTimeIndicator({
     activeEntryCount,
     loading,
   } = useCardTimeTracking({
-    organizationId: auth.profile.organization_id,
+    organizationId,
     taskId,
     clientId,
     todayOnly,
   });
+
+  if (!organizationId) {
+    return (
+      <div className={`text-xs text-zinc-500 ${className}`}>
+        <Clock3 className="w-3 h-3" />
+        Loading...
+      </div>
+    );
+  }
 
   if (loading) {
     return (

@@ -268,6 +268,7 @@ const INDUSTRY_PRESETS: IndustryPreset[] = [
       "leave_requests",
       "duty_roster",
       "fleet",
+      "tourism_operations",
       "stock",
       "assets",
       "boards",

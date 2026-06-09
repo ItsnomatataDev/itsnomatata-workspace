@@ -12,6 +12,7 @@ import {
   notifyTaskCommented,
 } from "../../notifications/services/notificationOrchestrationService";
 import { makeZimbabweLocalIso } from "../../../lib/utils/zimbabweCalendar";
+import { withProfileDisplayName } from "../../../lib/utils/profileDisplay";
 
 type CardMetadata = Record<string, unknown>;
 type CardAssignee = {
@@ -19,8 +20,10 @@ type CardAssignee = {
   task_id: string;
   user_id: string;
   created_at: string;
+  username?: string | null;
   full_name: string | null;
   email: string | null;
+  avatar_url?: string | null;
   primary_role?: string | null;
 };
 
@@ -45,8 +48,10 @@ function chunkArray<T>(items: T[], size: number): T[][] {
 
 type AssigneeProfile = {
   id: string;
+  username?: string | null;
   full_name: string | null;
   email: string | null;
+  avatar_url?: string | null;
   primary_role?: string | null;
 };
 
@@ -74,6 +79,7 @@ function mergePrimaryAssigneeIntoList(
       created_at: task.created_at,
       full_name: profile?.full_name ?? null,
       email: profile?.email ?? null,
+      avatar_url: profile?.avatar_url ?? null,
       primary_role: profile?.primary_role ?? null,
     },
     ...taskAssignees,
@@ -180,18 +186,21 @@ export async function getCards(
   ];
   const profileMap = new Map<
     string,
-    { id: string; full_name: string | null; email: string | null }
+    { id: string; username?: string | null; full_name: string | null; email: string | null; avatar_url?: string | null }
   >();
   if (userIds.length > 0) {
     const { data: profiles } = await supabase
       .from("profiles")
-      .select("id, full_name, email")
+      .select("id, username, full_name, email, avatar_url")
       .in("id", userIds);
     for (const p of profiles ?? []) {
+      const displayProfile = withProfileDisplayName(p);
       profileMap.set(p.id, {
         id: p.id,
-        full_name: p.full_name ?? null,
+        username: p.username ?? null,
+        full_name: displayProfile.full_name ?? null,
         email: p.email ?? null,
+        avatar_url: p.avatar_url ?? null,
       });
     }
   }
@@ -238,8 +247,10 @@ export async function getCards(
       ...task,
       assignees: taskAssignees,
       commentsCount: commentCountMap.get(task.id) ?? 0,
+      created_by_username: creator?.username ?? null,
       created_by_full_name: creator?.full_name ?? null,
       created_by_email: creator?.email ?? null,
+      created_by_avatar_url: creator?.avatar_url ?? null,
     };
   }) as Card[];
 }
@@ -275,20 +286,23 @@ export async function getCardById(
 
   const profileMap = new Map<
     string,
-    { id: string; full_name: string | null; email: string | null }
+    { id: string; username?: string | null; full_name: string | null; email: string | null; avatar_url?: string | null }
   >();
 
   if (userIds.length > 0) {
     const { data: profiles } = await supabase
       .from("profiles")
-      .select("id, full_name, email")
+      .select("id, username, full_name, email, avatar_url")
       .in("id", userIds);
 
     for (const profile of profiles ?? []) {
+      const displayProfile = withProfileDisplayName(profile);
       profileMap.set(profile.id, {
         id: profile.id,
-        full_name: profile.full_name ?? null,
+        username: profile.username ?? null,
+        full_name: displayProfile.full_name ?? null,
         email: profile.email ?? null,
+        avatar_url: profile.avatar_url ?? null,
       });
     }
   }
@@ -311,8 +325,10 @@ export async function getCardById(
     ...task,
     assignees: taskAssignees,
     commentsCount: commentRows.data?.length ?? 0,
+    created_by_username: creator?.username ?? null,
     created_by_full_name: creator?.full_name ?? null,
     created_by_email: creator?.email ?? null,
+    created_by_avatar_url: creator?.avatar_url ?? null,
   } as Card;
 }
 
@@ -345,8 +361,10 @@ export async function getCardAssignees(
     string,
     {
       id: string;
+      username?: string | null;
       full_name: string | null;
       email: string | null;
+      avatar_url?: string | null;
       primary_role?: string | null;
     }
   >();
@@ -354,16 +372,19 @@ export async function getCardAssignees(
   if (userIds.length > 0) {
     const { data: profiles, error: profilesError } = await supabase
       .from("profiles")
-      .select("id, full_name, email, primary_role")
+      .select("id, username, full_name, email, avatar_url, primary_role")
       .in("id", userIds);
 
     if (profilesError) throw profilesError;
 
     for (const profile of profiles ?? []) {
+      const displayProfile = withProfileDisplayName(profile);
       profileMap.set(profile.id, {
         id: profile.id,
-        full_name: profile.full_name ?? null,
+        username: profile.username ?? null,
+        full_name: displayProfile.full_name ?? null,
         email: profile.email ?? null,
+        avatar_url: profile.avatar_url ?? null,
         primary_role: profile.primary_role ?? null,
       });
     }
@@ -378,6 +399,7 @@ export async function getCardAssignees(
       created_at: assignee.created_at as string,
       full_name: profile?.full_name ?? null,
       email: profile?.email ?? null,
+      avatar_url: profile?.avatar_url ?? null,
       primary_role: profile?.primary_role ?? null,
     };
   });
@@ -401,17 +423,20 @@ export async function getCardAssignees(
   if (primaryAssigneeId && !profileMap.has(primaryAssigneeId)) {
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
-      .select("id, full_name, email, primary_role")
+      .select("id, username, full_name, email, avatar_url, primary_role")
       .eq("id", primaryAssigneeId)
       .maybeSingle();
 
     if (profileError) throw profileError;
 
     if (profile) {
+      const displayProfile = withProfileDisplayName(profile);
       profileMap.set(profile.id, {
         id: profile.id,
-        full_name: profile.full_name ?? null,
+        username: profile.username ?? null,
+        full_name: displayProfile.full_name ?? null,
         email: profile.email ?? null,
+        avatar_url: profile.avatar_url ?? null,
         primary_role: profile.primary_role ?? null,
       });
     }
@@ -729,14 +754,16 @@ export async function getCardComments(taskId: string) {
   ] as string[];
   const profileMap = new Map<
     string,
-    { full_name: string | null; email: string | null }
+    { full_name: string | null; email: string | null; avatar_url?: string | null }
   >();
   if (userIds.length > 0) {
     const { data: profiles } = await supabase
       .from("profiles")
-      .select("id, full_name, email")
+      .select("id, username, full_name, email, avatar_url")
       .in("id", userIds);
-    for (const p of profiles ?? []) profileMap.set(p.id, p);
+    for (const p of profiles ?? []) {
+      profileMap.set(p.id, withProfileDisplayName(p));
+    }
   }
 
   return comments.map((c) => {
@@ -745,6 +772,7 @@ export async function getCardComments(taskId: string) {
       ...c,
       author_name: author?.full_name ?? null,
       author_email: author?.email ?? null,
+      author_avatar_url: author?.avatar_url ?? null,
     };
   });
 }

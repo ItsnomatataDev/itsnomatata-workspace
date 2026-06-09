@@ -5,10 +5,8 @@ import {
   Users,
   Activity,
   MoreVertical,
-  Calendar,
   TrendingUp,
   MessageSquare,
-  Clock,
   CheckCircle2,
   Circle,
   Loader2,
@@ -16,11 +14,16 @@ import {
 import type { Board, BoardStats } from "../../../types/board";
 import { getBoardStats } from "../services/boardService";
 import { supabase } from "../../../lib/supabase/client";
+import { getSafeExternalUrl } from "../../../lib/utils/safeExternalUrl";
+import UserAvatar from "../../../components/common/UserAvatar";
+import { getProfileDisplayName, withProfileDisplayName } from "../../../lib/utils/profileDisplay";
 
 interface BoardMember {
   id: string;
+  username?: string | null;
   full_name: string | null;
   email: string | null;
+  avatar_url?: string | null;
   primary_role: string | null;
 }
 
@@ -32,19 +35,27 @@ interface BoardActivity {
   timestamp: string;
 }
 
+type TaskAssigneeProfileRow = {
+  profiles: BoardMember | BoardMember[] | null;
+};
+
+type BoardActivityTaskRow = {
+  id: string;
+  title: string | null;
+  status: string | null;
+  created_at: string;
+  updated_at: string;
+  profiles:
+    | { username?: string | null; full_name: string | null }
+    | { username?: string | null; full_name: string | null }[]
+    | null;
+};
+
 interface BoardSidebarProps {
   board: Board;
   organizationId: string;
   isOpen: boolean;
   onClose: () => void;
-}
-
-function getInitials(name?: string | null, email?: string | null): string {
-  const src = name?.trim() || email?.trim() || "?";
-  const parts = src.split(" ").filter(Boolean);
-  return parts.length >= 2
-    ? `${parts[0][0]}${parts[1][0]}`.toUpperCase()
-    : src.slice(0, 2).toUpperCase();
 }
 
 function formatTime(seconds: number): string {
@@ -132,7 +143,7 @@ export default function BoardSidebar({
         const { data, error } = await supabase
           .from("task_assignees")
           .select(
-            "user_id, profiles:user_id (id, full_name, email, primary_role)",
+            "user_id, profiles:user_id (id, username, full_name, email, avatar_url, primary_role)",
           )
           .in("task_id", taskIds);
 
@@ -145,10 +156,11 @@ export default function BoardSidebar({
         const seen = new Set<string>();
         const unique: BoardMember[] = [];
         for (const row of data ?? []) {
-          const p = (row as any).profiles as BoardMember | null;
+          const profile = (row as unknown as TaskAssigneeProfileRow).profiles;
+          const p = Array.isArray(profile) ? profile[0] : profile;
           if (p && !seen.has(p.id)) {
             seen.add(p.id);
-            unique.push(p);
+            unique.push(withProfileDisplayName(p));
           }
         }
         setMembers(unique);
@@ -165,7 +177,7 @@ export default function BoardSidebar({
     supabase
       .from("tasks")
       .select(
-        "id, title, status, created_at, updated_at, created_by, assigned_to, profiles:created_by(full_name)",
+        "id, title, status, created_at, updated_at, created_by, assigned_to, profiles:created_by(username, full_name)",
       )
       .eq("organization_id", organizationId)
       .eq("client_id", board.id)
@@ -177,14 +189,17 @@ export default function BoardSidebar({
           return;
         }
 
-        const acts: BoardActivity[] = (data ?? []).map((t: any) => {
-          const who = t.profiles?.full_name ?? "Someone";
+        const acts: BoardActivity[] = (data ?? []).map((row) => {
+          const t = row as unknown as BoardActivityTaskRow;
+          const profile = Array.isArray(t.profiles) ? t.profiles[0] : t.profiles;
+          const who = getProfileDisplayName(profile, "Someone");
           const isNew =
             new Date(t.created_at).getTime() > Date.now() - 1000 * 60 * 60 * 24;
+          const status = t.status ?? "";
           const type: BoardActivity["type"] =
-            t.status === "done"
+            status === "done"
               ? "card_completed"
-              : t.status === "in_progress"
+              : status === "in_progress"
                 ? "card_moved"
                 : isNew
                   ? "card_created"
@@ -195,7 +210,7 @@ export default function BoardSidebar({
               ? `Completed "${t.title}"`
               : type === "card_created"
                 ? `Created "${t.title}"`
-                : `Updated "${t.title}" → ${t.status.replace("_", " ")}`;
+                : `Updated "${t.title}" → ${status.replace("_", " ")}`;
 
           const ago = (() => {
             const diff = Date.now() - new Date(t.updated_at).getTime();
@@ -381,13 +396,13 @@ export default function BoardSidebar({
                   <p className="text-sm text-orange-400">{board.email}</p>
                 </div>
               )}
-              {board.website && (
+              {getSafeExternalUrl(board.website) && (
                 <div>
                   <p className="text-[10px] uppercase tracking-wider text-white/30 mb-1">
                     Website
                   </p>
                   <a
-                    href={board.website}
+                    href={getSafeExternalUrl(board.website) ?? undefined}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-sm text-blue-400 hover:text-blue-300 transition break-all"
@@ -443,9 +458,11 @@ export default function BoardSidebar({
                     key={member.id}
                     className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/3 p-3"
                   >
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-orange-500/20 border border-orange-500/30 text-xs font-bold text-orange-400">
-                      {getInitials(member.full_name, member.email)}
-                    </div>
+                    <UserAvatar
+                      person={member}
+                      size="lg"
+                      className="rounded-xl border-orange-500/30 bg-orange-500/20 text-orange-400"
+                    />
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium text-white truncate">
                         {member.full_name ?? member.email ?? "Unknown"}

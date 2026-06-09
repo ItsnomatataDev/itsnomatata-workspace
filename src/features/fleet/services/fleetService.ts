@@ -906,6 +906,7 @@ export async function notifyFleetServiceStatus(params: {
         priority: params.status === "overdue" ? "high" : "medium",
         category: "fleet",
         dedupeKey: `fleet-service:${params.status}:${params.vehicleId}`,
+        channels: ["in_app", "email", "push"],
         metadata: {
           module: "fleet",
           vehicleId: params.vehicleId,

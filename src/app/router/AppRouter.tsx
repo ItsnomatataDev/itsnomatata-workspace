@@ -5,6 +5,7 @@ import ForgotPasswordPage from "../../features/auth/pages/ForgotPasswordPage";
 import ResetPasswordPage from "../../features/auth/pages/ResetPasswordPage";
 import DashboardPage from "../../pages/DashboardPage";
 import SettingsPage from "../../pages/SettingsPage";
+import ProfilePage from "../../features/profile/pages/ProfilePage";
 import ClientsPage from "../../features/clients/pages/ClientsPage";
 import ClientDetailsPage from "../../features/clients/pages/ClientDetailsPage";
 import ClientWorkspacePage from "../../features/clients/pages/ClientWorkspacePage";
@@ -84,6 +85,7 @@ import ClientReviewLegacyRedirectPage from "../../features/content-review/pages/
 import ClientPortalLoginPage from "../../features/content-review/pages/ClientPortalLoginPage";
 import ClientPortalPage from "../../features/content-review/pages/ClientPortalPage";
 import ClientPortalReviewPage from "../../features/content-review/pages/ClientPortalReviewPage";
+import TourismOperationsPage from "../../features/tourism/pages/TourismOperationsPage";
 
 function ContentStudioClientLegacyRedirect() {
   const { clientId } = useParams();
@@ -647,6 +649,137 @@ const AppRouter = () => {
         />
 
         <Route
+          path="/tourism"
+          element={
+            <ProtectedRoute>
+              <RoleRoute
+                roles={[
+                  "admin",
+                  "org_admin",
+                  "super_admin",
+                  "superadmin",
+                  "it-superadmin",
+                  "manager",
+                  "tourism_operations_manager",
+                  "reservations_agent",
+                  "guest_relations",
+                  "tour_guide",
+                  "driver",
+                  "activity_coordinator",
+                  "fleet_coordinator",
+                ]}
+              >
+                <FeatureRoute feature="tourism_operations">
+                  <TourismOperationsPage />
+                </FeatureRoute>
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/tourism/bookings"
+          element={
+            <ProtectedRoute>
+              <RoleRoute
+                roles={[
+                  "admin",
+                  "org_admin",
+                  "super_admin",
+                  "superadmin",
+                  "it-superadmin",
+                  "manager",
+                  "tourism_operations_manager",
+                  "reservations_agent",
+                  "activity_coordinator",
+                ]}
+              >
+                <FeatureRoute feature="tourism_operations">
+                  <TourismOperationsPage view="bookings" />
+                </FeatureRoute>
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/tourism/itineraries"
+          element={
+            <ProtectedRoute>
+              <RoleRoute
+                roles={[
+                  "admin",
+                  "org_admin",
+                  "super_admin",
+                  "superadmin",
+                  "it-superadmin",
+                  "manager",
+                  "tourism_operations_manager",
+                  "reservations_agent",
+                  "guest_relations",
+                  "tour_guide",
+                  "activity_coordinator",
+                ]}
+              >
+                <FeatureRoute feature="tourism_operations">
+                  <TourismOperationsPage view="itineraries" />
+                </FeatureRoute>
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/tourism/guests"
+          element={
+            <ProtectedRoute>
+              <RoleRoute
+                roles={[
+                  "admin",
+                  "org_admin",
+                  "super_admin",
+                  "superadmin",
+                  "it-superadmin",
+                  "manager",
+                  "tourism_operations_manager",
+                  "reservations_agent",
+                  "guest_relations",
+                ]}
+              >
+                <FeatureRoute feature="tourism_operations">
+                  <TourismOperationsPage view="guests" />
+                </FeatureRoute>
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/tourism/transfers"
+          element={
+            <ProtectedRoute>
+              <RoleRoute
+                roles={[
+                  "admin",
+                  "org_admin",
+                  "super_admin",
+                  "superadmin",
+                  "it-superadmin",
+                  "manager",
+                  "tourism_operations_manager",
+                  "driver",
+                  "fleet_coordinator",
+                ]}
+              >
+                <FeatureRoute feature="tourism_operations">
+                  <TourismOperationsPage view="transfers" />
+                </FeatureRoute>
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
           path="/content-library"
           element={
             <ProtectedRoute>
@@ -678,6 +811,15 @@ const AppRouter = () => {
           element={
             <ProtectedRoute>
               <SettingsPage />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/profile"
+          element={
+            <ProtectedRoute>
+              <ProfilePage />
             </ProtectedRoute>
           }
         />

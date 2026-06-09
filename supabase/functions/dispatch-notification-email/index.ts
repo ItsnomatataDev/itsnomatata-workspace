@@ -1,7 +1,8 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   buildN8nNotificationEmailPayload,
-  postNotificationEmailToN8n,
+  getNotificationEmailProviderName,
+  sendNotificationEmail,
 } from "../_shared/n8nNotificationEmail.ts";
 import { hasInternalSecret, isServiceRoleRequest } from "../_shared/edgeAuth.ts";
 
@@ -139,15 +140,16 @@ Deno.serve(async (req) => {
       notificationId: notification.id,
     });
 
-    const sent = await postNotificationEmailToN8n(payload);
+    const sent = await sendNotificationEmail(payload);
 
     await supabase
       .from("notification_deliveries")
       .update({
         status: sent.ok ? "sent" : "failed",
         destination: email,
-        provider: "n8n",
-        error_message: sent.ok ? null : sent.error ?? "n8n dispatch failed",
+        provider: sent.provider ?? getNotificationEmailProviderName(),
+        provider_message_id: sent.providerMessageId ?? null,
+        error_message: sent.ok ? null : sent.error ?? "Email dispatch failed",
         attempted_at: new Date().toISOString(),
         delivered_at: sent.ok ? new Date().toISOString() : null,
       })

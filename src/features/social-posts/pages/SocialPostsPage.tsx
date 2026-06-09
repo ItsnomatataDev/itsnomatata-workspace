@@ -73,13 +73,13 @@ export default function SocialPostsPage() {
   const social = useSocialPosts({
     organizationId,
     userId: user.id,
-    fullName: profile.full_name,
+    fullName: profile.display_name ?? profile.full_name,
   });
 
   const aiContext = useMemo<AssistantContextInput>(
     () => ({
       userId: user.id,
-      fullName: profile.full_name ?? "Workspace User",
+      fullName: profile.display_name ?? profile.full_name ?? "Workspace User",
       email: user.email ?? null,
       role: profile.organization_role_key ?? profile.primary_role ?? "user",
       department:
@@ -96,6 +96,7 @@ export default function SocialPostsPage() {
     }),
     [
       profile.department,
+      profile.display_name,
       profile.full_name,
       organizationId,
       profile.primary_role,

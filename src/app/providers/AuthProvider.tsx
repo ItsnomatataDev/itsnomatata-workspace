@@ -14,6 +14,7 @@ import {
   resolveOrganizationByHost,
   type ResolvedHostOrganization,
 } from "../../lib/organization/organizationResolution";
+import { getProfileDisplayName } from "../../lib/utils/profileDisplay";
 
 type AppRole =
   | "super_admin"
@@ -27,6 +28,13 @@ type AppRole =
   | "social_media"
   | "media_team"
   | "seo_specialist"
+  | "tourism_operations_manager"
+  | "reservations_agent"
+  | "guest_relations"
+  | "tour_guide"
+  | "driver"
+  | "activity_coordinator"
+  | "fleet_coordinator"
   | "finance";
 
 export type AccountStatus =
@@ -41,6 +49,9 @@ type AuthProfile = {
   id: string;
   email?: string | null;
   full_name?: string | null;
+  username?: string | null;
+  display_name?: string | null;
+  avatar_url?: string | null;
   organization_id?: string | null;
   office_id?: string | null;
   primary_role?: AppRole | null;
@@ -143,6 +154,20 @@ function isMissingColumnError(error: unknown): boolean {
   );
 }
 
+function getProviderAvatarUrl(user: User) {
+  const metadata = user.user_metadata ?? {};
+  const candidates = [
+    metadata.avatar_url,
+    metadata.picture,
+    metadata.profile_image_url,
+  ];
+
+  return candidates.find(
+    (value): value is string =>
+      typeof value === "string" && value.trim().length > 0,
+  ) ?? null;
+}
+
 const PROFILE_WITH_RELATIONS_SELECT = `
   *,
   organization:organizations!profiles_organization_id_fkey(
@@ -241,6 +266,13 @@ function toProfileCompatibleRole(roleKey?: string | null): AppRole {
       "social_media",
       "media_team",
       "seo_specialist",
+      "tourism_operations_manager",
+      "reservations_agent",
+      "guest_relations",
+      "tour_guide",
+      "driver",
+      "activity_coordinator",
+      "fleet_coordinator",
     ].includes(role)
   ) {
     return role as AppRole;
@@ -414,7 +446,10 @@ async function ensureProfile(user: User): Promise<AuthProfile | null> {
       full_name:
         typeof user.user_metadata?.full_name === "string"
           ? user.user_metadata.full_name
+          : typeof user.user_metadata?.name === "string"
+            ? user.user_metadata.name
           : null,
+      avatar_url: getProviderAvatarUrl(user),
       organization_id: null,
       primary_role: "user",
       organization_role_key: "user",
@@ -430,6 +465,19 @@ async function ensureProfile(user: User): Promise<AuthProfile | null> {
 
   const profile = (refreshed as AuthProfile | null) ?? null;
   if (!profile) return null;
+
+  const providerAvatarUrl = getProviderAvatarUrl(user);
+  if (providerAvatarUrl && !profile.avatar_url) {
+    const { error: avatarUpdateError } = await supabase
+      .from("profiles")
+      .update({ avatar_url: providerAvatarUrl })
+      .eq("id", user.id)
+      .is("avatar_url", null);
+
+    if (!avatarUpdateError) {
+      profile.avatar_url = providerAvatarUrl;
+    }
+  }
 
   const office = profile.office as
     | AuthProfile["office"]
@@ -587,6 +635,7 @@ export function AuthProvider({
       const safeProfile = nextProfile
         ? {
             ...nextProfile,
+            display_name: getProfileDisplayName(nextProfile, "User"),
             organization_id:
               effectiveCurrentOrganization?.organization_id ??
               nextProfile.organization_id ??

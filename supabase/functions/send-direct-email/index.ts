@@ -1,6 +1,6 @@
 import {
   buildN8nNotificationEmailPayload,
-  postNotificationEmailToN8n,
+  sendNotificationEmail,
 } from "../_shared/n8nNotificationEmail.ts";
 import { requireAuthenticatedProfile } from "../_shared/edgeAuth.ts";
 
@@ -74,7 +74,7 @@ Deno.serve(async (req) => {
     payload.subject = body.subject.trim();
   }
 
-  const result = await postNotificationEmailToN8n(payload);
+  const result = await sendNotificationEmail(payload);
 
   if (!result.ok) {
     return jsonResponse({
@@ -83,5 +83,9 @@ Deno.serve(async (req) => {
     }, 502);
   }
 
-  return jsonResponse({ ok: true });
+  return jsonResponse({
+    ok: true,
+    provider: result.provider,
+    providerMessageId: result.providerMessageId ?? null,
+  });
 });

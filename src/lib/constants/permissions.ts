@@ -39,6 +39,9 @@ export type Permission =
   | "stock.view"
   | "stock.manage"
   | "stock.export"
+  | "fleet.view"
+  | "fleet.manage"
+  | "fleet.assign"
   | "reports.view"
   | "reports.generate"
   | "reports.export"
@@ -60,6 +63,17 @@ export type Permission =
   | "ai.approve"
   | "notifications.use"
   | "notifications.broadcast"
+  | "tourism.operations.view"
+  | "tourism.operations.manage"
+  | "tourism.bookings.view"
+  | "tourism.bookings.manage"
+  | "tourism.guests.view"
+  | "tourism.guests.manage"
+  | "tourism.itineraries.view"
+  | "tourism.itineraries.manage"
+  | "tourism.transfers.view"
+  | "tourism.transfers.manage"
+  | "tourism.assigned.view"
   | "team.view"
   | "team.manage"
   | "profile.view_own"
@@ -272,6 +286,147 @@ export const ROLE_PERMISSIONS: Record<AppRole, Permission[]> = {
     "ai.use",
     "notifications.use",
     "team.view",
+    "profile.view_own",
+    "profile.edit_own",
+    "profile.view_others",
+  ],
+
+  tourism_operations_manager: [
+    "admin.dashboard.view",
+    "employees.view",
+    "roster.view",
+    "roster.manage",
+    "leave.request",
+    "approvals.view",
+    "clients.view",
+    "clients.manage",
+    "tasks.view",
+    "tasks.manage",
+    "tasks.assign",
+    "time.track",
+    "timesheets.view_own",
+    "timesheets.view_team",
+    "chat.use",
+    "meetings.use",
+    "fleet.view",
+    "reports.view",
+    "reports.generate",
+    "notifications.use",
+    "notifications.broadcast",
+    "tourism.operations.view",
+    "tourism.operations.manage",
+    "tourism.bookings.view",
+    "tourism.bookings.manage",
+    "tourism.guests.view",
+    "tourism.guests.manage",
+    "tourism.itineraries.view",
+    "tourism.itineraries.manage",
+    "tourism.transfers.view",
+    "tourism.transfers.manage",
+    "team.view",
+    "profile.view_own",
+    "profile.edit_own",
+    "profile.view_others",
+  ],
+
+  reservations_agent: [
+    "leave.request",
+    "clients.view",
+    "tasks.view",
+    "time.track",
+    "timesheets.view_own",
+    "chat.use",
+    "meetings.use",
+    "notifications.use",
+    "tourism.operations.view",
+    "tourism.bookings.view",
+    "tourism.bookings.manage",
+    "tourism.guests.view",
+    "tourism.guests.manage",
+    "tourism.itineraries.view",
+    "tourism.itineraries.manage",
+    "profile.view_own",
+    "profile.edit_own",
+  ],
+
+  guest_relations: [
+    "leave.request",
+    "tasks.view",
+    "time.track",
+    "timesheets.view_own",
+    "chat.use",
+    "meetings.use",
+    "notifications.use",
+    "tourism.operations.view",
+    "tourism.guests.view",
+    "tourism.guests.manage",
+    "tourism.itineraries.view",
+    "tourism.assigned.view",
+    "profile.view_own",
+    "profile.edit_own",
+  ],
+
+  tour_guide: [
+    "leave.request",
+    "tasks.view",
+    "time.track",
+    "timesheets.view_own",
+    "chat.use",
+    "meetings.use",
+    "notifications.use",
+    "tourism.assigned.view",
+    "tourism.itineraries.view",
+    "profile.view_own",
+    "profile.edit_own",
+  ],
+
+  driver: [
+    "leave.request",
+    "tasks.view",
+    "time.track",
+    "timesheets.view_own",
+    "chat.use",
+    "notifications.use",
+    "tourism.assigned.view",
+    "tourism.transfers.view",
+    "profile.view_own",
+    "profile.edit_own",
+  ],
+
+  activity_coordinator: [
+    "leave.request",
+    "roster.view",
+    "roster.manage",
+    "tasks.view",
+    "tasks.assign",
+    "time.track",
+    "timesheets.view_own",
+    "chat.use",
+    "meetings.use",
+    "notifications.use",
+    "tourism.operations.view",
+    "tourism.operations.manage",
+    "tourism.bookings.view",
+    "tourism.itineraries.view",
+    "tourism.itineraries.manage",
+    "profile.view_own",
+    "profile.edit_own",
+    "profile.view_others",
+  ],
+
+  fleet_coordinator: [
+    "leave.request",
+    "tasks.view",
+    "tasks.assign",
+    "time.track",
+    "timesheets.view_own",
+    "chat.use",
+    "notifications.use",
+    "fleet.view",
+    "fleet.manage",
+    "tourism.operations.view",
+    "tourism.transfers.view",
+    "tourism.transfers.manage",
     "profile.view_own",
     "profile.edit_own",
     "profile.view_others",
