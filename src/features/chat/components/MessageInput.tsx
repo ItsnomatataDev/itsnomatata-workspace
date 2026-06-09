@@ -1,11 +1,14 @@
-import { useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import {
   Clapperboard,
+  FileText,
   Image as ImageIcon,
+  Loader2,
   Mic,
-  Square,
+  Plus,
   SendHorizontal,
-  Paperclip,
+  Square,
+  X,
 } from "lucide-react";
 import EmojiPickerButton from "./EmojiPickerButton";
 import GifPickerPanel, { type GifSelection } from "./GifPickerPanel";
@@ -33,17 +36,31 @@ export default function MessageInput({
   disabled: boolean;
   sending: boolean;
 }) {
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const genericFileInputRef = useRef<HTMLInputElement | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+
   const [recording, setRecording] = useState(false);
+  const [toolsOpen, setToolsOpen] = useState(false);
   const [gifOpen, setGifOpen] = useState(false);
 
-  const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+  const hasText = value.trim().length > 0;
+  const locked = disabled || sending;
+
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    textarea.style.height = "40px";
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 144)}px`;
+  }, [value]);
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
-      onSend();
+      if (hasText && !locked) onSend();
     }
   };
 
@@ -55,9 +72,7 @@ export default function MessageInput({
       audioChunksRef.current = [];
 
       recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
-        }
+        if (event.data.size > 0) audioChunksRef.current.push(event.data);
       };
 
       recorder.onstop = async () => {
@@ -86,146 +101,196 @@ export default function MessageInput({
     setRecording(false);
   }
 
+  function handleMainAction() {
+    if (hasText) {
+      onSend();
+      return;
+    }
+
+    if (recording) {
+      handleStopRecording();
+      return;
+    }
+
+    void handleStartRecording();
+  }
+
+  const menuButtonClass =
+    "flex h-11 items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.06] px-3 text-sm font-medium text-white/80 transition hover:border-orange-500/40 hover:bg-orange-500/10 hover:text-orange-200 disabled:cursor-not-allowed disabled:opacity-40";
+
   return (
-    <div className="sticky bottom-0 border-t border-white/10 bg-black/95 px-2 py-3 sm:px-5 sm:py-4">
+    <div className="sticky bottom-0 z-20 border-t border-white/10 bg-black/95 px-3 pb-[calc(env(safe-area-inset-bottom)+12px)] pt-3 backdrop-blur-xl sm:px-5 sm:py-4">
       <input
-        ref={genericFileInputRef}
+        ref={fileInputRef}
         type="file"
-        accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,.json,.zip,.rar"
+        accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,.json,.zip,.rar"
         hidden
         onChange={(event) => {
           const file = event.target.files?.[0];
-          if (file) {
-            if (file.type.startsWith("image/")) {
-              void onImageSelect?.(file);
-            } else {
-              void onFileSelect?.(file);
-            }
-          }
+          if (file) void onFileSelect?.(file);
           event.target.value = "";
+          setToolsOpen(false);
         }}
       />
 
       <input
-        ref={fileInputRef}
+        ref={imageInputRef}
         type="file"
         accept="image/*"
         hidden
         onChange={(event) => {
           const file = event.target.files?.[0];
-          if (file) {
-            void onImageSelect?.(file);
-          }
+          if (file) void onImageSelect?.(file);
           event.target.value = "";
+          setToolsOpen(false);
         }}
       />
 
-      <div className="flex items-end gap-2">
-        <div className="flex min-w-0 flex-1 items-center gap-1 rounded-[26px] border border-white/10 bg-white/5 px-2 py-1.5 shadow-inner shadow-black/30 focus-within:border-orange-500/60 sm:gap-2 sm:px-3">
+      {recording ? (
+        <div className="mb-2 flex items-center gap-2 rounded-2xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs font-medium text-red-300">
+          <span className="h-2 w-2 animate-pulse rounded-full bg-red-400" />
+          Recording voice note...
+        </div>
+      ) : null}
+
+      {toolsOpen ? (
+        <div className="mb-3 grid gap-2 rounded-3xl border border-white/10 bg-zinc-950/95 p-2 shadow-2xl shadow-black/40 sm:grid-cols-4">
           <button
             type="button"
-            disabled={disabled || sending}
-            onClick={() => genericFileInputRef.current?.click()}
-            className="inline-flex h-10 w-10 shrink-0 sm:h-9 sm:w-9 items-center justify-center rounded-full text-white/70 transition hover:bg-white/10 hover:text-white disabled:opacity-50"
-            title="Attach file"
+            disabled={locked}
+            onClick={() => fileInputRef.current?.click()}
+            className={menuButtonClass}
             aria-label="Attach file"
+            title="Attach file"
           >
-            <Paperclip size={18} />
+            <FileText size={18} />
+            <span>File</span>
           </button>
 
-          <EmojiPickerButton
-            disabled={disabled || sending}
-            onSelect={(emoji) => {
-              onChange(`${value}${emoji}`);
-              onTyping?.();
-            }}
-          />
+          <button
+            type="button"
+            disabled={locked}
+            onClick={() => imageInputRef.current?.click()}
+            className={menuButtonClass}
+            aria-label="Attach image"
+            title="Attach image"
+          >
+            <ImageIcon size={18} />
+            <span>Image</span>
+          </button>
 
-          <input
-            type="text"
+          <div className="relative">
+            <button
+              type="button"
+              disabled={locked}
+              onClick={() => setGifOpen((current) => !current)}
+              className={`${menuButtonClass} w-full`}
+              aria-label="Send GIF or meme"
+              title="Send GIF or meme"
+              aria-haspopup="dialog"
+              aria-expanded={gifOpen}
+            >
+              <Clapperboard size={18} />
+              <span>GIF</span>
+            </button>
+
+            <GifPickerPanel
+              open={gifOpen}
+              disabled={locked}
+              onClose={() => setGifOpen(false)}
+              onSelect={(selection) => {
+                void onGifSelect?.(selection);
+                setGifOpen(false);
+                setToolsOpen(false);
+              }}
+            />
+          </div>
+
+          <div className="flex h-11 items-center rounded-2xl border border-white/10 bg-white/[0.06] px-3">
+            <EmojiPickerButton
+              disabled={locked}
+              onSelect={(emoji) => {
+                onChange(`${value}${emoji}`);
+                onTyping?.();
+                setToolsOpen(false);
+              }}
+            />
+            <span className="ml-3 text-sm font-medium text-white/80">
+              Emoji
+            </span>
+          </div>
+        </div>
+      ) : null}
+
+      <div className="flex items-end gap-2">
+        <div className="flex min-w-0 flex-1 items-end gap-2 rounded-[28px] border border-white/10 bg-white/[0.06] px-2 py-1.5 shadow-inner shadow-black/30 transition focus-within:border-orange-500/60 focus-within:bg-white/[0.08]">
+          <button
+            type="button"
+            disabled={locked}
+            onClick={() => {
+              setToolsOpen((current) => !current);
+              setGifOpen(false);
+            }}
+            className="mb-0.5 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-white/75 transition hover:bg-white/10 hover:text-white disabled:opacity-40"
+            aria-label={toolsOpen ? "Close attachments" : "Open attachments"}
+            title={toolsOpen ? "Close attachments" : "Open attachments"}
+          >
+            {toolsOpen ? <X size={19} /> : <Plus size={20} />}
+          </button>
+
+          <textarea
+            ref={textareaRef}
             value={value}
+            rows={1}
             onChange={(event) => {
               onChange(event.target.value);
               onTyping?.();
             }}
             onKeyDown={handleKeyDown}
-            placeholder="Message"
-            disabled={disabled || sending}
-            className="h-10 min-w-0 flex-1 bg-transparent px-1 text-base text-white outline-none placeholder:text-white/35 sm:text-sm"
+            placeholder={recording ? "Recording..." : "Message"}
+            disabled={locked || recording}
+            className="max-h-36 min-h-10 min-w-0 flex-1 resize-none overflow-y-auto bg-transparent px-1 py-2 text-[15px] leading-6 text-white outline-none placeholder:text-white/35 sm:text-sm"
           />
-
-          <div className="relative">
-            <button
-              type="button"
-              disabled={disabled || sending}
-              onClick={() => setGifOpen((current) => !current)}
-              className="inline-flex h-10 w-10 shrink-0 sm:h-9 sm:w-9 items-center justify-center rounded-full text-white/70 transition hover:bg-white/10 hover:text-white disabled:opacity-50"
-              title="Send GIF or meme"
-              aria-label="Send GIF or meme"
-              aria-haspopup="dialog"
-              aria-expanded={gifOpen}
-            >
-              <Clapperboard size={18} />
-            </button>
-            <GifPickerPanel
-              open={gifOpen}
-              disabled={disabled || sending}
-              onClose={() => setGifOpen(false)}
-              onSelect={(selection) => void onGifSelect?.(selection)}
-            />
-          </div>
-
-          <button
-            type="button"
-            disabled={disabled || sending}
-            onClick={() => fileInputRef.current?.click()}
-            className="inline-flex h-10 w-10 shrink-0 sm:h-9 sm:w-9 items-center justify-center rounded-full text-white/70 transition hover:bg-white/10 hover:text-white disabled:opacity-50"
-            title="Send image"
-            aria-label="Send image"
-          >
-            <ImageIcon size={18} />
-          </button>
-
-          <button
-            type="button"
-            disabled={disabled || sending}
-            onClick={() => {
-              if (recording) {
-                handleStopRecording();
-              } else {
-                void handleStartRecording();
-              }
-            }}
-            className={[
-              "inline-flex h-10 w-10 shrink-0 sm:h-9 sm:w-9 items-center justify-center rounded-full transition disabled:opacity-50",
-              recording
-                ? "bg-red-500 text-white"
-                : "text-white/70 hover:bg-white/10 hover:text-white",
-            ].join(" ")}
-            title={recording ? "Stop recording" : "Record voice note"}
-            aria-label={recording ? "Stop recording" : "Record voice note"}
-          >
-            {recording ? <Square size={15} /> : <Mic size={18} />}
-          </button>
         </div>
 
         <button
           type="button"
-          onClick={onSend}
-          disabled={disabled || !value.trim() || sending}
-          className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-orange-500 text-black shadow-lg shadow-orange-500/20 transition hover:bg-orange-400 disabled:cursor-not-allowed disabled:opacity-50"
-          aria-label="Send message"
-          title="Send message"
+          onClick={handleMainAction}
+          disabled={locked || (!hasText && !onAudioReady)}
+          className={[
+            "inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full shadow-lg transition disabled:cursor-not-allowed disabled:opacity-50",
+            hasText || sending
+              ? "bg-orange-500 text-black shadow-orange-500/25 hover:bg-orange-400"
+              : recording
+                ? "bg-red-500 text-white shadow-red-500/20 hover:bg-red-400"
+                : "border border-white/10 bg-white/[0.08] text-white hover:bg-white/15",
+          ].join(" ")}
+          aria-label={
+            hasText
+              ? "Send message"
+              : recording
+                ? "Stop recording"
+                : "Record voice note"
+          }
+          title={
+            hasText
+              ? "Send message"
+              : recording
+                ? "Stop recording"
+                : "Record voice note"
+          }
         >
-          <SendHorizontal size={19} />
+          {sending ? (
+            <Loader2 size={19} className="animate-spin" />
+          ) : hasText ? (
+            <SendHorizontal size={19} />
+          ) : recording ? (
+            <Square size={15} />
+          ) : (
+            <Mic size={19} />
+          )}
         </button>
       </div>
-
-      {recording ? (
-        <p className="mt-2 px-3 text-xs font-medium text-red-400">
-          Recording voice note...
-        </p>
-      ) : null}
     </div>
   );
 }

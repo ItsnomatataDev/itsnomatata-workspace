@@ -1,10 +1,32 @@
 {
   "name": "ITsNomatata Codex Internal AI",
   "meta": {
-    "description": "Production-ready n8n blueprint for Codex: chat agent, document training, document Q&A, people directory, web research, image fetch, code assistant, OpenAI primary model, Gemini backup model.",
-    "openAiPrimary": true,
-    "geminiBackup": true,
-    "doNotUseClaude": true
+    "description": "Production-ready n8n blueprint for Codex: chat agent, document training, document Q&A, people directory, web research, image fetch, code assistant, Gemini primary model.",
+    "geminiBackup": false,
+    "doNotUseClaude": true,
+    "aiLayerVersion": "2026-06-08",
+    "webhookSetup": {
+      "chat": "Activate workflow, copy Production URL from \"01 Chat Trigger - Frontend or n8n Chat\", set VITE_N8N_AI_WEBHOOK_URL (dev proxy: /api/ai).",
+      "documentUpload": "POST {n8n-host}/webhook/codex/upload-document -> VITE_N8N_AI_DOCUMENT_UPLOAD_WEBHOOK_URL (dev proxy: /api/ai/upload-document)",
+      "codexTools": "POST {SUPABASE_URL}/functions/v1/codex-execute-tool (wired via Codex Tool nodes)",
+      "codexIntake": "POST {SUPABASE_URL}/functions/v1/codex-process-input (node 04b)",
+      "floatingAssistant": "POST {SUPABASE_URL}/functions/v1/ai-router (separate from this n8n workflow)"
+    },
+    "orphanNotes": {
+      "Gemini Backup Summarizer / Classifier": "Optional manual backup node. Not on the main chat path. Use for ad-hoc tests or future cheap summarization branch."
+    },
+    "readOnlyWorkspaceTools": [
+      "summarize_my_tasks",
+      "list_boards",
+      "get_active_time_trackers",
+      "get_user_timesheet",
+      "get_attendance_summary",
+      "get_leave_balance",
+      "get_board_task_summary",
+      "search_notifications",
+      "search_assets"
+    ],
+    "geminiPrimary": true
   },
   "nodes": [
     {
@@ -128,22 +150,23 @@
       }
     },
     {
-      "id": "openai-main-model",
-      "name": "OpenAI Main Reasoning Model",
-      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
-      "typeVersion": 1.2,
+      "id": "gemini-main-model",
+      "name": "Google Gemini Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
       "position": [
         -560,
         360
       ],
       "parameters": {
-        "model": {
-          "__rl": true,
-          "value": "gpt-4o",
-          "mode": "list",
-          "cachedResultName": "gpt-4o"
-        },
+        "modelName": "models/gemini-2.5-flash",
         "options": {}
+      },
+      "credentials": {
+        "googlePalmApi": {
+          "id": "dUioyJxpDiR0UmD0",
+          "name": "Google Gemini(PaLM) Api account"
+        }
       }
     },
     {
@@ -254,8 +277,8 @@
       }
     },
     {
-      "id": "generate-image-openai-direct",
-      "name": "Generate Image - OpenAI Direct",
+      "id": "generate-image-gemini-direct",
+      "name": "Generate Image - Gemini Direct",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
@@ -265,9 +288,7 @@
       "continueOnFail": true,
       "parameters": {
         "method": "POST",
-        "url": "https://api.openai.com/v1/images/generations",
-        "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "openAiApi",
+        "url": "={{ 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=' + $env.GEMINI_API_KEY }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -278,33 +299,9 @@
           ]
         },
         "sendBody": true,
-        "bodyParameters": {
-          "parameters": [
-            {
-              "name": "model",
-              "value": "gpt-image-1"
-            },
-            {
-              "name": "prompt",
-              "value": "={{ ($json.smartImagePrompt || $json.message || $json.chatInput || '').replace(/\\n\\[Context\\][\\s\\S]*$/,'').trim() }}"
-            },
-            {
-              "name": "size",
-              "value": "1024x1024"
-            },
-            {
-              "name": "n",
-              "value": "={{ 1 }}"
-            }
-          ]
-        },
-        "options": {}
-      },
-      "credentials": {
-        "openAiApi": {
-          "id": "AMCuIhOcN1ffKYz9",
-          "name": "OpenAi account"
-        }
+        "options": {},
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ contents: [{ role: 'user', parts: [{ text: ($json.smartImagePrompt || $json.message || $json.chatInput || '').replace(/\\n\\[Context\\][\\s\\S]*$/,'').trim() }] }], generationConfig: { responseModalities: ['TEXT', 'IMAGE'], imageConfig: { aspectRatio: '1:1' } } }) }}"
       }
     },
     {
@@ -321,8 +318,8 @@
       }
     },
     {
-      "id": "has-openai-image-key",
-      "name": "Has OpenAI Image Key?",
+      "id": "has-gemini-image-key",
+      "name": "Has Gemini Image Key?",
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
       "position": [
@@ -338,7 +335,7 @@
               "conditions": {
                 "conditions": [
                   {
-                    "leftValue": "={{ true }}",
+                    "leftValue": "={{ Boolean($env.GEMINI_API_KEY) }}",
                     "rightValue": true,
                     "operator": {
                       "type": "boolean",
@@ -371,12 +368,12 @@
         -360
       ],
       "parameters": {
-        "jsCode": "const source = $('05 Permission + Tool Router').first().json;\nreturn [{ json: {\n  success: true,\n  type: 'text',\n  message: 'Image generation is almost ready, but the OpenAI credential is not connected to the image generation node. Open Generate Image - OpenAI Direct, select your OpenAi account credential, save and activate the workflow, then try again.',\n  output: 'Image generation is almost ready, but the OpenAI credential is not connected to the image generation node. Open Generate Image - OpenAI Direct, select your OpenAi account credential, save and activate the workflow, then try again.',\n  conversationId: source.conversationId || null,\n  data: {},\n  attachments: [],\n  sources: []\n}}];"
+        "jsCode": "const source = $('05 Permission + Tool Router').first().json;\nreturn [{ json: {\n  success: true,\n  type: 'text',\n  message: 'Image generation is almost ready, but GEMINI_API_KEY is not configured in n8n. Add GEMINI_API_KEY to the n8n environment and activate the workflow again.',\n  output: 'Image generation is almost ready, but GEMINI_API_KEY is not configured in n8n. Add GEMINI_API_KEY to the n8n environment and activate the workflow again.',\n  conversationId: source.conversationId || null,\n  data: {},\n  attachments: [],\n  sources: []\n}}];"
       }
     },
     {
-      "id": "format-openai-image-response",
-      "name": "Format OpenAI Image Response",
+      "id": "format-gemini-image-response",
+      "name": "Format Gemini Image Response",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
@@ -384,7 +381,7 @@
         -180
       ],
       "parameters": {
-        "jsCode": "const source = $('05 Permission + Tool Router').first().json;\nconst prompt = (source.message || source.chatInput || 'generated image').replace(/\\n\\[Context\\][\\s\\S]*$/, '').trim();\nconst b64 = $json.data?.[0]?.b64_json;\nif (!b64) {\n  const detail = $json.error?.message || $json.message || $json.error || 'OpenAI did not return image data.';\n  const message = `I could not return a generated image yet. OpenAI image generation failed: ${String(detail).slice(0, 300)}`;\n  return [{ json: {\n    success: true,\n    type: 'text',\n    message,\n    output: message,\n    conversationId: source.conversationId || null,\n    data: { prompt },\n    attachments: [],\n    sources: []\n  }}];\n}\nconst imageUrl = `data:image/png;base64,${b64}`;\nconst slug = prompt.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48) || 'codex-image';\nreturn [{ json: {\n  success: true,\n  type: 'generated_image',\n  message: 'Image generated successfully.',\n  output: 'Image generated successfully.',\n  conversationId: source.conversationId || null,\n  data: { prompt },\n  attachments: [{\n    type: 'image',\n    name: `${slug}.png`,\n    url: imageUrl,\n    download_url: imageUrl,\n    metadata: { source: 'openai_images', model: 'gpt-image-1' }\n  }],\n  sources: []\n}}];"
+        "jsCode": "const source = $('05 Permission + Tool Router').first().json;\nconst prompt = (source.message || source.chatInput || 'generated image').replace(/\\n\\[Context\\][\\s\\S]*$/, '').trim();\nconst parts = ($json.candidates || []).flatMap(candidate => candidate?.content?.parts || []);\nconst imagePart = parts.find(part => part?.inlineData?.data || part?.inline_data?.data);\nconst b64 = imagePart?.inlineData?.data || imagePart?.inline_data?.data || '';\nconst mimeType = imagePart?.inlineData?.mimeType || imagePart?.inline_data?.mime_type || 'image/png';\nif (!b64) {\n  const detail = $json.error?.message || $json.message || $json.error || 'Gemini did not return inline image data.';\n  const message = `I could not return a generated image yet. Gemini image generation failed: ${String(detail).slice(0, 300)}`;\n  return [{ json: {\n    success: true,\n    type: 'text',\n    message,\n    output: message,\n    conversationId: source.conversationId || null,\n    data: { prompt },\n    attachments: [],\n    sources: []\n  }}];\n}\nconst imageUrl = `data:${mimeType};base64,${b64}`;\nconst slug = prompt.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48) || 'codex-image';\nreturn [{ json: {\n  success: true,\n  type: 'generated_image',\n  message: 'Image generated successfully.',\n  output: 'Image generated successfully.',\n  conversationId: source.conversationId || null,\n  data: { prompt },\n  attachments: [{\n    type: 'image',\n    name: `${slug}.png`,\n    url: imageUrl,\n    download_url: imageUrl,\n    metadata: { source: 'gemini_images', model: 'gemini-2.5-flash-image' }\n  }],\n  sources: []\n}}];"
       }
     },
     {
@@ -669,11 +666,9 @@
         580
       ],
       "parameters": {
-        "toolDescription": "Analyze an uploaded image using OpenAI vision. Use this when the user sends a picture and asks what it is, what car/model/object appears, to read text from an image, or to extract visible details. Input must include an image URL from the current attachments and a focused question. Return observations, likely identification, visible text, confidence, and limits.",
+        "toolDescription": "Analyze an uploaded image using Gemini vision. Use this when the user sends a picture and asks what it is, what car/model/object appears, to read text from an image, or to extract visible details. Input must include an image URL from the current attachments and a focused question. Return observations, likely identification, visible text, confidence, and limits.",
         "method": "POST",
-        "url": "https://api.openai.com/v1/responses",
-        "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "openAiApi",
+        "url": "={{ 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + $env.GEMINI_API_KEY }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -685,14 +680,8 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ model: 'gpt-4o-mini', input: [{ role: 'user', content: [{ type: 'input_text', text: $fromAI('image_question', 'Analyze this image. Identify visible objects, text, brand/model clues, and important details. Be honest about uncertainty.', 'string') }, { type: 'input_image', image_url: $fromAI('image_url', ($json.attachments || []).find(a => a?.url)?.url || '', 'string') }] }] }] }) }}",
+        "jsonBody": "={{ JSON.stringify({ contents: [{ role: 'user', parts: [{ text: $fromAI('image_question', 'Analyze this image. Identify visible objects, text, brand/model clues, and important details. Be honest about uncertainty.', 'string') }, (() => { const imageUrl = $fromAI('image_url', ($json.attachments || []).find(a => a?.url)?.url || '', 'string'); if (String(imageUrl).startsWith('data:')) { const match = String(imageUrl).match(/^data:([^;]+);base64,(.+)$/); return match ? { inline_data: { mime_type: match[1], data: match[2] } } : { text: 'No valid image data URL supplied.' }; } return { file_data: { mime_type: 'image/jpeg', file_uri: imageUrl } }; })()] }], generationConfig: { temperature: 0.2 } }) }}",
         "options": {}
-      },
-      "credentials": {
-        "openAiApi": {
-          "id": "AMCuIhOcN1ffKYz9",
-          "name": "OpenAi account"
-        }
       }
     },
     {
@@ -964,6 +953,206 @@
       }
     },
     {
+      "id": "codex-tool-active-time-trackers",
+      "name": "Codex Tool - Get Active Time Trackers",
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        1560,
+        540
+      ],
+      "parameters": {
+        "toolDescription": "Read currently running time trackers from the workspace. Use when the user asks who is tracking time, who is clocked into task time, what people are working on right now, or active timers. Managers/admins see the team; normal users see their own active timer.",
+        "method": "POST",
+        "url": "={{ ($vars.SUPABASE_URL || 'https://zirftywinscopzuuwdlg.supabase.co') + '/functions/v1/codex-execute-tool' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+            },
+            {
+              "name": "x-codex-internal-key",
+              "value": "={{ $vars.INTERNAL_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ toolId: 'get_active_time_trackers', payload: {}, context: $('04 Merge Request + User Context').first().json.context }) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "codex-tool-user-timesheet",
+      "name": "Codex Tool - Get User Timesheet",
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        1800,
+        540
+      ],
+      "parameters": {
+        "toolDescription": "Read a user timesheet from real time_entries. Use when the user asks for someone's time sheet, tracked hours, time entries, approval status, or work log for a date range. Optional AI fields: user_id, user_email, user_name, from, to. Defaults to current user and the last 7 days.",
+        "method": "POST",
+        "url": "={{ ($vars.SUPABASE_URL || 'https://zirftywinscopzuuwdlg.supabase.co') + '/functions/v1/codex-execute-tool' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+            },
+            {
+              "name": "x-codex-internal-key",
+              "value": "={{ $vars.INTERNAL_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ toolId: 'get_user_timesheet', payload: { user_id: $fromAI('timesheet_user_id', '', 'string') || '', email: $fromAI('timesheet_user_email', '', 'string') || '', name: $fromAI('timesheet_user_name', '', 'string') || '', from: $fromAI('timesheet_from', '', 'string') || '', to: $fromAI('timesheet_to', '', 'string') || '' }, context: $('04 Merge Request + User Context').first().json.context }) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "codex-tool-attendance-summary",
+      "name": "Codex Tool - Get Attendance Summary",
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        2040,
+        540
+      ],
+      "parameters": {
+        "toolDescription": "Read attendance daily status records and counts. Use when the user asks about attendance, present/late/absent/on-leave counts, or a person's attendance. Optional AI fields: attendance_user_id, attendance_user_email, attendance_user_name, attendance_date, attendance_from, attendance_to. Managers/admins can query team attendance; normal users see self.",
+        "method": "POST",
+        "url": "={{ ($vars.SUPABASE_URL || 'https://zirftywinscopzuuwdlg.supabase.co') + '/functions/v1/codex-execute-tool' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+            },
+            {
+              "name": "x-codex-internal-key",
+              "value": "={{ $vars.INTERNAL_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ toolId: 'get_attendance_summary', payload: { user_id: $fromAI('attendance_user_id', '', 'string') || '', email: $fromAI('attendance_user_email', '', 'string') || '', name: $fromAI('attendance_user_name', '', 'string') || '', date: $fromAI('attendance_date', '', 'string') || '', from: $fromAI('attendance_from', '', 'string') || '', to: $fromAI('attendance_to', '', 'string') || '' }, context: $('04 Merge Request + User Context').first().json.context }) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "codex-tool-leave-balance",
+      "name": "Codex Tool - Get Leave Balance",
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        2280,
+        540
+      ],
+      "parameters": {
+        "toolDescription": "Read leave balance and recent leave requests for a user. Use when the user asks how many leave days someone has, leave balance, used leave, remaining leave, or recent leave requests. Optional AI fields: leave_user_id, leave_user_email, leave_user_name. Managers/admins can query team leave; normal users see self.",
+        "method": "POST",
+        "url": "={{ ($vars.SUPABASE_URL || 'https://zirftywinscopzuuwdlg.supabase.co') + '/functions/v1/codex-execute-tool' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+            },
+            {
+              "name": "x-codex-internal-key",
+              "value": "={{ $vars.INTERNAL_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ toolId: 'get_leave_balance', payload: { user_id: $fromAI('leave_user_id', '', 'string') || '', email: $fromAI('leave_user_email', '', 'string') || '', name: $fromAI('leave_user_name', '', 'string') || '' }, context: $('04 Merge Request + User Context').first().json.context }) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "codex-tool-board-task-summary",
+      "name": "Codex Tool - Get Board Task Summary",
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        2520,
+        540
+      ],
+      "parameters": {
+        "toolDescription": "Read board task totals, status counts, priority counts, overdue count, and recent cards. Use when the user asks what is happening on a board, board workload, overdue cards, task status, or board summary. Required AI field: board_id or board_name.",
+        "method": "POST",
+        "url": "={{ ($vars.SUPABASE_URL || 'https://zirftywinscopzuuwdlg.supabase.co') + '/functions/v1/codex-execute-tool' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+            },
+            {
+              "name": "x-codex-internal-key",
+              "value": "={{ $vars.INTERNAL_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ toolId: 'get_board_task_summary', payload: { board_id: $fromAI('summary_board_id', '', 'string') || '', board_name: $fromAI('summary_board_name', '', 'string') || '' }, context: $('04 Merge Request + User Context').first().json.context }) }}",
+        "options": {}
+      }
+    },
+    {
       "id": "image-generation-tool",
       "name": "Image Generation Tool",
       "type": "n8n-nodes-base.httpRequestTool",
@@ -973,16 +1162,12 @@
         420
       ],
       "parameters": {
-        "toolDescription": "Generate an image with OpenAI. Use this only when the user asks to create a new image. Improve the prompt for clean business use. The OpenAI response returns base64 image data in data[0].b64_json; convert it into an attachment with url and download_url set to data:image/png;base64,{b64_json}. Never claim success without returning that visible image attachment.",
+        "toolDescription": "Generate an image with Gemini. Use this only when the user asks to create a new image. Improve the prompt for clean business use. The Gemini response returns inline image data in candidates[].content.parts[].inlineData; convert it into an attachment with url and download_url set to data:image/...;base64,{data}. Never claim success without returning that visible image attachment.",
         "method": "POST",
-        "url": "https://api.openai.com/v1/images/generations",
+        "url": "={{ 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=' + $env.GEMINI_API_KEY }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            {
-              "name": "Authorization",
-              "value": "=Bearer {{ $vars.OPENAI_API_KEY }}"
-            },
             {
               "name": "Content-Type",
               "value": "application/json"
@@ -990,27 +1175,9 @@
           ]
         },
         "sendBody": true,
-        "bodyParameters": {
-          "parameters": [
-            {
-              "name": "model",
-              "value": "gpt-image-1"
-            },
-            {
-              "name": "prompt",
-              "value": "={{ $fromAI('image_prompt', '', 'string') }}"
-            },
-            {
-              "name": "size",
-              "value": "1024x1024"
-            },
-            {
-              "name": "n",
-              "value": "={{ 1 }}"
-            }
-          ]
-        },
-        "options": {}
+        "options": {},
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ contents: [{ role: 'user', parts: [{ text: $fromAI('image_prompt', '', 'string') }] }], generationConfig: { responseModalities: ['TEXT', 'IMAGE'], imageConfig: { aspectRatio: '1:1' } } }) }}"
       }
     },
     {
@@ -1026,7 +1193,7 @@
         "promptType": "define",
         "text": "={{ $json.chatInput || $json.message }}",
         "options": {
-          "systemMessage": "Paste the full prompt from n8n/itsnomatata-ai-workspace-brain.system-prompt.md here. OpenAI is the primary model. Use tools only when needed. Respect role, department, organization, and project memory scope. If verified internal knowledge is missing, say so clearly."
+          "systemMessage": "Paste the full prompt from n8n/itsnomatata-ai-workspace-brain.system-prompt.md here. Gemini is the primary model. Use tools only when needed. Respect role, department, organization, and project memory scope. If verified internal knowledge is missing, say so clearly."
         }
       }
     },
@@ -1041,7 +1208,7 @@
       ],
       "parameters": {
         "method": "POST",
-        "url": "={{ 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=' + $vars.GEMINI_API_KEY }}",
+        "url": "={{ 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + $env.GEMINI_API_KEY }}",
         "sendBody": true,
         "bodyParameters": {
           "parameters": [
@@ -1064,7 +1231,7 @@
         0
       ],
       "parameters": {
-        "jsCode": "let output = $json.output || $json.message || $json.text || 'I could not produce a verified response.';\nconst rawAttachments = Array.isArray($json.attachments) ? $json.attachments : [];\nconst isBrowserUrl = value => typeof value === 'string' && /^(https?:|data:image\\/|blob:)/i.test(value);\nlet attachments = rawAttachments.filter(item => item && typeof item === 'object').map(item => ({ type: item.type || item.file_type || 'file', name: item.name || item.file_name || 'codex-file', url: item.url || item.image_url || item.download_url || '', download_url: item.download_url || item.url || item.image_url || '', metadata: item.metadata || {} })).filter(item => isBrowserUrl(item.url) || isBrowserUrl(item.download_url));\nconst rawB64 = $json.data?.[0]?.b64_json || $json.data?.b64_json || $json.b64_json;\nif (rawB64 && typeof rawB64 === 'string') { const imageUrl = 'data:image/png;base64,' + rawB64; attachments.push({ type: 'image', name: $json.file_name || 'codex-generated-image.png', url: imageUrl, download_url: imageUrl, metadata: { source: $json.type === 'edited_image' ? 'openai_images_edit' : 'openai_images' } }); }\nlet hasVisibleImage = attachments.some(item => String(item.type || '').toLowerCase().includes('image') && (isBrowserUrl(item.url) || isBrowserUrl(item.download_url)));\nconst requestedType = $json.type || 'text';\nconst claimsImageGenerated = /image\\s+(has been\\s+)?(created|generated)|generated\\s+image|download\\s+.*image/i.test(output);\nconst claimsImageEdited = /image\\s+(has been\\s+)?(edited|updated|modified)|edited\\s+image/i.test(output);\nif ((claimsImageGenerated || claimsImageEdited || ['generated_image', 'edited_image'].includes(requestedType)) && !hasVisibleImage) { output = claimsImageEdited || requestedType === 'edited_image' ? 'I could not return an edited image because no visible image attachment was produced.' : 'I could not return a generated image because no visible image attachment was produced.'; attachments = []; }\nconst allowedTypes = new Set(['generated_image', 'edited_image', 'image_analysis', 'document_extraction', 'ocr_extraction', 'file_export', 'text']);\nconst responseType = allowedTypes.has(requestedType) ? requestedType : (hasVisibleImage ? 'generated_image' : 'text');\nreturn [{ json: { success: $json.success !== false, type: responseType, message: output, output, conversationId: $json.conversationId || $('04 Merge Request + User Context').first().json.conversationId || null, data: $json.data || {}, contextPatch: $json.contextPatch || $json.data?.contextPatch || {}, attachments, sources: $json.sources || [] } }];"
+        "jsCode": "let output = $json.output || $json.message || $json.text || 'I could not produce a verified response.';\nconst rawAttachments = Array.isArray($json.attachments) ? $json.attachments : [];\nconst isBrowserUrl = value => typeof value === 'string' && /^(https?:|data:image\\/|blob:)/i.test(value);\nlet attachments = rawAttachments.filter(item => item && typeof item === 'object').map(item => ({ type: item.type || item.file_type || 'file', name: item.name || item.file_name || 'codex-file', url: item.url || item.image_url || item.download_url || '', download_url: item.download_url || item.url || item.image_url || '', metadata: item.metadata || {} })).filter(item => isBrowserUrl(item.url) || isBrowserUrl(item.download_url));\nconst rawB64 = $json.data?.[0]?.b64_json || $json.data?.b64_json || $json.b64_json;\nif (rawB64 && typeof rawB64 === 'string') { const imageUrl = 'data:image/png;base64,' + rawB64; attachments.push({ type: 'image', name: $json.file_name || 'codex-generated-image.png', url: imageUrl, download_url: imageUrl, metadata: { source: $json.type === 'edited_image' ? 'gemini_images_edit' : 'gemini_images' } }); }\nlet hasVisibleImage = attachments.some(item => String(item.type || '').toLowerCase().includes('image') && (isBrowserUrl(item.url) || isBrowserUrl(item.download_url)));\nconst requestedType = $json.type || 'text';\nconst claimsImageGenerated = /image\\s+(has been\\s+)?(created|generated)|generated\\s+image|download\\s+.*image/i.test(output);\nconst claimsImageEdited = /image\\s+(has been\\s+)?(edited|updated|modified)|edited\\s+image/i.test(output);\nif ((claimsImageGenerated || claimsImageEdited || ['generated_image', 'edited_image'].includes(requestedType)) && !hasVisibleImage) { output = claimsImageEdited || requestedType === 'edited_image' ? 'I could not return an edited image because no visible image attachment was produced.' : 'I could not return a generated image because no visible image attachment was produced.'; attachments = []; }\nconst allowedTypes = new Set(['generated_image', 'edited_image', 'image_analysis', 'document_extraction', 'ocr_extraction', 'file_export', 'text']);\nconst responseType = allowedTypes.has(requestedType) ? requestedType : (hasVisibleImage ? 'generated_image' : 'text');\nreturn [{ json: { success: $json.success !== false, type: responseType, message: output, output, conversationId: $json.conversationId || $('04 Merge Request + User Context').first().json.conversationId || null, data: $json.data || {}, contextPatch: $json.contextPatch || $json.data?.contextPatch || {}, attachments, sources: $json.sources || [] } }];"
       }
     },
     {
@@ -1386,28 +1553,29 @@
       }
     },
     {
-      "id": "summarize-chunk-openai",
-      "name": "Summarize Chunk - OpenAI",
-      "type": "@n8n/n8n-nodes-langchain.openAi",
-      "typeVersion": 1.8,
+      "id": "summarize-chunk-gemini",
+      "name": "Summarize Chunk - Gemini",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
       "position": [
         -360,
         1160
       ],
       "parameters": {
-        "modelId": {
-          "__rl": true,
-          "value": "gpt-4o-mini",
-          "mode": "list",
-          "cachedResultName": "gpt-4o-mini"
-        },
-        "messages": {
-          "values": [
+        "method": "POST",
+        "url": "={{ 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + $env.GEMINI_API_KEY }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
             {
-              "content": "={{ 'Summarize this company knowledge chunk for retrieval. Return concise summary, key points, actions, deadlines, owners, departments, risks, and tags.\\n\\nChunk:\\n' + $json.chunkText }}"
+              "name": "Content-Type",
+              "value": "application/json"
             }
           ]
         },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ contents: [{ role: 'user', parts: [{ text: 'Summarize this company knowledge chunk for retrieval. Return concise summary, key points, actions, deadlines, owners, departments, risks, and tags.\\n\\nChunk:\\n' + $json.chunkText }] }], generationConfig: { temperature: 0.2 } }) }}",
         "options": {}
       }
     },
@@ -1421,7 +1589,7 @@
         1160
       ],
       "parameters": {
-        "jsCode": "const first = items[0]?.json || {};\nconst summaries = items.map(item => item.json.message?.content || item.json.output || '').filter(Boolean);\nconst detailed = summaries.join('\\n\\n');\nreturn [{ json: {\n  ...first,\n  summary_short: summaries[0]?.slice(0, 400) || '',\n  summary_detailed: detailed,\n  tags: first.tags || [],\n  status: 'trained',\n  chunks: items.map((item, index) => ({ index, summary: item.json.message?.content || '', text: item.json.chunkText || '' }))\n}}];"
+        "jsCode": "const readText = (json) => {\n  const geminiText = (json.candidates || [])\n    .flatMap(candidate => candidate?.content?.parts || [])\n    .map(part => part.text || '')\n    .filter(Boolean)\n    .join('\\n');\n  return geminiText || json.message?.content || json.output || json.text || '';\n};\nconst first = items[0]?.json || {};\nconst summaries = items.map(item => readText(item.json || {})).filter(Boolean);\nconst detailed = summaries.join('\\n\\n');\nreturn [{ json: {\n  ...first,\n  summary_short: summaries[0]?.slice(0, 400) || '',\n  summary_detailed: detailed,\n  tags: first.tags || [],\n  status: 'trained',\n  chunks: items.map((item, index) => ({ index, summary: readText(item.json || {}), text: item.json.chunkText || '' }))\n}}];"
       }
     },
     {
@@ -1687,8 +1855,8 @@
       }
     },
     {
-      "id": "openai-image-edit",
-      "name": "OpenAI Image Edit",
+      "id": "gemini-image-edit",
+      "name": "Gemini Image Edit",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
@@ -1698,43 +1866,20 @@
       "continueOnFail": true,
       "parameters": {
         "method": "POST",
-        "url": "https://api.openai.com/v1/images/edits",
-        "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "openAiApi",
+        "url": "={{ 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=' + $env.GEMINI_API_KEY }}",
         "sendBody": true,
-        "contentType": "multipart-form-data",
-        "bodyParameters": {
+        "options": {},
+        "sendHeaders": true,
+        "headerParameters": {
           "parameters": [
             {
-              "parameterType": "formBinaryData",
-              "name": "image",
-              "inputDataFieldName": "image"
-            },
-            {
-              "name": "model",
-              "value": "gpt-image-1"
-            },
-            {
-              "name": "prompt",
-              "value": "={{ $json.imageEditPrompt }}"
-            },
-            {
-              "name": "size",
-              "value": "1024x1024"
-            },
-            {
-              "name": "n",
-              "value": "={{ 1 }}"
+              "name": "Content-Type",
+              "value": "application/json"
             }
           ]
         },
-        "options": {}
-      },
-      "credentials": {
-        "openAiApi": {
-          "id": "AMCuIhOcN1ffKYz9",
-          "name": "OpenAi account"
-        }
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ contents: [{ role: 'user', parts: [{ text: $json.imageEditPrompt }, (() => { const data = $binary?.image?.data || String($json.imageSourceDataUrl || '').split(',')[1] || ''; const mimeType = $binary?.image?.mimeType || String($json.imageSourceDataUrl || '').match(/^data:([^;]+)/)?.[1] || 'image/png'; return data ? { inline_data: { mime_type: mimeType, data } } : { text: 'No editable image bytes were supplied.' }; })()] }], generationConfig: { responseModalities: ['TEXT', 'IMAGE'], imageConfig: { aspectRatio: '1:1' } } }) }}"
       }
     },
     {
@@ -1747,7 +1892,7 @@
         -540
       ],
       "parameters": {
-        "jsCode": "const source = $('05 Permission + Tool Router').first().json;\nconst editContext = $('Build Image Edit Prompt').first().json;\nconst b64 = $json.data?.[0]?.b64_json || $json.data?.b64_json || $json.b64_json;\nif (!b64) {\n  const technical = $json.error?.message || $json.message || $json.error || 'No edited image data returned.';\n  return [{ json: {\n    success: true,\n    type: 'text',\n    message: 'The image edit service failed, but your original image is safe. Please try a smaller image.',\n    output: 'The image edit service failed, but your original image is safe. Please try a smaller image.',\n    conversationId: source.conversationId || null,\n    data: { internal_error: String(technical).slice(0, 500), prompt: editContext.imageEditPrompt },\n    attachments: [],\n    sources: []\n  }}];\n}\nconst imageUrl = 'data:image/png;base64,' + b64;\nconst attachment = {\n  type: 'image',\n  name: 'edited-image.png',\n  url: imageUrl,\n  download_url: imageUrl,\n  metadata: {\n    source: 'openai_images_edit',\n    model: 'gpt-image-1',\n    original_image: editContext.original_image || null,\n    reusable_as_source: true,\n    conversation_id: source.conversationId || null,\n    prompt: editContext.imageEditPrompt\n  }\n};\nreturn [{ json: {\n  success: true,\n  type: 'edited_image',\n  message: 'Image edited successfully.',\n  output: 'Image edited successfully.',\n  conversationId: source.conversationId || null,\n  data: {\n    prompt: editContext.imageEditPrompt,\n    edited_image_url: imageUrl,\n    lastGeneratedImage: attachment,\n    previousAttachments: [attachment],\n    persistence_hint: 'Store data.lastGeneratedImage or attachments[0] on the conversation so follow-up edits can reuse it as the source image.'\n  },\n  contextPatch: {\n    lastGeneratedImage: attachment,\n    previousAttachments: [attachment]\n  },\n  attachments: [attachment],\n  sources: []\n}}];"
+        "jsCode": "const source = $('05 Permission + Tool Router').first().json;\nconst editContext = $('Build Image Edit Prompt').first().json;\nconst parts = ($json.candidates || []).flatMap(candidate => candidate?.content?.parts || []);\nconst imagePart = parts.find(part => part?.inlineData?.data || part?.inline_data?.data);\nconst b64 = imagePart?.inlineData?.data || imagePart?.inline_data?.data || '';\nconst mimeType = imagePart?.inlineData?.mimeType || imagePart?.inline_data?.mime_type || 'image/png';\nif (!b64) {\n  const technical = $json.error?.message || $json.message || $json.error || 'No edited image data returned.';\n  return [{ json: {\n    success: true,\n    type: 'text',\n    message: 'The image edit service failed, but your original image is safe. Please try a smaller image.',\n    output: 'The image edit service failed, but your original image is safe. Please try a smaller image.',\n    conversationId: source.conversationId || null,\n    data: { internal_error: String(technical).slice(0, 500), prompt: editContext.imageEditPrompt },\n    attachments: [],\n    sources: []\n  }}];\n}\nconst imageUrl = 'data:' + mimeType + ';base64,' + b64;\nconst attachment = {\n  type: 'image',\n  name: 'edited-image.png',\n  url: imageUrl,\n  download_url: imageUrl,\n  metadata: {\n    source: 'gemini_image_edit',\n    model: 'gemini-2.5-flash-image',\n    original_image: editContext.original_image || null,\n    reusable_as_source: true,\n    conversation_id: source.conversationId || null,\n    prompt: editContext.imageEditPrompt\n  }\n};\nreturn [{ json: {\n  success: true,\n  type: 'edited_image',\n  message: 'Image edited successfully.',\n  output: 'Image edited successfully.',\n  conversationId: source.conversationId || null,\n  data: {\n    prompt: editContext.imageEditPrompt,\n    edited_image_url: imageUrl,\n    lastGeneratedImage: attachment,\n    previousAttachments: [attachment],\n    persistence_hint: 'Store data.lastGeneratedImage or attachments[0] on the conversation so follow-up edits can reuse it as the source image.'\n  },\n  contextPatch: {\n    lastGeneratedImage: attachment,\n    previousAttachments: [attachment]\n  },\n  attachments: [attachment],\n  sources: []\n}}];"
       }
     },
     {
@@ -1862,8 +2007,8 @@
       }
     },
     {
-      "id": "prepare-openai-vision-ocr-request",
-      "name": "Prepare OpenAI Vision OCR Request",
+      "id": "prepare-gemini-vision-ocr-request",
+      "name": "Prepare Gemini Vision OCR Request",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
@@ -1871,12 +2016,12 @@
         240
       ],
       "parameters": {
-        "jsCode": "const item = $json;\nlet dataUrl = item.ocrSourceDataUrl || '';\nconst ocrName = item.ocrFileName || 'uploaded-file';\nlet mime = item.ocrMimeType || (/\\.csv$/i.test(ocrName) ? 'text/csv' : /\\.(xlsx|xls)$/i.test(ocrName) ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : /\\.pdf$/i.test(ocrName) ? 'application/pdf' : 'image/png');\nconst binaryKeys = ['document', 'file', 'data', 'image'];\nif (!dataUrl) {\n  for (const key of binaryKeys) {\n    if (!$binary?.[key]) continue;\n    try {\n      const buffer = await this.helpers.getBinaryDataBuffer(0, key);\n      mime = $binary[key].mimeType || mime;\n      const bytes = new Uint8Array(buffer);\n      let binary = '';\n      const chunk = 0x8000;\n      for (let i = 0; i < bytes.length; i += chunk) {\n        binary += String.fromCharCode(...bytes.subarray(i, i + chunk));\n      }\n      dataUrl = 'data:' + mime + ';base64,' + btoa(binary);\n      break;\n    } catch (error) {\n      // try next binary property\n    }\n  }\n}\nif (!dataUrl) {\n  const intakeItems = $('04c Merge Processed Input').first()?.json?.processedInput?.items || [];\n  const recovered = intakeItems.find(entry => entry?.ok && entry?.text);\n  if (recovered?.text) {\n    return [{ json: { ...item, ocrPreparationFailed: false, ocrRecoveredText: recovered.text, openaiBody: null, skipOpenAi: true } }];\n  }\n  return [{ json: { ...item, ocrPreparationFailed: true, userMessage: 'Could not load the PDF bytes. Re-upload the file in chat (wait for upload to finish) or use a direct https link.' } }];\n}\nconst isPdf = /pdf/i.test(mime) || /\\.pdf$/i.test(item.ocrFileName || '');\nconst content = [{ type: 'input_text', text: 'Extract all readable text from this document/image. Preserve headings, paragraphs, tables, dates, totals, names, references, and important formatting. If something is unclear, mark it as [unclear]. Return only the extracted text first, then a short structured summary.' }];\nif (isPdf) content.push({ type: 'input_file', filename: item.ocrFileName || 'document.pdf', file_data: dataUrl });\nelse content.push({ type: 'input_image', image_url: dataUrl });\nreturn [{ json: { ...item, ocrPreparationFailed: false, openaiBody: { model: 'gpt-4o-mini', input: [{ role: 'user', content }] }, skipOpenAi: false } }];"
+        "jsCode": "const item = $json;\nlet dataUrl = item.ocrSourceDataUrl || '';\nconst ocrName = item.ocrFileName || 'uploaded-file';\nlet mime = item.ocrMimeType || (/\\.csv$/i.test(ocrName) ? 'text/csv' : /\\.(xlsx|xls)$/i.test(ocrName) ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : /\\.pdf$/i.test(ocrName) ? 'application/pdf' : 'image/png');\nconst binaryKeys = ['document', 'file', 'data', 'image'];\nif (!dataUrl) {\n  for (const key of binaryKeys) {\n    if (!$binary?.[key]) continue;\n    try {\n      const buffer = await this.helpers.getBinaryDataBuffer(0, key);\n      mime = $binary[key].mimeType || mime;\n      const bytes = new Uint8Array(buffer);\n      let binary = '';\n      const chunk = 0x8000;\n      for (let i = 0; i < bytes.length; i += chunk) binary += String.fromCharCode(...bytes.subarray(i, i + chunk));\n      dataUrl = 'data:' + mime + ';base64,' + btoa(binary);\n      break;\n    } catch (error) {}\n  }\n}\nif (!dataUrl) {\n  const intakeItems = $('04c Merge Processed Input').first()?.json?.processedInput?.items || [];\n  const recovered = intakeItems.find(entry => entry?.ok && entry?.text);\n  if (recovered?.text) return [{ json: { ...item, ocrPreparationFailed: false, ocrRecoveredText: recovered.text, geminiBody: null, skipGemini: true } }];\n  return [{ json: { ...item, ocrPreparationFailed: true, userMessage: 'Could not load the PDF bytes. Re-upload the file in chat (wait for upload to finish) or use a direct https link.' } }];\n}\nconst match = String(dataUrl).match(/^data:([^;]+);base64,(.+)$/);\nconst instruction = 'Extract all readable text from this document/image. Preserve headings, paragraphs, tables, dates, totals, names, references, and important formatting. If something is unclear, mark it as [unclear]. Return only the extracted text first, then a short structured summary.';\nconst parts = [{ text: instruction }];\nif (match) parts.push({ inline_data: { mime_type: match[1], data: match[2] } });\nelse parts.push({ file_data: { mime_type: mime, file_uri: dataUrl } });\nreturn [{ json: { ...item, ocrPreparationFailed: false, geminiBody: { contents: [{ role: 'user', parts }], generationConfig: { temperature: 0.1 } }, skipGemini: false } }];"
       }
     },
     {
-      "id": "ocr-should-call-openai",
-      "name": "OCR Should Call OpenAI?",
+      "id": "ocr-should-call-gemini",
+      "name": "OCR Should Call Gemini?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
@@ -1892,7 +2037,7 @@
           },
           "conditions": [
             {
-              "leftValue": "={{ $json.skipOpenAi !== true && $json.ocrPreparationFailed !== true && Boolean($json.openaiBody) }}",
+              "leftValue": "={{ $json.skipGemini !== true && $json.ocrPreparationFailed !== true && Boolean($json.geminiBody) }}",
               "rightValue": true,
               "operator": {
                 "type": "boolean",
@@ -1906,8 +2051,8 @@
       }
     },
     {
-      "id": "openai-vision-ocr-fallback",
-      "name": "OpenAI Vision OCR Fallback",
+      "id": "gemini-vision-ocr-fallback",
+      "name": "Gemini Vision OCR Fallback",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
@@ -1917,9 +2062,7 @@
       "continueOnFail": true,
       "parameters": {
         "method": "POST",
-        "url": "https://api.openai.com/v1/responses",
-        "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "openAiApi",
+        "url": "={{ 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + $env.GEMINI_API_KEY }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -1931,14 +2074,8 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify($json.openaiBody) }}",
+        "jsonBody": "={{ JSON.stringify($json.geminiBody) }}",
         "options": {}
-      },
-      "credentials": {
-        "openAiApi": {
-          "id": "AMCuIhOcN1ffKYz9",
-          "name": "OpenAi account"
-        }
       }
     },
     {
@@ -1951,7 +2088,7 @@
         240
       ],
       "parameters": {
-        "jsCode": "const source = $('05 Permission + Tool Router').first().json;\nconst intakeBlock = $('04c Merge Processed Input').first()?.json?.intakeBlock || source.intakeBlock || '';\nconst intakeItems = $('04c Merge Processed Input').first()?.json?.processedInput?.items || [];\nconst recovered = $json.ocrRecoveredText || intakeItems.find(item => item?.ok && item?.text)?.text || '';\nif (recovered && String(recovered).trim().length > 15) {\n  const text = String(recovered).trim();\n  return [{ json: { success: true, type: 'ocr_extraction', message: text, output: text, conversationId: source.conversationId || null, data: { source: 'codex_process_input', wordCount: (text.match(/[A-Za-z0-9]{2,}/g) || []).length }, attachments: [], sources: [] } }];\n}\nconst text = $json.output_text || ($json.output || []).flatMap(o => o.content || []).map(c => c.text || '').filter(Boolean).join('\\n') || $json.text || '';\nconst wordCount = (text.match(/[A-Za-z0-9]{2,}/g) || []).length;\nif ((!text || wordCount < 5 || $json.error) && intakeBlock) {\n  const fallback = intakeBlock.replace(/^\\[Codex Intake[^\\]]*\\][^\\n]*\\nUse the material below[^\\n]*\\n/i, '').trim();\n  if (fallback.length > 40) {\n    return [{ json: { success: true, type: 'ocr_extraction', message: fallback, output: fallback, conversationId: source.conversationId || null, data: { source: 'codex_process_input_fallback', wordCount: (fallback.match(/[A-Za-z0-9]{2,}/g) || []).length }, attachments: [], sources: [] } }];\n  }\n}\nif (!text || wordCount < 5 || $json.error) {\n  const failedItem = intakeItems.find(item => item && item.ok === false);\n  const hint = $json.codexExtractError || failedItem?.error || $json.userMessage || $json.error?.message || 'OCR returned too little readable text.';\n  const message = `I could not extract enough readable data from this file. ${hint} Try re-uploading in chat (wait until upload completes), use a text-based PDF export, or a clearer scan.`;\n  return [{ json: { success: true, type: 'ocr_extraction', message, output: message, conversationId: source.conversationId || null, data: { internal_error: String(hint).slice(0, 500), wordCount }, attachments: [], sources: [] } }];\n}\nreturn [{ json: { success: true, type: 'ocr_extraction', message: text, output: text, conversationId: source.conversationId || null, data: { wordCount, source: 'openai_vision_ocr', model: 'gpt-4o-mini' }, attachments: [], sources: [] } }];"
+        "jsCode": "const source = $('05 Permission + Tool Router').first().json;\nconst intakeBlock = $('04c Merge Processed Input').first()?.json?.intakeBlock || source.intakeBlock || '';\nconst intakeItems = $('04c Merge Processed Input').first()?.json?.processedInput?.items || [];\nconst recovered = $json.ocrRecoveredText || intakeItems.find(item => item?.ok && item?.text)?.text || '';\nif (recovered && String(recovered).trim().length > 15) {\n  const text = String(recovered).trim();\n  return [{ json: { success: true, type: 'ocr_extraction', message: text, output: text, conversationId: source.conversationId || null, data: { source: 'codex_process_input', wordCount: (text.match(/[A-Za-z0-9]{2,}/g) || []).length }, attachments: [], sources: [] } }];\n}\nconst text = $json.output_text || ($json.output || []).flatMap(o => o.content || []).map(c => c.text || '').filter(Boolean).join('\\n') || $json.text || '';\nconst wordCount = (text.match(/[A-Za-z0-9]{2,}/g) || []).length;\nif ((!text || wordCount < 5 || $json.error) && intakeBlock) {\n  const fallback = intakeBlock.replace(/^\\[Codex Intake[^\\]]*\\][^\\n]*\\nUse the material below[^\\n]*\\n/i, '').trim();\n  if (fallback.length > 40) {\n    return [{ json: { success: true, type: 'ocr_extraction', message: fallback, output: fallback, conversationId: source.conversationId || null, data: { source: 'codex_process_input_fallback', wordCount: (fallback.match(/[A-Za-z0-9]{2,}/g) || []).length }, attachments: [], sources: [] } }];\n  }\n}\nif (!text || wordCount < 5 || $json.error) {\n  const failedItem = intakeItems.find(item => item && item.ok === false);\n  const hint = $json.codexExtractError || failedItem?.error || $json.userMessage || $json.error?.message || 'OCR returned too little readable text.';\n  const message = `I could not extract enough readable data from this file. ${hint} Try re-uploading in chat (wait until upload completes), use a text-based PDF export, or a clearer scan.`;\n  return [{ json: { success: true, type: 'ocr_extraction', message, output: message, conversationId: source.conversationId || null, data: { internal_error: String(hint).slice(0, 500), wordCount }, attachments: [], sources: [] } }];\n}\nreturn [{ json: { success: true, type: 'ocr_extraction', message: text, output: text, conversationId: source.conversationId || null, data: { wordCount, source: 'gemini_vision_ocr', model: 'gemini-2.5-flash' }, attachments: [], sources: [] } }];"
       }
     },
     {
@@ -2021,12 +2158,12 @@
         1320
       ],
       "parameters": {
-        "jsCode": "const source = $('Prepare Document Training Input').first();\nconst sourceJson = source.json || {};\nconst sourceBinary = source.binary?.data || null;\nconst currentBinary = $binary?.data || $binary?.document || $binary?.file || $binary?.image || null;\nconst doc = currentBinary || sourceBinary;\nif (!doc?.data) throw new Error('OCR fallback could not find the original file binary.');\nconst fileName = doc.fileName || sourceJson.file_name || 'document';\nconst mime = doc.mimeType || sourceJson.file_type || (/\\.csv$/i.test(fileName) ? 'text/csv' : /\\.(xlsx|xls)$/i.test(fileName) ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : 'application/pdf');\nconst dataUrl = 'data:' + mime + ';base64,' + doc.data;\nconst isImage = /^image//i.test(mime);\nconst content = [{ type: 'input_text', text: 'Extract all readable text from this document/image. Preserve headings, paragraphs, tables, dates, totals, names, references, and important formatting. If something is unclear, mark it as [unclear]. Return only the extracted text first, then a short structured summary.' }];\nif (isImage) content.push({ type: 'input_image', image_url: dataUrl }); else content.push({ type: 'input_file', filename: fileName, file_data: dataUrl });\nreturn [{ json: { ...sourceJson, openaiBody: { model: 'gpt-4o-mini', input: [{ role: 'user', content }] }, ocrFallbackReason: $json.extractionQuality || null } }];"
+        "jsCode": "const source = $('Prepare Document Training Input').first();\nconst sourceJson = source.json || {};\nconst sourceBinary = source.binary?.data || null;\nconst currentBinary = $binary?.data || $binary?.document || $binary?.file || $binary?.image || null;\nconst doc = currentBinary || sourceBinary;\nif (!doc?.data) throw new Error('OCR fallback could not find the original file binary.');\nconst fileName = doc.fileName || sourceJson.file_name || 'document';\nconst mime = doc.mimeType || sourceJson.file_type || (/\\.csv$/i.test(fileName) ? 'text/csv' : /\\.(xlsx|xls)$/i.test(fileName) ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : 'application/pdf');\nconst instruction = 'Extract all readable text from this document/image. Preserve headings, paragraphs, tables, dates, totals, names, references, and important formatting. If something is unclear, mark it as [unclear]. Return only the extracted text first, then a short structured summary.';\nreturn [{ json: { ...sourceJson, geminiBody: { contents: [{ role: 'user', parts: [{ text: instruction }, { inline_data: { mime_type: mime, data: doc.data } }] }], generationConfig: { temperature: 0.1 } }, ocrFallbackReason: $json.extractionQuality || null } }];"
       }
     },
     {
-      "id": "openai-document-ocr-fallback",
-      "name": "OpenAI Document OCR Fallback",
+      "id": "gemini-document-ocr-fallback",
+      "name": "Gemini Document OCR Fallback",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
@@ -2036,9 +2173,7 @@
       "continueOnFail": true,
       "parameters": {
         "method": "POST",
-        "url": "https://api.openai.com/v1/responses",
-        "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "openAiApi",
+        "url": "={{ 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + $env.GEMINI_API_KEY }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -2050,14 +2185,8 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify($json.openaiBody) }}",
+        "jsonBody": "={{ JSON.stringify($json.geminiBody) }}",
         "options": {}
-      },
-      "credentials": {
-        "openAiApi": {
-          "id": "AMCuIhOcN1ffKYz9",
-          "name": "OpenAi account"
-        }
       }
     },
     {
@@ -2070,7 +2199,7 @@
         1320
       ],
       "parameters": {
-        "jsCode": "const text = $json.output_text || ($json.output || []).flatMap(o => o.content || []).map(c => c.text || '').filter(Boolean).join('\\n') || '';\nconst wordCount = (text.match(/[A-Za-z0-9]{2,}/g) || []).length;\nif (!text || wordCount < 8 || $json.error) throw new Error('OCR fallback could not read enough text from this file.');\nconst source = $('Prepare Document Training Input').first().json || {};\nreturn [{ json: { ...source, text, extraction_method: 'openai_vision_ocr', extractionQuality: { wordCount, ocrFallback: true } } }];"
+        "jsCode": "const geminiText = ($json.candidates || []).flatMap(c => c?.content?.parts || []).map(p => p.text || '').filter(Boolean).join('\\n');\nconst text = geminiText || $json.output_text || ($json.output || []).flatMap(o => o.content || []).map(c => c.text || '').filter(Boolean).join('\\n') || '';\nconst wordCount = (text.match(/[A-Za-z0-9]{2,}/g) || []).length;\nif (!text || wordCount < 8 || $json.error) throw new Error('OCR fallback could not read enough text from this file.');\nconst source = $('Prepare Document Training Input').first().json || {};\nreturn [{ json: { ...source, text, extraction_method: 'gemini_vision_ocr', extractionQuality: { wordCount, ocrFallback: true } } }];"
       }
     },
     {
@@ -2083,7 +2212,7 @@
         260
       ],
       "parameters": {
-        "jsCode": "const item = $json;\nconst merge = $('04c Merge Processed Input').first()?.json || {};\nconst router = $('05 Permission + Tool Router').first()?.json || {};\nconst name = item.ocrFileName || 'uploaded-file';\nconst mime = item.ocrMimeType || (name.toLowerCase().endsWith('.csv') ? 'text/csv' : name.toLowerCase().endsWith('.xlsx') ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : 'application/pdf');\nconst lower = name.toLowerCase();\nconst isCodexFile = /\\.(pdf|csv|xlsx|xls|docx?|txt|md)$/i.test(lower) || /pdf|csv|spreadsheet|excel|word|plain/i.test(mime);\nconst isImageOnly = /^image\\//i.test(mime) && !/\\.(pdf|csv|xlsx)/i.test(lower);\nif (!isCodexFile || isImageOnly) {\n  return [{ json: { ...item, ocrMimeType: mime, ocrHandledByCodex: false } }];\n}\nconst url = String(item.ocrSourceUrl || item.ocrSourceDataUrl || '').trim();\nif (!url || url.startsWith('[inline')) {\n  return [{ json: { ...item, ocrMimeType: mime, ocrHandledByCodex: false } }];\n}\nconst supabaseUrl = $vars.SUPABASE_URL || 'https://zirftywinscopzuuwdlg.supabase.co';\nconst key = $vars.SUPABASE_SERVICE_ROLE_KEY;\nconst internal = $vars.INTERNAL_API_KEY;\nif (!key) {\n  return [{ json: { ...item, ocrMimeType: mime, ocrHandledByCodex: false } }];\n}\nconst userMessage = String(router.chatInput || router.message || 'extract data from the attachment').split('\\n[Codex Intake')[0].trim();\nlet response;\ntry {\n  response = await this.helpers.httpRequest({\n    method: 'POST',\n    url: supabaseUrl + '/functions/v1/codex-process-input',\n    headers: {\n      apikey: key,\n      Authorization: 'Bearer ' + key,\n      'x-codex-internal-key': internal,\n      'Content-Type': 'application/json',\n    },\n    body: {\n      message: userMessage,\n      chatInput: userMessage,\n      attachments: [{ name, url, download_url: url, mimeType: mime, type: 'document' }],\n      attachmentSources: [{ name, url, download_url: url, mimeType: mime }],\n      links: [],\n      context: merge.context || router.context || {},\n    },\n    json: true,\n  });\n} catch (error) {\n  return [{ json: { ...item, ocrMimeType: mime, ocrHandledByCodex: false, userMessage: String(error.message || error) } }];\n}\nconst hit = (response.items || []).find(i => i && i.ok && i.text);\nconst text = hit?.text || '';\nreturn [{ json: {\n  ...item,\n  ocrMimeType: mime,\n  ocrHandledByCodex: true,\n  ocrRecoveredText: text,\n  skipOpenAi: true,\n  openaiBody: null,\n  codexExtractError: hit ? null : ((response.items || [])[0]?.error || 'Could not read file'),\n}}];"
+        "jsCode": "const item = $json;\nconst merge = $('04c Merge Processed Input').first()?.json || {};\nconst router = $('05 Permission + Tool Router').first()?.json || {};\nconst name = item.ocrFileName || 'uploaded-file';\nconst mime = item.ocrMimeType || (name.toLowerCase().endsWith('.csv') ? 'text/csv' : name.toLowerCase().endsWith('.xlsx') ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : 'application/pdf');\nconst lower = name.toLowerCase();\nconst isCodexFile = /\\.(pdf|csv|xlsx|xls|docx?|txt|md)$/i.test(lower) || /pdf|csv|spreadsheet|excel|word|plain/i.test(mime);\nconst isImageOnly = /^image\\//i.test(mime) && !/\\.(pdf|csv|xlsx)/i.test(lower);\nif (!isCodexFile || isImageOnly) {\n  return [{ json: { ...item, ocrMimeType: mime, ocrHandledByCodex: false } }];\n}\nconst url = String(item.ocrSourceUrl || item.ocrSourceDataUrl || '').trim();\nif (!url || url.startsWith('[inline')) {\n  return [{ json: { ...item, ocrMimeType: mime, ocrHandledByCodex: false } }];\n}\nconst supabaseUrl = $vars.SUPABASE_URL || 'https://zirftywinscopzuuwdlg.supabase.co';\nconst key = $vars.SUPABASE_SERVICE_ROLE_KEY;\nconst internal = $vars.INTERNAL_API_KEY;\nif (!key) {\n  return [{ json: { ...item, ocrMimeType: mime, ocrHandledByCodex: false } }];\n}\nconst userMessage = String(router.chatInput || router.message || 'extract data from the attachment').split('\\n[Codex Intake')[0].trim();\nlet response;\ntry {\n  response = await this.helpers.httpRequest({\n    method: 'POST',\n    url: supabaseUrl + '/functions/v1/codex-process-input',\n    headers: {\n      apikey: key,\n      Authorization: 'Bearer ' + key,\n      'x-codex-internal-key': internal,\n      'Content-Type': 'application/json',\n    },\n    body: {\n      message: userMessage,\n      chatInput: userMessage,\n      attachments: [{ name, url, download_url: url, mimeType: mime, type: 'document' }],\n      attachmentSources: [{ name, url, download_url: url, mimeType: mime }],\n      links: [],\n      context: merge.context || router.context || {},\n    },\n    json: true,\n  });\n} catch (error) {\n  return [{ json: { ...item, ocrMimeType: mime, ocrHandledByCodex: false, userMessage: String(error.message || error) } }];\n}\nconst hit = (response.items || []).find(i => i && i.ok && i.text);\nconst text = hit?.text || '';\nreturn [{ json: {\n  ...item,\n  ocrMimeType: mime,\n  ocrHandledByCodex: true,\n  ocrRecoveredText: text,\n  skipGemini: true,\n  geminiBody: null,\n  codexExtractError: hit ? null : ((response.items || [])[0]?.error || 'Could not read file'),\n}}];"
       }
     },
     {
@@ -2131,8 +2260,8 @@
       }
     },
     {
-      "id": "content-studio-vision-openai",
-      "name": "Content Studio Vision (OpenAI Direct)",
+      "id": "content-studio-vision-gemini",
+      "name": "Content Studio Vision (Gemini Direct)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
@@ -2142,9 +2271,7 @@
       "continueOnFail": true,
       "parameters": {
         "method": "POST",
-        "url": "https://api.openai.com/v1/chat/completions",
-        "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "openAiApi",
+        "url": "={{ 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + $env.GEMINI_API_KEY }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -2156,15 +2283,9 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ { model: 'gpt-4o-mini', max_tokens: 2000, messages: [{ role: 'user', content: [{ type: 'text', text: $json.contentStudioVisionPrompt }, { type: 'image_url', image_url: { url: $json.contentStudioImageUrl, detail: 'high' } }] }] } }}",
+        "jsonBody": "={{ JSON.stringify({ contents: [{ role: 'user', parts: [{ text: $json.contentStudioVisionPrompt }, (() => { const url = String($json.contentStudioImageUrl || ''); if (url.startsWith('data:')) { const match = url.match(/^data:([^;]+);base64,(.+)$/); return match ? { inline_data: { mime_type: match[1], data: match[2] } } : { text: 'No valid image data URL supplied.' }; } return { file_data: { mime_type: 'image/jpeg', file_uri: url } }; })()] }], generationConfig: { temperature: 0.2 } }) }}",
         "options": {
           "timeout": 120000
-        }
-      },
-      "credentials": {
-        "openAiApi": {
-          "id": "AMCuIhOcN1ffKYz9",
-          "name": "OpenAi account"
         }
       }
     },
@@ -2178,7 +2299,87 @@
         -360
       ],
       "parameters": {
-        "jsCode": "const source = $('05 Permission + Tool Router').first().json;\nconst prep = $('Content Studio Vision Prep').first()?.json || {};\nconst payload = $json || {};\nconst fail = (detail) => {\n  const out = { mood: 'Unknown', sceneDescription: String(detail).slice(0, 800), suggestedCaption: '', hashtags: [], shortAlternative: '', platformCaptions: {}, confidenceScore: 0 };\n  const message = JSON.stringify(out);\n  return [{ json: { success: true, type: 'image_analysis', message, output: message, conversationId: source.conversationId || null, attachments: [], sources: [] } }];\n};\nif (!prep.contentStudioVisionReady) {\n  return fail('No image URL in the request. Ensure the post has an image and the app sends a signed storage URL.');\n}\nif (payload.error || (typeof payload.statusCode === 'number' && payload.statusCode >= 400)) {\n  const detail = payload.error?.message || payload.message || JSON.stringify(payload.error || payload).slice(0, 400);\n  return fail(`OpenAI vision failed: ${detail}. Check the OpenAi account credential in n8n and that the image URL is publicly reachable.`);\n}\nlet raw = '';\nif (payload?.choices?.[0]?.message?.content) raw = String(payload.choices[0].message.content);\nif (!raw && Array.isArray(payload?.output)) {\n  for (const part of payload.output) {\n    if (part?.type === 'message' && Array.isArray(part.content)) {\n      const textPart = part.content.find(c => c.type === 'output_text');\n      if (textPart?.text) raw = String(textPart.text);\n    }\n  }\n}\nif (!raw) raw = String(payload?.output_text || payload?.text || '').trim();\nif (!raw.trim()) return fail('OpenAI returned an empty vision response.');\nconst trimmed = raw.trim();\nconst start = trimmed.indexOf('{');\nconst end = trimmed.lastIndexOf('}');\nconst jsonSlice = start >= 0 && end > start ? trimmed.slice(start, end + 1) : trimmed;\nlet parsed = {};\ntry { parsed = JSON.parse(jsonSlice); } catch { parsed = { sceneDescription: trimmed, suggestedCaption: trimmed }; }\nconst out = {\n  mood: String(parsed.mood || 'Professional'),\n  sceneDescription: String(parsed.sceneDescription || parsed.scene || trimmed.slice(0, 800)),\n  suggestedCaption: String(parsed.suggestedCaption || parsed.generatedCaption || parsed.caption || ''),\n  hashtags: Array.isArray(parsed.hashtags) ? parsed.hashtags : [],\n  shortAlternative: String(parsed.shortAlternative || ''),\n  platformCaptions: parsed.platformCaptions && typeof parsed.platformCaptions === 'object' ? parsed.platformCaptions : {\n    instagram: parsed.instagramCaption ? String(parsed.instagramCaption) : undefined,\n    facebook: parsed.facebookCaption ? String(parsed.facebookCaption) : undefined,\n  },\n  confidenceScore: typeof parsed.confidenceScore === 'number' ? parsed.confidenceScore : 0.85,\n};\nconst message = JSON.stringify(out);\nreturn [{ json: {\n  success: true,\n  type: 'image_analysis',\n  message,\n  output: message,\n  conversationId: source.conversationId || null,\n  attachments: [],\n  sources: [],\n}}];"
+        "jsCode": "const source = $('05 Permission + Tool Router').first().json;\nconst prep = $('Content Studio Vision Prep').first()?.json || {};\nconst payload = $json || {};\nconst fail = (detail) => {\n  const out = { mood: 'Unknown', sceneDescription: String(detail).slice(0, 800), suggestedCaption: '', hashtags: [], shortAlternative: '', platformCaptions: {}, confidenceScore: 0 };\n  const message = JSON.stringify(out);\n  return [{ json: { success: true, type: 'image_analysis', message, output: message, conversationId: source.conversationId || null, attachments: [], sources: [] } }];\n};\nif (!prep.contentStudioVisionReady) {\n  return fail('No image URL in the request. Ensure the post has an image and the app sends a signed storage URL.');\n}\nif (payload.error || (typeof payload.statusCode === 'number' && payload.statusCode >= 400)) {\n  const detail = payload.error?.message || payload.message || JSON.stringify(payload.error || payload).slice(0, 400);\n  return fail(`Gemini vision failed: ${detail}. Check GEMINI_API_KEY in n8n and that the image is reachable or sent as inline data.`);\n}\nlet raw = '';\nconst geminiText = (payload.candidates || []).flatMap(c => c?.content?.parts || []).map(p => p.text || '').filter(Boolean).join('\\\\n');\\nif (geminiText) raw = geminiText;\\nelse if (payload?.choices?.[0]?.message?.content) raw = String(payload.choices[0].message.content);\nif (!raw && Array.isArray(payload?.output)) {\n  for (const part of payload.output) {\n    if (part?.type === 'message' && Array.isArray(part.content)) {\n      const textPart = part.content.find(c => c.type === 'output_text');\n      if (textPart?.text) raw = String(textPart.text);\n    }\n  }\n}\nif (!raw) raw = String(payload?.output_text || payload?.text || '').trim();\nif (!raw.trim()) return fail('Gemini returned an empty vision response.');\nconst trimmed = raw.trim();\nconst start = trimmed.indexOf('{');\nconst end = trimmed.lastIndexOf('}');\nconst jsonSlice = start >= 0 && end > start ? trimmed.slice(start, end + 1) : trimmed;\nlet parsed = {};\ntry { parsed = JSON.parse(jsonSlice); } catch { parsed = { sceneDescription: trimmed, suggestedCaption: trimmed }; }\nconst out = {\n  mood: String(parsed.mood || 'Professional'),\n  sceneDescription: String(parsed.sceneDescription || parsed.scene || trimmed.slice(0, 800)),\n  suggestedCaption: String(parsed.suggestedCaption || parsed.generatedCaption || parsed.caption || ''),\n  hashtags: Array.isArray(parsed.hashtags) ? parsed.hashtags : [],\n  shortAlternative: String(parsed.shortAlternative || ''),\n  platformCaptions: parsed.platformCaptions && typeof parsed.platformCaptions === 'object' ? parsed.platformCaptions : {\n    instagram: parsed.instagramCaption ? String(parsed.instagramCaption) : undefined,\n    facebook: parsed.facebookCaption ? String(parsed.facebookCaption) : undefined,\n  },\n  confidenceScore: typeof parsed.confidenceScore === 'number' ? parsed.confidenceScore : 0.85,\n};\nconst message = JSON.stringify(out);\nreturn [{ json: {\n  success: true,\n  type: 'image_analysis',\n  message,\n  output: message,\n  conversationId: source.conversationId || null,\n  attachments: [],\n  sources: [],\n}}];"
+      }
+    },
+    {
+      "id": "codex-tool-search-notifications",
+      "name": "Codex Tool - Search Notifications",
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        2760,
+        540
+      ],
+      "parameters": {
+        "toolDescription": "Read the current user's in-app notifications from the workspace. Use for inbox, alerts, unread notifications, or recent notification history. Optional AI fields: unread_only (boolean), limit (number).",
+        "method": "POST",
+        "url": "={{ ($vars.SUPABASE_URL || 'https://zirftywinscopzuuwdlg.supabase.co') + '/functions/v1/codex-execute-tool' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+            },
+            {
+              "name": "x-codex-internal-key",
+              "value": "={{ $vars.INTERNAL_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ toolId: 'search_notifications', payload: { unreadOnly: $fromAI('unread_only', 'false', 'string') === 'true', limit: Number($fromAI('notification_limit', '15', 'string') || 15) }, context: $('04 Merge Request + User Context').first().json.context }) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "codex-tool-search-assets",
+      "name": "Codex Tool - Search Assets",
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        3000,
+        540
+      ],
+      "parameters": {
+        "toolDescription": "Search serialized assets/equipment in the workspace stock registry. Use for asset lookup, serial numbers, tags, equipment status, or stock questions. Optional AI field: asset_query (search text).",
+        "method": "POST",
+        "url": "={{ ($vars.SUPABASE_URL || 'https://zirftywinscopzuuwdlg.supabase.co') + '/functions/v1/codex-execute-tool' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+            },
+            {
+              "name": "x-codex-internal-key",
+              "value": "={{ $vars.INTERNAL_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ toolId: 'search_assets', payload: { query: $fromAI('asset_query', '', 'string') || '', limit: Number($fromAI('asset_limit', '15', 'string') || 15) }, context: $('04 Merge Request + User Context').first().json.context }) }}",
+        "options": {}
       }
     }
   ],
@@ -2292,18 +2493,18 @@
       "main": [
         [
           {
-            "node": "Has OpenAI Image Key?",
+            "node": "Has Gemini Image Key?",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Has OpenAI Image Key?": {
+    "Has Gemini Image Key?": {
       "main": [
         [
           {
-            "node": "Generate Image - OpenAI Direct",
+            "node": "Generate Image - Gemini Direct",
             "type": "main",
             "index": 0
           }
@@ -2317,11 +2518,11 @@
         ]
       ]
     },
-    "Generate Image - OpenAI Direct": {
+    "Generate Image - Gemini Direct": {
       "main": [
         [
           {
-            "node": "Format OpenAI Image Response",
+            "node": "Format Gemini Image Response",
             "type": "main",
             "index": 0
           }
@@ -2339,7 +2540,7 @@
         ]
       ]
     },
-    "Format OpenAI Image Response": {
+    "Format Gemini Image Response": {
       "main": [
         [
           {
@@ -2350,7 +2551,7 @@
         ]
       ]
     },
-    "OpenAI Main Reasoning Model": {
+    "Google Gemini Chat Model": {
       "ai_languageModel": [
         [
           {
@@ -2674,14 +2875,14 @@
       "main": [
         [
           {
-            "node": "Summarize Chunk - OpenAI",
+            "node": "Summarize Chunk - Gemini",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Summarize Chunk - OpenAI": {
+    "Summarize Chunk - Gemini": {
       "main": [
         [
           {
@@ -2809,14 +3010,14 @@
       "main": [
         [
           {
-            "node": "OpenAI Image Edit",
+            "node": "Gemini Image Edit",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "OpenAI Image Edit": {
+    "Gemini Image Edit": {
       "main": [
         [
           {
@@ -2889,7 +3090,7 @@
         ],
         [
           {
-            "node": "Prepare OpenAI Vision OCR Request",
+            "node": "Prepare Gemini Vision OCR Request",
             "type": "main",
             "index": 0
           }
@@ -2900,29 +3101,29 @@
       "main": [
         [
           {
-            "node": "Prepare OpenAI Vision OCR Request",
+            "node": "Prepare Gemini Vision OCR Request",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Prepare OpenAI Vision OCR Request": {
+    "Prepare Gemini Vision OCR Request": {
       "main": [
         [
           {
-            "node": "OCR Should Call OpenAI?",
+            "node": "OCR Should Call Gemini?",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "OCR Should Call OpenAI?": {
+    "OCR Should Call Gemini?": {
       "main": [
         [
           {
-            "node": "OpenAI Vision OCR Fallback",
+            "node": "Gemini Vision OCR Fallback",
             "type": "main",
             "index": 0
           }
@@ -2936,7 +3137,7 @@
         ]
       ]
     },
-    "OpenAI Vision OCR Fallback": {
+    "Gemini Vision OCR Fallback": {
       "main": [
         [
           {
@@ -3002,14 +3203,14 @@
       "main": [
         [
           {
-            "node": "OpenAI Document OCR Fallback",
+            "node": "Gemini Document OCR Fallback",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "OpenAI Document OCR Fallback": {
+    "Gemini Document OCR Fallback": {
       "main": [
         [
           {
@@ -3064,14 +3265,14 @@
       "main": [
         [
           {
-            "node": "Content Studio Vision (OpenAI Direct)",
+            "node": "Content Studio Vision (Gemini Direct)",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Content Studio Vision (OpenAI Direct)": {
+    "Content Studio Vision (Gemini Direct)": {
       "main": [
         [
           {
@@ -3088,6 +3289,94 @@
           {
             "node": "07 Safe Response Contract",
             "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Codex Tool - Get Active Time Trackers": {
+      "ai_tool": [
+        [
+          {
+            "node": "06 Codex Main Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Codex Tool - Get User Timesheet": {
+      "ai_tool": [
+        [
+          {
+            "node": "06 Codex Main Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Codex Tool - Get Attendance Summary": {
+      "ai_tool": [
+        [
+          {
+            "node": "06 Codex Main Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Codex Tool - Get Leave Balance": {
+      "ai_tool": [
+        [
+          {
+            "node": "06 Codex Main Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Codex Tool - Get Board Task Summary": {
+      "ai_tool": [
+        [
+          {
+            "node": "06 Codex Main Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Codex Tool - Search Notifications": {
+      "ai_tool": [
+        [
+          {
+            "node": "06 Codex Main Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Codex Tool - Search Assets": {
+      "ai_tool": [
+        [
+          {
+            "node": "06 Codex Main Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Image Generation Tool": {
+      "ai_tool": [
+        [
+          {
+            "node": "06 Codex Main Agent",
+            "type": "ai_tool",
             "index": 0
           }
         ]

@@ -15,6 +15,8 @@ type ExecuteToolBody = {
   dryRun?: boolean;
 };
 
+type DbRow = Record<string, any>;
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
@@ -84,8 +86,145 @@ function buildBoardCardUrl(boardId: string, taskId: string) {
   return `/boards/${boardId}?cardId=${taskId}`;
 }
 
+function isManagerRole(role: string | null | undefined) {
+  return MANAGER_ROLES.has(String(role ?? "").toLowerCase());
+}
+
+function secondsBetween(start: string, end = new Date().toISOString()) {
+  const startMs = new Date(start).getTime();
+  const endMs = new Date(end).getTime();
+  if (Number.isNaN(startMs) || Number.isNaN(endMs)) return 0;
+  return Math.max(0, Math.floor((endMs - startMs) / 1000));
+}
+
+function readDateString(
+  payload: Record<string, unknown>,
+  key: string,
+  fallback?: string,
+) {
+  const value = readString(payload, key);
+  if (!value) return fallback ?? null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return fallback ?? null;
+  return value.length <= 10 ? `${value.slice(0, 10)}T00:00:00.000Z` : date.toISOString();
+}
+
+function readEndDateString(payload: Record<string, unknown>, key: string) {
+  const value = readString(payload, key);
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return value.length <= 10 ? `${value.slice(0, 10)}T23:59:59.999Z` : date.toISOString();
+}
+
+function defaultFromDate(daysBack: number) {
+  const date = new Date();
+  date.setUTCDate(date.getUTCDate() - daysBack);
+  date.setUTCHours(0, 0, 0, 0);
+  return date.toISOString();
+}
+
+function defaultToDate() {
+  const date = new Date();
+  date.setUTCHours(23, 59, 59, 999);
+  return date.toISOString();
+}
+
+function readDateRange(payload: Record<string, unknown>, defaultDaysBack = 7) {
+  const from = readDateString(payload, "from") ??
+    readDateString(payload, "start_date") ??
+    readDateString(payload, "startDate") ??
+    defaultFromDate(defaultDaysBack);
+  const to = readEndDateString(payload, "to") ??
+    readEndDateString(payload, "end_date") ??
+    readEndDateString(payload, "endDate") ??
+    defaultToDate();
+  return { from, to };
+}
+
+function profileDisplayName(profile: Record<string, unknown> | null | undefined) {
+  return String(
+    profile?.username ??
+      profile?.full_name ??
+      profile?.email ??
+      "Unknown user",
+  );
+}
+
+function buildTaskLink(boardId: unknown, taskId: unknown) {
+  if (typeof boardId === "string" && typeof taskId === "string") {
+    return `/boards/${boardId}?cardId=${taskId}`;
+  }
+  if (typeof taskId === "string") return `/tasks/${taskId}`;
+  return null;
+}
+
+async function fetchProfilesByIds(
+  adminClient: any,
+  organizationId: string,
+  userIds: string[],
+) {
+  const ids = [...new Set(userIds.filter(Boolean))];
+  const profilesById = new Map<string, Record<string, unknown>>();
+  if (ids.length === 0) return profilesById;
+
+  const { data, error } = await adminClient
+    .from("profiles")
+    .select("id, email, full_name, username, avatar_url, primary_role, department, office_id")
+    .eq("organization_id", organizationId)
+    .in("id", ids);
+
+  if (error) throw error;
+  for (const profile of data ?? []) profilesById.set(profile.id as string, profile);
+  return profilesById;
+}
+
+async function resolveTargetProfile(
+  adminClient: any,
+  ctx: Required<ToolContext>,
+  payload: Record<string, unknown>,
+) {
+  const requestedId = normalizeUuid(
+    payload.user_id ?? payload.userId ?? payload.employee_id ?? payload.employeeId,
+  );
+  const requestedEmail = readString(payload, "email") ??
+    readString(payload, "user_email") ??
+    readString(payload, "userEmail");
+  const requestedName = readString(payload, "name") ??
+    readString(payload, "user_name") ??
+    readString(payload, "userName") ??
+    readString(payload, "employee_name") ??
+    readString(payload, "employeeName");
+
+  if (!isManagerRole(ctx.role)) {
+    const { data, error } = await adminClient
+      .from("profiles")
+      .select("id, email, full_name, username, avatar_url, primary_role, department, leave_days_total, leave_days_remaining")
+      .eq("organization_id", ctx.organizationId)
+      .eq("id", ctx.userId)
+      .maybeSingle();
+    if (error) throw error;
+    return data ?? null;
+  }
+
+  let query = adminClient
+    .from("profiles")
+    .select("id, email, full_name, username, avatar_url, primary_role, department, leave_days_total, leave_days_remaining")
+    .eq("organization_id", ctx.organizationId)
+    .limit(5);
+
+  if (requestedId) query = query.eq("id", requestedId);
+  else if (requestedEmail) query = query.ilike("email", requestedEmail);
+  else if (requestedName) query = query.or(`full_name.ilike.%${requestedName}%,username.ilike.%${requestedName}%,email.ilike.%${requestedName}%`);
+  else query = query.eq("id", ctx.userId);
+
+  const { data, error } = await query;
+  if (error) throw error;
+  return data?.[0] ?? null;
+}
+
 async function resolveBoardId(
-  adminClient: ReturnType<typeof createClient>,
+  adminClient: any,
   organizationId: string,
   payload: Record<string, unknown>,
 ) {
@@ -112,14 +251,14 @@ async function resolveBoardId(
     .order("name", { ascending: true })
     .limit(5);
 
-  const exact = (data ?? []).find(
+  const exact = ((data ?? []) as DbRow[]).find(
     (row) => String(row.name ?? "").toLowerCase() === boardName.toLowerCase(),
   );
   return exact ?? data?.[0] ?? null;
 }
 
 async function resolveAssigneeIds(
-  adminClient: ReturnType<typeof createClient>,
+  adminClient: any,
   organizationId: string,
   payload: Record<string, unknown>,
 ) {
@@ -168,7 +307,7 @@ async function resolveAssigneeIds(
 }
 
 async function insertTaskNotification(
-  adminClient: ReturnType<typeof createClient>,
+  adminClient: any,
   params: {
     organizationId: string;
     userId: string;
@@ -207,7 +346,7 @@ async function insertTaskNotification(
 }
 
 async function toolSummarizeMyTasks(
-  adminClient: ReturnType<typeof createClient>,
+  adminClient: any,
   ctx: Required<ToolContext>,
 ) {
   const [{ data: primaryTasks, error: primaryError }, { data: assigneeRows, error: assigneeError }] =
@@ -230,7 +369,7 @@ async function toolSummarizeMyTasks(
   if (primaryError) throw primaryError;
   if (assigneeError) throw assigneeError;
 
-  const assignedTaskIds = (assigneeRows ?? []).map((row) => row.task_id as string);
+  const assignedTaskIds = ((assigneeRows ?? []) as DbRow[]).map((row) => row.task_id as string);
   let collaboratorTasks: typeof primaryTasks = [];
 
   if (assignedTaskIds.length > 0) {
@@ -305,7 +444,7 @@ async function toolSummarizeMyTasks(
 }
 
 async function toolListBoards(
-  adminClient: ReturnType<typeof createClient>,
+  adminClient: any,
   organizationId: string,
   payload: Record<string, unknown>,
 ) {
@@ -326,7 +465,7 @@ async function toolListBoards(
 
   return {
     ok: true,
-    boards: (data ?? []).map((board) => ({
+    boards: ((data ?? []) as DbRow[]).map((board) => ({
       id: board.id,
       name: board.name,
       status: board.status,
@@ -335,8 +474,378 @@ async function toolListBoards(
   };
 }
 
+async function toolGetActiveTimeTrackers(
+  adminClient: any,
+  ctx: Required<ToolContext>,
+  payload: Record<string, unknown> = {},
+) {
+  const personalScope = readString(payload, "scope") === "me" ||
+    payload.userOnly === true ||
+    payload.currentUserOnly === true;
+
+  let query = adminClient
+    .from("time_entries")
+    .select("id, user_id, task_id, client_id, project_id, description, started_at, duration_seconds, is_running")
+    .eq("organization_id", ctx.organizationId)
+    .eq("is_running", true)
+    .is("ended_at", null)
+    .order("started_at", { ascending: true })
+    .limit(100);
+
+  if (personalScope || !isManagerRole(ctx.role)) {
+    query = query.eq("user_id", ctx.userId);
+  }
+
+  const { data, error } = await query;
+  if (error) throw error;
+
+  const rows = (data ?? []) as DbRow[];
+  const profilesById = await fetchProfilesByIds(
+    adminClient,
+    ctx.organizationId,
+    rows.map((row) => row.user_id as string),
+  );
+
+  const taskIds = [...new Set(rows.map((row) => row.task_id as string | null).filter(Boolean) as string[])];
+  const boardIds = [...new Set(rows.map((row) => row.client_id as string | null).filter(Boolean) as string[])];
+  const tasksById = new Map<string, Record<string, unknown>>();
+  const boardsById = new Map<string, Record<string, unknown>>();
+
+  if (taskIds.length > 0) {
+    const { data: tasks, error: taskError } = await adminClient
+      .from("tasks")
+      .select("id, title, status")
+      .eq("organization_id", ctx.organizationId)
+      .in("id", taskIds);
+    if (taskError) throw taskError;
+    for (const task of tasks ?? []) tasksById.set(task.id as string, task);
+  }
+
+  if (boardIds.length > 0) {
+    const { data: boards, error: boardError } = await adminClient
+      .from("clients")
+      .select("id, name")
+      .eq("organization_id", ctx.organizationId)
+      .in("id", boardIds);
+    if (boardError) throw boardError;
+    for (const board of boards ?? []) boardsById.set(board.id as string, board);
+  }
+
+  const trackers = rows.map((row) => {
+    const profile = profilesById.get(row.user_id as string);
+    const task = row.task_id ? tasksById.get(row.task_id as string) : null;
+    const board = row.client_id ? boardsById.get(row.client_id as string) : null;
+    const elapsedSeconds = row.started_at
+      ? secondsBetween(row.started_at as string)
+      : Number(row.duration_seconds ?? 0);
+
+    return {
+      entryId: row.id,
+      userId: row.user_id,
+      name: profileDisplayName(profile),
+      email: profile?.email ?? null,
+      avatarUrl: profile?.avatar_url ?? null,
+      role: profile?.primary_role ?? null,
+      department: profile?.department ?? null,
+      taskId: row.task_id,
+      taskTitle: task?.title ?? null,
+      taskStatus: task?.status ?? null,
+      boardId: row.client_id,
+      boardName: board?.name ?? null,
+      taskUrl: buildTaskLink(row.client_id, row.task_id),
+      boardUrl: typeof row.client_id === "string" ? `/boards/${row.client_id}` : null,
+      description: row.description,
+      startedAt: row.started_at,
+      elapsedSeconds,
+    };
+  });
+
+  return {
+    ok: true,
+    count: trackers.length,
+    trackers,
+    message: trackers.length === 0
+      ? "No one is currently tracking time."
+      : `${trackers.length} user(s) are currently tracking time.`,
+  };
+}
+
+async function toolGetUserTimesheet(
+  adminClient: any,
+  ctx: Required<ToolContext>,
+  payload: Record<string, unknown>,
+) {
+  const profile = await resolveTargetProfile(adminClient, ctx, payload);
+  if (!profile?.id) return { ok: false, error: "User not found." };
+
+  const { from, to } = readDateRange(payload, 7);
+
+  const { data, error } = await adminClient
+    .from("time_entries")
+    .select("id, task_id, client_id, project_id, description, started_at, ended_at, duration_seconds, is_running, is_billable, approval_status, source")
+    .eq("organization_id", ctx.organizationId)
+    .eq("user_id", profile.id)
+    .gte("started_at", from)
+    .lte("started_at", to)
+    .order("started_at", { ascending: false })
+    .limit(200);
+
+  if (error) throw error;
+
+  const entries = (data ?? []) as DbRow[];
+  const taskIds = [...new Set(entries.map((row) => row.task_id as string | null).filter(Boolean) as string[])];
+  const boardIds = [...new Set(entries.map((row) => row.client_id as string | null).filter(Boolean) as string[])];
+  const tasksById = new Map<string, Record<string, unknown>>();
+  const boardsById = new Map<string, Record<string, unknown>>();
+
+  if (taskIds.length > 0) {
+    const { data: tasks, error: taskError } = await adminClient
+      .from("tasks")
+      .select("id, title")
+      .eq("organization_id", ctx.organizationId)
+      .in("id", taskIds);
+    if (taskError) throw taskError;
+    for (const task of tasks ?? []) tasksById.set(task.id as string, task);
+  }
+
+  if (boardIds.length > 0) {
+    const { data: boards, error: boardError } = await adminClient
+      .from("clients")
+      .select("id, name")
+      .eq("organization_id", ctx.organizationId)
+      .in("id", boardIds);
+    if (boardError) throw boardError;
+    for (const board of boards ?? []) boardsById.set(board.id as string, board);
+  }
+
+  const normalizedEntries = entries.map((entry) => {
+    const seconds = entry.is_running && entry.started_at
+      ? secondsBetween(entry.started_at as string)
+      : Number(entry.duration_seconds ?? 0);
+    return {
+      id: entry.id,
+      taskId: entry.task_id,
+      taskTitle: entry.task_id ? tasksById.get(entry.task_id as string)?.title ?? null : null,
+      boardId: entry.client_id,
+      boardName: entry.client_id ? boardsById.get(entry.client_id as string)?.name ?? null : null,
+      taskUrl: buildTaskLink(entry.client_id, entry.task_id),
+      boardUrl: typeof entry.client_id === "string" ? `/boards/${entry.client_id}` : null,
+      description: entry.description,
+      startedAt: entry.started_at,
+      endedAt: entry.ended_at,
+      durationSeconds: seconds,
+      isRunning: entry.is_running,
+      isBillable: entry.is_billable,
+      approvalStatus: entry.approval_status,
+      source: entry.source,
+    };
+  });
+
+  const totalSeconds = normalizedEntries.reduce(
+    (sum, entry) => sum + Number(entry.durationSeconds ?? 0),
+    0,
+  );
+
+  return {
+    ok: true,
+    user: {
+      id: profile.id,
+      name: profileDisplayName(profile),
+      email: profile.email ?? null,
+      avatarUrl: profile.avatar_url ?? null,
+      role: profile.primary_role ?? null,
+      department: profile.department ?? null,
+    },
+    range: { from, to },
+    totalSeconds,
+    totalHours: Number((totalSeconds / 3600).toFixed(2)),
+    entryCount: normalizedEntries.length,
+    entries: normalizedEntries,
+    message: `${profileDisplayName(profile)} tracked ${(totalSeconds / 3600).toFixed(2)} hour(s) in this period.`,
+  };
+}
+
+async function toolGetAttendanceSummary(
+  adminClient: any,
+  ctx: Required<ToolContext>,
+  payload: Record<string, unknown>,
+) {
+  const from = readString(payload, "date") ?? readString(payload, "from") ??
+    new Date().toISOString().slice(0, 10);
+  const to = readString(payload, "to") ?? from;
+  const hasTargetUser = Boolean(
+    normalizeUuid(payload.user_id ?? payload.userId ?? payload.employee_id ?? payload.employeeId) ||
+      readString(payload, "user_name") ||
+      readString(payload, "userName") ||
+      readString(payload, "employee_name") ||
+      readString(payload, "employeeName") ||
+      readString(payload, "email") ||
+      readString(payload, "user_email") ||
+      readString(payload, "userEmail"),
+  );
+  const teamView = isManagerRole(ctx.role) && !hasTargetUser;
+  const targetProfile = teamView ? null : await resolveTargetProfile(adminClient, ctx, payload);
+
+  let query = adminClient
+    .from("attendance_daily_status")
+    .select("id, user_id, attendance_date, status, expected_clock_in_at, actual_clock_in_at, notes")
+    .eq("organization_id", ctx.organizationId)
+    .gte("attendance_date", from.slice(0, 10))
+    .lte("attendance_date", to.slice(0, 10))
+    .order("attendance_date", { ascending: false })
+    .limit(300);
+
+  if (!teamView) query = query.eq("user_id", targetProfile?.id ?? ctx.userId);
+
+  const { data, error } = await query;
+  if (error) throw error;
+
+  const rows = (data ?? []) as DbRow[];
+  const profilesById = await fetchProfilesByIds(
+    adminClient,
+    ctx.organizationId,
+    rows.map((row) => row.user_id as string),
+  );
+
+  const counts = rows.reduce<Record<string, number>>((acc, row) => {
+    const status = String(row.status ?? "unknown");
+    acc[status] = (acc[status] ?? 0) + 1;
+    return acc;
+  }, {});
+
+  return {
+    ok: true,
+    range: { from: from.slice(0, 10), to: to.slice(0, 10) },
+    counts,
+    records: rows.map((row) => {
+      const profile = profilesById.get(row.user_id as string);
+      return {
+        id: row.id,
+        userId: row.user_id,
+        name: profileDisplayName(profile),
+        avatarUrl: profile?.avatar_url ?? null,
+        date: row.attendance_date,
+        status: row.status,
+        expectedClockInAt: row.expected_clock_in_at,
+        actualClockInAt: row.actual_clock_in_at,
+        notes: row.notes,
+      };
+    }),
+    message: `${rows.length} attendance record(s) found.`,
+  };
+}
+
+async function toolGetLeaveBalance(
+  adminClient: any,
+  ctx: Required<ToolContext>,
+  payload: Record<string, unknown>,
+) {
+  const profile = await resolveTargetProfile(adminClient, ctx, payload);
+  if (!profile?.id) return { ok: false, error: "User not found." };
+
+  const totalDays = Number(profile.leave_days_total ?? 22);
+  const remainingDays = Number(profile.leave_days_remaining ?? totalDays);
+  const usedDays = Math.max(totalDays - remainingDays, 0);
+
+  const { data: requests, error } = await adminClient
+    .from("leave_requests")
+    .select("id, start_date, end_date, requested_days, status, reason, created_at")
+    .eq("organization_id", ctx.organizationId)
+    .eq("user_id", profile.id)
+    .order("created_at", { ascending: false })
+    .limit(10);
+  if (error) throw error;
+
+  return {
+    ok: true,
+    user: {
+      id: profile.id,
+      name: profileDisplayName(profile),
+      email: profile.email ?? null,
+      avatarUrl: profile.avatar_url ?? null,
+      role: profile.primary_role ?? null,
+      department: profile.department ?? null,
+    },
+    balance: { totalDays, remainingDays, usedDays },
+    recentRequests: requests ?? [],
+    message: `${profileDisplayName(profile)} has ${remainingDays} leave day(s) remaining.`,
+  };
+}
+
+async function toolGetBoardTaskSummary(
+  adminClient: any,
+  ctx: Required<ToolContext>,
+  payload: Record<string, unknown>,
+) {
+  const board = await resolveBoardId(adminClient, ctx.organizationId, payload);
+  if (!board?.id) {
+    return { ok: false, error: "board_id or board_name is required and must match an existing board." };
+  }
+
+  const { data, error } = await adminClient
+    .from("tasks")
+    .select("id, title, status, priority, due_date, assigned_to, created_at, updated_at")
+    .eq("organization_id", ctx.organizationId)
+    .eq("client_id", board.id)
+    .order("updated_at", { ascending: false })
+    .limit(300);
+
+  if (error) throw error;
+
+  const tasks = (data ?? []) as DbRow[];
+  const statusCounts = tasks.reduce<Record<string, number>>((acc, task) => {
+    const status = String(task.status ?? "unknown");
+    acc[status] = (acc[status] ?? 0) + 1;
+    return acc;
+  }, {});
+  const priorityCounts = tasks.reduce<Record<string, number>>((acc, task) => {
+    const priority = String(task.priority ?? "none");
+    acc[priority] = (acc[priority] ?? 0) + 1;
+    return acc;
+  }, {});
+  const openTasks = tasks.filter((task) => !CLOSED_STATUSES.has(String(task.status ?? "")));
+  const overdueTasks = openTasks.filter((task) =>
+    task.due_date && new Date(task.due_date as string).getTime() < Date.now()
+  );
+
+  const profilesById = await fetchProfilesByIds(
+    adminClient,
+    ctx.organizationId,
+    tasks.map((task) => task.assigned_to as string | null).filter(Boolean) as string[],
+  );
+
+  return {
+    ok: true,
+    board: { id: board.id, name: board.name },
+    totals: {
+      totalTasks: tasks.length,
+      openTasks: openTasks.length,
+      overdueTasks: overdueTasks.length,
+      statusCounts,
+      priorityCounts,
+    },
+    tasks: tasks.slice(0, 40).map((task) => {
+      const assignee = task.assigned_to
+        ? profilesById.get(task.assigned_to as string)
+        : null;
+      return {
+        id: task.id,
+        title: task.title,
+        status: task.status,
+        priority: task.priority,
+        dueDate: task.due_date,
+        assigneeId: task.assigned_to,
+        assigneeName: assignee ? profileDisplayName(assignee) : null,
+        assigneeAvatarUrl: assignee?.avatar_url ?? null,
+        actionUrl: buildBoardCardUrl(board.id as string, task.id as string),
+      };
+    }),
+    message: `${board.name} has ${tasks.length} task(s), ${overdueTasks.length} overdue.`,
+  };
+}
+
 async function toolCreateBoardCard(
-  adminClient: ReturnType<typeof createClient>,
+  adminClient: any,
   ctx: Required<ToolContext>,
   payload: Record<string, unknown>,
   dryRun: boolean,
@@ -366,7 +875,7 @@ async function toolCreateBoardCard(
     ? new Date(`${dueDateRaw.slice(0, 10)}T15:00:00.000Z`).toISOString()
     : null;
   const description = readString(payload, "description");
-  const canCreateDirectly = MANAGER_ROLES.has(String(ctx.role ?? "").toLowerCase());
+  const canCreateDirectly = isManagerRole(ctx.role);
 
   const preview = {
     boardId: board.id,
@@ -507,7 +1016,7 @@ async function toolCreateBoardCard(
 }
 
 async function toolNotifyContentReview(
-  adminClient: ReturnType<typeof createClient>,
+  adminClient: any,
   ctx: Required<ToolContext>,
   payload: Record<string, unknown>,
   dryRun: boolean,
@@ -549,7 +1058,7 @@ async function toolNotifyContentReview(
   const officeIds = [
     ...new Set(
       (admins ?? [])
-        .map((admin) => admin.office_id as string | null)
+        .map((admin: DbRow) => admin.office_id as string | null)
         .filter(Boolean) as string[],
     ),
   ];
@@ -562,8 +1071,8 @@ async function toolNotifyContentReview(
 
     const itsNoMatataOfficeIds = new Set(
       (offices ?? [])
-        .filter((office) => office.slug === "its-no-matata")
-        .map((office) => office.id as string),
+        .filter((office: DbRow) => office.slug === "its-no-matata")
+        .map((office: DbRow) => office.id as string),
     );
 
     for (const admin of admins ?? []) {
@@ -601,6 +1110,68 @@ async function toolNotifyContentReview(
     actionUrl,
     recipientCount: notifications.length,
     message: `Notified ${notifications.length} team member(s) about the content draft.`,
+  };
+}
+
+async function toolSearchNotifications(
+  adminClient: any,
+  ctx: Required<ToolContext>,
+  payload: Record<string, unknown>,
+) {
+  const limit = typeof payload.limit === "number" ? payload.limit : 15;
+  const unreadOnly = payload.unreadOnly === true;
+
+  let query = adminClient
+    .from("notifications")
+    .select("id, type, title, message, is_read, created_at, action_url, priority, category")
+    .eq("organization_id", ctx.organizationId)
+    .eq("user_id", ctx.userId)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (unreadOnly) query = query.eq("is_read", false);
+
+  const { data, error } = await query;
+  if (error) throw error;
+
+  return {
+    ok: true,
+    notifications: data ?? [],
+    count: data?.length ?? 0,
+    unreadOnly,
+  };
+}
+
+async function toolSearchAssets(
+  adminClient: any,
+  ctx: Required<ToolContext>,
+  payload: Record<string, unknown>,
+) {
+  const queryText = readString(payload, "query") ??
+    readString(payload, "search") ?? "";
+  const limit = typeof payload.limit === "number" ? payload.limit : 15;
+
+  let query = adminClient
+    .from("assets")
+    .select("id, asset_name, asset_tag, serial_number, status, brand, model, condition")
+    .eq("organization_id", ctx.organizationId)
+    .order("updated_at", { ascending: false })
+    .limit(limit);
+
+  if (queryText) {
+    query = query.or(
+      `asset_name.ilike.%${queryText}%,asset_tag.ilike.%${queryText}%,serial_number.ilike.%${queryText}%,brand.ilike.%${queryText}%,model.ilike.%${queryText}%`,
+    );
+  }
+
+  const { data, error } = await query;
+  if (error) throw error;
+
+  return {
+    ok: true,
+    assets: data ?? [],
+    count: data?.length ?? 0,
+    query: queryText,
   };
 }
 
@@ -709,11 +1280,32 @@ Deno.serve(async (req) => {
       case "list_boards":
         result = await toolListBoards(adminClient, ctx.organizationId, payload);
         break;
+      case "get_active_time_trackers":
+        result = await toolGetActiveTimeTrackers(adminClient, ctx, payload);
+        break;
+      case "get_user_timesheet":
+        result = await toolGetUserTimesheet(adminClient, ctx, payload);
+        break;
+      case "get_attendance_summary":
+        result = await toolGetAttendanceSummary(adminClient, ctx, payload);
+        break;
+      case "get_leave_balance":
+        result = await toolGetLeaveBalance(adminClient, ctx, payload);
+        break;
+      case "get_board_task_summary":
+        result = await toolGetBoardTaskSummary(adminClient, ctx, payload);
+        break;
       case "create_board_card":
         result = await toolCreateBoardCard(adminClient, ctx, payload, dryRun);
         break;
       case "notify_content_review":
         result = await toolNotifyContentReview(adminClient, ctx, payload, dryRun);
+        break;
+      case "search_notifications":
+        result = await toolSearchNotifications(adminClient, ctx, payload);
+        break;
+      case "search_assets":
+        result = await toolSearchAssets(adminClient, ctx, payload);
         break;
       default:
         return jsonResponse({
@@ -721,8 +1313,15 @@ Deno.serve(async (req) => {
           allowedTools: [
             "summarize_my_tasks",
             "list_boards",
+            "get_active_time_trackers",
+            "get_user_timesheet",
+            "get_attendance_summary",
+            "get_leave_balance",
+            "get_board_task_summary",
             "create_board_card",
             "notify_content_review",
+            "search_notifications",
+            "search_assets",
           ],
         }, 400);
     }

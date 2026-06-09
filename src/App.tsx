@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from "./app/providers/AuthProvider";
 import { OrganizationBrandingProvider } from "./app/providers/OrganizationBrandingProvider";
 import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
+import FloatingAiAssistant from "./features/ai-layer/components/FloatingAiAssistant";
 
 function AppContent() {
   const auth = useAuth();
@@ -26,6 +27,7 @@ function AppContent() {
           pauseOnHover
           theme="dark"
         />
+        <FloatingAiAssistant />
       </NotificationProvider>
     </OrganizationBrandingProvider>
   );

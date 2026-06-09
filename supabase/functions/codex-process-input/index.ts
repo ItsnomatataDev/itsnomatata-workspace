@@ -266,7 +266,7 @@ function parseStoragePath(url: string, supabaseUrl: string) {
 
 async function resolveDownloadUrl(
   url: string,
-  adminClient: ReturnType<typeof createClient>,
+  adminClient: any,
 ) {
   if (!url || url.startsWith("blob:")) return { url: "", error: "blob URLs cannot be fetched server-side" };
   if (url.startsWith("data:")) {
@@ -388,19 +388,19 @@ async function extractPdfText(bytes: Uint8Array) {
 }
 
 async function resolveDocumentSourceUrl(
-  adminClient: ReturnType<typeof createClient>,
+  adminClient: any,
   documentId: string | null | undefined,
 ) {
   if (!documentId) return null;
   const { data } = await adminClient
     .from("ai_documents")
-    .select("source_url, file_name, mime_type")
+    .select("source_url, document_name, file_type")
     .eq("id", documentId)
     .maybeSingle();
   return data?.source_url ? {
     url: String(data.source_url),
-    name: typeof data.file_name === "string" ? data.file_name : "document",
-    mimeType: typeof data.mime_type === "string" ? data.mime_type : null,
+    name: typeof data.document_name === "string" ? data.document_name : "document",
+    mimeType: typeof data.file_type === "string" ? data.file_type : null,
   } : null;
 }
 
@@ -449,10 +449,12 @@ async function uploadOpenAiFile(
   mimeType: string,
 ) {
   const form = new FormData();
+  const fileBuffer = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(fileBuffer).set(bytes);
   form.append("purpose", "user_data");
   form.append(
     "file",
-    new Blob([bytes], { type: mimeType }),
+    new Blob([fileBuffer], { type: mimeType }),
     filename,
   );
 
@@ -752,7 +754,7 @@ async function fetchUrlText(url: string) {
 
 async function processAttachment(
   item: AttachmentInput,
-  adminClient: ReturnType<typeof createClient>,
+  adminClient: any,
   openAiKey: string,
   userMessage: string,
 ): Promise<ProcessedItem> {
@@ -918,7 +920,7 @@ async function processAttachment(
 
 async function processLink(
   url: string,
-  adminClient: ReturnType<typeof createClient>,
+  adminClient: any,
   openAiKey: string,
   userMessage: string,
 ): Promise<ProcessedItem> {

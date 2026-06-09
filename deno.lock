@@ -1,0 +1,61 @@
+{
+  "version": "5",
+  "redirects": {
+    "https://esm.sh/@supabase/supabase-js@2": "https://esm.sh/@supabase/supabase-js@2.103.0"
+  },
+  "remote": {
+    "https://esm.sh/@supabase/supabase-js@2.103.0": "513f5e7364668df19963929fd207a721e659e5c69875d8f1c1fe44b0a95d534d",
+    "https://esm.sh/jszip@3.10.1": "0428be12429bcc51e7067c0f35e99e09b65db0f40843497cf9c23f1bdfff27c3",
+    "https://esm.sh/unpdf@0.12.1": "fbffa8cb0799e760249fb47326cc2134abda5e15d1f71e2dc20c1594217aaad6",
+    "https://esm.sh/xlsx@0.18.5": "feaad96c2697fd87d8d2cbf00030869f6f3cb87afc6f58c92602f1e33309dc03"
+  },
+  "workspace": {
+    "packageJson": {
+      "dependencies": [
+        "npm:@dnd-kit/core@^6.3.1",
+        "npm:@dnd-kit/sortable@10",
+        "npm:@dnd-kit/utilities@^3.2.2",
+        "npm:@eslint/js@^9.39.4",
+        "npm:@livekit/components-core@~0.12.13",
+        "npm:@livekit/components-react@^2.9.20",
+        "npm:@livekit/components-styles@^1.2.0",
+        "npm:@react-native-async-storage/async-storage@2.2.0",
+        "npm:@supabase/supabase-js@^2.100.1",
+        "npm:@tailwindcss/vite@^4.2.2",
+        "npm:@types/file-saver@^2.0.7",
+        "npm:@types/node@^24.12.0",
+        "npm:@types/react-big-calendar@^1.16.3",
+        "npm:@types/react-dom@^19.2.3",
+        "npm:@types/react@^19.2.14",
+        "npm:@vercel/analytics@^2.0.1",
+        "npm:@vitejs/plugin-react@^6.0.1",
+        "npm:date-fns@^4.1.0",
+        "npm:eslint-plugin-react-hooks@^7.0.1",
+        "npm:eslint-plugin-react-refresh@~0.5.2",
+        "npm:eslint@^9.39.4",
+        "npm:expo@^55.0.17",
+        "npm:file-saver@^2.0.5",
+        "npm:globals@^17.4.0",
+        "npm:jsbarcode@^3.12.3",
+        "npm:knip@^6.13.0",
+        "npm:livekit-client@^2.18.1",
+        "npm:livekit-server-sdk@^2.15.3",
+        "npm:lucide-react@^1.7.0",
+        "npm:react-big-calendar@^1.19.4",
+        "npm:react-dom@^19.2.4",
+        "npm:react-qr-code@^2.0.18",
+        "npm:react-router-dom@^7.13.2",
+        "npm:react-toastify@^11.1.0",
+        "npm:react@^19.2.4",
+        "npm:recharts@^3.8.1",
+        "npm:tailwindcss@^4.2.2",
+        "npm:ts-prune@~0.10.3",
+        "npm:typescript-eslint@^8.57.0",
+        "npm:typescript@~5.9.3",
+        "npm:vite@^8.0.1",
+        "npm:web-push@^3.6.7",
+        "npm:xlsx@~0.18.5"
+      ]
+    }
+  }
+}

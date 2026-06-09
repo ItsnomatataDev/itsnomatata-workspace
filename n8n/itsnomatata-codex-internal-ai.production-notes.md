@@ -8,6 +8,17 @@ Created artifacts:
 - `supabase/migrations/202605270003_codex_generated_files.sql`
 - `supabase/migrations/202605270004_codex_private_memory.sql`
 
+## AI Layer Alignment (2026-06-08)
+
+- **n8n Codex workflow** (this file) remains the full AI Workspace brain: agent, attachments, image routes, document training.
+- **Floating assistant** uses Supabase `ai-router` (read-only quick lookups) — separate from this n8n webhook.
+- **Workspace tools** in n8n call `codex-execute-tool` (including `search_notifications` and `search_assets`).
+- **Webhook wiring:**
+  - Chat: Production URL from `01 Chat Trigger` → `VITE_N8N_AI_WEBHOOK_URL` (dev: `/api/ai`)
+  - Document upload: `POST /webhook/codex/upload-document` → `VITE_N8N_AI_DOCUMENT_UPLOAD_WEBHOOK_URL` (dev: `/api/ai/upload-document`)
+
+Re-import `itsnomatata-codex-internal-ai.production.workflow.json` after updates.
+
 ## What This Rebuild Does
 
 This turns the current workflow into a structured Codex system:

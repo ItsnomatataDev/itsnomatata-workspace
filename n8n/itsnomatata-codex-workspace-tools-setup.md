@@ -56,8 +56,25 @@ New agent tools:
 
 - Codex Tool - Summarize My Tasks
 - Codex Tool - List Boards
+- Codex Tool - Get Active Time Trackers
+- Codex Tool - Get User Timesheet
+- Codex Tool - Get Attendance Summary
+- Codex Tool - Get Leave Balance
+- Codex Tool - Get Board Task Summary
 - Codex Tool - Create Board Card
 - Codex Tool - Notify Content Review
+- Codex Tool - Search Notifications
+- Codex Tool - Search Assets
+
+Floating assistant (separate from this n8n workflow) uses:
+
+- `POST {SUPABASE_URL}/functions/v1/ai-router` for read-only quick lookups
+
+Deploy:
+
+```bash
+supabase functions deploy ai-router
+```
 
 ## System prompt
 
@@ -101,8 +118,63 @@ Body:
 |--------|--------|
 | `summarize_my_tasks` | Open/overdue tasks for current user |
 | `list_boards` | `payload.search` optional |
+| `get_active_time_trackers` | Current running time entries; managers see team, users see self |
+| `get_user_timesheet` | Time entries and totals for `payload.user_id`, `email`, or `name`; defaults to current user and last 7 days |
+| `get_attendance_summary` | Attendance status counts/records for a date range; managers can query team |
+| `get_leave_balance` | Leave balance and recent leave requests for `payload.user_id`, `email`, or `name` |
+| `get_board_task_summary` | Board task counts, overdue tasks, and recent cards for `payload.board_id` or `board_name` |
 | `create_board_card` | Creates card or `ai_task_suggestion` if not manager |
 | `notify_content_review` | `payload.draft_id` required |
+
+Example read-only tool bodies:
+
+```json
+{
+  "toolId": "get_active_time_trackers",
+  "payload": {},
+  "context": {
+    "userId": "YOUR_USER_UUID",
+    "organizationId": "YOUR_ORG_UUID",
+    "role": "admin",
+    "department": "Tech",
+    "fullName": "Tester"
+  }
+}
+```
+
+```json
+{
+  "toolId": "get_user_timesheet",
+  "payload": {
+    "name": "Tino",
+    "from": "2026-06-01",
+    "to": "2026-06-09"
+  },
+  "context": {
+    "userId": "YOUR_USER_UUID",
+    "organizationId": "YOUR_ORG_UUID",
+    "role": "manager",
+    "department": "Media",
+    "fullName": "Tester"
+  }
+}
+```
+
+```json
+{
+  "toolId": "get_board_task_summary",
+  "payload": {
+    "board_name": "Social Media"
+  },
+  "context": {
+    "userId": "YOUR_USER_UUID",
+    "organizationId": "YOUR_ORG_UUID",
+    "role": "manager",
+    "department": "Media",
+    "fullName": "Tester"
+  }
+}
+```
 
 ## Test in n8n
 
