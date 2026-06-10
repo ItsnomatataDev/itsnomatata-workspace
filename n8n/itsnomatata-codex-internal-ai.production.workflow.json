@@ -1,5 +1,5 @@
 {
-  "name": "ITsNomatata Codex Internal AI",
+  "name": "ITsNomatata Internal AI",
   "meta": {
     "description": "Production-ready n8n blueprint for Codex: chat agent, document training, document Q&A, people directory, web research, image fetch, code assistant, Gemini primary model.",
     "geminiBackup": false,
@@ -67,7 +67,7 @@
         0
       ],
       "parameters": {
-        "jsCode": "const request = $('02 Normalize Chat Payload').first().json;\nconst context = request.context || {};\n\n// This node is intentionally local-first. n8n on this server blocks $env,\n// and $vars may be empty during manual tests. The frontend already sends\n// user context, so do not crash the workflow when Supabase enrichment is\n// not configured yet.\nreturn [{ json: {\n  ...request,\n  profile: {\n    id: context.userId || null,\n    full_name: context.fullName || null,\n    email: context.email || null,\n    primary_role: context.role || 'employee',\n    department: context.department || null,\n    organization_id: context.organizationId || null\n  },\n  supabaseContextStatus: context.userId ? 'frontend_context' : 'anonymous_or_manual_test'\n}}];"
+        "jsCode": "const request = $('02 Normalize Chat Payload').first().json;\nconst context = request.context || {};\n\n// This node is intentionally local-first for manual tests. The frontend already sends\n// user context, so do not crash the workflow when Supabase enrichment is\n// not configured yet.\nreturn [{ json: {\n  ...request,\n  profile: {\n    id: context.userId || null,\n    full_name: context.fullName || null,\n    email: context.email || null,\n    primary_role: context.role || 'employee',\n    department: context.department || null,\n    organization_id: context.organizationId || null\n  },\n  supabaseContextStatus: context.userId ? 'frontend_context' : 'anonymous_or_manual_test'\n}}];"
       }
     },
     {
@@ -95,21 +95,21 @@
       "continueOnFail": true,
       "parameters": {
         "method": "POST",
-        "url": "={{ ($vars.SUPABASE_URL || 'https://zirftywinscopzuuwdlg.supabase.co') + '/functions/v1/codex-process-input' }}",
+        "url": "={{ ($env.SUPABASE_URL || 'https://zirftywinscopzuuwdlg.supabase.co') + '/functions/v1/codex-process-input' }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "apikey",
-              "value": "={{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+              "value": "={{ $env.SUPABASE_SERVICE_ROLE_KEY }}"
             },
             {
               "name": "Authorization",
-              "value": "=Bearer {{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+              "value": "=Bearer {{$env.SUPABASE_SERVICE_ROLE_KEY}}"
             },
             {
               "name": "x-codex-internal-key",
-              "value": "={{ $vars.INTERNAL_API_KEY }}"
+              "value": "={{ $env.INTERNAL_API_KEY }}"
             },
             {
               "name": "Content-Type",
@@ -150,22 +150,27 @@
       }
     },
     {
-      "id": "gemini-main-model",
-      "name": "Google Gemini Chat Model",
-      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
-      "typeVersion": 1,
+      "id": "openai-main-reasoning-model",
+      "name": "OpenAI Main Reasoning Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
       "position": [
         -560,
         360
       ],
       "parameters": {
-        "modelName": "models/gemini-2.5-flash",
+        "model": {
+          "__rl": true,
+          "value": "gpt-5-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-5-mini"
+        },
         "options": {}
       },
       "credentials": {
-        "googlePalmApi": {
-          "id": "dUioyJxpDiR0UmD0",
-          "name": "Google Gemini(PaLM) Api account"
+        "openAiApi": {
+          "id": "OPENAI_API_CREDENTIAL_ID",
+          "name": "OpenAi account"
         }
       }
     },
@@ -277,8 +282,8 @@
       }
     },
     {
-      "id": "generate-image-gemini-direct",
-      "name": "Generate Image - Gemini Direct",
+      "id": "generate-image-openai-direct",
+      "name": "Generate Image - OpenAI Direct",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
@@ -288,10 +293,14 @@
       "continueOnFail": true,
       "parameters": {
         "method": "POST",
-        "url": "={{ 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=' + $vars.GEMINI_API_KEY }}",
+        "url": "https://api.openai.com/v1/images/generations",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.OPENAI_API_KEY}}"
+            },
             {
               "name": "Content-Type",
               "value": "application/json"
@@ -301,7 +310,7 @@
         "sendBody": true,
         "options": {},
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ contents: [{ role: 'user', parts: [{ text: ($json.smartImagePrompt || $json.message || $json.chatInput || '').replace(/\\n\\[Context\\][\\s\\S]*$/,'').trim() }] }], generationConfig: { responseModalities: ['TEXT', 'IMAGE'], imageConfig: { aspectRatio: '1:1' } } }) }}"
+        "jsonBody": "={{ JSON.stringify({ model: 'gpt-image-1', prompt: $json.smartImagePrompt || $json.message || $json.chatInput || 'Generate a clean professional image.', size: '1024x1024', n: 1 }) }}"
       }
     },
     {
@@ -319,7 +328,7 @@
     },
     {
       "id": "has-gemini-image-key",
-      "name": "Has Gemini Image Key?",
+      "name": "Has OpenAI Image Key?",
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
       "position": [
@@ -335,7 +344,7 @@
               "conditions": {
                 "conditions": [
                   {
-                    "leftValue": "={{ Boolean($vars.GEMINI_API_KEY) }}",
+                    "leftValue": "={{ Boolean($env.OPENAI_API_KEY) }}",
                     "rightValue": true,
                     "operator": {
                       "type": "boolean",
@@ -368,12 +377,12 @@
         -360
       ],
       "parameters": {
-        "jsCode": "const source = $('05 Permission + Tool Router').first().json;\nreturn [{ json: {\n  success: true,\n  type: 'text',\n  message: 'Image generation is almost ready, but GEMINI_API_KEY is not configured in n8n. Add GEMINI_API_KEY to the n8n environment and activate the workflow again.',\n  output: 'Image generation is almost ready, but GEMINI_API_KEY is not configured in n8n. Add GEMINI_API_KEY to the n8n environment and activate the workflow again.',\n  conversationId: source.conversationId || null,\n  data: {},\n  attachments: [],\n  sources: []\n}}];"
+        "jsCode": "const source = $('05 Permission + Tool Router').first().json;\nreturn [{ json: {\n  success: true,\n  type: 'text',\n  message: 'Image generation is almost ready, but OPENAI_API_KEY is not configured in n8n. Add OPENAI_API_KEY to the n8n environment and activate the workflow again.',\n  output: 'Image generation is almost ready, but OPENAI_API_KEY is not configured in n8n. Add OPENAI_API_KEY to the n8n environment and activate the workflow again.',\n  conversationId: source.conversationId || null,\n  data: {},\n  attachments: [],\n  sources: []\n}}];"
       }
     },
     {
-      "id": "format-gemini-image-response",
-      "name": "Format Gemini Image Response",
+      "id": "format-openai-image-response",
+      "name": "Format OpenAI Image Response",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
@@ -381,7 +390,7 @@
         -180
       ],
       "parameters": {
-        "jsCode": "const source = $('05 Permission + Tool Router').first().json;\nconst prompt = (source.message || source.chatInput || 'generated image').replace(/\\n\\[Context\\][\\s\\S]*$/, '').trim();\nconst parts = ($json.candidates || []).flatMap(candidate => candidate?.content?.parts || []);\nconst imagePart = parts.find(part => part?.inlineData?.data || part?.inline_data?.data);\nconst b64 = imagePart?.inlineData?.data || imagePart?.inline_data?.data || '';\nconst mimeType = imagePart?.inlineData?.mimeType || imagePart?.inline_data?.mime_type || 'image/png';\nif (!b64) {\n  const detail = $json.error?.message || $json.message || $json.error || 'Gemini did not return inline image data.';\n  const message = `I could not return a generated image yet. Gemini image generation failed: ${String(detail).slice(0, 300)}`;\n  return [{ json: {\n    success: true,\n    type: 'text',\n    message,\n    output: message,\n    conversationId: source.conversationId || null,\n    data: { prompt },\n    attachments: [],\n    sources: []\n  }}];\n}\nconst imageUrl = `data:${mimeType};base64,${b64}`;\nconst slug = prompt.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48) || 'codex-image';\nreturn [{ json: {\n  success: true,\n  type: 'generated_image',\n  message: 'Image generated successfully.',\n  output: 'Image generated successfully.',\n  conversationId: source.conversationId || null,\n  data: { prompt },\n  attachments: [{\n    type: 'image',\n    name: `${slug}.png`,\n    url: imageUrl,\n    download_url: imageUrl,\n    metadata: { source: 'gemini_images', model: 'gemini-2.5-flash-image' }\n  }],\n  sources: []\n}}];"
+        "jsCode": "const source = $('05 Permission + Tool Router').first().json;\nconst b64 = $json.data?.[0]?.b64_json;\nif (!b64) {\n  const detail = $json.error?.message || $json.message || $json.error || 'OpenAI did not return image data.';\n  return [{ json: { success: false, type: 'text', message: `Image generation failed: ${String(detail).slice(0, 300)}`, output: `Image generation failed: ${String(detail).slice(0, 300)}`, conversationId: source.conversationId || null, attachments: [], sources: [] } }];\n}\nconst imageUrl = `data:image/png;base64,${b64}`;\nreturn [{ json: {\n  success: true,\n  type: 'generated_image',\n  message: 'Image generated successfully.',\n  output: 'Image generated successfully.',\n  conversationId: source.conversationId || null,\n  attachments: [{\n    type: 'image',\n    name: 'generated-image.png',\n    url: imageUrl,\n    download_url: imageUrl,\n    metadata: { source: 'openai_images', model: 'gpt-image-1', reusable_as_source: true }\n  }],\n  sources: []\n}}];"
       }
     },
     {
@@ -405,36 +414,33 @@
         420
       ],
       "parameters": {
-        "toolDescription": "Search approved ITsNomatata internal documents, policies, uploaded files, project summaries, and GraphRAG knowledge. Check role/department scope before using the content.",
+        "toolDescription": "Search indexed internal documents from Supabase Storage / internal document index only. Use for policies, uploaded files, leave documents, reports, SOPs, and company knowledge. Returns clean results with id, name, type, url, snippet, and score. Never use InfraNodus or web pages for this tool.",
         "method": "POST",
-        "url": "https://infranodus.com/api/v1/graphAndStatements?doNotSave=false&includeGraph=false&includeGraphSummary=true",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpBearerAuth",
-        "sendBody": true,
-        "bodyParameters": {
+        "url": "={{ ($env.SUPABASE_URL || 'https://zirftywinscopzuuwdlg.supabase.co') + '/functions/v1/codex-execute-tool' }}",
+        "sendHeaders": true,
+        "headerParameters": {
           "parameters": [
             {
-              "name": "name",
-              "value": "ai_topic_marketing-guidance"
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_SERVICE_ROLE_KEY }}"
             },
             {
-              "name": "requestMode",
-              "value": "response"
+              "name": "Authorization",
+              "value": "=Bearer {{$env.SUPABASE_SERVICE_ROLE_KEY}}"
             },
             {
-              "name": "prompt",
-              "value": "={{ $fromAI('document_query', '', 'string') }}"
+              "name": "x-codex-internal-key",
+              "value": "={{ $env.INTERNAL_API_KEY }}"
             },
             {
-              "name": "includeOnlySummaries",
-              "value": "true"
-            },
-            {
-              "name": "maxResults",
-              "value": "8"
+              "name": "Content-Type",
+              "value": "application/json"
             }
           ]
         },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ toolId: ($fromAI('document_tool_id', 'search_documents', 'string') || 'search_documents'), payload: { query: $fromAI('document_query', '', 'string') || '', name: $fromAI('document_name', '', 'string') || '', document_id: $fromAI('document_id', '', 'string') || '', limit: Number($fromAI('document_limit', '8', 'string') || 8) }, context: $('04 Merge Request + User Context').first().json.context }) }}",
         "options": {}
       }
     },
@@ -450,17 +456,17 @@
       "parameters": {
         "toolDescription": "Retrieve long-term private memory for the current user and, when present, the current project. Use this before answering questions that depend on prior preferences, decisions, project context, recurring work, or what the user previously told Codex. Never retrieve another user's memory.",
         "method": "GET",
-        "url": "={{ (() => { const base = $vars.SUPABASE_URL || 'https://zirftywinscopzuuwdlg.supabase.co'; const org = $json.context.organizationId; const user = $json.context.userId; const project = $json.metadata?.projectId; const scope = project ? `&or=(project_id.is.null,project_id.eq.${encodeURIComponent(project)})` : '&project_id=is.null'; return `${base}/rest/v1/ai_memory_items?select=*&organization_id=eq.${org}&user_id=eq.${user}${scope}&order=pinned.desc,importance.desc,updated_at.desc&limit=16`; })() }}",
+        "url": "={{ (() => { const base = $env.SUPABASE_URL || 'https://zirftywinscopzuuwdlg.supabase.co'; const org = $json.context.organizationId; const user = $json.context.userId; const project = $json.metadata?.projectId; const scope = project ? `&or=(project_id.is.null,project_id.eq.${encodeURIComponent(project)})` : '&project_id=is.null'; return `${base}/rest/v1/ai_memory_items?select=*&organization_id=eq.${org}&user_id=eq.${user}${scope}&order=pinned.desc,importance.desc,updated_at.desc&limit=16`; })() }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "apikey",
-              "value": "={{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+              "value": "={{ $env.SUPABASE_SERVICE_ROLE_KEY }}"
             },
             {
               "name": "Authorization",
-              "value": "=Bearer {{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+              "value": "=Bearer {{$env.SUPABASE_SERVICE_ROLE_KEY}}"
             }
           ]
         },
@@ -479,17 +485,17 @@
       "parameters": {
         "toolDescription": "Save useful long-term memory for the current user only. Save preferences, stable facts, project decisions, recurring instructions, and concise summaries that will help future chats. Do not save secrets, credentials, medical/legal sensitive data, or other people's private history. Use project scope when metadata.projectId exists.",
         "method": "POST",
-        "url": "={{ ($vars.SUPABASE_URL || 'https://zirftywinscopzuuwdlg.supabase.co') + '/rest/v1/ai_memory_items' }}",
+        "url": "={{ ($env.SUPABASE_URL || 'https://zirftywinscopzuuwdlg.supabase.co') + '/rest/v1/ai_memory_items' }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "apikey",
-              "value": "={{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+              "value": "={{ $env.SUPABASE_SERVICE_ROLE_KEY }}"
             },
             {
               "name": "Authorization",
-              "value": "=Bearer {{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+              "value": "=Bearer {{$env.SUPABASE_SERVICE_ROLE_KEY}}"
             },
             {
               "name": "Content-Type",
@@ -565,17 +571,17 @@
       "parameters": {
         "toolDescription": "Look up approved team members, departments, roles, responsibilities, managers, and active status from Supabase. Never invent people.",
         "method": "GET",
-        "url": "={{ ($vars.SUPABASE_URL || 'https://zirftywinscopzuuwdlg.supabase.co') + '/rest/v1/team_members?organization_id=eq.' + $json.context.organizationId + '&active_status=eq.active&select=*' }}",
+        "url": "={{ ($env.SUPABASE_URL || 'https://zirftywinscopzuuwdlg.supabase.co') + '/rest/v1/team_members?organization_id=eq.' + $json.context.organizationId + '&active_status=eq.active&select=*' }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "apikey",
-              "value": "={{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+              "value": "={{ $env.SUPABASE_SERVICE_ROLE_KEY }}"
             },
             {
               "name": "Authorization",
-              "value": "=Bearer {{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+              "value": "=Bearer {{$env.SUPABASE_SERVICE_ROLE_KEY}}"
             }
           ]
         },
@@ -600,7 +606,7 @@
           "parameters": [
             {
               "name": "Authorization",
-              "value": "=Bearer {{ $vars.TAVILY_API_KEY }}"
+              "value": "=Bearer {{$env.TAVILY_API_KEY}}"
             },
             {
               "name": "Content-Type",
@@ -666,12 +672,16 @@
         580
       ],
       "parameters": {
-        "toolDescription": "Analyze an uploaded image using Gemini vision. Use this when the user sends a picture and asks what it is, what car/model/object appears, to read text from an image, or to extract visible details. Input must include an image URL from the current attachments and a focused question. Return observations, likely identification, visible text, confidence, and limits.",
+        "toolDescription": "Analyze an uploaded image using OpenAI vision. Use this when the user sends a picture and asks what it is, what car/model/object appears, to read text from an image, or to extract visible details.",
         "method": "POST",
-        "url": "={{ 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + $vars.GEMINI_API_KEY }}",
+        "url": "https://api.openai.com/v1/responses",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.OPENAI_API_KEY}}"
+            },
             {
               "name": "Content-Type",
               "value": "application/json"
@@ -680,7 +690,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ contents: [{ role: 'user', parts: [{ text: $fromAI('image_question', 'Analyze this image. Identify visible objects, text, brand/model clues, and important details. Be honest about uncertainty.', 'string') }, (() => { const imageUrl = $fromAI('image_url', ($json.attachments || []).find(a => a?.url)?.url || '', 'string'); if (String(imageUrl).startsWith('data:')) { const match = String(imageUrl).match(/^data:([^;]+);base64,(.+)$/); return match ? { inline_data: { mime_type: match[1], data: match[2] } } : { text: 'No valid image data URL supplied.' }; } return { file_data: { mime_type: 'image/jpeg', file_uri: imageUrl } }; })()] }], generationConfig: { temperature: 0.2 } }) }}",
+        "jsonBody": "={{ JSON.stringify({ model: 'gpt-4o', input: [{ role: 'user', content: [{ type: 'input_text', text: $fromAI('image_question', 'Analyze this image. Identify visible objects, text, brand/model clues, and important details. Be honest about uncertainty.', 'string') }, { type: 'input_image', image_url: $fromAI('image_url', ($json.attachments || []).find(a => a?.url)?.url || '', 'string') }] }], temperature: 0.2 }) }}",
         "options": {}
       }
     },
@@ -696,13 +706,21 @@
       "parameters": {
         "toolDescription": "Generate a downloadable PDF from an AI answer, document summary, report, or HTML. Input should include title, html or markdown/content, file_name, organization_id, user_id, and optional storage target. Return attachment object with type pdf, url, and download_url.",
         "method": "POST",
-        "url": "={{ ($vars.CODEX_FILE_SERVICE_URL || 'https://example.com/codex-file-service') + '/pdf' }}",
+        "url": "={{$env.SUPABASE_URL}}/functions/v1/generate-pdf",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
+              "name": "apikey",
+              "value": "={{$env.SUPABASE_SERVICE_ROLE_KEY}}"
+            },
+            {
               "name": "Authorization",
-              "value": "=Bearer {{ $vars.CODEX_FILE_SERVICE_KEY }}"
+              "value": "=Bearer {{$env.SUPABASE_SERVICE_ROLE_KEY}}"
+            },
+            {
+              "name": "x-codex-internal-key",
+              "value": "={{$env.INTERNAL_API_KEY}}"
             },
             {
               "name": "Content-Type",
@@ -750,13 +768,21 @@
       "parameters": {
         "toolDescription": "Create downloadable txt, md, json, csv, or html files from Codex output. Save to Supabase Storage or Google Drive through the file service. Return attachment object with type, name, url, and download_url.",
         "method": "POST",
-        "url": "={{ ($vars.CODEX_FILE_SERVICE_URL || 'https://example.com/codex-file-service') + '/export' }}",
+        "url": "={{$env.SUPABASE_URL}}/functions/v1/generate-file-export",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
+              "name": "apikey",
+              "value": "={{$env.SUPABASE_SERVICE_ROLE_KEY}}"
+            },
+            {
               "name": "Authorization",
-              "value": "=Bearer {{ $vars.CODEX_FILE_SERVICE_KEY }}"
+              "value": "=Bearer {{$env.SUPABASE_SERVICE_ROLE_KEY}}"
+            },
+            {
+              "name": "x-codex-internal-key",
+              "value": "={{$env.INTERNAL_API_KEY}}"
             },
             {
               "name": "Content-Type",
@@ -804,21 +830,21 @@
       "parameters": {
         "toolDescription": "Load the current user's open assigned tasks from the workspace (with overdue count and board links). Use when the user asks what they should work on, what is overdue, or wants a task summary. Do not guess task lists.",
         "method": "POST",
-        "url": "={{ ($vars.SUPABASE_URL || 'https://zirftywinscopzuuwdlg.supabase.co') + '/functions/v1/codex-execute-tool' }}",
+        "url": "={{ ($env.SUPABASE_URL || 'https://zirftywinscopzuuwdlg.supabase.co') + '/functions/v1/codex-execute-tool' }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "apikey",
-              "value": "={{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+              "value": "={{ $env.SUPABASE_SERVICE_ROLE_KEY }}"
             },
             {
               "name": "Authorization",
-              "value": "=Bearer {{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+              "value": "=Bearer {{$env.SUPABASE_SERVICE_ROLE_KEY}}"
             },
             {
               "name": "x-codex-internal-key",
-              "value": "={{ $vars.INTERNAL_API_KEY }}"
+              "value": "={{ $env.INTERNAL_API_KEY }}"
             },
             {
               "name": "Content-Type",
@@ -844,21 +870,21 @@
       "parameters": {
         "toolDescription": "List kanban boards (clients table) for the user's organization. Use to resolve board_id from a board name before creating a card. Pass search when the user names a board.",
         "method": "POST",
-        "url": "={{ ($vars.SUPABASE_URL || 'https://zirftywinscopzuuwdlg.supabase.co') + '/functions/v1/codex-execute-tool' }}",
+        "url": "={{ ($env.SUPABASE_URL || 'https://zirftywinscopzuuwdlg.supabase.co') + '/functions/v1/codex-execute-tool' }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "apikey",
-              "value": "={{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+              "value": "={{ $env.SUPABASE_SERVICE_ROLE_KEY }}"
             },
             {
               "name": "Authorization",
-              "value": "=Bearer {{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+              "value": "=Bearer {{$env.SUPABASE_SERVICE_ROLE_KEY}}"
             },
             {
               "name": "x-codex-internal-key",
-              "value": "={{ $vars.INTERNAL_API_KEY }}"
+              "value": "={{ $env.INTERNAL_API_KEY }}"
             },
             {
               "name": "Content-Type",
@@ -884,21 +910,21 @@
       "parameters": {
         "toolDescription": "Create a kanban card on a board for the user's organization. Required: title and board_id or board_name. Optional: description, priority (low|medium|high|urgent), due_date (YYYY-MM-DD), assignee_user_id, assignee_email, assignee_name. Managers create immediately; others submit for approval. Always call List Boards first if board_id is unknown.",
         "method": "POST",
-        "url": "={{ ($vars.SUPABASE_URL || 'https://zirftywinscopzuuwdlg.supabase.co') + '/functions/v1/codex-execute-tool' }}",
+        "url": "={{ ($env.SUPABASE_URL || 'https://zirftywinscopzuuwdlg.supabase.co') + '/functions/v1/codex-execute-tool' }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "apikey",
-              "value": "={{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+              "value": "={{ $env.SUPABASE_SERVICE_ROLE_KEY }}"
             },
             {
               "name": "Authorization",
-              "value": "=Bearer {{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+              "value": "=Bearer {{$env.SUPABASE_SERVICE_ROLE_KEY}}"
             },
             {
               "name": "x-codex-internal-key",
-              "value": "={{ $vars.INTERNAL_API_KEY }}"
+              "value": "={{ $env.INTERNAL_API_KEY }}"
             },
             {
               "name": "Content-Type",
@@ -924,21 +950,21 @@
       "parameters": {
         "toolDescription": "Notify the content review team (draft creator, assignee, IT's No Matata admins) about a content studio draft. Required: draft_id. Optional: title and message for the notification body.",
         "method": "POST",
-        "url": "={{ ($vars.SUPABASE_URL || 'https://zirftywinscopzuuwdlg.supabase.co') + '/functions/v1/codex-execute-tool' }}",
+        "url": "={{ ($env.SUPABASE_URL || 'https://zirftywinscopzuuwdlg.supabase.co') + '/functions/v1/codex-execute-tool' }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "apikey",
-              "value": "={{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+              "value": "={{ $env.SUPABASE_SERVICE_ROLE_KEY }}"
             },
             {
               "name": "Authorization",
-              "value": "=Bearer {{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+              "value": "=Bearer {{$env.SUPABASE_SERVICE_ROLE_KEY}}"
             },
             {
               "name": "x-codex-internal-key",
-              "value": "={{ $vars.INTERNAL_API_KEY }}"
+              "value": "={{ $env.INTERNAL_API_KEY }}"
             },
             {
               "name": "Content-Type",
@@ -964,21 +990,21 @@
       "parameters": {
         "toolDescription": "Read currently running time trackers from the workspace. Use when the user asks who is tracking time, who is clocked into task time, what people are working on right now, or active timers. Managers/admins see the team; normal users see their own active timer.",
         "method": "POST",
-        "url": "={{ ($vars.SUPABASE_URL || 'https://zirftywinscopzuuwdlg.supabase.co') + '/functions/v1/codex-execute-tool' }}",
+        "url": "={{ ($env.SUPABASE_URL || 'https://zirftywinscopzuuwdlg.supabase.co') + '/functions/v1/codex-execute-tool' }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "apikey",
-              "value": "={{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+              "value": "={{ $env.SUPABASE_SERVICE_ROLE_KEY }}"
             },
             {
               "name": "Authorization",
-              "value": "=Bearer {{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+              "value": "=Bearer {{$env.SUPABASE_SERVICE_ROLE_KEY}}"
             },
             {
               "name": "x-codex-internal-key",
-              "value": "={{ $vars.INTERNAL_API_KEY }}"
+              "value": "={{ $env.INTERNAL_API_KEY }}"
             },
             {
               "name": "Content-Type",
@@ -1004,21 +1030,21 @@
       "parameters": {
         "toolDescription": "Read a user timesheet from real time_entries. Use when the user asks for someone's time sheet, tracked hours, time entries, approval status, or work log for a date range. Optional AI fields: user_id, user_email, user_name, from, to. Defaults to current user and the last 7 days.",
         "method": "POST",
-        "url": "={{ ($vars.SUPABASE_URL || 'https://zirftywinscopzuuwdlg.supabase.co') + '/functions/v1/codex-execute-tool' }}",
+        "url": "={{ ($env.SUPABASE_URL || 'https://zirftywinscopzuuwdlg.supabase.co') + '/functions/v1/codex-execute-tool' }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "apikey",
-              "value": "={{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+              "value": "={{ $env.SUPABASE_SERVICE_ROLE_KEY }}"
             },
             {
               "name": "Authorization",
-              "value": "=Bearer {{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+              "value": "=Bearer {{$env.SUPABASE_SERVICE_ROLE_KEY}}"
             },
             {
               "name": "x-codex-internal-key",
-              "value": "={{ $vars.INTERNAL_API_KEY }}"
+              "value": "={{ $env.INTERNAL_API_KEY }}"
             },
             {
               "name": "Content-Type",
@@ -1044,21 +1070,21 @@
       "parameters": {
         "toolDescription": "Read attendance daily status records and counts. Use when the user asks about attendance, present/late/absent/on-leave counts, or a person's attendance. Optional AI fields: attendance_user_id, attendance_user_email, attendance_user_name, attendance_date, attendance_from, attendance_to. Managers/admins can query team attendance; normal users see self.",
         "method": "POST",
-        "url": "={{ ($vars.SUPABASE_URL || 'https://zirftywinscopzuuwdlg.supabase.co') + '/functions/v1/codex-execute-tool' }}",
+        "url": "={{ ($env.SUPABASE_URL || 'https://zirftywinscopzuuwdlg.supabase.co') + '/functions/v1/codex-execute-tool' }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "apikey",
-              "value": "={{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+              "value": "={{ $env.SUPABASE_SERVICE_ROLE_KEY }}"
             },
             {
               "name": "Authorization",
-              "value": "=Bearer {{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+              "value": "=Bearer {{$env.SUPABASE_SERVICE_ROLE_KEY}}"
             },
             {
               "name": "x-codex-internal-key",
-              "value": "={{ $vars.INTERNAL_API_KEY }}"
+              "value": "={{ $env.INTERNAL_API_KEY }}"
             },
             {
               "name": "Content-Type",
@@ -1084,21 +1110,21 @@
       "parameters": {
         "toolDescription": "Read leave balance and recent leave requests for a user. Use when the user asks how many leave days someone has, leave balance, used leave, remaining leave, or recent leave requests. Optional AI fields: leave_user_id, leave_user_email, leave_user_name. Managers/admins can query team leave; normal users see self.",
         "method": "POST",
-        "url": "={{ ($vars.SUPABASE_URL || 'https://zirftywinscopzuuwdlg.supabase.co') + '/functions/v1/codex-execute-tool' }}",
+        "url": "={{ ($env.SUPABASE_URL || 'https://zirftywinscopzuuwdlg.supabase.co') + '/functions/v1/codex-execute-tool' }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "apikey",
-              "value": "={{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+              "value": "={{ $env.SUPABASE_SERVICE_ROLE_KEY }}"
             },
             {
               "name": "Authorization",
-              "value": "=Bearer {{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+              "value": "=Bearer {{$env.SUPABASE_SERVICE_ROLE_KEY}}"
             },
             {
               "name": "x-codex-internal-key",
-              "value": "={{ $vars.INTERNAL_API_KEY }}"
+              "value": "={{ $env.INTERNAL_API_KEY }}"
             },
             {
               "name": "Content-Type",
@@ -1124,21 +1150,21 @@
       "parameters": {
         "toolDescription": "Read board task totals, status counts, priority counts, overdue count, and recent cards. Use when the user asks what is happening on a board, board workload, overdue cards, task status, or board summary. Required AI field: board_id or board_name.",
         "method": "POST",
-        "url": "={{ ($vars.SUPABASE_URL || 'https://zirftywinscopzuuwdlg.supabase.co') + '/functions/v1/codex-execute-tool' }}",
+        "url": "={{ ($env.SUPABASE_URL || 'https://zirftywinscopzuuwdlg.supabase.co') + '/functions/v1/codex-execute-tool' }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "apikey",
-              "value": "={{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+              "value": "={{ $env.SUPABASE_SERVICE_ROLE_KEY }}"
             },
             {
               "name": "Authorization",
-              "value": "=Bearer {{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+              "value": "=Bearer {{$env.SUPABASE_SERVICE_ROLE_KEY}}"
             },
             {
               "name": "x-codex-internal-key",
-              "value": "={{ $vars.INTERNAL_API_KEY }}"
+              "value": "={{ $env.INTERNAL_API_KEY }}"
             },
             {
               "name": "Content-Type",
@@ -1162,12 +1188,16 @@
         420
       ],
       "parameters": {
-        "toolDescription": "Generate an image with Gemini. Use this only when the user asks to create a new image. Improve the prompt for clean business use. The Gemini response returns inline image data in candidates[].content.parts[].inlineData; convert it into an attachment with url and download_url set to data:image/...;base64,{data}. Never claim success without returning that visible image attachment.",
+        "toolDescription": "Generate an image with OpenAI. Use this only when the user asks to create a new image. Improve the prompt for clean business use. The response returns data[0].b64_json; convert it into an attachment with url and download_url set to data:image/png;base64,{b64_json}. Never claim success without returning that visible image attachment.",
         "method": "POST",
-        "url": "={{ 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=' + $vars.GEMINI_API_KEY }}",
+        "url": "https://api.openai.com/v1/images/generations",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.OPENAI_API_KEY}}"
+            },
             {
               "name": "Content-Type",
               "value": "application/json"
@@ -1177,7 +1207,7 @@
         "sendBody": true,
         "options": {},
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ contents: [{ role: 'user', parts: [{ text: $fromAI('image_prompt', '', 'string') }] }], generationConfig: { responseModalities: ['TEXT', 'IMAGE'], imageConfig: { aspectRatio: '1:1' } } }) }}"
+        "jsonBody": "={{ JSON.stringify({ model: 'gpt-image-1', prompt: $fromAI('image_prompt', '', 'string'), size: '1024x1024', n: 1 }) }}"
       }
     },
     {
@@ -1193,7 +1223,7 @@
         "promptType": "define",
         "text": "={{ $json.chatInput || $json.message }}",
         "options": {
-          "systemMessage": "Paste the full prompt from n8n/itsnomatata-ai-workspace-brain.system-prompt.md here. Gemini is the primary model. Use tools only when needed. Respect role, department, organization, and project memory scope. If verified internal knowledge is missing, say so clearly."
+          "systemMessage": "Paste the full prompt from n8n/itsnomatata-ai-workspace-brain.system-prompt.md here. OpenAI is the primary model. Use tools only when needed. Respect role, department, organization, and project memory scope. If verified internal knowledge is missing, say so clearly."
         }
       }
     },
@@ -1208,7 +1238,7 @@
       ],
       "parameters": {
         "method": "POST",
-        "url": "={{ 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + $vars.GEMINI_API_KEY }}",
+        "url": "={{ 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + $env.GEMINI_API_KEY }}",
         "sendBody": true,
         "bodyParameters": {
           "parameters": [
@@ -1231,7 +1261,7 @@
         0
       ],
       "parameters": {
-        "jsCode": "let output = $json.output || $json.message || $json.text || 'I could not produce a verified response.';\nconst rawAttachments = Array.isArray($json.attachments) ? $json.attachments : [];\nconst isBrowserUrl = value => typeof value === 'string' && /^(https?:|data:image\\/|blob:)/i.test(value);\nlet attachments = rawAttachments.filter(item => item && typeof item === 'object').map(item => ({ type: item.type || item.file_type || 'file', name: item.name || item.file_name || 'codex-file', url: item.url || item.image_url || item.download_url || '', download_url: item.download_url || item.url || item.image_url || '', metadata: item.metadata || {} })).filter(item => isBrowserUrl(item.url) || isBrowserUrl(item.download_url));\nconst rawB64 = $json.data?.[0]?.b64_json || $json.data?.b64_json || $json.b64_json;\nif (rawB64 && typeof rawB64 === 'string') { const imageUrl = 'data:image/png;base64,' + rawB64; attachments.push({ type: 'image', name: $json.file_name || 'codex-generated-image.png', url: imageUrl, download_url: imageUrl, metadata: { source: $json.type === 'edited_image' ? 'gemini_images_edit' : 'gemini_images' } }); }\nlet hasVisibleImage = attachments.some(item => String(item.type || '').toLowerCase().includes('image') && (isBrowserUrl(item.url) || isBrowserUrl(item.download_url)));\nconst requestedType = $json.type || 'text';\nconst claimsImageGenerated = /image\\s+(has been\\s+)?(created|generated)|generated\\s+image|download\\s+.*image/i.test(output);\nconst claimsImageEdited = /image\\s+(has been\\s+)?(edited|updated|modified)|edited\\s+image/i.test(output);\nif ((claimsImageGenerated || claimsImageEdited || ['generated_image', 'edited_image'].includes(requestedType)) && !hasVisibleImage) { output = claimsImageEdited || requestedType === 'edited_image' ? 'I could not return an edited image because no visible image attachment was produced.' : 'I could not return a generated image because no visible image attachment was produced.'; attachments = []; }\nconst allowedTypes = new Set(['generated_image', 'edited_image', 'image_analysis', 'document_extraction', 'ocr_extraction', 'file_export', 'text']);\nconst responseType = allowedTypes.has(requestedType) ? requestedType : (hasVisibleImage ? 'generated_image' : 'text');\nreturn [{ json: { success: $json.success !== false, type: responseType, message: output, output, conversationId: $json.conversationId || $('04 Merge Request + User Context').first().json.conversationId || null, data: $json.data || {}, contextPatch: $json.contextPatch || $json.data?.contextPatch || {}, attachments, sources: $json.sources || [] } }];"
+        "jsCode": "let output = $json.output || $json.message || $json.text || 'I could not produce a verified response.';\nconst rawAttachments = Array.isArray($json.attachments) ? $json.attachments : [];\nconst isBrowserUrl = value => typeof value === 'string' && /^(https?:|data:image\\/|blob:)/i.test(value);\nlet attachments = rawAttachments.filter(item => item && typeof item === 'object').map(item => ({ type: item.type || item.file_type || 'file', name: item.name || item.file_name || 'codex-file', url: item.url || item.image_url || item.download_url || '', download_url: item.download_url || item.url || item.image_url || '', metadata: item.metadata || {} })).filter(item => isBrowserUrl(item.url) || isBrowserUrl(item.download_url));\nconst rawB64 = $json.data?.[0]?.b64_json || $json.data?.b64_json || $json.b64_json;\nif (rawB64 && typeof rawB64 === 'string') { const imageUrl = 'data:image/png;base64,' + rawB64; attachments.push({ type: 'image', name: $json.file_name || 'codex-generated-image.png', url: imageUrl, download_url: imageUrl, metadata: { source: $json.type === 'edited_image' ? 'openai_images_edit' : 'openai_images' } }); }\nlet hasVisibleImage = attachments.some(item => String(item.type || '').toLowerCase().includes('image') && (isBrowserUrl(item.url) || isBrowserUrl(item.download_url)));\nconst requestedType = $json.type || 'text';\nconst claimsImageGenerated = /image\\s+(has been\\s+)?(created|generated)|generated\\s+image|download\\s+.*image/i.test(output);\nconst claimsImageEdited = /image\\s+(has been\\s+)?(edited|updated|modified)|edited\\s+image/i.test(output);\nif ((claimsImageGenerated || claimsImageEdited || ['generated_image', 'edited_image'].includes(requestedType)) && !hasVisibleImage) { output = claimsImageEdited || requestedType === 'edited_image' ? 'I could not return an edited image because no visible image attachment was produced.' : 'I could not return a generated image because no visible image attachment was produced.'; attachments = []; }\nconst allowedTypes = new Set(['generated_image', 'edited_image', 'image_analysis', 'document_extraction', 'ocr_extraction', 'file_export', 'text']);\nconst responseType = allowedTypes.has(requestedType) ? requestedType : (hasVisibleImage ? 'generated_image' : 'text');\nreturn [{ json: { success: $json.success !== false, type: responseType, message: output, output, conversationId: $json.conversationId || $('04 Merge Request + User Context').first().json.conversationId || null, data: $json.data || {}, contextPatch: $json.contextPatch || $json.data?.contextPatch || {}, attachments, sources: $json.sources || [] } }];"
       }
     },
     {
@@ -1563,7 +1593,7 @@
       ],
       "parameters": {
         "method": "POST",
-        "url": "={{ 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + $vars.GEMINI_API_KEY }}",
+        "url": "={{ 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + $env.GEMINI_API_KEY }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -1603,17 +1633,17 @@
       ],
       "parameters": {
         "method": "POST",
-        "url": "={{ ($vars.SUPABASE_URL || 'https://zirftywinscopzuuwdlg.supabase.co') + '/rest/v1/ai_documents' }}",
+        "url": "={{ ($env.SUPABASE_URL || 'https://zirftywinscopzuuwdlg.supabase.co') + '/rest/v1/ai_documents' }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "apikey",
-              "value": "={{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+              "value": "={{ $env.SUPABASE_SERVICE_ROLE_KEY }}"
             },
             {
               "name": "Authorization",
-              "value": "=Bearer {{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+              "value": "=Bearer {{$env.SUPABASE_SERVICE_ROLE_KEY}}"
             },
             {
               "name": "Prefer",
@@ -1682,8 +1712,8 @@
       }
     },
     {
-      "id": "save-to-graphrag",
-      "name": "Save Summary to InfraNodus GraphRAG",
+      "id": "index-summary-supabase-document-search",
+      "name": "Index Summary in Supabase Document Search",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
@@ -1692,26 +1722,31 @@
       ],
       "parameters": {
         "method": "POST",
-        "url": "https://infranodus.com/api/v1/graphAndStatements?doNotSave=false&includeGraph=false&includeGraphSummary=true",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpBearerAuth",
-        "sendBody": true,
-        "bodyParameters": {
+        "url": "={{ ($env.SUPABASE_URL || 'https://zirftywinscopzuuwdlg.supabase.co') + '/functions/v1/codex-process-input' }}",
+        "sendHeaders": true,
+        "headerParameters": {
           "parameters": [
             {
-              "name": "name",
-              "value": "ai_topic_marketing-guidance"
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_SERVICE_ROLE_KEY }}"
             },
             {
-              "name": "text",
-              "value": "={{ $json.summary_detailed }}"
+              "name": "Authorization",
+              "value": "=Bearer {{$env.SUPABASE_SERVICE_ROLE_KEY}}"
             },
             {
-              "name": "categories",
-              "value": "={{ ['ITsNomatata', $json.department || 'General', $json.module || 'AI Workspace'].join(', ') }}"
+              "name": "x-codex-internal-key",
+              "value": "={{ $env.INTERNAL_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
             }
           ]
         },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ message: 'Index this approved internal document summary for document search.', chatInput: 'Index this approved internal document summary for document search.', attachments: [{ name: $json.document_name || $json.file_name || $json.name || 'Uploaded document', mimeType: $json.file_type || 'text/plain', textContent: $json.summary_detailed || $json.summary_short || '' }], attachmentSources: [], links: [], context: { userId: $json.uploaded_by || $json.context?.userId, organizationId: $json.organization_id || $json.context?.organizationId, role: $json.context?.role || 'admin', department: $json.department || $json.context?.department, fullName: $json.context?.fullName, currentModule: $json.module || 'ai-workspace' } }) }}",
         "options": {}
       }
     },
@@ -1866,7 +1901,7 @@
       "continueOnFail": true,
       "parameters": {
         "method": "POST",
-        "url": "={{ 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=' + $vars.GEMINI_API_KEY }}",
+        "url": "={{ 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=' + $env.GEMINI_API_KEY }}",
         "sendBody": true,
         "options": {},
         "sendHeaders": true,
@@ -2062,7 +2097,7 @@
       "continueOnFail": true,
       "parameters": {
         "method": "POST",
-        "url": "={{ 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + $vars.GEMINI_API_KEY }}",
+        "url": "={{ 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + $env.GEMINI_API_KEY }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -2173,7 +2208,7 @@
       "continueOnFail": true,
       "parameters": {
         "method": "POST",
-        "url": "={{ 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + $vars.GEMINI_API_KEY }}",
+        "url": "={{ 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + $env.GEMINI_API_KEY }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -2212,7 +2247,7 @@
         260
       ],
       "parameters": {
-        "jsCode": "const item = $json;\nconst merge = $('04c Merge Processed Input').first()?.json || {};\nconst router = $('05 Permission + Tool Router').first()?.json || {};\nconst name = item.ocrFileName || 'uploaded-file';\nconst mime = item.ocrMimeType || (name.toLowerCase().endsWith('.csv') ? 'text/csv' : name.toLowerCase().endsWith('.xlsx') ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : 'application/pdf');\nconst lower = name.toLowerCase();\nconst isCodexFile = /\\.(pdf|csv|xlsx|xls|docx?|txt|md)$/i.test(lower) || /pdf|csv|spreadsheet|excel|word|plain/i.test(mime);\nconst isImageOnly = /^image\\//i.test(mime) && !/\\.(pdf|csv|xlsx)/i.test(lower);\nif (!isCodexFile || isImageOnly) {\n  return [{ json: { ...item, ocrMimeType: mime, ocrHandledByCodex: false } }];\n}\nconst url = String(item.ocrSourceUrl || item.ocrSourceDataUrl || '').trim();\nif (!url || url.startsWith('[inline')) {\n  return [{ json: { ...item, ocrMimeType: mime, ocrHandledByCodex: false } }];\n}\nconst supabaseUrl = $vars.SUPABASE_URL || 'https://zirftywinscopzuuwdlg.supabase.co';\nconst key = $vars.SUPABASE_SERVICE_ROLE_KEY;\nconst internal = $vars.INTERNAL_API_KEY;\nif (!key) {\n  return [{ json: { ...item, ocrMimeType: mime, ocrHandledByCodex: false } }];\n}\nconst userMessage = String(router.chatInput || router.message || 'extract data from the attachment').split('\\n[Codex Intake')[0].trim();\nlet response;\ntry {\n  response = await this.helpers.httpRequest({\n    method: 'POST',\n    url: supabaseUrl + '/functions/v1/codex-process-input',\n    headers: {\n      apikey: key,\n      Authorization: 'Bearer ' + key,\n      'x-codex-internal-key': internal,\n      'Content-Type': 'application/json',\n    },\n    body: {\n      message: userMessage,\n      chatInput: userMessage,\n      attachments: [{ name, url, download_url: url, mimeType: mime, type: 'document' }],\n      attachmentSources: [{ name, url, download_url: url, mimeType: mime }],\n      links: [],\n      context: merge.context || router.context || {},\n    },\n    json: true,\n  });\n} catch (error) {\n  return [{ json: { ...item, ocrMimeType: mime, ocrHandledByCodex: false, userMessage: String(error.message || error) } }];\n}\nconst hit = (response.items || []).find(i => i && i.ok && i.text);\nconst text = hit?.text || '';\nreturn [{ json: {\n  ...item,\n  ocrMimeType: mime,\n  ocrHandledByCodex: true,\n  ocrRecoveredText: text,\n  skipGemini: true,\n  geminiBody: null,\n  codexExtractError: hit ? null : ((response.items || [])[0]?.error || 'Could not read file'),\n}}];"
+        "jsCode": "const item = $json;\nconst merge = $('04c Merge Processed Input').first()?.json || {};\nconst router = $('05 Permission + Tool Router').first()?.json || {};\nconst name = item.ocrFileName || 'uploaded-file';\nconst mime = item.ocrMimeType || (name.toLowerCase().endsWith('.csv') ? 'text/csv' : name.toLowerCase().endsWith('.xlsx') ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : 'application/pdf');\nconst lower = name.toLowerCase();\nconst isCodexFile = /\\.(pdf|csv|xlsx|xls|docx?|txt|md)$/i.test(lower) || /pdf|csv|spreadsheet|excel|word|plain/i.test(mime);\nconst isImageOnly = /^image\\//i.test(mime) && !/\\.(pdf|csv|xlsx)/i.test(lower);\nif (!isCodexFile || isImageOnly) {\n  return [{ json: { ...item, ocrMimeType: mime, ocrHandledByCodex: false } }];\n}\nconst url = String(item.ocrSourceUrl || item.ocrSourceDataUrl || '').trim();\nif (!url || url.startsWith('[inline')) {\n  return [{ json: { ...item, ocrMimeType: mime, ocrHandledByCodex: false } }];\n}\nconst supabaseUrl = $env.SUPABASE_URL || 'https://zirftywinscopzuuwdlg.supabase.co';\nconst key = $env.SUPABASE_SERVICE_ROLE_KEY;\nconst internal = $env.INTERNAL_API_KEY;\nif (!key) {\n  return [{ json: { ...item, ocrMimeType: mime, ocrHandledByCodex: false } }];\n}\nconst userMessage = String(router.chatInput || router.message || 'extract data from the attachment').split('\\n[Codex Intake')[0].trim();\nlet response;\ntry {\n  response = await this.helpers.httpRequest({\n    method: 'POST',\n    url: supabaseUrl + '/functions/v1/codex-process-input',\n    headers: {\n      apikey: key,\n      Authorization: 'Bearer ' + key,\n      'x-codex-internal-key': internal,\n      'Content-Type': 'application/json',\n    },\n    body: {\n      message: userMessage,\n      chatInput: userMessage,\n      attachments: [{ name, url, download_url: url, mimeType: mime, type: 'document' }],\n      attachmentSources: [{ name, url, download_url: url, mimeType: mime }],\n      links: [],\n      context: merge.context || router.context || {},\n    },\n    json: true,\n  });\n} catch (error) {\n  return [{ json: { ...item, ocrMimeType: mime, ocrHandledByCodex: false, userMessage: String(error.message || error) } }];\n}\nconst hit = (response.items || []).find(i => i && i.ok && i.text);\nconst text = hit?.text || '';\nreturn [{ json: {\n  ...item,\n  ocrMimeType: mime,\n  ocrHandledByCodex: true,\n  ocrRecoveredText: text,\n  skipGemini: true,\n  geminiBody: null,\n  codexExtractError: hit ? null : ((response.items || [])[0]?.error || 'Could not read file'),\n}}];"
       }
     },
     {
@@ -2271,7 +2306,7 @@
       "continueOnFail": true,
       "parameters": {
         "method": "POST",
-        "url": "={{ 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + $vars.GEMINI_API_KEY }}",
+        "url": "={{ 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + $env.GEMINI_API_KEY }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -2314,21 +2349,21 @@
       "parameters": {
         "toolDescription": "Read the current user's in-app notifications from the workspace. Use for inbox, alerts, unread notifications, or recent notification history. Optional AI fields: unread_only (boolean), limit (number).",
         "method": "POST",
-        "url": "={{ ($vars.SUPABASE_URL || 'https://zirftywinscopzuuwdlg.supabase.co') + '/functions/v1/codex-execute-tool' }}",
+        "url": "={{ ($env.SUPABASE_URL || 'https://zirftywinscopzuuwdlg.supabase.co') + '/functions/v1/codex-execute-tool' }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "apikey",
-              "value": "={{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+              "value": "={{ $env.SUPABASE_SERVICE_ROLE_KEY }}"
             },
             {
               "name": "Authorization",
-              "value": "=Bearer {{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+              "value": "=Bearer {{$env.SUPABASE_SERVICE_ROLE_KEY}}"
             },
             {
               "name": "x-codex-internal-key",
-              "value": "={{ $vars.INTERNAL_API_KEY }}"
+              "value": "={{ $env.INTERNAL_API_KEY }}"
             },
             {
               "name": "Content-Type",
@@ -2354,21 +2389,21 @@
       "parameters": {
         "toolDescription": "Search serialized assets/equipment in the workspace stock registry. Use for asset lookup, serial numbers, tags, equipment status, or stock questions. Optional AI field: asset_query (search text).",
         "method": "POST",
-        "url": "={{ ($vars.SUPABASE_URL || 'https://zirftywinscopzuuwdlg.supabase.co') + '/functions/v1/codex-execute-tool' }}",
+        "url": "={{ ($env.SUPABASE_URL || 'https://zirftywinscopzuuwdlg.supabase.co') + '/functions/v1/codex-execute-tool' }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "apikey",
-              "value": "={{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+              "value": "={{ $env.SUPABASE_SERVICE_ROLE_KEY }}"
             },
             {
               "name": "Authorization",
-              "value": "=Bearer {{ $vars.SUPABASE_SERVICE_ROLE_KEY }}"
+              "value": "=Bearer {{$env.SUPABASE_SERVICE_ROLE_KEY}}"
             },
             {
               "name": "x-codex-internal-key",
-              "value": "={{ $vars.INTERNAL_API_KEY }}"
+              "value": "={{ $env.INTERNAL_API_KEY }}"
             },
             {
               "name": "Content-Type",
@@ -2379,6 +2414,46 @@
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ toolId: 'search_assets', payload: { query: $fromAI('asset_query', '', 'string') || '', limit: Number($fromAI('asset_limit', '15', 'string') || 15) }, context: $('04 Merge Request + User Context').first().json.context }) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "codex-tool-workspace-actions",
+      "name": "Codex Tool - Workspace Actions",
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        3240,
+        540
+      ],
+      "parameters": {
+        "toolDescription": "Run verified workspace actions through Supabase codex-execute-tool. Choose workspace_tool_id from: list_available_documents, search_documents, get_document, search_people, people_directory, search_tasks, update_task, search_time_entries, start_time_tracker, stop_time_tracker, search_users_clocked_in, search_leave_requests, search_meetings, search_reports, search_employee_documents, search_social_posts, search_fleet_service_needs, calculate_asset_total_cost, find_assets_by_assignee, search_assets, search_notifications, get_active_time_trackers, get_user_timesheet, get_attendance_summary, get_leave_balance, get_board_task_summary, list_boards, summarize_my_tasks, create_board_card, notify_content_review. Put arguments as JSON in tool_payload_json. Use dry_run=true before risky writes if the user has not clearly confirmed. Never use this tool to delete users, change roles, change security policies, change billing, edit payroll/payslips, publish public content, or send bulk external emails.",
+        "method": "POST",
+        "url": "={{ ($env.SUPABASE_URL || 'https://zirftywinscopzuuwdlg.supabase.co') + '/functions/v1/codex-execute-tool' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_SERVICE_ROLE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.SUPABASE_SERVICE_ROLE_KEY}}"
+            },
+            {
+              "name": "x-codex-internal-key",
+              "value": "={{ $env.INTERNAL_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ (() => { let payload = {}; try { payload = JSON.parse($fromAI('tool_payload_json', '{}', 'string') || '{}'); } catch (error) { payload = { query: $fromAI('query', '', 'string') || '' }; } return JSON.stringify({ toolId: $fromAI('workspace_tool_id', 'search_people', 'string'), payload, dryRun: String($fromAI('dry_run', 'false', 'string')).toLowerCase() === 'true', context: $('04 Merge Request + User Context').first().json.context }); })() }}",
         "options": {}
       }
     }
@@ -2493,18 +2568,18 @@
       "main": [
         [
           {
-            "node": "Has Gemini Image Key?",
+            "node": "Has OpenAI Image Key?",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Has Gemini Image Key?": {
+    "Has OpenAI Image Key?": {
       "main": [
         [
           {
-            "node": "Generate Image - Gemini Direct",
+            "node": "Generate Image - OpenAI Direct",
             "type": "main",
             "index": 0
           }
@@ -2518,11 +2593,11 @@
         ]
       ]
     },
-    "Generate Image - Gemini Direct": {
+    "Generate Image - OpenAI Direct": {
       "main": [
         [
           {
-            "node": "Format Gemini Image Response",
+            "node": "Format OpenAI Image Response",
             "type": "main",
             "index": 0
           }
@@ -2540,23 +2615,12 @@
         ]
       ]
     },
-    "Format Gemini Image Response": {
+    "Format OpenAI Image Response": {
       "main": [
         [
           {
             "node": "07 Safe Response Contract",
             "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Google Gemini Chat Model": {
-      "ai_languageModel": [
-        [
-          {
-            "node": "06 Codex Main Agent",
-            "type": "ai_languageModel",
             "index": 0
           }
         ]
@@ -2908,18 +2972,7 @@
       "main": [
         [
           {
-            "node": "Save Summary to InfraNodus GraphRAG",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Save Summary to InfraNodus GraphRAG": {
-      "main": [
-        [
-          {
-            "node": "Document Learned Response",
+            "node": "Index Summary in Supabase Document Search",
             "type": "main",
             "index": 0
           }
@@ -3381,7 +3434,41 @@
           }
         ]
       ]
+    },
+    "OpenAI Main Reasoning Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "06 Codex Main Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Codex Tool - Workspace Actions": {
+      "ai_tool": [
+        [
+          {
+            "node": "06 Codex Main Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Index Summary in Supabase Document Search": {
+      "main": [
+        [
+          {
+            "node": "Document Learned Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
-  "pinData": {}
+  "pinData": {},
+  "description": ""
 }

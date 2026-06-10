@@ -17,6 +17,7 @@ export default function MessageInput({
   value,
   onChange,
   onSend,
+  editing,
   onTyping,
   onImageSelect,
   onAudioReady,
@@ -28,6 +29,7 @@ export default function MessageInput({
   value: string;
   onChange: (value: string) => void;
   onSend: () => void;
+  editing?: boolean;
   onTyping?: () => void;
   onImageSelect?: (file: File) => void | Promise<void>;
   onAudioReady?: (file: File) => void | Promise<void>;
@@ -56,6 +58,11 @@ export default function MessageInput({
     textarea.style.height = "40px";
     textarea.style.height = `${Math.min(textarea.scrollHeight, 144)}px`;
   }, [value]);
+
+  useEffect(() => {
+    if (!editing) return;
+    textareaRef.current?.focus();
+  }, [editing]);
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === "Enter" && !event.shiftKey) {
@@ -153,6 +160,13 @@ export default function MessageInput({
         </div>
       ) : null}
 
+      {editing ? (
+        <div className="mb-2 flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-xs font-medium text-white/55">
+          <span className="h-1.5 w-1.5 rounded-full bg-emerald-300" />
+          Editing message
+        </div>
+      ) : null}
+
       {toolsOpen ? (
         <div className="mb-3 grid gap-2 rounded-3xl border border-white/10 bg-zinc-950/95 p-2 shadow-2xl shadow-black/40 sm:grid-cols-4">
           <button
@@ -247,7 +261,13 @@ export default function MessageInput({
               onTyping?.();
             }}
             onKeyDown={handleKeyDown}
-            placeholder={recording ? "Recording..." : "Message"}
+            placeholder={
+              recording
+                ? "Recording..."
+                : editing
+                  ? "Edit message"
+                  : "Message"
+            }
             disabled={locked || recording}
             className="max-h-36 min-h-10 min-w-0 flex-1 resize-none overflow-y-auto bg-transparent px-1 py-2 text-[15px] leading-6 text-white outline-none placeholder:text-white/35 sm:text-sm"
           />
@@ -267,14 +287,14 @@ export default function MessageInput({
           ].join(" ")}
           aria-label={
             hasText
-              ? "Send message"
+              ? editing ? "Save edit" : "Send message"
               : recording
                 ? "Stop recording"
                 : "Record voice note"
           }
           title={
             hasText
-              ? "Send message"
+              ? editing ? "Save edit" : "Send message"
               : recording
                 ? "Stop recording"
                 : "Record voice note"

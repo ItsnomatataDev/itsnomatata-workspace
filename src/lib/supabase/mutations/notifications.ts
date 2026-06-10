@@ -206,6 +206,33 @@ export async function markAllNotificationsAsRead(
   return true;
 }
 
+export async function markChatConversationNotificationsAsRead(params: {
+  userId: string;
+  conversationId: string;
+  organizationId?: string | null;
+}) {
+  let query = supabase
+    .from("notifications")
+    .update({
+      is_read: true,
+      read_at: new Date().toISOString(),
+    })
+    .eq("user_id", params.userId)
+    .eq("is_read", false)
+    .in("type", ["chat_message", "chat_message_received"])
+    .or(
+      `entity_id.eq.${params.conversationId},reference_id.eq.${params.conversationId}`,
+    );
+
+  if (params.organizationId) {
+    query = query.eq("organization_id", params.organizationId);
+  }
+
+  const { error } = await query;
+  if (error) throw error;
+  return true;
+}
+
 export async function createNotification(params: {
   organizationId: string;
   userId: string;

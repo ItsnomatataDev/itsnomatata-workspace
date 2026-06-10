@@ -56,6 +56,11 @@ type UnreadMessageRow = {
   created_at: string;
 };
 
+type BlockRow = {
+  blocker_id: string;
+  blocked_id: string;
+};
+
 function getChatMessagePreview(params: {
   body?: string | null;
   messageType?: string | null;
@@ -283,6 +288,59 @@ async function getConversationRecipientIds(
     );
 }
 
+async function assertConversationCanAcceptMessage(params: {
+  conversationId: string;
+  senderId: string;
+}) {
+  const { data: members, error: membersError } = await supabase
+    .from("chat_conversation_members")
+    .select("user_id")
+    .eq("conversation_id", params.conversationId);
+
+  if (membersError) throw membersError;
+
+  const otherUserIds = (members ?? [])
+    .map((member) => member.user_id)
+    .filter((userId): userId is string =>
+      Boolean(userId && userId !== params.senderId)
+    );
+
+  if (otherUserIds.length === 0) return;
+
+  const { data: blocks, error: blocksError } = await supabase
+    .from("chat_user_blocks")
+    .select("blocker_id, blocked_id")
+    .or(
+      `and(blocker_id.eq.${params.senderId},blocked_id.in.(${otherUserIds.join(",")})),and(blocker_id.in.(${otherUserIds.join(",")}),blocked_id.eq.${params.senderId})`,
+    );
+
+  if (blocksError) {
+    if (blocksError.code === "42P01") return;
+    throw blocksError;
+  }
+
+  if ((blocks as BlockRow[] | null)?.length) {
+    throw new Error("You cannot send messages in this chat because a block is active.");
+  }
+}
+
+async function getConversationDisappearingSeconds(conversationId: string) {
+  const { data, error } = await supabase
+    .from("chat_conversations")
+    .select("disappearing_seconds")
+    .eq("id", conversationId)
+    .maybeSingle();
+
+  if (error) {
+    if (error.code === "42703") return null;
+    throw error;
+  }
+
+  return typeof data?.disappearing_seconds === "number"
+    ? data.disappearing_seconds
+    : null;
+}
+
 async function notifyConversationMembers(params: {
   conversationId: string;
   senderId: string;
@@ -310,9 +368,14 @@ async function notifyConversationMembers(params: {
       metadata: params.metadata,
     });
 
-    const title = conversation.type === "direct"
-      ? `${params.senderName} sent you a message`
-      : `${params.senderName} in ${conversation.title || "Group chat"}`;
+    const notificationTitle =
+      typeof params.metadata?.notification_title === "string"
+        ? params.metadata.notification_title
+        : null;
+    const title = notificationTitle ||
+      (conversation.type === "direct"
+        ? `${params.senderName} sent you a message`
+        : `${params.senderName} in ${conversation.title || "Group chat"}`);
 
     const payload = {
       organizationId: conversation.organization_id,
@@ -545,6 +608,43 @@ export async function getConversations(
   }));
 }
 
+export async function getConversationMembers(
+  conversationId: string,
+): Promise<ChatConversationMember[]> {
+  const { data: members, error } = await supabase
+    .from("chat_conversation_members")
+    .select("id, conversation_id, user_id, role, joined_at, is_muted, last_read_message_id")
+    .eq("conversation_id", conversationId);
+
+  if (error) throw error;
+
+  const userIds = Array.from(
+    new Set((members ?? []).map((member) => member.user_id).filter(Boolean)),
+  );
+
+  const profilesResult = userIds.length > 0
+    ? await supabase
+        .from("profiles")
+        .select("id, username, full_name, email, avatar_url, last_seen_at")
+        .in("id", userIds)
+    : { data: [], error: null };
+
+  if (profilesResult.error) {
+    logChatError("Failed to fetch conversation member profiles:", profilesResult.error);
+  }
+
+  const profileMap = new Map(
+    (profilesResult.data ?? [])
+      .map(withProfileDisplayName)
+      .map((profile) => [profile.id, profile]),
+  );
+
+  return ((members ?? []) as ConversationMemberRow[]).map((member) => ({
+    ...member,
+    profile: profileMap.get(member.user_id) ?? null,
+  }));
+}
+
 export async function getChatUnreadTotal(currentUserId: string): Promise<number> {
   const conversations = await getConversations(currentUserId);
   return conversations.reduce(
@@ -560,6 +660,7 @@ export async function getMessages(
     .from("chat_messages")
     .select("*")
     .eq("conversation_id", conversationId)
+    .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()}`)
     .order("created_at", { ascending: true });
 
   if (error) throw error;
@@ -689,6 +790,18 @@ export async function sendMessage(
     return null;
   }
 
+  await assertConversationCanAcceptMessage({
+    conversationId: params.conversationId,
+    senderId: params.userId,
+  });
+
+  const disappearingSeconds = await getConversationDisappearingSeconds(
+    params.conversationId,
+  );
+  const expiresAt = disappearingSeconds
+    ? new Date(Date.now() + disappearingSeconds * 1000).toISOString()
+    : null;
+
   const insertPayload = {
     conversation_id: params.conversationId,
     sender_id: params.userId,
@@ -697,6 +810,7 @@ export async function sendMessage(
     attachment_url: params.attachmentUrl ?? null,
     attachment_name: params.attachmentName ?? null,
     metadata: params.metadata ?? {},
+    expires_at: expiresAt,
   };
 
   const { data, error } = await supabase
@@ -709,7 +823,10 @@ export async function sendMessage(
 
   const message = data as ChatMessage;
 
-  if (messageType !== "system") {
+  const shouldNotifyMembers =
+    messageType !== "system" || params.metadata?.notify_members === true;
+
+  if (shouldNotifyMembers) {
     // Get sender name from profiles table
     const { data: senderProfile } = await supabase
       .from("profiles")
@@ -793,6 +910,95 @@ export async function markConversationAsRead(params: {
     .eq("user_id", params.userId);
 
   if (error) throw error;
+}
+
+export async function editMessage(params: {
+  messageId: string;
+  userId: string;
+  body: string;
+}) {
+  const cleanBody = params.body.trim();
+  if (!cleanBody) throw new Error("Message cannot be empty.");
+
+  const { data, error } = await supabase
+    .from("chat_messages")
+    .update({
+      body: cleanBody,
+      is_edited: true,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", params.messageId)
+    .eq("sender_id", params.userId)
+    .eq("is_deleted", false)
+    .select("*")
+    .single();
+
+  if (error) throw error;
+  return data as ChatMessage;
+}
+
+export async function updateConversationDisappearingMessages(params: {
+  conversationId: string;
+  seconds: number | null;
+}) {
+  const { data, error } = await supabase
+    .from("chat_conversations")
+    .update({
+      disappearing_seconds: params.seconds,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", params.conversationId)
+    .select("*")
+    .single();
+
+  if (error) throw error;
+  return data as ChatConversation;
+}
+
+export async function blockChatUser(params: {
+  blockerId: string;
+  blockedId: string;
+  conversationId?: string | null;
+}) {
+  const { error } = await supabase
+    .from("chat_user_blocks")
+    .upsert(
+      {
+        blocker_id: params.blockerId,
+        blocked_id: params.blockedId,
+        conversation_id: params.conversationId ?? null,
+      },
+      { onConflict: "blocker_id,blocked_id" },
+    );
+
+  if (error) throw error;
+}
+
+export async function unblockChatUser(params: {
+  blockerId: string;
+  blockedId: string;
+}) {
+  const { error } = await supabase
+    .from("chat_user_blocks")
+    .delete()
+    .eq("blocker_id", params.blockerId)
+    .eq("blocked_id", params.blockedId);
+
+  if (error) throw error;
+}
+
+export async function getBlockedUserIds(currentUserId: string): Promise<string[]> {
+  const { data, error } = await supabase
+    .from("chat_user_blocks")
+    .select("blocked_id")
+    .eq("blocker_id", currentUserId);
+
+  if (error) {
+    if (error.code === "42P01") return [];
+    throw error;
+  }
+
+  return (data ?? []).map((row) => row.blocked_id).filter(Boolean);
 }
 
 export async function deleteMessage(params: {

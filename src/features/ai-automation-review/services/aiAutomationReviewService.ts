@@ -55,6 +55,11 @@ const REQUIRED_TABLES = [
   "notifications",
   "meetings",
   "employee_documents",
+  "leave_requests",
+  "social_posts",
+  "fleet_service_schedules",
+  "reports",
+  "attendance_daily_status",
 ];
 
 export const AUTOMATION_RECOMMENDATIONS: AutomationRecommendation[] = [
@@ -144,6 +149,50 @@ export const AUTOMATION_RECOMMENDATIONS: AutomationRecommendation[] = [
     priority: "Advanced",
     risk: "Admin-only",
     affectedTables: ["client_invoices", "notifications", "ai_activity_logs"],
+    firstBuild: false,
+  },
+  {
+    id: "leave_monthly_summary",
+    module: "Leave",
+    title: "Leave request summaries",
+    description:
+      "Summarize pending and approved leave by employee, date range, and overlap risk without approving or rejecting anything.",
+    priority: "Easy",
+    risk: "Safe",
+    affectedTables: ["leave_requests", "leave_types", "profiles"],
+    firstBuild: true,
+  },
+  {
+    id: "meeting_action_items",
+    module: "Meetings",
+    title: "Meeting action item extraction",
+    description:
+      "Read meeting metadata or supplied notes, then draft task suggestions that require confirmation before creation.",
+    priority: "Medium",
+    risk: "Needs approval",
+    affectedTables: ["meetings", "meeting_attendees", "tasks", "ai_task_suggestions"],
+    firstBuild: false,
+  },
+  {
+    id: "fleet_service_digest",
+    module: "Fleet",
+    title: "Fleet service needs digest",
+    description:
+      "Find vehicles with service due soon and prepare a manager digest without editing vehicle records.",
+    priority: "Easy",
+    risk: "Safe",
+    affectedTables: ["fleet_vehicles", "fleet_service_schedules", "fleet_maintenance_records"],
+    firstBuild: false,
+  },
+  {
+    id: "content_schedule_digest",
+    module: "Content Studio",
+    title: "Content and social schedule digest",
+    description:
+      "Summarize draft, review, approval, and scheduled social posts while keeping publishing behind preview and confirmation.",
+    priority: "Medium",
+    risk: "Needs approval",
+    affectedTables: ["social_posts", "content_review_drafts", "content_review_assets"],
     firstBuild: false,
   },
 ];

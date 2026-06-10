@@ -40,6 +40,12 @@ type ProcessedItem = {
   error?: string;
 };
 
+type IndexedDocument = {
+  documentId: string;
+  name: string;
+  chunks: number;
+};
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
@@ -408,6 +414,164 @@ function summarizeSnippet(text: string, max = 500) {
   const clean = text.replace(/\s+/g, " ").trim();
   if (!clean) return "";
   return clean.length > max ? `${clean.slice(0, max)}…` : clean;
+}
+
+function isLikelyHtml(text: string) {
+  return /<!doctype html|<html[\s>]|<body[\s>]|<script[\s>]/i.test(text);
+}
+
+function chunkDocumentText(text: string, maxChars = 1800) {
+  const clean = text.replace(/\r/g, "").replace(/\n{3,}/g, "\n\n").trim();
+  if (!clean) return [];
+  const paragraphs = clean.split(/\n{2,}/).map((part) => part.trim()).filter(Boolean);
+  const chunks: string[] = [];
+  let current = "";
+
+  for (const paragraph of paragraphs) {
+    if ((current + "\n\n" + paragraph).trim().length > maxChars && current) {
+      chunks.push(current.trim());
+      current = paragraph;
+    } else {
+      current = [current, paragraph].filter(Boolean).join("\n\n");
+    }
+  }
+
+  if (current.trim()) chunks.push(current.trim());
+  return chunks.length ? chunks : [clean.slice(0, maxChars)];
+}
+
+async function createEmbedding(apiKey: string, text: string) {
+  const response = await fetch("https://api.openai.com/v1/embeddings", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "text-embedding-3-small",
+      input: text.slice(0, 7000),
+    }),
+  });
+
+  const payload = await response.json();
+  if (!response.ok) {
+    const message = typeof payload?.error?.message === "string"
+      ? payload.error.message
+      : `OpenAI embedding failed (${response.status})`;
+    throw new Error(message);
+  }
+
+  const embedding = payload.data?.[0]?.embedding;
+  if (!Array.isArray(embedding)) throw new Error("OpenAI returned no embedding.");
+  return embedding as number[];
+}
+
+async function indexProcessedDocuments(
+  adminClient: any,
+  openAiKey: string,
+  context: ProcessContext | undefined,
+  items: ProcessedItem[],
+) {
+  const organizationId = context?.organizationId;
+  if (!organizationId) return [];
+
+  const indexed: IndexedDocument[] = [];
+  for (const item of items) {
+    if (!item.ok || !item.text || isLikelyHtml(item.text)) continue;
+    if (item.kind === "link" || item.mimeType === "text/html") continue;
+
+    const chunks = chunkDocumentText(item.text).slice(0, 80);
+    if (!chunks.length) continue;
+
+    const { data: existing } = await adminClient
+      .from("ai_documents")
+      .select("id")
+      .eq("organization_id", organizationId)
+      .eq("document_name", item.name)
+      .maybeSingle();
+
+    let documentId = existing?.id as string | undefined;
+    if (!documentId) {
+      const { data, error } = await adminClient
+        .from("ai_documents")
+        .insert({
+          organization_id: organizationId,
+          document_name: item.name,
+          file_type: item.mimeType ?? item.kind,
+          source: "supabase_storage",
+          source_url: null,
+          uploaded_by: context?.userId ?? null,
+          department: context?.department ?? null,
+          module: context?.currentModule ?? "ai-workspace",
+          access_level: "internal",
+          status: "processing",
+          summary_short: item.summary,
+          summary_detailed: summarizeSnippet(item.text, 1800),
+          metadata: {
+            source: "codex-process-input",
+            kind: item.kind,
+            indexed_at: new Date().toISOString(),
+          },
+        })
+        .select("id")
+        .single();
+      if (error) throw error;
+      documentId = data.id as string;
+    } else {
+      await adminClient.from("ai_document_chunks").delete().eq("document_id", documentId);
+      await adminClient.from("document_embeddings").delete().eq("document_id", documentId);
+      await adminClient
+        .from("ai_documents")
+        .update({
+          status: "processing",
+          file_type: item.mimeType ?? item.kind,
+          summary_short: item.summary,
+          summary_detailed: summarizeSnippet(item.text, 1800),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", documentId);
+    }
+
+    let written = 0;
+    for (const [index, chunk] of chunks.entries()) {
+      const embedding = await createEmbedding(openAiKey, chunk);
+      const { data: chunkRow, error: chunkError } = await adminClient
+        .from("ai_document_chunks")
+        .insert({
+          document_id: documentId,
+          organization_id: organizationId,
+          chunk_index: index,
+          chunk_text: chunk,
+          chunk_summary: summarizeSnippet(chunk, 400),
+          embedding,
+          embedding_model: "text-embedding-3-small",
+          token_count: countWords(chunk),
+          access_level: "internal",
+          metadata: { document_name: item.name, source: "codex-process-input" },
+        })
+        .select("id")
+        .single();
+      if (chunkError) throw chunkError;
+
+      await adminClient.from("document_embeddings").upsert({
+        organization_id: organizationId,
+        document_id: documentId,
+        chunk_id: chunkRow.id,
+        embedding,
+        embedding_model: "text-embedding-3-small",
+      }, { onConflict: "chunk_id,embedding_model" });
+      written += 1;
+    }
+
+    await adminClient
+      .from("ai_documents")
+      .update({ status: "trained", updated_at: new Date().toISOString() })
+      .eq("id", documentId);
+
+    indexed.push({ documentId, name: item.name, chunks: written });
+  }
+
+  return indexed;
 }
 
 function wantsStructuredExtraction(message: string) {
@@ -1158,6 +1322,21 @@ Deno.serve(async (req) => {
     items.push(await processLink(link, adminClient, openAiKey, message));
   }
 
+  let indexedDocuments: IndexedDocument[] = [];
+  try {
+    indexedDocuments = await indexProcessedDocuments(
+      adminClient,
+      openAiKey,
+      body.context,
+      items,
+    );
+  } catch (error) {
+    console.warn(
+      "codex-process-input document indexing failed:",
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+
   const intakeBlock = buildIntakeBlock(items, links, primaryFileName);
   const hasUsableContent = items.some((item) =>
     item.ok && hasMeaningfulExtractedText(item.text, item.kind)
@@ -1169,6 +1348,7 @@ Deno.serve(async (req) => {
     intakeBlock,
     items,
     links,
+    indexedDocuments,
     metaReportDetected: links.some(isMetaBusinessUrl),
   });
 });

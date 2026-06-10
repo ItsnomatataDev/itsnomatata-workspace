@@ -94,7 +94,7 @@ function getRecommendedActions(responseJson: Record<string, unknown>): Recommend
 }
 
 async function resolveAssigneeId(
-  adminClient: ReturnType<typeof createClient>,
+  adminClient: any,
   organizationId: string,
   action: RecommendedAction,
 ) {
@@ -116,7 +116,7 @@ async function resolveAssigneeId(
 }
 
 async function persistTaskAutomationActions(
-  adminClient: ReturnType<typeof createClient>,
+  adminClient: any,
   params: {
     organizationId: string;
     userId: string;
@@ -256,7 +256,7 @@ async function persistTaskAutomationActions(
 }
 
 async function createRunLog(
-  adminClient: ReturnType<typeof createClient>,
+  adminClient: any,
   params: {
     organizationId: string;
     userId: string;
@@ -301,7 +301,7 @@ async function createRunLog(
 }
 
 async function createActivityLog(
-  adminClient: ReturnType<typeof createClient>,
+  adminClient: any,
   params: {
     organizationId: string;
     userId: string;
@@ -336,7 +336,7 @@ async function createActivityLog(
 }
 
 async function safeCount(
-  adminClient: ReturnType<typeof createClient>,
+  adminClient: any,
   table: string,
   organizationId: string,
   statusColumn?: string,
@@ -362,7 +362,7 @@ async function safeCount(
 }
 
 async function checkTable(
-  adminClient: ReturnType<typeof createClient>,
+  adminClient: any,
   table: string,
 ) {
   const { error } = await adminClient
@@ -445,6 +445,11 @@ Deno.serve(async (req) => {
         "notifications",
         "meetings",
         "employee_documents",
+        "leave_requests",
+        "social_posts",
+        "fleet_service_schedules",
+        "reports",
+        "attendance_daily_status",
       ];
 
       const [tableChecks, counts] = await Promise.all([
@@ -457,6 +462,10 @@ Deno.serve(async (req) => {
           safeCount(adminClient, "ai_task_suggestions", organizationId, "status", "pending"),
           safeCount(adminClient, "ai_activity_logs", organizationId),
           safeCount(adminClient, "ai_approvals", organizationId, "status", "pending"),
+          safeCount(adminClient, "leave_requests", organizationId, "status", "pending"),
+          safeCount(adminClient, "social_posts", organizationId, "status", "scheduled"),
+          safeCount(adminClient, "fleet_service_schedules", organizationId, "status", "active"),
+          safeCount(adminClient, "reports", organizationId),
         ]),
       ]);
 
@@ -475,6 +484,8 @@ Deno.serve(async (req) => {
           "Start with chat-to-task suggestions because the task, chat, notification, and approval foundations already exist.",
           "Keep document and report summaries read-only until summaries and source access policies are verified.",
           "Put email-to-task behind manager/admin approval because email content can contain sensitive client or finance data.",
+          "Use the Codex execute-tool wrappers for read-only leave, meeting, report, document, social post, and fleet service lookups.",
+          "Keep publish, approve, schedule, send, role-change, and delete actions behind explicit confirmation and existing admin screens.",
         ],
       });
     }

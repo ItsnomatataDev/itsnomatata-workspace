@@ -98,6 +98,7 @@ export default function ChatSidebar({
   onSelectConversation,
   onDeleteConversation,
   onNewChat,
+  onPreviewProfile,
   loading,
   currentUserId,
   className = "",
@@ -107,6 +108,11 @@ export default function ChatSidebar({
   onSelectConversation: (conversationId: string) => void;
   onDeleteConversation: (conversation: ChatConversation) => void;
   onNewChat: () => void;
+  onPreviewProfile?: (profile: {
+    full_name?: string | null;
+    email?: string | null;
+    avatar_url?: string | null;
+  }) => void;
   loading: boolean;
   currentUserId?: string | null;
   className?: string;
@@ -182,29 +188,36 @@ export default function ChatSidebar({
                     }
                   }}
                   className={[
-                    "group w-full cursor-pointer rounded-2xl border px-4 py-3 text-left transition",
+                    "group w-full cursor-pointer rounded-2xl border px-3.5 py-3 text-left transition",
                     isActive
-                      ? "border-orange-500/70 bg-orange-500/15 shadow-lg shadow-orange-500/5"
-                      : "border-white/10 bg-white/3 hover:border-white/15 hover:bg-white/6",
+                      ? "border-white/18 bg-white/[0.08] shadow-lg shadow-black/20"
+                      : "border-transparent bg-transparent hover:border-white/10 hover:bg-white/[0.05]",
                   ].join(" ")}
                 >
                   <div className="flex items-start gap-3">
-                    <div
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        if (conversation.type !== "direct" || !otherMember?.profile) return;
+                        event.stopPropagation();
+                        onPreviewProfile?.(otherMember.profile);
+                      }}
                       className={[
-                        "relative mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border text-sm font-bold",
-                        isActive
-                          ? "border-orange-500/35 bg-orange-500/20 text-orange-200"
-                          : "border-white/10 bg-white/8 text-white/80",
+                        "relative mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-sm font-bold outline-none transition",
+                        conversation.type === "direct"
+                          ? "focus:ring-2 focus:ring-white/30"
+                          : "bg-white/[0.07] text-white/80",
                       ].join(" ")}
+                      aria-label={`View ${displayName} profile picture`}
                     >
                       {conversation.type === "direct" ? (
                         <UserAvatar
                           person={otherMember?.profile ?? { full_name: displayName }}
                           size="lg"
-                          className="h-full w-full rounded-2xl border-0 bg-transparent"
+                          className="h-full w-full border-0 bg-white/[0.07]"
                         />
                       ) : (
-                        <Users size={18} className="text-orange-300" />
+                        <Users size={18} className="text-white/60" />
                       )}
                       {conversation.type === "direct" ? (
                         <span
@@ -214,7 +227,7 @@ export default function ChatSidebar({
                           ].join(" ")}
                         />
                       ) : null}
-                    </div>
+                    </button>
 
                     <div className="min-w-0 flex-1">
                       <div className="flex items-start justify-between gap-2">
@@ -267,8 +280,8 @@ export default function ChatSidebar({
                         {getMessagePreview(conversation, currentUserId)}
                       </p>
 
-                      <div className="mt-2 flex items-center gap-2 text-[11px] uppercase tracking-wide text-white/30">
-                        <MessageSquare size={11} className="text-orange-500/70" />
+                      <div className="mt-2 flex items-center gap-2 text-[11px] uppercase tracking-wide text-white/28">
+                        <MessageSquare size={11} className="text-white/35" />
                         <span>{conversation.type.replace("_", " ")}</span>
                       </div>
                     </div>

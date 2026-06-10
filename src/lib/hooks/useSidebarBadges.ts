@@ -174,6 +174,19 @@ export function useSidebarBadges(): SidebarBadgeCounts {
     }
   }, [location.pathname, refreshChatUnread, refreshInboxUnread, refreshPendingLeave]);
 
+  useEffect(() => {
+    const handleChatRead = (event: Event) => {
+      const detail = (event as CustomEvent<{ userId?: string }>).detail;
+      if (detail?.userId && detail.userId !== userId) return;
+      void refreshChatUnread();
+    };
+
+    window.addEventListener("chat:conversation-read", handleChatRead);
+    return () => {
+      window.removeEventListener("chat:conversation-read", handleChatRead);
+    };
+  }, [refreshChatUnread, userId]);
+
   return {
     inbox: inboxUnread,
     chat: chatUnread,

@@ -1,23 +1,32 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { ArrowLeft, Loader2, MessageSquareX } from "lucide-react";
+import { ArrowLeft, Info, Loader2, MessageSquareX, X } from "lucide-react";
 import { useAuth } from "../../../lib/hooks/useAuth";
 import { supabase } from "../../../lib/supabase/client";
+import { markChatConversationNotificationsAsRead } from "../../../lib/supabase/mutations/notifications";
 import { withProfileDisplayName } from "../../../lib/utils/profileDisplay";
 import ChatSidebar from "../components/ChatSidebar";
+import ChatInfoPanel from "../components/ChatInfoPanel";
 import MessageInput from "../components/MessageInput";
 import MessageList from "../components/MessageList";
 import NewChatModal from "../components/NewChatModal";
+import UserAvatar from "../../../components/common/UserAvatar";
 import type { GifSelection } from "../components/GifPickerPanel";
 import {
   createGroupConversation,
   deleteConversationForUser,
+  editMessage,
   findOrCreateDirectConversation,
+  getBlockedUserIds,
+  getConversationMembers,
   getConversations,
   getMessages,
   markConversationAsRead,
   sendMessage,
+  blockChatUser,
+  unblockChatUser,
   toggleMessageReaction,
+  updateConversationDisappearingMessages,
   uploadChatAttachment,
 } from "../services/chatService";
 import {
@@ -69,6 +78,77 @@ function sortConversations(conversations: ChatConversation[]) {
   );
 }
 
+function formatDisappearingSetting(seconds: number | null) {
+  if (!seconds) return "off";
+  if (seconds === 3600) return "1 hour";
+  if (seconds === 86400) return "24 hours";
+  if (seconds === 604800) return "7 days";
+  if (seconds === 2592000) return "30 days";
+  return `${Math.round(seconds / 3600)} hours`;
+}
+
+type PreviewProfile = {
+  full_name?: string | null;
+  email?: string | null;
+  avatar_url?: string | null;
+};
+
+function ProfilePictureModal({
+  profile,
+  onClose,
+}: {
+  profile: PreviewProfile;
+  onClose: () => void;
+}) {
+  const displayName = profile.full_name || profile.email || "Profile picture";
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Profile picture"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md overflow-hidden rounded-3xl border border-white/10 bg-neutral-950 text-white shadow-2xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
+          <div className="min-w-0">
+            <h2 className="truncate text-base font-semibold">{displayName}</h2>
+            <p className="mt-1 text-sm text-white/45">{profile.email || "No email available"}</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/10 text-white/70 transition hover:bg-white/10 hover:text-white"
+            aria-label="Close profile picture"
+            title="Close"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="flex min-h-80 items-center justify-center bg-black p-6">
+          {profile.avatar_url ? (
+            <img
+              src={profile.avatar_url}
+              alt={displayName}
+              className="max-h-[70vh] w-full rounded-2xl object-contain"
+            />
+          ) : (
+            <div className="flex flex-col items-center gap-3 text-center">
+              <UserAvatar person={profile} size="xl" className="h-24 w-24" />
+              <p className="text-sm text-white/50">No profile picture.</p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function ChatPage() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -85,12 +165,18 @@ export default function ChatPage() {
   >(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
+  const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(null);
   const [error, setError] = useState("");
   const [newChatOpen, setNewChatOpen] = useState(false);
   const [typingUsers, setTypingUsers] = useState<Record<string, boolean>>({});
+  const [infoPanelOpen, setInfoPanelOpen] = useState(false);
+  const [previewProfile, setPreviewProfile] = useState<PreviewProfile | null>(null);
+  const [blockedUserIds, setBlockedUserIds] = useState<string[]>([]);
+  const [savingChatSetting, setSavingChatSetting] = useState(false);
+  const [blockingUser, setBlockingUser] = useState(false);
 
   const unsubscribeRef = useRef<null | (() => void)>(null);
-  const membersUnsubscribeRef = useRef<null | (() => void)>(null);
+  const membersChannelRef = useRef<null | ReturnType<typeof subscribeToConversationMembers>>(null);
   const presenceUnsubscribeRef = useRef<null | (() => void)>(null);
   const markReadTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const realtimeWasConnectedRef = useRef(false);
@@ -239,6 +325,19 @@ export default function ChatPage() {
   }, [user?.id]);
 
   useEffect(() => {
+    if (!user?.id) {
+      setBlockedUserIds([]);
+      return;
+    }
+
+    getBlockedUserIds(user.id)
+      .then(setBlockedUserIds)
+      .catch((err) => {
+        console.error("LOAD BLOCKED USERS ERROR:", err);
+      });
+  }, [user?.id]);
+
+  useEffect(() => {
     if (!user?.id) return;
 
     const channel = supabase
@@ -309,6 +408,11 @@ export default function ChatPage() {
   }, [user?.id, activeConversationId]);
 
   useEffect(() => {
+    if (!user?.id || !activeConversationId) return;
+    void markActiveConversationRead(null);
+  }, [user?.id, activeConversationId]);
+
+  useEffect(() => {
     const otherUserId = activeOtherMember?.user_id;
     if (!otherUserId) {
       if (presenceUnsubscribeRef.current) {
@@ -353,9 +457,11 @@ export default function ChatPage() {
   useEffect(() => {
     if (!activeConversationId) {
       setMessages([]);
+      setEditingMessage(null);
       return;
     }
 
+    setEditingMessage(null);
     void loadMessagesForConversation(activeConversationId);
 
     if (unsubscribeRef.current) {
@@ -363,15 +469,15 @@ export default function ChatPage() {
       unsubscribeRef.current = null;
     }
 
-    if (membersUnsubscribeRef.current) {
-      membersUnsubscribeRef.current();
-      membersUnsubscribeRef.current = null;
+    if (membersChannelRef.current) {
+      membersChannelRef.current.cleanup();
+      membersChannelRef.current = null;
     }
 
     setRealtimeStatus("idle");
 
     if (user?.id) {
-      membersUnsubscribeRef.current = subscribeToConversationMembers({
+      membersChannelRef.current = subscribeToConversationMembers({
         conversationId: activeConversationId,
         currentUserId: user.id,
         onMemberUpdate: (updatedMember) => {
@@ -386,6 +492,24 @@ export default function ChatPage() {
                         ...member,
                         ...updatedMember,
                         profile: member.profile,
+                      }
+                    : member,
+                ),
+              };
+            }),
+          );
+        },
+        onReadReceipt: (receipt) => {
+          setConversations((current) =>
+            current.map((conversation) => {
+              if (conversation.id !== activeConversationId) return conversation;
+              return {
+                ...conversation,
+                members: conversation.members?.map((member) =>
+                  member.user_id === receipt.userId
+                    ? {
+                        ...member,
+                        last_read_message_id: receipt.lastReadMessageId,
                       }
                     : member,
                 ),
@@ -434,11 +558,7 @@ export default function ChatPage() {
         mergeConversationMessage(incomingMessage, { forceUnreadZero: true });
 
         if (user?.id && incomingMessage.sender_id !== user.id) {
-          void markConversationAsRead({
-            conversationId: activeConversationId,
-            userId: user.id,
-            lastReadMessageId: incomingMessage.id,
-          });
+          void markActiveConversationRead(incomingMessage.id);
         }
       },
       onUpdate: (updatedMessage) => {
@@ -530,9 +650,9 @@ export default function ChatPage() {
         unsubscribeRef.current = null;
       }
 
-      if (membersUnsubscribeRef.current) {
-        membersUnsubscribeRef.current();
-        membersUnsubscribeRef.current = null;
+      if (membersChannelRef.current) {
+        membersChannelRef.current.cleanup();
+        membersChannelRef.current = null;
       }
 
       setRealtimeStatus("idle");
@@ -553,6 +673,29 @@ export default function ChatPage() {
   }, [activeConversationId, mergeConversationMessage, user?.id]);
 
   useEffect(() => {
+    if (!activeConversationId || activeConversation?.type !== "direct") return;
+
+    const refreshMembers = async () => {
+      try {
+        const members = await getConversationMembers(activeConversationId);
+        setConversations((current) =>
+          current.map((conversation) =>
+            conversation.id === activeConversationId
+              ? { ...conversation, members }
+              : conversation,
+          ),
+        );
+      } catch (err) {
+        console.error("REFRESH CHAT MEMBERS ERROR:", err);
+      }
+    };
+
+    void refreshMembers();
+    const intervalId = window.setInterval(refreshMembers, 4000);
+    return () => window.clearInterval(intervalId);
+  }, [activeConversationId, activeConversation?.type]);
+
+  useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
@@ -567,27 +710,7 @@ export default function ChatPage() {
     }
 
     markReadTimeoutRef.current = setTimeout(() => {
-      void markConversationAsRead({
-        conversationId: activeConversationId,
-        userId: user.id,
-        lastReadMessageId: lastMessage.id,
-      });
-
-      setConversations((current) =>
-        current.map((conversation) =>
-          conversation.id === activeConversationId
-            ? {
-                ...conversation,
-                unread_count: 0,
-                members: conversation.members?.map((member) =>
-                  member.user_id === user.id
-                    ? { ...member, last_read_message_id: lastMessage.id }
-                    : member,
-                ),
-              }
-            : conversation,
-        ),
-      );
+      void markActiveConversationRead(lastMessage.id);
     }, 250);
 
     return () => {
@@ -636,6 +759,54 @@ export default function ChatPage() {
     }
   }
 
+  async function markActiveConversationRead(lastReadMessageId?: string | null) {
+    if (!user?.id || !activeConversationId) return;
+
+    if (lastReadMessageId) {
+      void markConversationAsRead({
+        conversationId: activeConversationId,
+        userId: user.id,
+        lastReadMessageId,
+      });
+      membersChannelRef.current?.sendReadReceipt(user.id, lastReadMessageId);
+    }
+
+    void markChatConversationNotificationsAsRead({
+      userId: user.id,
+      conversationId: activeConversationId,
+      organizationId: profile?.organization_id ?? null,
+    }).catch((err) => {
+      console.error("MARK CHAT NOTIFICATIONS READ ERROR:", err);
+    });
+
+    window.dispatchEvent(
+      new CustomEvent("chat:conversation-read", {
+        detail: {
+          userId: user.id,
+          conversationId: activeConversationId,
+        },
+      }),
+    );
+
+    setConversations((current) =>
+      current.map((conversation) =>
+        conversation.id === activeConversationId
+          ? {
+              ...conversation,
+              unread_count: 0,
+              members: lastReadMessageId
+                ? conversation.members?.map((member) =>
+                    member.user_id === user.id
+                      ? { ...member, last_read_message_id: lastReadMessageId }
+                      : member,
+                  )
+                : conversation.members,
+            }
+          : conversation,
+      ),
+    );
+  }
+
   function updateConversationAfterSend(sentMessage: ChatMessage) {
     mergeConversationMessage(sentMessage, { forceUnreadZero: true });
   }
@@ -644,10 +815,17 @@ export default function ChatPage() {
     setActiveConversationId(null);
     setMessages([]);
     setTypingUsers({});
+    setEditingMessage(null);
+    setInput("");
 
     if (unsubscribeRef.current) {
       unsubscribeRef.current();
       unsubscribeRef.current = null;
+    }
+
+    if (membersChannelRef.current) {
+      membersChannelRef.current.cleanup();
+      membersChannelRef.current = null;
     }
 
     if (typingChannelRef.current) {
@@ -665,6 +843,15 @@ export default function ChatPage() {
     if (!user?.id || !activeConversationId || !input.trim()) return;
 
     const messageText = input.trim();
+
+    if (editingMessage) {
+      const saved = await handleEditMessage(editingMessage.id, messageText);
+      if (saved) {
+        setEditingMessage(null);
+        setInput("");
+      }
+      return;
+    }
 
     try {
       setSending(true);
@@ -943,6 +1130,141 @@ export default function ChatPage() {
     }
   }
 
+  async function handleEditMessage(messageId: string, body: string) {
+    if (!user?.id) return false;
+
+    try {
+      setError("");
+      const updatedMessage = await editMessage({
+        messageId,
+        userId: user.id,
+        body,
+      });
+
+      setMessages((current) =>
+        current.map((message) =>
+          message.id === messageId
+            ? {
+                ...message,
+                ...updatedMessage,
+                sender_profile: message.sender_profile,
+                reactions: message.reactions,
+              }
+            : message,
+        ),
+      );
+      return true;
+    } catch (err: any) {
+      console.error("EDIT MESSAGE ERROR:", err);
+      setError(err?.message || "Failed to edit message.");
+      return false;
+    }
+  }
+
+  async function handleDisappearingChange(seconds: number | null) {
+    if (!activeConversationId || !user?.id) return;
+
+    const previousSeconds = activeConversation?.disappearing_seconds ?? null;
+    if (previousSeconds === seconds) return;
+
+    try {
+      setSavingChatSetting(true);
+      setError("");
+      const updatedConversation = await updateConversationDisappearingMessages({
+        conversationId: activeConversationId,
+        seconds,
+      });
+
+      setConversations((current) =>
+        current.map((conversation) =>
+          conversation.id === activeConversationId
+            ? {
+                ...conversation,
+                disappearing_seconds: updatedConversation.disappearing_seconds ?? null,
+                updated_at: updatedConversation.updated_at,
+              }
+            : conversation,
+        ),
+      );
+
+      const actorName =
+        profile?.display_name ||
+        profile?.full_name ||
+        profile?.email ||
+        "Someone";
+      const systemBody = seconds
+        ? `${actorName} set disappearing messages to ${formatDisappearingSetting(seconds)}.`
+        : `${actorName} turned off disappearing messages.`;
+
+      const systemMessage = await sendMessage({
+        conversationId: activeConversationId,
+        userId: user.id,
+        body: systemBody,
+        messageType: "system",
+        metadata: {
+          event: "disappearing_messages_changed",
+          previous_seconds: previousSeconds,
+          disappearing_seconds: seconds,
+          notify_members: true,
+          notification_title: "Chat disappearing messages changed",
+        },
+      });
+
+      if (systemMessage) {
+        setMessages((current) => {
+          const exists = current.some((message) => message.id === systemMessage.id);
+          if (exists) return current;
+          return [...current, systemMessage];
+        });
+        updateConversationAfterSend(systemMessage);
+      }
+    } catch (err: any) {
+      console.error("DISAPPEARING MESSAGE SETTING ERROR:", err);
+      setError(err?.message || "Failed to update disappearing messages.");
+    } finally {
+      setSavingChatSetting(false);
+    }
+  }
+
+  async function handleToggleBlock() {
+    if (!user?.id || !activeOtherMember?.user_id || !activeConversationId) return;
+
+    const otherUserId = activeOtherMember.user_id;
+    const blocked = blockedUserIds.includes(otherUserId);
+    const confirmed = window.confirm(
+      blocked
+        ? "Unblock this person?"
+        : "Block this person? They will not be able to message you in direct chats.",
+    );
+
+    if (!confirmed) return;
+
+    try {
+      setBlockingUser(true);
+      setError("");
+
+      if (blocked) {
+        await unblockChatUser({
+          blockerId: user.id,
+          blockedId: otherUserId,
+        });
+        setBlockedUserIds((current) => current.filter((id) => id !== otherUserId));
+      } else {
+        await blockChatUser({
+          blockerId: user.id,
+          blockedId: otherUserId,
+          conversationId: activeConversationId,
+        });
+        setBlockedUserIds((current) => Array.from(new Set([...current, otherUserId])));
+      }
+    } catch (err: any) {
+      console.error("BLOCK USER ERROR:", err);
+      setError(err?.message || "Failed to update block setting.");
+    } finally {
+      setBlockingUser(false);
+    }
+  }
+
   async function handleStartDirectChat(selectedUser: ChatUser) {
     if (!user?.id || !profile?.organization_id) return;
 
@@ -1101,6 +1423,7 @@ export default function ChatPage() {
           activeConversationId={activeConversationId}
           onSelectConversation={setActiveConversationId}
           onDeleteConversation={handleDeleteConversation}
+          onPreviewProfile={setPreviewProfile}
           onNewChat={() => setNewChatOpen(true)}
           loading={loadingConversations}
           currentUserId={user?.id}
@@ -1113,13 +1436,13 @@ export default function ChatPage() {
             hasActiveConversation ? "flex" : "hidden md:flex",
           ].join(" ")}
         >
-          <div className="border-b border-white/10 px-4 py-3 sm:px-5 sm:py-4">
+          <div className="border-b border-white/10 bg-neutral-950/95 px-4 py-3 backdrop-blur-xl sm:px-5 sm:py-4">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
               {hasActiveConversation ? (
                 <button
                   type="button"
                   onClick={handleCloseChat}
-                  className="inline-flex items-center gap-2 border border-white/10 bg-white/5 px-3 py-2 text-sm font-medium text-white transition hover:border-orange-500/40 hover:text-orange-300 md:hidden"
+                  className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.06] px-3 py-2 text-sm font-medium text-white transition hover:border-white/25 hover:bg-white/10 md:hidden"
                 >
                   <ArrowLeft size={16} />
                   Chats
@@ -1129,30 +1452,63 @@ export default function ChatPage() {
               <button
                 type="button"
                 onClick={() => navigate("/dashboard")}
-                className="inline-flex items-center gap-2 border border-white/10 bg-white/5 px-3 py-2 text-sm font-medium text-white transition hover:border-orange-500/40 hover:text-orange-300 sm:px-4"
+                className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.06] px-3 py-2 text-sm font-medium text-white transition hover:border-white/25 hover:bg-white/10 sm:px-4"
               >
                 <ArrowLeft size={16} />
                 <span className="hidden sm:inline">Back to Dashboard</span>
                 <span className="sm:hidden">Dashboard</span>
               </button>
 
-              {activeConversationId ? (
-                <button
-                  type="button"
-                  onClick={handleCloseChat}
-                  className="inline-flex items-center gap-2 border border-red-500/20 bg-red-500/10 px-4 py-2 text-sm font-medium text-red-300 transition hover:border-red-500/40 hover:bg-red-500/15"
-                >
-                  <MessageSquareX size={16} />
-                  Close Chat
-                </button>
-              ) : null}
+              <div className="ml-auto flex items-center gap-2">
+                {activeConversationId ? (
+                  <button
+                    type="button"
+                    onClick={() => setInfoPanelOpen(true)}
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/[0.06] text-white/75 transition hover:border-white/25 hover:bg-white/10 hover:text-white"
+                    aria-label="Open chat info"
+                    title="Chat info"
+                  >
+                    <Info size={17} />
+                  </button>
+                ) : null}
+
+                {activeConversationId ? (
+                  <button
+                    type="button"
+                    onClick={handleCloseChat}
+                    className="inline-flex items-center gap-2 rounded-full border border-red-500/20 bg-red-500/10 px-4 py-2 text-sm font-medium text-red-200 transition hover:border-red-400/40 hover:bg-red-500/15"
+                  >
+                    <MessageSquareX size={16} />
+                    <span>Close Chat</span>
+                  </button>
+                ) : null}
+              </div>
             </div>
 
             <div className="flex items-center gap-3">
-              <div className="relative">
-                <div className="flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-white/5 text-sm font-semibold text-orange-400">
-                  {avatarText}
-                </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (activeConversation?.type === "direct" && activeOtherMember?.profile) {
+                    setPreviewProfile(activeOtherMember.profile);
+                  } else if (activeConversation) {
+                    setInfoPanelOpen(true);
+                  }
+                }}
+                className="relative rounded-full focus:outline-none focus:ring-2 focus:ring-white/35"
+                aria-label="View chat profile"
+              >
+                {activeConversation?.type === "direct" ? (
+                  <UserAvatar
+                    person={activeOtherMember?.profile ?? { full_name: activeConversation?.display_name }}
+                    size="lg"
+                    className="h-11 w-11"
+                  />
+                ) : (
+                  <div className="flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-white/5 text-sm font-semibold text-white/70">
+                    {avatarText}
+                  </div>
+                )}
 
                 {activeConversation?.type === "direct" ? (
                   <span
@@ -1160,16 +1516,22 @@ export default function ChatPage() {
                       "absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 border-neutral-950",
                       isRecentlyOnline(activeOtherMember?.profile?.last_seen_at)
                         ? "bg-green-400 shadow-[0_0_8px_rgba(74,222,128,0.6)]"
-                        : "bg-white/20",
+                      : "bg-white/20",
                     ].join(" ")}
                   />
                 ) : null}
-              </div>
+              </button>
 
               <div className="min-w-0 flex-1">
-                <h2 className="truncate text-base font-semibold">
+                <button
+                  type="button"
+                  onClick={() => activeConversationId && setInfoPanelOpen(true)}
+                  className="block max-w-full text-left"
+                >
+                <h2 className="truncate text-base font-semibold transition hover:text-white/80">
                   {activeConversation?.display_name || "Select a conversation"}
                 </h2>
+                </button>
 
                 <div className="mt-1 flex flex-wrap items-center gap-2">
                   <p className="text-sm text-white/50">{headerSubtitle}</p>
@@ -1224,6 +1586,11 @@ export default function ChatPage() {
               hasConversation={Boolean(activeConversationId)}
               conversation={activeConversation}
               currentUserRole={profile?.primary_role ?? null}
+              onProfileClick={setPreviewProfile}
+              onMessageEditStart={(message) => {
+                setEditingMessage(message);
+                setInput(message.body ?? "");
+              }}
               onMessageDeleted={(messageId) => {
                 setMessages((current) =>
                   current.map((message) =>
@@ -1245,6 +1612,7 @@ export default function ChatPage() {
             value={input}
             onChange={setInput}
             onSend={() => void handleSend()}
+            editing={Boolean(editingMessage)}
             onTyping={handleTyping}
             onImageSelect={(file) => void handleSendImage(file)}
             onAudioReady={(file) => void handleSendAudio(file)}
@@ -1264,6 +1632,30 @@ export default function ChatPage() {
         onSelectUser={handleStartDirectChat}
         onCreateGroup={handleCreateGroup}
       />
+
+      <ChatInfoPanel
+        open={infoPanelOpen}
+        conversation={activeConversation}
+        currentUserId={user?.id}
+        messages={messages}
+        blocked={Boolean(
+          activeOtherMember?.user_id &&
+          blockedUserIds.includes(activeOtherMember.user_id),
+        )}
+        savingSetting={savingChatSetting}
+        blocking={blockingUser}
+        onClose={() => setInfoPanelOpen(false)}
+        onPreviewProfile={setPreviewProfile}
+        onDisappearingChange={(seconds) => void handleDisappearingChange(seconds)}
+        onToggleBlock={() => void handleToggleBlock()}
+      />
+
+      {previewProfile ? (
+        <ProfilePictureModal
+          profile={previewProfile}
+          onClose={() => setPreviewProfile(null)}
+        />
+      ) : null}
     </>
   );
 }

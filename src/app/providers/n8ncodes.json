@@ -107,37 +107,34 @@
     },
     {
       "parameters": {
-        "toolDescription": "Approved uploaded company knowledge and internal marketing guidance. Retrieve only scoped, relevant information.",
+        "toolDescription": "Search indexed internal documents from Supabase Storage / internal document index only. Return clean document results with exact filenames, snippets, and scores. Never return raw HTML.",
         "method": "POST",
-        "url": "=https://infranodus.com/api/v1/graphAndStatements?doNotSave=false&includeGraph=false&includeGraphSummary=true&includeGraph=false",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpBearerAuth",
+        "url": "={{ ($env.SUPABASE_URL || 'https://zirftywinscopzuuwdlg.supabase.co') + '/functions/v1/codex-execute-tool' }}",
         "sendBody": true,
-        "bodyParameters": {
+        "options": {},
+        "sendHeaders": true,
+        "headerParameters": {
           "parameters": [
             {
-              "name": "name",
-              "value": "ai_topic_marketing-guidance"
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_SERVICE_ROLE_KEY }}"
             },
             {
-              "name": "requestMode",
-              "value": "response"
+              "name": "Authorization",
+              "value": "=Bearer {{$env.SUPABASE_SERVICE_ROLE_KEY}}"
             },
             {
-              "name": "prompt",
-              "value": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('parameters2_Value', '', 'string') }}"
+              "name": "x-codex-internal-key",
+              "value": "={{ $env.INTERNAL_API_KEY }}"
             },
             {
-              "name": "includeOnlySummaries",
-              "value": "=true"
-            },
-            {
-              "name": "maxResults",
-              "value": "5"
+              "name": "Content-Type",
+              "value": "application/json"
             }
           ]
         },
-        "options": {}
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ toolId: 'search_documents', payload: { query: $fromAI('document_query', '', 'string') || '', limit: Number($fromAI('document_limit', '8', 'string') || 8) }, context: $json.context || $('04 Merge Request + User Context').first().json.context }) }}"
       },
       "id": "546a823c-700d-402f-b5ba-e06b77590697",
       "name": "Knowledge Base GraphRAG",

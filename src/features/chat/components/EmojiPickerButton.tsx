@@ -1,31 +1,47 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { SmilePlus } from "lucide-react";
 
-const EMOJIS = [
-  "😀",
-  "😂",
-  "😍",
-  "😎",
-  "🥳",
-  "🔥",
-  "✨",
-  "👏",
-  "🙏",
-  "💪",
-  "👍",
-  "❤️",
-  "✅",
-  "👀",
-  "💡",
-  "🚀",
-  "🎯",
-  "☕",
-  "🍿",
-  "😭",
-  "😅",
-  "🤝",
-  "🙌",
-  "🧡",
+const EMOJI_GROUPS = [
+  {
+    label: "Smileys",
+    emojis: "😀 😃 😄 😁 😆 😅 😂 🤣 🥲 😊 😇 🙂 🙃 😉 😌 😍 🥰 😘 😗 😙 😚 😋 😛 😜 🤪 😝 🤑 🤗 🤭 🫢 🫣 🤫 🤔 🫡 🤐 🤨 😐 😑 😶 🫥 😏 😒 🙄 😬 😮‍💨 🤥 😌 😔 😪 🤤 😴 😷 🤒 🤕 🤢 🤮 🤧 🥵 🥶 🥴 😵 🤯 🤠 🥳 😎 🤓 🧐 😕 🫤 🙁 ☹️ 😮 😯 😲 😳 🥺 🥹 😦 😧 😨 😰 😥 😢 😭 😱 😖 😣 😞 😓 😩 😫 🥱 😤 😡 😠 🤬 😈 👿 💀 ☠️ 💩 🤡 👻 👽 🤖".split(" "),
+  },
+  {
+    label: "Gestures",
+    emojis: "👋 🤚 🖐️ ✋ 🖖 🫱 🫲 🫳 🫴 👌 🤌 🤏 ✌️ 🤞 🫰 🤟 🤘 🤙 👈 👉 👆 🖕 👇 ☝️ 👍 👎 ✊ 👊 🤛 🤜 👏 🙌 🫶 👐 🤲 🤝 🙏 ✍️ 💅 💪 🦾 🦿 🦵 🦶 👂 🦻 👃 🧠 🫀 🫁 🦷 🦴 👀 👁️ 👅 👄 🫦".split(" "),
+  },
+  {
+    label: "People",
+    emojis: "👶 🧒 👦 👧 🧑 👱 👨 🧔 👩 🧓 👴 👵 🙍 🙎 🙅 🙆 💁 🙋 🧏 🙇 🤦 🤷 🧑‍⚕️ 🧑‍🎓 🧑‍🏫 🧑‍⚖️ 🧑‍🌾 🧑‍🍳 🧑‍🔧 🧑‍🏭 🧑‍💼 🧑‍🔬 🧑‍💻 🧑‍🎤 🧑‍🎨 🧑‍✈️ 🧑‍🚀 🧑‍🚒 👮 🕵️ 💂 🥷 👷 🫅 🤴 👸 👳 👲 🧕 🤵 👰 🤰 🫃 🫄 👼 🎅 🤶 🧑‍🎄 🦸 🦹 🧙 🧚 🧛 🧜 🧝 🧞 🧟".split(" "),
+  },
+  {
+    label: "Hearts",
+    emojis: "💌 💘 💝 💖 💗 💓 💞 💕 💟 ❣️ 💔 ❤️‍🔥 ❤️‍🩹 ❤️ 🩷 🧡 💛 💚 💙 🩵 💜 🤎 🖤 🩶 🤍 💋 💯 💢 💥 💫 💦 💨 🕳️ 💬 👁️‍🗨️ 🗨️ 🗯️ 💭 💤".split(" "),
+  },
+  {
+    label: "Work",
+    emojis: "✅ ☑️ ✔️ ❌ ❎ ⚠️ 🚫 🔒 🔓 🔐 🔑 🗝️ 📌 📍 📎 🖇️ 📅 📆 🗓️ ⏰ ⏱️ ⏲️ 🕰️ 💼 📁 📂 🗂️ 📄 📃 📑 🧾 📊 📈 📉 🧮 💻 🖥️ 🖨️ ⌨️ 🖱️ 💾 💿 📱 ☎️ 📞 📧 📨 📩 📤 📥 🔎 💡 🔧 🔨 ⚙️ 🧰 🪛 🧲 🧪 🧬 🩺 💊 🧯 🛡️".split(" "),
+  },
+  {
+    label: "Objects",
+    emojis: "🎉 🎊 🎁 🎈 🪩 🪄 🧸 🖼️ 🎨 🧵 🪡 👓 🕶️ 🥽 🥼 🦺 👔 👕 👖 🧢 👑 💍 💎 🔋 🪫 🔌 💡 🕯️ 🪔 🧭 🧱 🪜 🪑 🚪 🪟 🛏️ 🛋️ 🚿 🛁 🧴 🧻 🧼 🪥 🧽 🧹 🧺 🛒 🚬 ⚰️ 🪦 ⚱️ 🗿 🪧".split(" "),
+  },
+  {
+    label: "Food",
+    emojis: "🍏 🍎 🍐 🍊 🍋 🍌 🍉 🍇 🍓 🫐 🍈 🍒 🍑 🥭 🍍 🥥 🥝 🍅 🥑 🥦 🥬 🥒 🌶️ 🫑 🌽 🥕 🫒 🧄 🧅 🥔 🍠 🥐 🥯 🍞 🥖 🥨 🧀 🥚 🍳 🧈 🥞 🧇 🥓 🥩 🍗 🍖 🌭 🍔 🍟 🍕 🥪 🥙 🧆 🌮 🌯 🫔 🥗 🥘 🫕 🍝 🍜 🍲 🍛 🍣 🍱 🥟 🦪 🍤 🍙 🍚 🍘 🍥 🥠 🥮 🍢 🍡 🍧 🍨 🍦 🥧 🧁 🍰 🎂 🍮 🍭 🍬 🍫 🍿 🍩 🍪 🥛 ☕ 🫖 🍵 🧃 🥤 🧋 🍺 🍻 🥂 🍷 🥃 🍸 🍹 🧉".split(" "),
+  },
+  {
+    label: "Travel",
+    emojis: "🚗 🚕 🚙 🚌 🚎 🏎️ 🚓 🚑 🚒 🚐 🛻 🚚 🚛 🚜 🛵 🏍️ 🛺 🚲 🛴 🛹 🛼 🚂 🚆 🚇 🚊 🚉 ✈️ 🛫 🛬 🛩️ 💺 🚁 🚀 🛸 🚢 ⛵ 🛶 🚤 🛥️ 🛳️ ⛽ 🚧 🚦 🚥 🗺️ 🗽 🗼 🏰 🏯 🏟️ 🎡 🎢 🎠 ⛲ ⛱️ 🏖️ 🏝️ 🏜️ 🌋 ⛰️ 🏔️ 🗻 🏕️ 🛖 🏠 🏡 🏢 🏣 🏤 🏥 🏦 🏨 🏪 🏫 🏭 🏗️".split(" "),
+  },
+  {
+    label: "Nature",
+    emojis: "🌍 🌎 🌏 🌐 🗺️ 🌋 🗻 🏕️ 🌅 🌄 🌠 🎇 🎆 🌇 🌆 🏙️ 🌃 🌌 🌉 🌁 ☀️ 🌤️ ⛅ 🌥️ ☁️ 🌦️ 🌧️ ⛈️ 🌩️ 🌨️ ❄️ ☃️ ⛄ 🌬️ 💨 🌪️ 🌫️ 🌈 ☔ ⚡ ⭐ 🌟 ✨ ☄️ 💥 🔥 🌊 🎄 🌲 🌳 🌴 🌵 🌾 🌿 ☘️ 🍀 🍁 🍂 🍃 🪴 🌱 🌷 🌹 🥀 🌺 🌸 🌼 🌻".split(" "),
+  },
+  {
+    label: "Symbols",
+    emojis: "🔴 🟠 🟡 🟢 🔵 🟣 🟤 ⚫ ⚪ 🟥 🟧 🟨 🟩 🟦 🟪 🟫 ⬛ ⬜ ◼️ ◻️ ◾ ◽ ▪️ ▫️ 🔶 🔷 🔸 🔹 🔺 🔻 💠 🔘 🔳 🔲 ♻️ 🔰 ⚜️ 🔱 ⚛️ 🕉️ ✡️ ☸️ ☯️ ✝️ ☦️ ☪️ ☮️ 🕎 🔯 ♈ ♉ ♊ ♋ ♌ ♍ ♎ ♏ ♐ ♑ ♒ ♓ ⛎ ▶️ ⏸️ ⏯️ ⏹️ ⏺️ ⏭️ ⏮️ ⏩ ⏪ 🔀 🔁 🔂".split(" "),
+  },
 ];
 
 export default function EmojiPickerButton({
@@ -36,6 +52,8 @@ export default function EmojiPickerButton({
   onSelect: (emoji: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [activeGroup, setActiveGroup] = useState(0);
+  const emojis = useMemo(() => EMOJI_GROUPS[activeGroup]?.emojis ?? [], [activeGroup]);
 
   return (
     <div className="relative">
@@ -56,18 +74,36 @@ export default function EmojiPickerButton({
         <div
           role="dialog"
           aria-label="Emoji picker"
-          className="absolute bottom-full left-0 z-40 mb-3 w-72 rounded-2xl border border-white/10 bg-neutral-950 p-3 shadow-2xl shadow-black/60"
+          className="absolute bottom-full left-0 z-40 mb-3 w-80 overflow-hidden rounded-2xl border border-white/10 bg-neutral-950 shadow-2xl shadow-black/60"
         >
-          <div className="grid grid-cols-8 gap-1">
-            {EMOJIS.map((emoji) => (
+          <div className="flex gap-1 overflow-x-auto border-b border-white/10 p-2">
+            {EMOJI_GROUPS.map((group, index) => (
               <button
-                key={emoji}
+                key={group.label}
+                type="button"
+                onClick={() => setActiveGroup(index)}
+                className={[
+                  "shrink-0 rounded-full px-3 py-1.5 text-xs font-medium transition",
+                  activeGroup === index
+                    ? "bg-white text-neutral-950"
+                    : "text-white/55 hover:bg-white/10 hover:text-white",
+                ].join(" ")}
+              >
+                {group.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="grid max-h-72 grid-cols-8 gap-1 overflow-y-auto p-3">
+            {emojis.map((emoji, index) => (
+              <button
+                key={`${emoji}-${index}`}
                 type="button"
                 onClick={() => {
                   onSelect(emoji);
                   setOpen(false);
                 }}
-                className="flex h-8 w-8 items-center justify-center rounded-xl text-lg transition hover:bg-orange-500/15"
+                className="flex h-8 w-8 items-center justify-center rounded-xl text-lg transition hover:bg-white/10"
               >
                 {emoji}
               </button>

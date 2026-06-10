@@ -455,7 +455,7 @@
       "parameters": {
         "mode": "retrieve-as-tool",
         "toolName": "INM",
-        "toolDescription": "Use this tool to query IT's No Matata business FAQs and support information.",
+        "toolDescription": "Legacy vector-store tool. Prefer Tool - Internal Documents for document search because it uses the internal Supabase document index and never returns raw HTML.",
         "tableName": {
           "__rl": true,
           "value": "documents",
@@ -571,7 +571,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const source = $('10 Build Escalation Email').item.json;\nconst finalReply = source.detectedIntent === 'missing_video'\n  ? \"Thanks for sending those details \ud83d\ude0a I\u2019ve passed this to our media team and they\u2019ll follow up with you shortly.\"\n  : \"Thanks \ud83d\ude0a I\u2019ve passed your request to our team and someone will get back to you shortly.\";\nreturn [{ json: { ...source, finalReply, emailSent: true } }];"
+        "jsCode": "const source = $('10 Build Escalation Email').item.json;\nconst finalReply = source.detectedIntent === 'missing_video'\n  ? \"Thanks for sending those details 😊 I’ve passed this to our media team and they’ll follow up with you shortly.\"\n  : \"Thanks 😊 I’ve passed your request to our team and someone will get back to you shortly.\";\nreturn [{ json: { ...source, finalReply, emailSent: true } }];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -584,7 +584,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const source = $('10 Build Escalation Email').item.json;\nreturn [{ json: {\n  ...source,\n  finalReply: \"Thanks for your message \ud83d\ude0a I\u2019m sorry, but I couldn\u2019t notify the team automatically just now. Please contact support@itsnomatata.com directly, and I\u2019ll log this issue for review.\",\n  emailSent: false,\n  error: $json.error || $json.message || 'Outlook send failed'\n}}];"
+        "jsCode": "const source = $('10 Build Escalation Email').item.json;\nreturn [{ json: {\n  ...source,\n  finalReply: \"Thanks for your message 😊 I’m sorry, but I couldn’t notify the team automatically just now. Please contact support@itsnomatata.com directly, and I’ll log this issue for review.\",\n  emailSent: false,\n  error: $json.error || $json.message || 'Outlook send failed'\n}}];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -597,7 +597,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const finalReply = $json.output || $json.aiResponse || $json.text || \"Thanks for your message \ud83d\ude0a I\u2019m not completely sure about that, so I can arrange for the team to follow up if needed.\";\nreturn [{ json: { ...$json, finalReply } }];"
+        "jsCode": "const finalReply = $json.output || $json.aiResponse || $json.text || \"Thanks for your message 😊 I’m not completely sure about that, so I can arrange for the team to follow up if needed.\";\nreturn [{ json: { ...$json, finalReply } }];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -610,7 +610,7 @@
     },
     {
       "parameters": {
-        "jsCode": "return [{ json: {\n  ...$json,\n  finalReply: \"Thanks \ud83d\ude0a I can help get this to our media team. Please send your client name, email address, activity date, activity name if you know it, WhatsApp number, and any proof/details from the purchase.\"\n}}];"
+        "jsCode": "return [{ json: {\n  ...$json,\n  finalReply: \"Thanks 😊 I can help get this to our media team. Please send your client name, email address, activity date, activity name if you know it, WhatsApp number, and any proof/details from the purchase.\"\n}}];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -661,7 +661,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const root = $('01 WhatsApp Trigger').item.json;\nconst message = root.messages?.[0] || {};\nreturn [{ json: {\n  finalReply: \"Thanks for your message \ud83d\ude0a I\u2019m having trouble processing that automatically. Please send your request as text, or contact support@itsnomatata.com and the team will help you.\",\n  whatsappNumber: message.from || '',\n  error: $json.error || $json.message || 'Processing error'\n}}];"
+        "jsCode": "const root = $('01 WhatsApp Trigger').item.json;\nconst message = root.messages?.[0] || {};\nreturn [{ json: {\n  finalReply: \"Thanks for your message 😊 I’m having trouble processing that automatically. Please send your request as text, or contact support@itsnomatata.com and the team will help you.\",\n  whatsappNumber: message.from || '',\n  error: $json.error || $json.message || 'Processing error'\n}}];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -766,6 +766,46 @@
       ],
       "id": "production-setup-note",
       "name": "00 Production Setup Note"
+    },
+    {
+      "parameters": {
+        "toolDescription": "Search indexed internal/public-approved documents from Supabase ai_documents only. Returns clean document results with exact filenames, snippets, and scores. Never returns raw HTML. Requires WHATSAPP_AI_ORGANIZATION_ID and WHATSAPP_AI_USER_ID env values for scoped access.",
+        "method": "POST",
+        "url": "={{ ($env.SUPABASE_URL || 'https://zirftywinscopzuuwdlg.supabase.co') + '/functions/v1/codex-execute-tool' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_SERVICE_ROLE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.SUPABASE_SERVICE_ROLE_KEY}}"
+            },
+            {
+              "name": "x-codex-internal-key",
+              "value": "={{ $env.INTERNAL_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ toolId: ($fromAI('document_tool_id', 'search_documents', 'string') || 'search_documents'), payload: { query: $fromAI('document_query', '', 'string') || '', name: $fromAI('document_name', '', 'string') || '', document_id: $fromAI('document_id', '', 'string') || '', limit: Number($fromAI('document_limit', '5', 'string') || 5) }, context: { userId: $env.WHATSAPP_AI_USER_ID, organizationId: $env.WHATSAPP_AI_ORGANIZATION_ID, role: 'social_media', department: 'public_support', fullName: 'WhatsApp AI' } }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        -2020,
+        640
+      ],
+      "id": "tool-internal-documents",
+      "name": "Tool - Internal Documents"
     }
   ],
   "connections": {
@@ -1174,6 +1214,17 @@
           {
             "node": "14 Logging / Audit Event",
             "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tool - Internal Documents": {
+      "ai_tool": [
+        [
+          {
+            "node": "06 AI Response Generation",
+            "type": "ai_tool",
             "index": 0
           }
         ]

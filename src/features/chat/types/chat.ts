@@ -39,6 +39,7 @@ export type ChatConversation = {
   name?: string | null;
   title: string | null;
   type: ChatConversationType;
+  disappearing_seconds?: number | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -103,6 +104,7 @@ export type ChatMessage = {
   reactions?: ChatMessageReaction[];
   is_edited: boolean;
   is_deleted: boolean;
+  expires_at?: string | null;
   created_at: string;
   updated_at: string;
   sender_profile?: ChatMessageSender | null;

@@ -366,6 +366,63 @@ export function NotificationProvider({
     };
   }, [organizationId, userId]);
 
+  useEffect(() => {
+    if (!userId) return;
+
+    const handleChatNotificationsRead = (event: Event) => {
+      const detail = (event as CustomEvent<{
+        userId?: string;
+        conversationId?: string;
+      }>).detail;
+
+      if (detail?.userId && detail.userId !== userId) return;
+      if (!detail?.conversationId) return;
+
+      setNotifications((prev) => {
+        let changedUnread = 0;
+        const next = prev.map((item) => {
+          const isChatNotification =
+            item.type === "chat_message" ||
+            item.type === "chat_message_received" ||
+            item.category === "chat";
+          const isConversation =
+            item.entity_id === detail.conversationId ||
+            item.reference_id === detail.conversationId ||
+            item.metadata?.conversationId === detail.conversationId;
+
+          if (!item.is_read && isChatNotification && isConversation) {
+            changedUnread += 1;
+            return {
+              ...item,
+              is_read: true,
+              read_at: new Date().toISOString(),
+            };
+          }
+
+          return item;
+        });
+
+        if (changedUnread > 0) {
+          setUnreadCount((count) => Math.max(0, count - changedUnread));
+        }
+
+        return next;
+      });
+    };
+
+    window.addEventListener(
+      "chat:conversation-read",
+      handleChatNotificationsRead,
+    );
+
+    return () => {
+      window.removeEventListener(
+        "chat:conversation-read",
+        handleChatNotificationsRead,
+      );
+    };
+  }, [userId]);
+
   const markOneAsRead = useCallback(
     async (notificationId: string) => {
       setError("");

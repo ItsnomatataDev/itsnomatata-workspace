@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Check, CheckCheck, Download, RotateCcw, Trash2, X } from "lucide-react";
+import { Check, CheckCheck, Download, Pencil, RotateCcw, Trash2, X } from "lucide-react";
 import type { ChatConversation } from "../types/chat";
 import type { ChatMessage } from "../types/chat";
 import { deleteMessage } from "../services/chatService";
@@ -13,6 +13,14 @@ type ImagePreview = {
   alt: string;
   fileName?: string | null;
 };
+
+type ContextMenuState = {
+  x: number;
+  y: number;
+  message: ChatMessage;
+  canEdit: boolean;
+  canDelete: boolean;
+} | null;
 
 function getSeenStatus(params: {
   message: ChatMessage;
@@ -179,8 +187,10 @@ export default function MessageList({
   hasConversation,
   conversation,
   onMessageDeleted,
+  onMessageEditStart,
   onRetryMessage,
   onToggleReaction,
+  onProfileClick,
   currentUserRole,
 }: {
   messages: ChatMessage[];
@@ -189,11 +199,14 @@ export default function MessageList({
   hasConversation: boolean;
   conversation: ChatConversation | null;
   onMessageDeleted?: (messageId: string) => void;
+  onMessageEditStart?: (message: ChatMessage) => void;
   onRetryMessage?: (message: ChatMessage) => void;
   onToggleReaction?: (messageId: string, emoji: string) => void;
+  onProfileClick?: (profile: NonNullable<ChatMessage["sender_profile"]>) => void;
   currentUserRole?: string | null;
 }) {
   const [imagePreview, setImagePreview] = useState<ImagePreview | null>(null);
+  const [contextMenu, setContextMenu] = useState<ContextMenuState>(null);
 
   useEffect(() => {
     if (!imagePreview) return undefined;
@@ -207,6 +220,24 @@ export default function MessageList({
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [imagePreview]);
+
+  useEffect(() => {
+    if (!contextMenu) return undefined;
+
+    const closeMenu = () => setContextMenu(null);
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeMenu();
+    };
+
+    window.addEventListener("click", closeMenu);
+    window.addEventListener("scroll", closeMenu, true);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("click", closeMenu);
+      window.removeEventListener("scroll", closeMenu, true);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [contextMenu]);
 
   if (!hasConversation) {
     return (
@@ -254,6 +285,11 @@ export default function MessageList({
             currentUserRole === "manager" ||
             membership?.role === "owner" ||
             membership?.role === "admin");
+        const canEdit =
+          !message.is_deleted &&
+          isMine &&
+          message.message_type === "text" &&
+          !message.metadata?.message_type;
         const seenStatus = getSeenStatus({
           message,
           currentUserId,
@@ -261,25 +297,31 @@ export default function MessageList({
           messages,
         });
 
-        const handleDelete = async () => {
-          if (!currentUserId || !canDelete) return;
-          const confirmed = window.confirm(
-            "Delete this message? It will be hidden from the conversation.",
-          );
-          if (!confirmed) return;
-
-          try {
-            await deleteMessage({ messageId: message.id, userId: currentUserId });
-            onMessageDeleted?.(message.id);
-          } catch (err) {
-            console.error("Failed to delete message:", err);
-            window.alert("Unable to delete this message. Your permissions may not allow it.");
-          }
-        };
-
         const media = getMediaMetadata(message);
         const failed = message.local_status === "failed";
         const sending = message.local_status === "sending";
+        const expiresAt = message.expires_at ? new Date(message.expires_at) : null;
+
+        if (message.message_type === "system") {
+          return (
+            <div key={message.id} className="space-y-3">
+              {showDateSeparator ? (
+                <div className="flex items-center gap-3">
+                  <div className="h-px flex-1 bg-white/10" />
+                  <span className="rounded-full border border-white/10 bg-black/50 px-3 py-1 text-[11px] font-medium text-white/40">
+                    {formatDateSeparator(message.created_at)}
+                  </span>
+                  <div className="h-px flex-1 bg-white/10" />
+                </div>
+              ) : null}
+              <div className="flex justify-center">
+                <div className="max-w-[86%] rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-center text-[11px] leading-5 text-white/50">
+                  {message.body || "Chat setting updated."}
+                </div>
+              </div>
+            </div>
+          );
+        }
 
         return (
           <div key={message.id} className="space-y-3">
@@ -295,26 +337,45 @@ export default function MessageList({
 
             <div className={`group flex gap-2 ${isMine ? "justify-end" : "justify-start"}`}>
               {!isMine ? (
-                <UserAvatar
-                  person={message.sender_profile}
-                  size="md"
-                  className="mt-1"
-                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (message.sender_profile) onProfileClick?.(message.sender_profile);
+                  }}
+                  className="mt-1 rounded-full focus:outline-none focus:ring-2 focus:ring-white/35"
+                  aria-label={`View ${senderName} profile picture`}
+                >
+                  <UserAvatar
+                    person={message.sender_profile}
+                    size="md"
+                  />
+                </button>
               ) : null}
               <div
+                onContextMenu={(event) => {
+                  if (!canEdit && !canDelete) return;
+                  event.preventDefault();
+                  setContextMenu({
+                    x: event.clientX,
+                    y: event.clientY,
+                    message,
+                    canEdit,
+                    canDelete,
+                  });
+                }}
                 className={[
-                  "max-w-[92%] overflow-hidden rounded-2xl px-4 py-3 text-sm shadow-sm transition-shadow sm:max-w-[82%]",
-                  isMine ? "shadow-orange-500/10" : "shadow-black/20",
+                  "max-w-[92%] overflow-hidden rounded-[22px] px-4 py-3 text-sm shadow-sm transition-shadow sm:max-w-[82%]",
+                  isMine ? "shadow-black/15" : "shadow-black/20",
                   isMine
-                    ? "bg-orange-500 text-black"
-                    : "border border-white/10 bg-white/10 text-white",
+                    ? "bg-[#dff7ea] text-neutral-950"
+                    : "border border-white/10 bg-white/[0.08] text-white",
                   failed ? "ring-2 ring-red-500/40" : "",
                   sending ? "opacity-70" : "",
                 ].join(" ")}
               >
               {!isMine ? (
                 <div className="mb-2 flex items-center gap-2">
-                  <span className="text-xs font-semibold text-orange-400">
+                  <span className="text-xs font-semibold text-white/65">
                     {senderName}
                   </span>
                   <span
@@ -342,7 +403,7 @@ export default function MessageList({
                           (media.type === "gif" ? "shared-gif.gif" : null),
                       })
                     }
-                    className="block max-w-full overflow-hidden rounded-xl text-left transition hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-orange-400"
+                    className="block max-w-full overflow-hidden rounded-2xl text-left transition hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-white/35"
                     aria-label="Open image preview"
                   >
                     <img
@@ -370,7 +431,7 @@ export default function MessageList({
                         fileName: message.attachment_name,
                       })
                     }
-                    className="block max-w-full overflow-hidden rounded-xl text-left transition hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-orange-400"
+                    className="block max-w-full overflow-hidden rounded-2xl text-left transition hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-white/35"
                     aria-label="Open image preview"
                   >
                     <img
@@ -456,22 +517,6 @@ export default function MessageList({
                     </button>
                   ) : null}
 
-                  {canDelete ? (
-                    <button
-                      type="button"
-                      onClick={handleDelete}
-                      className={[
-                        "rounded p-1 transition",
-                        isMine
-                          ? "text-black/50 hover:bg-black/10 hover:text-black"
-                          : "text-white/40 hover:bg-white/10 hover:text-white",
-                      ].join(" ")}
-                      title="Delete message"
-                    >
-                      <Trash2 size={12} />
-                    </button>
-                  ) : null}
-
                   {isMine && seenStatus ? (
                     <span
                       className={[
@@ -491,19 +536,90 @@ export default function MessageList({
               </div>
 
               {!message.is_deleted ? (
+                <>
+                {message.is_edited || expiresAt ? (
+                  <div
+                    className={[
+                      "mt-2 text-[10px]",
+                      isMine ? "text-black/55" : "text-white/35",
+                    ].join(" ")}
+                  >
+                    {message.is_edited ? "Edited" : null}
+                    {message.is_edited && expiresAt ? " • " : null}
+                    {expiresAt ? `Disappears ${expiresAt.toLocaleString([], {
+                      month: "short",
+                      day: "2-digit",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}` : null}
+                  </div>
+                ) : null}
                 <MessageReactions
                   reactions={message.reactions ?? []}
                   currentUserId={currentUserId}
                   disabled={!currentUserId || sending}
                   onToggle={(emoji) => onToggleReaction?.(message.id, emoji)}
                 />
+                </>
               ) : null}
               </div>
             </div>
           </div>
         );
       })}
-    </div>
+	    </div>
+    {contextMenu ? (
+      <div
+        className="fixed z-50 min-w-40 overflow-hidden rounded-2xl border border-white/10 bg-neutral-950/98 p-1 text-sm text-white shadow-2xl shadow-black/50 backdrop-blur-xl"
+        style={{
+          left: Math.min(contextMenu.x, window.innerWidth - 180),
+          top: Math.min(contextMenu.y, window.innerHeight - 120),
+        }}
+        role="menu"
+        onClick={(event) => event.stopPropagation()}
+      >
+        {contextMenu.canEdit ? (
+          <button
+            type="button"
+            onClick={() => {
+              onMessageEditStart?.(contextMenu.message);
+              setContextMenu(null);
+            }}
+            className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-white/85 transition hover:bg-white/10 hover:text-white"
+            role="menuitem"
+          >
+            <Pencil size={14} />
+            Edit
+          </button>
+        ) : null}
+        {contextMenu.canDelete ? (
+          <button
+            type="button"
+            onClick={async () => {
+              const target = contextMenu.message;
+              setContextMenu(null);
+              const confirmed = window.confirm(
+                "Delete this message? It will be hidden from the conversation.",
+              );
+              if (!confirmed || !currentUserId) return;
+
+              try {
+                await deleteMessage({ messageId: target.id, userId: currentUserId });
+                onMessageDeleted?.(target.id);
+              } catch (err) {
+                console.error("Failed to delete message:", err);
+                window.alert("Unable to delete this message. Your permissions may not allow it.");
+              }
+            }}
+            className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-red-200 transition hover:bg-red-500/15 hover:text-red-100"
+            role="menuitem"
+          >
+            <Trash2 size={14} />
+            Delete
+          </button>
+        ) : null}
+      </div>
+    ) : null}
     {imagePreview ? (
       <ImagePreviewModal
         preview={imagePreview}

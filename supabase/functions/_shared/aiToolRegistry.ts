@@ -4,8 +4,17 @@ export type AiRouterToolId =
   | "get_active_time_trackers"
   | "get_user_timesheet"
   | "get_attendance_summary"
+  | "search_leave_requests"
+  | "search_meetings"
   | "search_notifications"
-  | "search_assets";
+  | "search_assets"
+  | "search_reports"
+  | "search_employee_documents"
+  | "search_social_posts"
+  | "search_fleet_service_needs"
+  | "list_available_documents"
+  | "search_documents"
+  | "get_document";
 
 export const READ_ONLY_AI_TOOLS = new Set<AiRouterToolId>([
   "summarize_my_tasks",
@@ -13,8 +22,17 @@ export const READ_ONLY_AI_TOOLS = new Set<AiRouterToolId>([
   "get_active_time_trackers",
   "get_user_timesheet",
   "get_attendance_summary",
+  "search_leave_requests",
+  "search_meetings",
   "search_notifications",
   "search_assets",
+  "search_reports",
+  "search_employee_documents",
+  "search_social_posts",
+  "search_fleet_service_needs",
+  "list_available_documents",
+  "search_documents",
+  "get_document",
 ]);
 
 export const CODEX_DELEGATED_TOOLS = new Set<AiRouterToolId>([
@@ -23,8 +41,17 @@ export const CODEX_DELEGATED_TOOLS = new Set<AiRouterToolId>([
   "get_active_time_trackers",
   "get_user_timesheet",
   "get_attendance_summary",
+  "search_leave_requests",
+  "search_meetings",
   "search_notifications",
   "search_assets",
+  "search_reports",
+  "search_employee_documents",
+  "search_social_posts",
+  "search_fleet_service_needs",
+  "list_available_documents",
+  "search_documents",
+  "get_document",
 ]);
 
 const AI_ALLOWED_ROLES = new Set([
@@ -183,6 +210,55 @@ export function detectAiTool(message: string): {
     };
   }
 
+  if (/fleet|vehicle|service|maintenance|odometer/.test(lower)) {
+    return {
+      toolId: "search_fleet_service_needs",
+      payload: { horizon_days: /month|30/.test(lower) ? 30 : 14, limit: 20 },
+    };
+  }
+
+  if (/meeting|calendar|call|schedule/.test(lower)) {
+    return {
+      toolId: "search_meetings",
+      payload: /today/.test(lower) ? { from: today, to: today, limit: 15 } : { daysBack: 7, limit: 20 },
+    };
+  }
+
+  if (/leave|vacation|time off|absence|pto/.test(lower)) {
+    return {
+      toolId: "search_leave_requests",
+      payload: /pending/.test(lower) ? { status: "pending", daysBack: 30 } : { daysBack: 30 },
+    };
+  }
+
+  if (/report|operational report|weekly report|monthly report/.test(lower)) {
+    return {
+      toolId: "search_reports",
+      payload: { daysBack: /month|monthly/.test(lower) ? 30 : 90, limit: 15 },
+    };
+  }
+
+  if (/what documents|documents do you know|list documents|available documents|known documents/.test(lower)) {
+    return {
+      toolId: "list_available_documents",
+      payload: { limit: 50 },
+    };
+  }
+
+  if (/document|knowledge base|policy|sop|file|uploaded|leave policy|payslip|contract|letter/.test(lower)) {
+    return {
+      toolId: "search_documents",
+      payload: { query: message, limit: 8 },
+    };
+  }
+
+  if (/social|post|caption|instagram|facebook|linkedin|tiktok|scheduled post/.test(lower)) {
+    return {
+      toolId: "search_social_posts",
+      payload: { status: /scheduled/.test(lower) ? "scheduled" : undefined, limit: 15 },
+    };
+  }
+
   if (
     /tracking\s+time|time\s+tracking|timer|tracking now|active time|currently tracking|which tasks?.*(tracking|timer)|what tasks?.*(tracking|timer)/.test(
       lower,
@@ -232,6 +308,7 @@ export function formatToolReply(
       "- List boards",
       "- Show timesheet or active timers",
       "- Show attendance summary",
+      "- Show leave requests, meetings, reports, documents, social posts, or fleet service needs",
       "- Show notifications",
       "- Search assets",
     ].join("\n");
@@ -355,6 +432,88 @@ export function formatToolReply(
       });
 
       return `I found ${assets.length} asset${assets.length === 1 ? "" : "s"}${filterLabel ? ` matching ${filterLabel}` : ""}:\n\n${lines.join("\n")}`;
+    }
+    case "search_leave_requests": {
+      const requests = Array.isArray(data.requests) ? data.requests : [];
+      if (requests.length === 0) return "No matching leave requests found.";
+      const lines = requests.slice(0, 10).map((item) => {
+        const row = item as Record<string, unknown>;
+        return `- ${row.name ?? "Employee"}: ${row.startDate ?? "?"} to ${row.endDate ?? "?"} (${row.status ?? "unknown"})`;
+      }).join("\n");
+      return `Found ${requests.length} leave request(s):\n\n${lines}`;
+    }
+    case "search_meetings": {
+      const meetings = Array.isArray(data.meetings) ? data.meetings : [];
+      if (meetings.length === 0) return "No matching meetings found.";
+      const lines = meetings.slice(0, 10).map((item) => {
+        const row = item as Record<string, unknown>;
+        return `- ${row.title ?? "Meeting"} with ${row.hostName ?? "unknown host"} at ${formatDateTime(row.scheduledStart)}`;
+      }).join("\n");
+      return `Found ${meetings.length} meeting(s):\n\n${lines}`;
+    }
+    case "search_reports": {
+      const reports = Array.isArray(data.reports) ? data.reports : [];
+      if (reports.length === 0) return "No matching reports found.";
+      const lines = reports.slice(0, 10).map((item) => {
+        const row = item as Record<string, unknown>;
+        return `- ${row.title ?? "Report"} (${row.status ?? "unknown"})${row.clientName ? ` for ${row.clientName}` : ""}`;
+      }).join("\n");
+      return `Found ${reports.length} report(s):\n\n${lines}`;
+    }
+    case "search_employee_documents": {
+      const documents = Array.isArray(data.documents) ? data.documents : [];
+      if (documents.length === 0) return "No matching employee documents found.";
+      const lines = documents.slice(0, 10).map((item) => {
+        const row = item as Record<string, unknown>;
+        return `- ${row.title ?? row.fileName ?? "Document"} (${row.documentType ?? "document"})`;
+      }).join("\n");
+      return `Found ${documents.length} employee document(s):\n\n${lines}`;
+    }
+    case "search_social_posts": {
+      const posts = Array.isArray(data.posts) ? data.posts : [];
+      if (posts.length === 0) return "No matching social posts found.";
+      const lines = posts.slice(0, 10).map((item) => {
+        const row = item as Record<string, unknown>;
+        return `- ${row.title ?? "Post"} on ${row.platform ?? "platform"} (${row.status ?? "unknown"})`;
+      }).join("\n");
+      return `Found ${posts.length} social post(s):\n\n${lines}`;
+    }
+    case "search_fleet_service_needs": {
+      const serviceNeeds = Array.isArray(data.serviceNeeds) ? data.serviceNeeds : [];
+      if (serviceNeeds.length === 0) return "No fleet service needs found in that window.";
+      const lines = serviceNeeds.slice(0, 10).map((item) => {
+        const row = item as Record<string, unknown>;
+        return `- ${row.vehicleName ?? row.registrationNumber ?? "Vehicle"}: ${row.serviceType ?? "service"} due ${row.nextServiceDate ?? "soon"}`;
+      }).join("\n");
+      return `Found ${serviceNeeds.length} fleet service need(s):\n\n${lines}`;
+    }
+    case "list_available_documents": {
+      const documents = Array.isArray(data.documents) ? data.documents : [];
+      if (documents.length === 0) return "I do not have indexed internal documents yet.";
+      const lines = documents.slice(0, 20).map((item) => {
+        const row = item as Record<string, unknown>;
+        return `- ${row.name ?? "Document"} (${row.type ?? "document"})`;
+      }).join("\n");
+      return `I know about ${documents.length} indexed document(s):\n\n${lines}`;
+    }
+    case "search_documents": {
+      const results = Array.isArray(data.results) ? data.results : [];
+      if (results.length === 0) return "No indexed internal documents matched that search.";
+      const lines = results.slice(0, 8).map((item) => {
+        const row = item as Record<string, unknown>;
+        return `- ${row.name ?? "Document"} (${row.type ?? "document"})\n  ${row.snippet ?? ""}`;
+      }).join("\n");
+      return `Found ${results.length} internal document result(s):\n\n${lines}`;
+    }
+    case "get_document": {
+      const document = data.document as Record<string, unknown> | undefined;
+      const summary = data.summary as Record<string, unknown> | undefined;
+      if (!document) return "I could not load that document.";
+      return [
+        `Document: ${document.name ?? "Untitled"} (${document.type ?? "document"})`,
+        summary?.short ? `Summary: ${summary.short}` : "",
+        data.content ? `Content preview:\n${String(data.content).slice(0, 1800)}` : "",
+      ].filter(Boolean).join("\n\n");
     }
     default:
       return typeof data.message === "string" && data.message.trim()

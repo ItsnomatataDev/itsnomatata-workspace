@@ -113,6 +113,11 @@ export function subscribeToConversationMembers(params: {
   conversationId: string;
   currentUserId: string;
   onMemberUpdate: (member: ChatConversationMember) => void;
+  onReadReceipt?: (payload: {
+    userId: string;
+    lastReadMessageId: string;
+    readAt: string;
+  }) => void;
 }) {
   const channel: RealtimeChannel = supabase
     .channel(`chat:members:${params.conversationId}`)
@@ -132,10 +137,42 @@ export function subscribeToConversationMembers(params: {
         }
       },
     )
+    .on("broadcast", { event: "read_receipt" }, ({ payload }) => {
+      const receipt = payload as {
+        userId?: string;
+        lastReadMessageId?: string;
+        readAt?: string;
+      };
+
+      if (
+        receipt.userId &&
+        receipt.userId !== params.currentUserId &&
+        receipt.lastReadMessageId
+      ) {
+        params.onReadReceipt?.({
+          userId: receipt.userId,
+          lastReadMessageId: receipt.lastReadMessageId,
+          readAt: receipt.readAt ?? new Date().toISOString(),
+        });
+      }
+    })
     .subscribe();
 
-  return () => {
-    void supabase.removeChannel(channel);
+  return {
+    sendReadReceipt(userId: string, lastReadMessageId: string) {
+      void channel.send({
+        type: "broadcast",
+        event: "read_receipt",
+        payload: {
+          userId,
+          lastReadMessageId,
+          readAt: new Date().toISOString(),
+        },
+      });
+    },
+    cleanup() {
+      void supabase.removeChannel(channel);
+    },
   };
 }
 
