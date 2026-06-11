@@ -260,6 +260,21 @@ export function detectAiTool(message: string): {
   }
 
   if (
+    /not\s+tracking|isn'?t\s+tracking|aren'?t\s+tracking|not\s+on\s+(a\s+)?timer|who\s+is\s+not\s+tracking|who\s+isn'?t\s+tracking/.test(
+      lower,
+    )
+  ) {
+    return {
+      toolId: "get_active_time_trackers",
+      payload: {
+        scope: /\b(i|me|my|mine|am i)\b/.test(lower) ? "me" : "team",
+        includeNotTracking: true,
+        mode: "not_tracking",
+      },
+    };
+  }
+
+  if (
     /tracking\s+time|time\s+tracking|timer|tracking now|active time|currently tracking|which tasks?.*(tracking|timer)|what tasks?.*(tracking|timer)/.test(
       lower,
     )
@@ -341,7 +356,15 @@ export function formatToolReply(
     }
     case "get_active_time_trackers": {
       const trackers = Array.isArray(data.trackers) ? data.trackers : [];
-      if (trackers.length === 0) return "No active time trackers right now.";
+      const notTracking = Array.isArray(data.notTracking)
+        ? data.notTracking
+        : [];
+      const wantsNotTracking = Number(data.notTrackingCount ?? 0) > 0 ||
+        notTracking.length > 0 ||
+        data.notTrackingCount === 0 && data.peopleCount !== undefined;
+      if (trackers.length === 0 && !wantsNotTracking) {
+        return "No active time trackers right now.";
+      }
       const lines = trackers.map((entry) => {
         const row = entry as Record<string, unknown>;
         const name = row.name ?? row.user_name ?? "Someone";
@@ -350,6 +373,20 @@ export function formatToolReply(
         const link = taskLink(row.boardId, row.taskId);
         return `- ${name} is tracking "${task}" on ${board} (${formatHours(row.elapsedSeconds)} so far)${link ? `\n  Open task: ${link}` : ""}`;
       });
+      if (wantsNotTracking) {
+        const missingLines = notTracking.map((entry) => {
+          const row = entry as Record<string, unknown>;
+          const detail = [row.department, row.role].filter(Boolean).join(" - ");
+          return `- ${row.name ?? "Unknown user"}${row.email ? ` — ${row.email}` : ""}${detail ? ` (${detail})` : ""}`;
+        });
+        return [
+          `${Number(data.activeCount ?? trackers.length)} user(s) are tracking time. ${Number(data.notTrackingCount ?? notTracking.length)} user(s) are not tracking.`,
+          lines.length ? `\nTracking now:\n${lines.join("\n")}` : "\nTracking now:\nNo active timers.",
+          missingLines.length
+            ? `\nNot tracking:\n${missingLines.join("\n")}`
+            : "\nNot tracking:\nEveryone in scope is tracking time.",
+        ].join("\n");
+      }
       return `Here is what is being tracked right now:\n\n${lines.join("\n")}`;
     }
     case "get_user_timesheet": {

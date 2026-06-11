@@ -28,6 +28,7 @@ export interface ChatAttachment {
   name: string;
   url: string;
   download_url?: string;
+  downloadUrl?: string;
   size: number;
   mimeType: string;
   uploadedAt: string;

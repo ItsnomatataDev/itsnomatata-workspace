@@ -83,6 +83,9 @@ export type AssistantResponseType =
   | "error";
 
 export interface AssistantResponse {
+  output: string;
+  reply: any;
+  content: any;
   success: boolean;
   type: AssistantResponseType;
   message: string;
@@ -99,6 +102,7 @@ export interface AssistantResponse {
     name: string;
     url?: string;
     download_url?: string;
+    downloadUrl?: string;
     mimeType?: string;
     size?: number;
     metadata?: Record<string, unknown>;

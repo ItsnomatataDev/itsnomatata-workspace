@@ -163,13 +163,19 @@ Deno.serve(async (req) => {
     const title = String(body.title || "Codex Export").slice(0, 180);
     const rawContent = String(body.html || body.markdown || body.content || body.text || "");
     const content = body.html ? htmlToText(rawContent) : rawContent.trim();
+    if (!content.trim()) {
+      return jsonResponse({
+        success: false,
+        error: "No content supplied for export.",
+      }, 400);
+    }
     const fileName = safeFileName(body.file_name || body.fileName, "codex-export.pdf");
     const organizationId = safeFileName(body.organization_id || body.organizationId || "workspace", "workspace").replace(/\.pdf$/, "");
     const userId = safeFileName(body.user_id || body.userId || "codex", "codex").replace(/\.pdf$/, "");
     const bucket = Deno.env.get("CODEX_EXPORTS_BUCKET") || "codex-exports";
     const path = `${organizationId}/${userId}/${Date.now()}-${fileName}`;
 
-    const pdfBytes = buildPdfBytes(title, content || title);
+    const pdfBytes = buildPdfBytes(title, content);
     const supabase = createClient(supabaseUrl, serviceRoleKey, {
       auth: { persistSession: false },
     });
@@ -198,14 +204,21 @@ Deno.serve(async (req) => {
       output: "PDF generated successfully.",
       attachments: [
         {
-          type: "pdf",
+          id: crypto.randomUUID(),
+          type: "document",
           name: fileName,
           url: signed.signedUrl,
           download_url: signed.signedUrl,
+          downloadUrl: signed.signedUrl,
+          mimeType: "application/pdf",
+          size: pdfBytes.byteLength,
+          downloadable: true,
           metadata: {
             source: "generate-pdf",
             bucket,
             path,
+            file_type: "pdf",
+            generated_at: new Date().toISOString(),
           },
         },
       ],

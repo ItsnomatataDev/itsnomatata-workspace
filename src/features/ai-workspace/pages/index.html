@@ -1,0 +1,421 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Chef Portfolio — Chef Alex Morgan</title>
+
+  <!-- Google Font -->
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
+
+  <style>
+    :root{
+      --accent:#c95a2a;
+      --dark:#111216;
+      --muted:#6b7280;
+      --bg:#f7f7f6;
+      --card:#ffffff;
+      --glass: rgba(255,255,255,0.6);
+      --radius:14px;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0;
+      font-family:Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+      background:linear-gradient(180deg,#fbfbfa,#f2f2f1);
+      color:var(--dark);
+      -webkit-font-smoothing:antialiased;
+      -moz-osx-font-smoothing:grayscale;
+      line-height:1.45;
+    }
+
+    /* Container */
+    .container{
+      max-width:1100px;
+      margin:32px auto;
+      padding:24px;
+    }
+
+    /* Header / Nav */
+    header{
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:16px;
+      margin-bottom:22px;
+    }
+    .brand{
+      display:flex;
+      align-items:center;
+      gap:12px;
+      text-decoration:none;
+      color:inherit;
+    }
+    .logo{
+      width:56px;
+      height:56px;
+      border-radius:12px;
+      background:linear-gradient(135deg,var(--accent),#ff9b6a);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      color:white;
+      font-weight:700;
+      font-family:Playfair Display, serif;
+      box-shadow:0 6px 18px rgba(201,90,42,0.14);
+    }
+    nav a{
+      margin-left:18px;
+      color:var(--dark);
+      text-decoration:none;
+      font-weight:600;
+      font-size:14px;
+    }
+
+    /* Hero */
+    .hero{
+      display:grid;
+      grid-template-columns:1fr 420px;
+      gap:28px;
+      align-items:center;
+      background:linear-gradient(180deg, rgba(255,255,255,0.6), rgba(255,255,255,0.9));
+      padding:28px;
+      border-radius:var(--radius);
+      box-shadow:0 10px 30px rgba(13,17,23,0.06);
+      margin-bottom:28px;
+      backdrop-filter: blur(4px);
+    }
+    .hero-left h1{
+      margin:0 0 12px 0;
+      font-family:Playfair Display, serif;
+      font-size:38px;
+      letter-spacing:-0.02em;
+      color:var(--dark);
+    }
+    .hero-left p{
+      margin:0 0 18px 0;
+      color:var(--muted);
+    }
+    .hero-cta{
+      display:flex;
+      gap:12px;
+      align-items:center;
+    }
+    .btn{
+      padding:10px 16px;
+      border-radius:10px;
+      border:0;
+      cursor:pointer;
+      font-weight:600;
+    }
+    .btn-primary{
+      background:linear-gradient(90deg,var(--accent),#ff8b59);
+      color:white;
+      box-shadow:0 8px 24px rgba(201,90,42,0.14);
+    }
+    .btn-outline{
+      background:transparent;
+      color:var(--dark);
+      border:1px solid rgba(16,24,32,0.06);
+    }
+    .hero-right{
+      display:flex;
+      justify-content:center;
+      align-items:center;
+    }
+    .portrait{
+      width:100%;
+      max-width:380px;
+      border-radius:12px;
+      overflow:hidden;
+      box-shadow:0 14px 40px rgba(12,14,18,0.08);
+    }
+    .portrait img{
+      display:block;
+      width:100%;
+      height:100%;
+      object-fit:cover;
+    }
+
+    /* Sections */
+    section{margin-bottom:28px}
+    .grid-3{
+      display:grid;
+      gap:18px;
+      grid-template-columns:repeat(3,1fr);
+    }
+    .card{
+      background:var(--card);
+      border-radius:12px;
+      padding:16px;
+      box-shadow:0 6px 18px rgba(12,14,18,0.04);
+    }
+
+    /* About */
+    .about{
+      display:grid;
+      grid-template-columns:1fr 320px;
+      gap:20px;
+      align-items:start;
+    }
+    .bio p{color:var(--muted)}
+    .skills{
+      display:flex;
+      gap:8px;
+      flex-wrap:wrap;
+      margin-top:12px;
+    }
+    .skill{
+      background:linear-gradient(180deg,#fff,#fff);
+      padding:8px 10px;
+      border-radius:8px;
+      font-weight:600;
+      color:var(--accent);
+      border:1px solid rgba(201,90,42,0.08);
+      font-size:13px;
+    }
+
+    /* Menu highlights */
+    .menu-grid{
+      display:grid;
+      grid-template-columns:repeat(auto-fit,minmax(200px,1fr));
+      gap:14px;
+    }
+    .menu-item{
+      display:flex;
+      gap:12px;
+      align-items:center;
+    }
+    .menu-item img{
+      width:80px;
+      height:70px;
+      object-fit:cover;
+      border-radius:8px;
+    }
+    .menu-item h4{margin:0 0 4px 0}
+    .price{color:var(--muted); font-weight:600}
+
+    /* Gallery */
+    .gallery{
+      display:grid;
+      grid-template-columns:repeat(3,1fr);
+      gap:8px;
+    }
+    .gallery img{width:100%; height:160px; object-fit:cover; border-radius:8px}
+
+    /* Testimonial */
+    .testimonial{
+      display:flex;
+      gap:14px;
+      align-items:center;
+    }
+    .avatar{
+      width:64px; height:64px; border-radius:12px; overflow:hidden;
+      box-shadow:0 6px 18px rgba(0,0,0,0.06);
+    }
+
+    /* Contact */
+    .contact-form input, .contact-form textarea{
+      width:100%;
+      padding:10px 12px;
+      border-radius:10px;
+      border:1px solid rgba(15,20,25,0.06);
+      resize:vertical;
+      margin-bottom:10px;
+      font-family:inherit;
+    }
+
+    /* Footer */
+    footer{
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:12px;
+      color:var(--muted);
+      font-size:13px;
+    }
+
+    /* Responsive */
+    @media (max-width:980px){
+      .hero{grid-template-columns:1fr; text-align:center}
+      .about{grid-template-columns:1fr}
+      .gallery{grid-template-columns:repeat(2,1fr)}
+      .grid-3{grid-template-columns:repeat(2,1fr)}
+      .container{padding:18px}
+      nav a{display:none}
+    }
+    @media (max-width:560px){
+      .gallery{grid-template-columns:1fr}
+      .grid-3{grid-template-columns:1fr}
+      .logo{width:48px;height:48px}
+      .hero-left h1{font-size:28px}
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <a class="brand" href="#">
+        <div class="logo">AM</div>
+        <div>
+          <div style="font-weight:700">Chef Alex Morgan</div>
+          <div style="font-size:12px;color:var(--muted)">Farm-to-table | Private Events</div>
+        </div>
+      </a>
+
+      <nav>
+        <a href="#about">About</a>
+        <a href="#menu">Menu</a>
+        <a href="#gallery">Gallery</a>
+        <a href="#contact">Contact</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero" aria-label="Hero">
+        <div class="hero-left">
+          <h1>Seasonal. Local. Unforgettable.</h1>
+          <p>Private chef & culinary consultant crafting tasting menus and bespoke dining experiences using locally sourced ingredients.</p>
+          <div class="hero-cta">
+            <button class="btn btn-primary" onclick="document.getElementById('contact').scrollIntoView({behavior:'smooth'})">Book a Tasting</button>
+            <a href="#menu" class="btn btn-outline">View Menu</a>
+          </div>
+          <div style="margin-top:18px;color:var(--muted);font-size:14px">
+            Awards: James Beard Semifinalist — Featured: Gourmet Today — 10+ years experience
+          </div>
+        </div>
+
+        <div class="hero-right">
+          <div class="portrait" role="img" aria-label="Portrait of Chef Alex">
+            <img src="https://images.unsplash.com/photo-1544025162-d76694265947?q=80&w=1200&auto=format&fit=crop&ixlib=rb-4.0.3&s=3f2d1f0c8d2b799ececae4b9782f8fb1" alt="Chef cooking">
+          </div>
+        </div>
+      </section>
+
+      <section id="about" class="about">
+        <div class="card bio">
+          <h3 style="font-family:Playfair Display,serif;margin-bottom:6px">About Chef Alex</h3>
+          <p>Chef Alex Morgan blends modern technique with rustic flavors, focusing on seasonal produce and sustainable sourcing. Alex leads intimate dinners, pop-ups, and long-term collaborations with restaurants and events.</p>
+
+          <div class="skills" aria-hidden="false" style="margin-top:14px;">
+            <span class="skill">Tasting Menus</span>
+            <span class="skill">Farm Partnerships</span>
+            <span class="skill">Private Events</span>
+            <span class="skill">Recipe Dev</span>
+            <span class="skill">Culinary Workshops</span>
+          </div>
+
+          <div style="margin-top:16px; color:var(--muted); font-size:14px">
+            Signature: Maple-smoked short rib with charred celeriac & pearl onion jus.
+          </div>
+        </div>
+
+        <div class="card" aria-hidden="true">
+          <h4 style="margin-top:0">Quick Facts</h4>
+          <ul style="padding-left:18px; color:var(--muted); margin-top:10px">
+            <li>Based in: Charleston, SC</li>
+            <li>Available for: Catering, Private Dinners, Consulting</li>
+            <li>Languages: English, Spanish</li>
+          </ul>
+          <div style="margin-top:18px">
+            <strong style="display:block;margin-bottom:8px">Contact</strong>
+            <div style="color:var(--muted);font-size:14px">alex@chef-alex.com</div>
+            <div style="color:var(--muted);font-size:14px">Phone: (555) 123-4567</div>
+          </div>
+        </div>
+      </section>
+
+      <section id="menu">
+        <h3 style="font-family:Playfair Display, serif; margin-bottom:12px">Menu Highlights</h3>
+        <div class="menu-grid">
+          <div class="card menu-item">
+            <img src="https://images.unsplash.com/photo-1546069901-eacef0df6022?w=800&q=60&auto=format&fit=crop" alt="Dish 1">
+            <div>
+              <h4>Charred Octopus</h4>
+              <div style="font-size:14px;color:var(--muted)">Smoked paprika, preserved lemon</div>
+              <div class="price">$18</div>
+            </div>
+          </div>
+
+          <div class="card menu-item">
+            <img src="https://images.unsplash.com/photo-1551218808-94e220e084d2?w=800&q=60&auto=format&fit=crop" alt="Dish 2">
+            <div>
+              <h4>Heritage Pork Belly</h4>
+              <div style="font-size:14px;color:var(--muted)">Apple purée, rye crumble</div>
+              <div class="price">$24</div>
+            </div>
+          </div>
+
+          <div class="card menu-item">
+            <img src="https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=800&q=60&auto=format&fit=crop" alt="Dish 3">
+            <div>
+              <h4>Wild Mushroom Risotto</h4>
+              <div style="font-size:14px;color:var(--muted)">Aged parmesan, thyme</div>
+              <div class="price">$16</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="gallery">
+        <h3 style="font-family:Playfair Display, serif; margin-bottom:12px">Gallery</h3>
+        <div class="gallery">
+          <img src="https://images.unsplash.com/photo-1525755662778-989d0524087e?w=1200&q=60&auto=format&fit=crop" alt="Gallery 1">
+          <img src="https://images.unsplash.com/photo-1526318472351-c75fcf0704a2?w=1200&q=60&auto=format&fit=crop" alt="Gallery 2">
+          <img src="https://images.unsplash.com/photo-1467003909585-2f8a72700288?w=1200&q=60&auto=format&fit=crop" alt="Gallery 3">
+          <img src="https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=1200&q=60&auto=format&fit=crop" alt="Gallery 4">
+          <img src="https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=1200&q=60&auto=format&fit=crop" alt="Gallery 5">
+          <img src="https://images.unsplash.com/photo-1544025162-d76694265947?w=1200&q=60&auto=format&fit=crop" alt="Gallery 6">
+        </div>
+      </section>
+
+      <section class="grid-3" style="margin-top:10px">
+        <div class="card testimonial">
+          <div class="avatar"><img src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=400&q=60&auto=format&fit=crop" alt="Client"></div>
+          <div>
+            <strong>Private client — K. Winters</strong>
+            <p style="margin:6px 0 0;color:var(--muted);font-size:14px">"An unforgettable evening — flavors were bold and balanced. Service felt intimate and effortless."</p>
+          </div>
+        </div>
+
+        <div class="card">
+          <h4 style="margin-top:0">Services</h4>
+          <ul style="padding-left:18px;color:var(--muted)"><li>Custom Tasting Menus</li><li>Event Catering</li><li>Cooking Workshops</li></ul>
+        </div>
+
+        <div class="card">
+          <h4 style="margin-top:0">Popular Packages</h4>
+          <div style="color:var(--muted)">Tasting for 6 — Private Dinner — Pop-up Series</div>
+        </div>
+      </section>
+
+      <section id="contact">
+        <h3 style="font-family:Playfair Display, serif; margin-bottom:12px">Contact & Booking</h3>
+        <div class="card contact-form">
+          <form onsubmit="event.preventDefault(); alert('Thanks — form demo only. Replace with your backend.');">
+            <input type="text" name="name" placeholder="Your name" required>
+            <input type="email" name="email" placeholder="Email address" required>
+            <input type="text" name="subject" placeholder="Event date or subject">
+            <textarea name="message" rows="5" placeholder="Tell me about the event..."></textarea>
+            <div style="display:flex;gap:10px;align-items:center">
+              <button type="submit" class="btn btn-primary">Send Inquiry</button>
+              <button type="button" class="btn btn-outline" onclick="window.open('mailto:alex@chef-alex.com')">Email Directly</button>
+            </div>
+          </form>
+        </div>
+      </section>
+    </main>
+
+    <footer style="margin-top:18px">
+      <div>&copy; <strong>Chef Alex Morgan</strong> — All rights reserved.</div>
+      <div style="display:flex;gap:12px">
+        <a href="#" style="color:var(--muted);text-decoration:none">Instagram</a>
+        <a href="#" style="color:var(--muted);text-decoration:none">LinkedIn</a>
+        <a href="#" style="color:var(--muted);text-decoration:none">Press</a>
+      </div>
+    </footer>
+  </div>
+</body>
+</html>

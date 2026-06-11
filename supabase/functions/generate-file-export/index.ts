@@ -43,10 +43,18 @@ function safeFileName(value: unknown, fallback: string) {
 
 function normalizeContent(content: unknown, format: string) {
   if (format === "json" && typeof content !== "string") {
-    return JSON.stringify(content ?? {}, null, 2);
+    return JSON.stringify(content, null, 2);
   }
   if (typeof content === "string") return content;
-  return JSON.stringify(content ?? "", null, 2);
+  return JSON.stringify(content, null, 2);
+}
+
+function hasExportContent(content: unknown) {
+  if (content === undefined || content === null) return false;
+  if (typeof content === "string") return content.trim().length > 0;
+  if (Array.isArray(content)) return content.length > 0;
+  if (typeof content === "object") return Object.keys(content).length > 0;
+  return true;
 }
 
 Deno.serve(async (req) => {
@@ -87,7 +95,21 @@ Deno.serve(async (req) => {
       `codex-export.${extension}`,
     ).replace(/\.[^.]+$/, "") + `.${extension}`;
 
-    const content = normalizeContent(body.content ?? body.markdown ?? body.html ?? "", normalizedFormat);
+    const rawContent = body.content ?? body.markdown ?? body.html ?? body.text ?? body.data;
+    if (!hasExportContent(rawContent)) {
+      return jsonResponse({
+        success: false,
+        error: "No content supplied for export.",
+      }, 400);
+    }
+
+    const content = normalizeContent(rawContent, normalizedFormat);
+    if (!content.trim()) {
+      return jsonResponse({
+        success: false,
+        error: "No content supplied for export.",
+      }, 400);
+    }
     const bytes = new TextEncoder().encode(content);
     const organizationId = safeFileName(body.organization_id || body.organizationId || "workspace", "workspace");
     const userId = safeFileName(body.user_id || body.userId || "codex", "codex");
@@ -122,15 +144,22 @@ Deno.serve(async (req) => {
       output: "File generated successfully.",
       attachments: [
         {
-          type: normalizedFormat,
+          id: crypto.randomUUID(),
+          type: "document",
           name: fileName,
           url: signed.signedUrl,
           download_url: signed.signedUrl,
+          downloadUrl: signed.signedUrl,
+          mimeType,
+          size: bytes.byteLength,
+          downloadable: true,
           metadata: {
             source: "generate-file-export",
             bucket,
             path,
+            file_type: normalizedFormat,
             mime_type: mimeType,
+            generated_at: new Date().toISOString(),
           },
         },
       ],

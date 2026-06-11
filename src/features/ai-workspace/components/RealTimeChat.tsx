@@ -140,6 +140,29 @@ function formatFileSize(bytes: number) {
   return `${(bytes / 1024 ** index).toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
 }
 
+function attachmentUrl(attachment: ChatAttachment) {
+  return attachment.downloadUrl || attachment.download_url || attachment.url;
+}
+
+function getLoadingLabel(prompt: string, attachments: PendingAttachment[] = []) {
+  const text = prompt.toLowerCase();
+
+  if (/\b(image|picture|poster|logo|visual|creative|draw|photo)\b/.test(text)) {
+    return "Generating image...";
+  }
+  if (/\b(pdf|csv|export|download|file)\b/.test(text)) {
+    return "Preparing file...";
+  }
+  if (attachments.some((item) => item.type === "document")) {
+    return "Reading document...";
+  }
+  if (/\b(search|find|lookup|documents?|knowledge)\b/.test(text)) {
+    return "Searching workspace...";
+  }
+
+  return "Thinking...";
+}
+
 function getAttachmentType(file: File): ChatAttachment["type"] {
   if (file.type.startsWith("image/")) return "image";
   if (file.type.startsWith("audio/")) return "audio";
@@ -236,7 +259,8 @@ function MessageAttachments({
   return (
     <div className="mt-3 grid gap-3">
       {attachments.map((attachment) => {
-        const canOpen = isBrowserUrl(attachment.url);
+        const url = attachmentUrl(attachment);
+        const canOpen = isBrowserUrl(url);
 
         if (attachment.type === "image") {
           return (
@@ -246,14 +270,14 @@ function MessageAttachments({
             >
               {canOpen ? (
                 <a
-                  href={attachment.url}
+                  href={url}
                   target="_blank"
                   rel="noreferrer"
                   className="block bg-black/30"
                   aria-label={`Open ${attachment.name}`}
                 >
                   <img
-                    src={attachment.url}
+                    src={url}
                     alt={attachment.name}
                     className="aspect-square w-full object-cover"
                     loading="lazy"
@@ -272,7 +296,7 @@ function MessageAttachments({
                 <span className="flex items-center gap-1.5">
                   {canOpen && (
                     <a
-                      href={attachment.url}
+                      href={url}
                       download={attachment.name}
                       className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium text-white/65 transition hover:bg-white/10 hover:text-white"
                     >
@@ -299,7 +323,7 @@ function MessageAttachments({
         return (
           <a
             key={attachment.id}
-            href={canOpen ? attachment.url : undefined}
+            href={canOpen ? url : undefined}
             target="_blank"
             rel="noreferrer"
             download
@@ -354,7 +378,7 @@ function MessageBubble({
         <div className="rounded-2xl px-1 py-3">
           <div className="flex items-center gap-2 text-sm text-white/60">
             <Loader2 size={14} className="animate-spin text-white/50" />
-            Thinking
+            {message.content || "Thinking..."}
           </div>
         </div>
       </div>
@@ -886,6 +910,8 @@ export default function RealTimeChat({
             type: "image",
             name: pending.file.name,
             url: upload.url,
+            download_url: upload.url,
+            downloadUrl: upload.url,
             size: upload.size,
             mimeType: upload.mimeType,
             uploadedAt: nowIso(),
@@ -907,6 +933,7 @@ export default function RealTimeChat({
             name: codexUpload.name,
             url: codexUpload.url,
             download_url: codexUpload.download_url,
+            downloadUrl: codexUpload.download_url || codexUpload.url,
             size: codexUpload.size,
             mimeType: codexUpload.mimeType,
             uploadedAt: nowIso(),
@@ -952,6 +979,8 @@ export default function RealTimeChat({
             };
             if (upload.sourceUrl && !existing.url.startsWith("http")) {
               existing.url = upload.sourceUrl;
+              existing.download_url = upload.sourceUrl;
+              existing.downloadUrl = upload.sourceUrl;
             }
           } else {
             attachments.push({
@@ -960,6 +989,8 @@ export default function RealTimeChat({
               type: "document",
               name: pending.file.name,
               url: upload.sourceUrl || "",
+              download_url: upload.sourceUrl || "",
+              downloadUrl: upload.sourceUrl || "",
               size: pending.file.size,
               mimeType: pending.file.type || "application/octet-stream",
               uploadedAt: nowIso(),
@@ -986,6 +1017,8 @@ export default function RealTimeChat({
         type: pending.type,
         name: pending.file.name,
         url: pending.previewUrl || "",
+        download_url: pending.previewUrl || "",
+        downloadUrl: pending.previewUrl || "",
         size: pending.file.size,
         mimeType: pending.file.type || "application/octet-stream",
         uploadedAt: nowIso(),
@@ -1062,6 +1095,8 @@ export default function RealTimeChat({
             type: attachment.type,
             name: attachment.name,
             url: attachment.url,
+            download_url: attachment.download_url || attachment.url,
+            downloadUrl: attachment.downloadUrl || attachment.download_url || attachment.url,
             size: attachment.size,
             mimeType: attachment.mimeType,
             metadata: attachment.metadata,
@@ -1076,7 +1111,7 @@ export default function RealTimeChat({
       id: makeId("typing"),
       conversationId,
       role: "assistant",
-      content: "",
+      content: getLoadingLabel(prompt, outgoingFiles),
       createdAt: nowIso(),
       userId,
       pending: true,
@@ -1120,6 +1155,8 @@ export default function RealTimeChat({
               type: attachment.type,
               name: attachment.name,
               url: attachment.url,
+              download_url: attachment.download_url || attachment.url,
+              downloadUrl: attachment.downloadUrl || attachment.download_url || attachment.url,
               size: attachment.size,
               mimeType: attachment.mimeType,
               metadata: attachment.metadata,
@@ -1180,7 +1217,7 @@ export default function RealTimeChat({
         id: makeId("typing"),
         conversationId,
         role: "assistant",
-        content: "",
+        content: "Regenerating image...",
         createdAt: nowIso(),
         userId,
         pending: true,
@@ -1226,6 +1263,8 @@ export default function RealTimeChat({
                 type: attachment.type,
                 name: attachment.name,
                 url: attachment.url,
+                download_url: attachment.download_url || attachment.url,
+                downloadUrl: attachment.downloadUrl || attachment.download_url || attachment.url,
                 size: attachment.size,
                 mimeType: attachment.mimeType,
                 metadata: attachment.metadata,

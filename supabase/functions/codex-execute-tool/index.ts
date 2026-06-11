@@ -580,6 +580,9 @@ async function toolGetActiveTimeTrackers(
   const personalScope = readString(payload, "scope") === "me" ||
     payload.userOnly === true ||
     payload.currentUserOnly === true;
+  const includeNotTracking = payload.include_not_tracking === true ||
+    payload.includeNotTracking === true ||
+    readString(payload, "mode") === "not_tracking";
 
   let query = adminClient
     .from("time_entries")
@@ -676,12 +679,69 @@ async function toolGetActiveTimeTrackers(
     };
   });
 
+  const activeUserIds = new Set(
+    trackers.map((tracker) => String(tracker.userId)).filter(Boolean),
+  );
+  let notTracking: Array<Record<string, unknown>> = [];
+  let peopleCount = activeUserIds.size;
+
+  if (includeNotTracking) {
+    let peopleQuery = adminClient
+      .from("profiles")
+      .select(
+        "id, email, full_name, username, avatar_url, primary_role, department, job_title, is_active, account_status, is_suspended",
+      )
+      .eq("organization_id", ctx.organizationId)
+      .order("full_name", { ascending: true })
+      .limit(250);
+
+    if (personalScope || !isManagerRole(ctx.role)) {
+      peopleQuery = peopleQuery.eq("id", ctx.userId);
+    } else {
+      peopleQuery = peopleQuery
+        .eq("account_status", "active")
+        .eq("is_suspended", false);
+    }
+
+    const { data: people, error: peopleError } = await peopleQuery;
+    if (peopleError) throw peopleError;
+
+    const employees = ((people ?? []) as DbRow[]).filter((profile) => {
+      if (profile.is_active === false) return false;
+      if (profile.account_status && profile.account_status !== "active") {
+        return false;
+      }
+      if (profile.is_suspended === true) return false;
+      return true;
+    });
+    peopleCount = employees.length;
+    notTracking = employees
+      .filter((profile) => !activeUserIds.has(String(profile.id)))
+      .map((profile) => ({
+        userId: profile.id,
+        name: profileDisplayName(profile),
+        email: profile.email ?? null,
+        avatarUrl: profile.avatar_url ?? null,
+        role: profile.primary_role ?? null,
+        department: profile.department ?? null,
+        jobTitle: profile.job_title ?? null,
+      }));
+  }
+
   return {
     ok: true,
     count: trackers.length,
+    activeCount: trackers.length,
+    peopleCount,
+    notTrackingCount: notTracking.length,
     trackers,
+    notTracking,
     message: trackers.length === 0
-      ? "No one is currently tracking time."
+      ? includeNotTracking
+        ? `${notTracking.length} user(s) are not tracking time.`
+        : "No one is currently tracking time."
+      : includeNotTracking
+      ? `${trackers.length} user(s) are tracking time and ${notTracking.length} are not tracking.`
       : `${trackers.length} user(s) are currently tracking time.`,
   };
 }
@@ -1876,6 +1936,58 @@ async function toolStopTimeTracker(
     durationSeconds,
     durationHours: Number((durationSeconds / 3600).toFixed(2)),
     message: "Stopped the time tracker.",
+  };
+}
+
+function toolPreviewWorkspaceAction(
+  toolId: string,
+  ctx: Required<ToolContext>,
+  payload: Record<string, unknown>,
+) {
+  const adminOnly = new Set([
+    "approve_leave_request",
+    "reject_leave_request",
+    "create_board",
+    "create_asset",
+    "update_asset",
+    "assign_asset",
+    "send_organization_notification",
+  ]);
+  const actionLabels: Record<string, string> = {
+    create_task: "Create task",
+    create_board: "Create board",
+    create_asset: "Create asset",
+    update_asset: "Update asset",
+    assign_asset: "Assign asset",
+    approve_leave_request: "Approve leave request",
+    reject_leave_request: "Reject leave request",
+    send_notification: "Send notification",
+    create_deadline_notification: "Create deadline reminder",
+    schedule_meeting: "Schedule meeting",
+  };
+
+  if (adminOnly.has(toolId) && !isManagerRole(ctx.role)) {
+    return {
+      ok: false,
+      requiresPermission: true,
+      error: `${actionLabels[toolId] ?? toolId} requires a manager or admin role.`,
+    };
+  }
+
+  return {
+    ok: true,
+    dryRun: true,
+    requiresConfirmation: true,
+    toolId,
+    action: actionLabels[toolId] ?? toolId,
+    preview: payload,
+    permissions: {
+      role: ctx.role,
+      adminOnly: adminOnly.has(toolId),
+      organizationId: ctx.organizationId,
+    },
+    message:
+      `${actionLabels[toolId] ?? toolId} is ready for review. Confirm in the relevant module before it is applied.`,
   };
 }
 
@@ -3084,6 +3196,19 @@ Deno.serve(async (req) => {
 
       case "create_board_card":
         result = await toolCreateBoardCard(adminClient, ctx, payload, dryRun);
+        break;
+
+      case "create_task":
+      case "create_board":
+      case "create_asset":
+      case "update_asset":
+      case "assign_asset":
+      case "approve_leave_request":
+      case "reject_leave_request":
+      case "send_notification":
+      case "create_deadline_notification":
+      case "schedule_meeting":
+        result = toolPreviewWorkspaceAction(toolId, ctx, payload);
         break;
 
       case "notify_content_review":

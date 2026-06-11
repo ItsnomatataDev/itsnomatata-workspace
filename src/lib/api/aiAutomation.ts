@@ -91,6 +91,15 @@ export async function requestManualTaskAutomation(
     message: isRecord(payload) && typeof payload.summary === "string"
       ? payload.summary
       : "AI task automation request was processed.",
+    output: isRecord(payload) && typeof payload.summary === "string"
+      ? payload.summary
+      : "AI task automation request was processed.",
+    reply: isRecord(payload) && typeof payload.summary === "string"
+      ? payload.summary
+      : "AI task automation request was processed.",
+    content: isRecord(payload) && typeof payload.summary === "string"
+      ? payload.summary
+      : "AI task automation request was processed.",
     requestId: isRecord(payload) && typeof payload.run_id === "string"
       ? payload.run_id
       : crypto.randomUUID(),
