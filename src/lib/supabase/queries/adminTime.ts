@@ -449,7 +449,7 @@ async function getCalendarTimeEntriesFallback(params: {
   };
 
   let { data, error } = await buildCalendarFallbackQuery(
-    "id, organization_id, user_id, project_id, client_id, task_id, description, started_at, duration_seconds, is_billable, approval_status, source, entry_type, source_user_id, source_user_name, metadata",
+    "id, organization_id, user_id, project_id, client_id, task_id, description, started_at, ended_at, is_running, duration_seconds, is_billable, approval_status, source, entry_type, source_user_id, source_user_name, metadata",
   );
 
   if (error && missingColumnError(error)) {
@@ -471,6 +471,8 @@ async function getCalendarTimeEntriesFallback(params: {
     task_id?: string | null;
     description: string | null;
     started_at: string;
+    ended_at?: string | null;
+    is_running?: boolean | null;
     duration_seconds: number;
     is_billable: boolean;
     approval_status: string;
@@ -521,7 +523,14 @@ async function getCalendarTimeEntriesFallback(params: {
         : null);
     const userKey = item.user_id ?? item.source_user_id ?? externalUserName ?? "unmatched";
     const key = `${userKey}-${entryDate}`;
-    const projectHours = Number(item.duration_seconds ?? 0) / 3600;
+    const startedAtMs = new Date(item.started_at).getTime();
+    const storedSeconds = Number(item.duration_seconds ?? 0);
+    const isRunning = item.is_running === true || !item.ended_at;
+    const runningSeconds = isRunning && Number.isFinite(startedAtMs)
+      ? Math.max(0, Math.floor((Date.now() - startedAtMs) / 1000))
+      : 0;
+    const itemSeconds = storedSeconds > 0 ? storedSeconds : runningSeconds;
+    const projectHours = itemSeconds / 3600;
 
     const projectEntry = {
       project_id: item.project_id,
@@ -540,7 +549,7 @@ async function getCalendarTimeEntriesFallback(params: {
 
     const existing = grouped.get(key);
     if (existing) {
-      existing.total_seconds += Number(item.duration_seconds ?? 0);
+      existing.total_seconds += itemSeconds;
       existing.entry_count += 1;
 
       const existingProject = existing.project_entries.find(
@@ -561,7 +570,7 @@ async function getCalendarTimeEntriesFallback(params: {
           : externalUserName ?? "Unmatched Codex user",
         user_email: item.user_id ? profileMap.get(item.user_id)?.email ?? null : null,
         entry_date: entryDate,
-        total_seconds: Number(item.duration_seconds ?? 0),
+        total_seconds: itemSeconds,
         entry_count: 1,
         project_entries: [projectEntry],
       });

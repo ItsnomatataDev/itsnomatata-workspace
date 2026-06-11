@@ -7,6 +7,7 @@ import {
   isAtOrAfterZimbabwePause,
 } from "../../utils/zimbabweCalendar";
 import { isThreeLittleBirdsOffice } from "../../offices";
+import { notifyTimerStateChanged } from "../../timeTracking/timerEvents";
 
 export type TimeEntryApprovalStatus = "pending" | "approved" | "rejected";
 
@@ -784,6 +785,14 @@ export const startTimeEntry = async (
     reason: payload.reason ?? "timer_started",
   });
 
+  notifyTimerStateChanged({
+    action: "started",
+    entry: result,
+    organizationId: result.organization_id,
+    userId: result.user_id,
+    taskId: result.task_id,
+  });
+
   return result;
 };
 
@@ -849,6 +858,14 @@ export const stopTimeEntry = async (
       console.warn("Failed to log task time tracking:", logErr);
     }
   }
+
+  notifyTimerStateChanged({
+    action: "stopped",
+    entry: result,
+    organizationId: result.organization_id,
+    userId: result.user_id,
+    taskId: result.task_id,
+  });
 
   return result;
 };
@@ -931,7 +948,16 @@ export const resumeTimeEntry = async ({
     throw new Error(error.message);
   }
 
-  return data as TimeEntryItem;
+  const result = data as TimeEntryItem;
+  notifyTimerStateChanged({
+    action: "resumed",
+    entry: result,
+    organizationId: result.organization_id,
+    userId: result.user_id,
+    taskId: result.task_id,
+  });
+
+  return result;
 };
 
 export const createManualTimeEntry = async (

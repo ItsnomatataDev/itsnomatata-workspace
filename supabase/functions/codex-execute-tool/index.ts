@@ -29,6 +29,7 @@ const MANAGER_ROLES = new Set([
   "manager",
   "hr",
   "superadmin",
+  "super_admin",
   "it-superadmin",
   "it",
   "org_admin",
@@ -241,6 +242,192 @@ function buildTaskLink(boardId: unknown, taskId: unknown) {
   return null;
 }
 
+function escapeIlike(value: string) {
+  return value.replace(/[%_\\]/g, (match) => `\\${match}`);
+}
+
+function readFirstString(payload: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = readString(payload, key);
+    if (value) return value;
+  }
+  return null;
+}
+
+function readNestedString(
+  payload: Record<string, unknown>,
+  keys: string[],
+) {
+  for (const key of keys) {
+    const direct = readString(payload, key);
+    if (direct) return direct;
+  }
+
+  for (const nestedKey of ["targetUser", "target_user", "user", "employee", "assignee"]) {
+    const nested = payload[nestedKey];
+    if (!nested || typeof nested !== "object" || Array.isArray(nested)) continue;
+    const record = nested as Record<string, unknown>;
+    for (const key of keys) {
+      const value = typeof record[key] === "string" ? record[key].trim() : "";
+      if (value) return value;
+    }
+  }
+
+  return null;
+}
+
+function extractEmailFromText(value: string) {
+  return value.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0] ?? null;
+}
+
+function extractNamedUserFromText(value: string) {
+  const match = value.match(
+    /\b(?:for|user|employee|assign(?:ed)?\s+(?:him|her|them)?\s*to)\s+([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){0,3})(?=\s+(?:now|on|under|to|and|please|at|$)|[,.?!]|$)/i,
+  );
+  const possessive = value.match(
+    /\b([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){0,2})['’]s\s+(?:timer|time)\b/i,
+  );
+  return match?.[1]?.trim() ?? possessive?.[1]?.trim() ?? null;
+}
+
+function extractTaskTitleFromText(value: string) {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  const match = normalized.match(
+    /\b(?:card|task)\s*(?:called|named|titled|is)?\s*["']?([^"',?.]{3,180})/i,
+  ) ?? normalized.match(/\bnamed\s+["']?([^"',?.]{3,180})/i);
+
+  const raw = match?.[1]?.trim() ?? "";
+  if (!raw) return null;
+
+  const cleaned = raw
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, " ")
+    .replace(/\b(?:for|this|user|employee|assign|assigned|him|her|them|to|timer|time|tracking|track|start|begin|please|now)\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return cleaned || null;
+}
+
+function normalizeOfficeMention(value: string) {
+  const lower = value.toLowerCase();
+  if (/three\s+little\s+birds|\btlb\b/.test(lower)) return "three-little-birds";
+  if (/its\s*no\s*matata|it's\s*no\s*matata|itsnomatata|it'?s\s+nomatata/.test(lower)) {
+    return "its-no-matata";
+  }
+  return null;
+}
+
+async function resolveTimerTaskContext(
+  adminClient: any,
+  ctx: Required<ToolContext>,
+  payload: Record<string, unknown>,
+  taskId: string | null,
+  targetUserId?: string | null,
+) {
+  let query = adminClient
+    .from("tasks")
+    .select("id, title, status, client_id, project_id, campaign_id, office_id, assigned_to, created_by")
+    .eq("organization_id", ctx.organizationId)
+    .is("archived_at", null)
+    .not("status", "in", "(done,cancelled)")
+    .limit(5);
+
+  if (taskId) {
+    query = query.eq("id", taskId);
+  } else {
+    const taskText = readFirstString(payload, [
+      "task_title",
+      "taskTitle",
+      "task_name",
+      "taskName",
+      "card_title",
+      "cardTitle",
+      "card_name",
+      "cardName",
+      "query",
+      "search",
+    ]);
+    if (!taskText) return { task: null, error: null };
+
+    query = query.ilike("title", `%${escapeIlike(taskText)}%`);
+
+    const boardId = normalizeUuid(
+      payload.board_id ?? payload.boardId ?? payload.client_id ??
+        payload.clientId,
+    );
+    if (boardId) query = query.eq("client_id", boardId);
+  }
+
+  const { data, error } = await query;
+  if (error) throw error;
+
+  const rows = (data ?? []) as DbRow[];
+  if (rows.length === 0) {
+    return {
+      task: null,
+      error: taskId
+        ? "Task not found or not available for time tracking."
+        : null,
+    };
+  }
+
+  const accessUserId = targetUserId ?? ctx.userId;
+  const assignedRows = await fetchAssignedTaskIds(
+    adminClient,
+    ctx.organizationId,
+    accessUserId,
+  );
+  const assignedTaskIds = new Set(assignedRows);
+  const accessibleRows = rows.filter((row) =>
+    row.assigned_to === accessUserId ||
+    row.created_by === accessUserId ||
+    assignedTaskIds.has(String(row.id)) ||
+    isManagerRole(ctx.role)
+  );
+
+  if (accessibleRows.length === 0) {
+    return {
+      task: null,
+      error: targetUserId
+        ? "No matching task assigned to that user was found."
+        : "No matching task assigned to you was found.",
+    };
+  }
+
+  if (!taskId && accessibleRows.length > 1) {
+    return {
+      task: null,
+      error:
+        "More than one matching task was found. Please include the exact card or task link.",
+      matches: accessibleRows.map((row) => ({
+        taskId: row.id,
+        title: row.title,
+        boardId: row.client_id,
+      })),
+    };
+  }
+
+  return { task: accessibleRows[0], error: null };
+}
+
+async function fetchAssignedTaskIds(
+  adminClient: any,
+  organizationId: string,
+  userId: string,
+) {
+  const { data, error } = await adminClient
+    .from("task_assignees")
+    .select("task_id")
+    .eq("organization_id", organizationId)
+    .eq("user_id", userId)
+    .limit(500);
+
+  if (error) throw error;
+  return ((data ?? []) as DbRow[])
+    .map((row) => String(row.task_id ?? ""))
+    .filter(Boolean);
+}
+
 async function fetchProfilesByIds(
   adminClient: any,
   organizationId: string,
@@ -271,23 +458,37 @@ async function resolveTargetProfile(
   payload: Record<string, unknown>,
 ) {
   const requestedId = normalizeUuid(
-    payload.user_id ?? payload.userId ?? payload.employee_id ??
-      payload.employeeId,
+      payload.user_id ?? payload.userId ?? payload.employee_id ??
+      payload.employeeId ?? payload.target_user_id ?? payload.targetUserId,
   );
-  const requestedEmail = readString(payload, "email") ??
-    readString(payload, "user_email") ??
-    readString(payload, "userEmail");
-  const requestedName = readString(payload, "name") ??
-    readString(payload, "user_name") ??
-    readString(payload, "userName") ??
-    readString(payload, "employee_name") ??
-    readString(payload, "employeeName");
+  const requestedEmail = readNestedString(payload, [
+    "email",
+    "user_email",
+    "userEmail",
+    "employee_email",
+    "employeeEmail",
+    "target_email",
+    "targetEmail",
+    "assignee_email",
+    "assigneeEmail",
+  ]);
+  const requestedName = readNestedString(payload, [
+    "name",
+    "user_name",
+    "userName",
+    "employee_name",
+    "employeeName",
+    "target_name",
+    "targetName",
+    "assignee_name",
+    "assigneeName",
+  ]);
 
   if (!isManagerRole(ctx.role)) {
     const { data, error } = await adminClient
       .from("profiles")
       .select(
-        "id, email, full_name, username, avatar_url, primary_role, department, leave_days_total, leave_days_remaining",
+        "id, email, full_name, username, avatar_url, primary_role, department, office_id, leave_days_total, leave_days_remaining",
       )
       .eq("organization_id", ctx.organizationId)
       .eq("id", ctx.userId)
@@ -299,7 +500,7 @@ async function resolveTargetProfile(
   let query = adminClient
     .from("profiles")
     .select(
-      "id, email, full_name, username, avatar_url, primary_role, department, leave_days_total, leave_days_remaining",
+      "id, email, full_name, username, avatar_url, primary_role, department, office_id, leave_days_total, leave_days_remaining",
     )
     .eq("organization_id", ctx.organizationId)
     .limit(5);
@@ -349,6 +550,45 @@ async function resolveBoardId(
     (row) => String(row.name ?? "").toLowerCase() === boardName.toLowerCase(),
   );
   return exact ?? data?.[0] ?? null;
+}
+
+async function resolveOfficeForPayload(
+  adminClient: any,
+  organizationId: string,
+  payload: Record<string, unknown>,
+) {
+  const explicitOffice = readNestedString(payload, [
+    "office",
+    "office_name",
+    "officeName",
+    "company",
+    "office_slug",
+    "officeSlug",
+  ]);
+  const originalMessage = readString(payload, "originalMessage") ?? "";
+  const officeSlug = normalizeOfficeMention(
+    [explicitOffice, originalMessage].filter(Boolean).join(" "),
+  );
+  const officeText = explicitOffice || officeSlug;
+
+  if (/\b(both|all|two)\s+offices\b/i.test(originalMessage)) return null;
+  if (!officeText && !officeSlug) return null;
+
+  let query = adminClient
+    .from("company_offices")
+    .select("id, name, slug")
+    .eq("organization_id", organizationId)
+    .limit(5);
+
+  if (officeSlug) {
+    query = query.eq("slug", officeSlug);
+  } else if (officeText) {
+    query = query.or(`name.ilike.%${officeText}%,slug.ilike.%${officeText}%`);
+  }
+
+  const { data, error } = await query;
+  if (error) throw error;
+  return ((data ?? []) as DbRow[])[0] ?? null;
 }
 
 async function resolveAssigneeIds(
@@ -1226,14 +1466,46 @@ async function toolCreateBoardCard(
   }
 
   const actionUrl = buildBoardCardUrl(board.id as string, card.id as string);
+  const shouldStartTimer = payload.startTimer === true ||
+    payload.start_timer === true ||
+    /\b(start|begin|track|tracking)\b.*\b(timer|time tracker|time tracking|time)\b/i.test(
+      readString(payload, "originalMessage") ?? "",
+    );
+
+  let timerResult: Record<string, unknown> | null = null;
+  if (shouldStartTimer) {
+    timerResult = await toolStartTimeTracker(
+      adminClient,
+      ctx,
+      {
+        ...payload,
+        taskId: card.id,
+        task_id: card.id,
+        boardId: board.id,
+        board_id: board.id,
+        clientId: board.id,
+        client_id: board.id,
+        taskTitle: card.title,
+        cardTitle: card.title,
+        description: readString(payload, "timerDescription") ??
+          readString(payload, "description") ??
+          `Work on ${card.title}`,
+      },
+      false,
+    );
+  }
 
   return {
     ok: true,
     taskId: card.id,
     boardId: board.id,
+    boardName: board.name,
     actionUrl,
+    timer: timerResult,
     preview,
-    message: `Created card "${card.title}" on board "${board.name}".`,
+    message: timerResult?.ok === true
+      ? `Created card "${card.title}" on board "${board.name}" and started the timer.`
+      : `Created card "${card.title}" on board "${board.name}".`,
   };
 }
 
@@ -1803,20 +2075,169 @@ async function toolStartTimeTracker(
   payload: Record<string, unknown>,
   dryRun: boolean,
 ) {
+  const originalMessage = readString(payload, "originalMessage") ?? "";
+  const inferredEmail = originalMessage ? extractEmailFromText(originalMessage) : null;
+  const inferredName = originalMessage ? extractNamedUserFromText(originalMessage) : null;
+  const inferredTaskTitle = originalMessage ? extractTaskTitleFromText(originalMessage) : null;
+  const explicitTarget = Boolean(
+    inferredEmail ||
+      inferredName ||
+      readNestedString(payload, [
+        "userId",
+        "user_id",
+        "targetUserId",
+        "target_user_id",
+        "employeeId",
+        "employee_id",
+        "userEmail",
+        "user_email",
+        "email",
+        "employeeEmail",
+        "employee_email",
+        "assigneeEmail",
+        "assignee_email",
+        "userName",
+        "user_name",
+        "name",
+        "employeeName",
+        "employee_name",
+        "assigneeName",
+        "assignee_name",
+      ]),
+  );
+
+  if (/\b(his|her|their)\s+time\b/i.test(originalMessage) && !explicitTarget) {
+    return {
+      ok: false,
+      error:
+        "Please include the user's name or email so I know whose timer to start.",
+    };
+  }
+
+  const normalizedPayload = {
+    ...payload,
+    userEmail: readNestedString(payload, ["userEmail", "user_email", "email"]) ?? inferredEmail,
+    userName: readNestedString(payload, ["userName", "user_name", "name"]) ?? inferredName,
+    assigneeEmail: readNestedString(payload, ["assigneeEmail", "assignee_email"]) ?? inferredEmail,
+    assigneeName: readNestedString(payload, ["assigneeName", "assignee_name"]) ?? inferredName,
+    taskTitle: readNestedString(payload, ["taskTitle", "task_title", "cardTitle", "card_title", "query"]) ?? inferredTaskTitle,
+  };
+  const targetProfile = await resolveTargetProfile(
+    adminClient,
+    ctx,
+    normalizedPayload,
+  );
+  if (!targetProfile?.id) {
+    return {
+      ok: false,
+      error: "I could not find that user in this organization.",
+    };
+  }
+  if (targetProfile.id !== ctx.userId && !isManagerRole(ctx.role)) {
+    return {
+      ok: false,
+      error: "Only a manager or admin can start a timer for another user.",
+    };
+  }
+
   const taskId = normalizeUuid(payload.task_id ?? payload.taskId);
-  const boardId = normalizeUuid(
+  const payloadBoardId = normalizeUuid(
     payload.board_id ?? payload.boardId ?? payload.client_id ??
       payload.clientId,
   );
   const description = readString(payload, "description") ??
     readString(payload, "note") ?? "Started from Codex assistant";
   const now = new Date().toISOString();
+  const scheduledForText = readString(normalizedPayload, "scheduledFor") ??
+    readString(normalizedPayload, "scheduled_for");
+
+  const taskContext = await resolveTimerTaskContext(
+    adminClient,
+    ctx,
+    normalizedPayload,
+    taskId,
+    targetProfile.id as string,
+  );
+  if (taskContext.error) {
+    return {
+      ok: false,
+      error: taskContext.error,
+      matches: taskContext.matches ?? undefined,
+    };
+  }
+  const task = taskContext.task;
+  const resolvedTaskId = task?.id ?? taskId;
+  const resolvedBoardId = payloadBoardId ?? task?.client_id ?? null;
+
+  if (scheduledForText) {
+    const scheduledDate = new Date(scheduledForText);
+    if (Number.isNaN(scheduledDate.getTime())) {
+      return { ok: false, error: "I could not understand the scheduled time." };
+    }
+
+    if (scheduledDate.getTime() > Date.now() + 30_000) {
+      if (dryRun) {
+        return {
+          ok: true,
+          dryRun: true,
+          scheduledFor: scheduledDate.toISOString(),
+          message: `Would schedule ${profileDisplayName(targetProfile)}'s timer for ${scheduledDate.toISOString()}.`,
+        };
+      }
+
+      const { data: scheduledAction, error: scheduleError } = await adminClient
+        .from("ai_scheduled_actions")
+        .insert({
+          organization_id: ctx.organizationId,
+          requested_by: ctx.userId,
+          target_user_id: targetProfile.id,
+          tool_id: "start_time_tracker",
+          scheduled_for: scheduledDate.toISOString(),
+          payload: {
+            ...normalizedPayload,
+            scheduledFor: null,
+            taskId: resolvedTaskId,
+            boardId: resolvedBoardId,
+            description,
+          },
+          status: "pending",
+        })
+        .select("id, scheduled_for")
+        .single();
+      if (scheduleError) throw scheduleError;
+
+      return {
+        ok: true,
+        scheduled: true,
+        scheduledAction,
+        user: {
+          id: targetProfile.id,
+          name: profileDisplayName(targetProfile),
+          email: targetProfile.email ?? null,
+        },
+        actionUrl: buildTaskLink(resolvedBoardId, resolvedTaskId),
+        message: `Scheduled ${profileDisplayName(targetProfile)}'s timer for ${scheduledDate.toLocaleString("en-ZA", { timeZone: "Africa/Harare", dateStyle: "medium", timeStyle: "short" })}.`,
+      };
+    }
+  }
+
+  let officeId = task?.office_id ?? null;
+  if (!officeId) {
+    const { data: profile, error: profileError } = await adminClient
+      .from("profiles")
+      .select("office_id")
+      .eq("organization_id", ctx.organizationId)
+      .eq("id", targetProfile.id)
+      .maybeSingle();
+    if (profileError) throw profileError;
+    officeId = profile?.office_id ?? null;
+  }
 
   const { data: running, error: runningError } = await adminClient
     .from("time_entries")
     .select("id, started_at, description")
     .eq("organization_id", ctx.organizationId)
-    .eq("user_id", ctx.userId)
+    .eq("user_id", targetProfile.id)
     .eq("is_running", true)
     .is("ended_at", null)
     .limit(1);
@@ -1833,16 +2254,25 @@ async function toolStartTimeTracker(
 
   const insertRow: DbRow = {
     organization_id: ctx.organizationId,
-    user_id: ctx.userId,
-    task_id: taskId,
-    client_id: boardId,
+    office_id: officeId,
+    user_id: targetProfile.id,
+    task_id: resolvedTaskId,
+    client_id: resolvedBoardId,
+    project_id: task?.project_id ?? null,
+    campaign_id: task?.campaign_id ?? null,
     description,
     started_at: now,
+    ended_at: null,
     is_running: true,
+    duration_seconds: 0,
     source: "codex_ai",
     entry_type: "timer",
     is_billable: payload.is_billable === true || payload.isBillable === true,
-    metadata: { source: "codex_execute_tool" },
+    metadata: {
+      source: "codex_execute_tool",
+      task_resolved_from: taskId ? "task_id" : task ? "task_title" : "none",
+      started_by_user_id: ctx.userId,
+    },
   };
 
   if (dryRun) {
@@ -1857,15 +2287,60 @@ async function toolStartTimeTracker(
   const { data, error } = await adminClient
     .from("time_entries")
     .insert(insertRow)
-    .select("id, task_id, client_id, description, started_at, is_running")
+    .select("id, task_id, client_id, project_id, campaign_id, office_id, description, started_at, is_running")
     .single();
 
   if (error) throw error;
 
+  if (task?.id) {
+    const { error: assigneeError } = await adminClient
+      .from("task_assignees")
+      .upsert(
+        {
+          organization_id: ctx.organizationId,
+          task_id: task.id,
+          user_id: targetProfile.id,
+        },
+        { onConflict: "organization_id,task_id,user_id", ignoreDuplicates: true },
+      );
+    if (assigneeError) throw assigneeError;
+
+    if (!task.assigned_to) {
+      await adminClient
+        .from("tasks")
+        .update({
+          assigned_to: targetProfile.id,
+          assigned_by: ctx.userId,
+          updated_at: now,
+        })
+        .eq("organization_id", ctx.organizationId)
+        .eq("id", task.id);
+    }
+  }
+
+  if (task?.id && ["backlog", "todo", "blocked"].includes(String(task.status))) {
+    await adminClient
+      .from("tasks")
+      .update({
+        status: "in_progress",
+        updated_at: now,
+      })
+      .eq("organization_id", ctx.organizationId)
+      .eq("id", task.id);
+  }
+
   return {
     ok: true,
     entry: data,
-    message: "Started your time tracker.",
+    user: {
+      id: targetProfile.id,
+      name: profileDisplayName(targetProfile),
+      email: targetProfile.email ?? null,
+    },
+    actionUrl: buildTaskLink(data.client_id, data.task_id),
+    message: task?.title
+      ? `Started ${profileDisplayName(targetProfile)}'s time tracker on "${task.title}".`
+      : `Started ${profileDisplayName(targetProfile)}'s time tracker.`,
   };
 }
 
@@ -1875,6 +2350,32 @@ async function toolStopTimeTracker(
   payload: Record<string, unknown>,
   dryRun: boolean,
 ) {
+  const originalMessage = readString(payload, "originalMessage") ?? "";
+  const inferredEmail = originalMessage ? extractEmailFromText(originalMessage) : null;
+  const inferredName = originalMessage ? extractNamedUserFromText(originalMessage) : null;
+  const normalizedPayload = {
+    ...payload,
+    userEmail: readNestedString(payload, ["userEmail", "user_email", "email"]) ?? inferredEmail,
+    userName: readNestedString(payload, ["userName", "user_name", "name"]) ?? inferredName,
+  };
+  const targetProfile = await resolveTargetProfile(
+    adminClient,
+    ctx,
+    normalizedPayload,
+  );
+  if (!targetProfile?.id) {
+    return {
+      ok: false,
+      error: "I could not find that user in this organization.",
+    };
+  }
+  if (targetProfile.id !== ctx.userId && !isManagerRole(ctx.role)) {
+    return {
+      ok: false,
+      error: "Only a manager or admin can stop another user's timer.",
+    };
+  }
+
   const entryId = normalizeUuid(
     payload.entry_id ?? payload.entryId ?? payload.id,
   );
@@ -1882,14 +2383,14 @@ async function toolStopTimeTracker(
 
   let query = adminClient
     .from("time_entries")
-    .select("id, user_id, started_at, description")
+    .select("id, user_id, task_id, started_at, description")
     .eq("organization_id", ctx.organizationId)
     .eq("is_running", true)
     .is("ended_at", null)
     .limit(1);
 
   if (entryId) query = query.eq("id", entryId);
-  else query = query.eq("user_id", ctx.userId);
+  else query = query.eq("user_id", targetProfile.id);
   if (!entryId || !isManagerRole(ctx.role)) {
     query = query.eq("user_id", ctx.userId);
   }
@@ -1930,12 +2431,75 @@ async function toolStopTimeTracker(
 
   if (error) throw error;
 
+  if (entry.task_id) {
+    const { data: rows, error: totalError } = await adminClient
+      .from("time_entries")
+      .select("duration_seconds")
+      .eq("organization_id", ctx.organizationId)
+      .eq("task_id", entry.task_id)
+      .is("deleted_at", null)
+      .not("duration_seconds", "is", null);
+    if (totalError) throw totalError;
+
+    const totalSeconds = ((rows ?? []) as DbRow[]).reduce(
+      (sum, row) => sum + Number(row.duration_seconds ?? 0),
+      0,
+    );
+
+    const { error: taskUpdateError } = await adminClient
+      .from("tasks")
+      .update({
+        tracked_seconds_cache: totalSeconds,
+        updated_at: now,
+      })
+      .eq("organization_id", ctx.organizationId)
+      .eq("id", entry.task_id);
+    if (taskUpdateError) throw taskUpdateError;
+  }
+
+  let notificationSent = false;
+  if (payload.notifyUser === true) {
+    const notificationMessage = readString(payload, "notificationMessage") ??
+      "Please start tracking time again on the correct task.";
+    const { error: notificationError } = await adminClient
+      .from("notifications")
+      .insert({
+        organization_id: ctx.organizationId,
+        user_id: targetProfile.id,
+        type: "system_alert",
+        title: "Time tracking reminder",
+        message: notificationMessage,
+        entity_type: "time_entry",
+        entity_id: data.id,
+        action_url: "/dashboard",
+        priority: "medium",
+        category: "time_tracking",
+        actor_user_id: ctx.userId,
+        metadata: {
+          source: "codex_execute_tool",
+          stopped_entry_id: data.id,
+        },
+        delivery_state: "pending",
+        is_read: false,
+      });
+    if (notificationError) throw notificationError;
+    notificationSent = true;
+  }
+
   return {
     ok: true,
     entry: data,
+    user: {
+      id: targetProfile.id,
+      name: profileDisplayName(targetProfile),
+      email: targetProfile.email ?? null,
+    },
     durationSeconds,
     durationHours: Number((durationSeconds / 3600).toFixed(2)),
-    message: "Stopped the time tracker.",
+    notificationSent,
+    message: `Stopped ${profileDisplayName(targetProfile)}'s time tracker${
+      notificationSent ? " and sent a reminder." : "."
+    }`,
   };
 }
 
@@ -2159,9 +2723,14 @@ async function toolSearchLeaveRequests(
   ctx: Required<ToolContext>,
   payload: Record<string, unknown>,
 ) {
-  const { from, to } = readDateRange(payload, 30);
+  const { from, to } = readDateRange(payload, 120);
   const status = readString(payload, "status");
   const profile = await resolveTargetProfile(adminClient, ctx, payload);
+  const office = await resolveOfficeForPayload(
+    adminClient,
+    ctx.organizationId,
+    payload,
+  );
   const limit = Math.min(
     typeof payload.limit === "number" ? payload.limit : 50,
     150,
@@ -2173,13 +2742,14 @@ async function toolSearchLeaveRequests(
       "id, user_id, leave_type_id, start_date, end_date, requested_days, reason, status, approved_by, approved_at, rejection_reason, created_at, office, admin_notes",
     )
     .eq("organization_id", ctx.organizationId)
-    .gte("start_date", from.slice(0, 10))
     .lte("start_date", to.slice(0, 10))
+    .gte("end_date", from.slice(0, 10))
     .order("start_date", { ascending: false })
     .limit(limit);
 
   if (profile?.id) query = query.eq("user_id", profile.id);
   if (status) query = query.eq("status", status);
+  if (office?.name) query = query.ilike("office", `%${office.name}%`);
 
   const { data, error } = await query;
   if (error) throw error;
@@ -2190,6 +2760,25 @@ async function toolSearchLeaveRequests(
     ctx.organizationId,
     rows.map((row) => row.user_id as string | null).filter(Boolean) as string[],
   );
+  const profileOfficeIds = [
+    ...new Set(
+      [...profilesById.values()]
+        .map((profile) => profile.office_id as string | null)
+        .filter(Boolean) as string[],
+    ),
+  ];
+  const officesById = new Map<string, DbRow>();
+  if (profileOfficeIds.length > 0) {
+    const { data: offices, error: officeError } = await adminClient
+      .from("company_offices")
+      .select("id, name, slug")
+      .eq("organization_id", ctx.organizationId)
+      .in("id", profileOfficeIds);
+    if (officeError) throw officeError;
+    for (const officeRow of offices ?? []) {
+      officesById.set(officeRow.id as string, officeRow);
+    }
+  }
   const typeIds = [
     ...new Set(
       rows.map((row) => row.leave_type_id as string | null).filter(
@@ -2222,6 +2811,9 @@ async function toolSearchLeaveRequests(
     counts,
     requests: rows.map((row) => {
       const person = profilesById.get(row.user_id as string);
+      const profileOffice = person?.office_id
+        ? officesById.get(person.office_id as string)
+        : null;
       const leaveType = row.leave_type_id
         ? leaveTypesById.get(row.leave_type_id as string)
         : null;
@@ -2235,6 +2827,9 @@ async function toolSearchLeaveRequests(
         requestedDays: row.requested_days,
         status: row.status,
         reason: row.reason,
+        office: row.office ?? profileOffice?.name ?? null,
+        profileOffice: profileOffice?.name ?? null,
+        profileOfficeSlug: profileOffice?.slug ?? null,
         approvedAt: row.approved_at,
         rejectionReason: isManagerRole(ctx.role) ? row.rejection_reason : null,
         adminNotes: isManagerRole(ctx.role) ? row.admin_notes : null,
@@ -2242,6 +2837,13 @@ async function toolSearchLeaveRequests(
       };
     }),
     count: rows.length,
+    officeFilter: office
+      ? {
+        id: office.id,
+        name: office.name,
+        slug: office.slug,
+      }
+      : null,
     message: `${rows.length} leave request(s) found.`,
   };
 }

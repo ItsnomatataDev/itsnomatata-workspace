@@ -7,6 +7,7 @@ import {
   getTodayCompletedSeconds,
   getZimbabweTodayRangeIso,
 } from "../utils/timeMath";
+import { TIMER_STATE_CHANGED_EVENT } from "../timeTracking/timerEvents";
 
 // Cache for storing recent requests to prevent duplicates
 const requestCache = new Map<string, Promise<any>>();
@@ -158,6 +159,34 @@ export function useCardTimeTracking({
   useEffect(() => {
     loadTrackingData();
   }, [organizationId, userId, taskId, clientId, todayOnly]);
+
+  useEffect(() => {
+    if (!organizationId) return;
+
+    const handleTimerStateChanged = (event: Event) => {
+      const detail = (event as CustomEvent<{
+        organizationId?: string | null;
+        userId?: string | null;
+        taskId?: string | null;
+        entry?: TimeEntryItem | null;
+      }>).detail;
+      const entry = detail?.entry;
+      const changedTaskId = detail?.taskId ?? entry?.task_id ?? null;
+      const changedClientId = entry?.client_id ?? null;
+
+      if (detail?.organizationId && detail.organizationId !== organizationId) return;
+      if (userId && detail?.userId && detail.userId !== userId) return;
+      if (taskId && changedTaskId && changedTaskId !== taskId) return;
+      if (clientId && changedClientId && changedClientId !== clientId) return;
+
+      void loadTrackingData();
+    };
+
+    window.addEventListener(TIMER_STATE_CHANGED_EVENT, handleTimerStateChanged);
+    return () => {
+      window.removeEventListener(TIMER_STATE_CHANGED_EVENT, handleTimerStateChanged);
+    };
+  }, [clientId, loadTrackingData, organizationId, taskId, userId]);
 
   // Live timer update
   useEffect(() => {

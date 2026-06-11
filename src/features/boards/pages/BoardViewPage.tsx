@@ -47,6 +47,7 @@ import {
 } from "../../../lib/utils/zimbabweCalendar";
 import { getRunningEntryElapsedSeconds } from "../../../lib/utils/timeMath";
 import { canManageAllOffices, canUseDetailedTimeTracking } from "../../../lib/offices";
+import { TIMER_STATE_CHANGED_EVENT } from "../../../lib/timeTracking/timerEvents";
 
 
 type Task = Card;
@@ -612,6 +613,57 @@ export default function BoardViewPage() {
   useEffect(() => {
     loadActiveTimer();
   }, [loadActiveTimer]);
+
+  useEffect(() => {
+    if (!organizationId || !auth?.user?.id) return;
+
+    const userId = auth.user.id;
+    const handleTimerStateChanged = (event: Event) => {
+      const detail = (event as CustomEvent<{
+        organizationId?: string | null;
+        userId?: string | null;
+      }>).detail;
+
+      if (detail?.organizationId && detail.organizationId !== organizationId) return;
+      if (detail?.userId && detail.userId !== userId) return;
+      void loadActiveTimer();
+    };
+
+    window.addEventListener(TIMER_STATE_CHANGED_EVENT, handleTimerStateChanged);
+    return () => {
+      window.removeEventListener(TIMER_STATE_CHANGED_EVENT, handleTimerStateChanged);
+    };
+  }, [auth?.user?.id, loadActiveTimer, organizationId]);
+
+  useEffect(() => {
+    if (!organizationId || !auth?.user?.id) return;
+
+    const userId = auth.user.id;
+    let refreshTimeout: ReturnType<typeof setTimeout> | undefined;
+    const channel = supabase
+      .channel(`board-time:${organizationId}:${userId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "time_entries",
+          filter: `user_id=eq.${userId}`,
+        },
+        () => {
+          if (refreshTimeout) window.clearTimeout(refreshTimeout);
+          refreshTimeout = window.setTimeout(() => {
+            void loadActiveTimer();
+          }, 400);
+        },
+      )
+      .subscribe();
+
+    return () => {
+      if (refreshTimeout) window.clearTimeout(refreshTimeout);
+      void supabase.removeChannel(channel);
+    };
+  }, [auth?.user?.id, loadActiveTimer, organizationId]);
 
   useEffect(() => {
     if (!activeTimer) {

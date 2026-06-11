@@ -1,9 +1,13 @@
 export type AiRouterToolId =
   | "summarize_my_tasks"
   | "list_boards"
+  | "create_board_card"
+  | "start_time_tracker"
+  | "stop_time_tracker"
   | "get_active_time_trackers"
   | "get_user_timesheet"
   | "get_attendance_summary"
+  | "get_leave_balance"
   | "search_leave_requests"
   | "search_meetings"
   | "search_notifications"
@@ -22,6 +26,7 @@ export const READ_ONLY_AI_TOOLS = new Set<AiRouterToolId>([
   "get_active_time_trackers",
   "get_user_timesheet",
   "get_attendance_summary",
+  "get_leave_balance",
   "search_leave_requests",
   "search_meetings",
   "search_notifications",
@@ -38,9 +43,13 @@ export const READ_ONLY_AI_TOOLS = new Set<AiRouterToolId>([
 export const CODEX_DELEGATED_TOOLS = new Set<AiRouterToolId>([
   "summarize_my_tasks",
   "list_boards",
+  "create_board_card",
+  "start_time_tracker",
+  "stop_time_tracker",
   "get_active_time_trackers",
   "get_user_timesheet",
   "get_attendance_summary",
+  "get_leave_balance",
   "search_leave_requests",
   "search_meetings",
   "search_notifications",
@@ -141,6 +150,170 @@ function cleanSearchText(value: string) {
     .trim();
 }
 
+function readableToolValue(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) return value.map(readableToolValue).filter(Boolean).join("\n");
+  if (!value || typeof value !== "object") return "";
+
+  const record = value as Record<string, unknown>;
+  for (const key of ["message", "error", "reply", "content", "text", "summary"]) {
+    const text = readableToolValue(record[key]);
+    if (text) return text;
+  }
+
+  const matches = Array.isArray(record.matches) ? record.matches : [];
+  if (matches.length > 0) {
+    const lines = matches.map((item) => {
+      const row = item as Record<string, unknown>;
+      return `- ${row.title ?? row.name ?? "Match"}${row.taskId ? ` (${row.taskId})` : ""}`;
+    });
+    return `More than one match was found:\n${lines.join("\n")}`;
+  }
+
+  return JSON.stringify(record);
+}
+
+function extractTimerTargetPayload(message: string): Record<string, unknown> {
+  const normalized = message.replace(/\s+/g, " ").trim();
+  const payload: Record<string, unknown> = {};
+  const email = normalized.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0];
+  if (email) {
+    payload.userEmail = email;
+    payload.assigneeEmail = email;
+  }
+
+  const nameBeforeEmail = normalized.match(
+    /\b(?:user|employee|for)\s+([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){0,3})\s+[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i,
+  );
+  if (nameBeforeEmail?.[1]) {
+    payload.userName = nameBeforeEmail[1].trim();
+    payload.assigneeName = nameBeforeEmail[1].trim();
+  }
+  const possessiveName = normalized.match(/\b([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){0,2})['’]s\s+(?:timer|time)\b/i);
+  if (!payload.userName && possessiveName?.[1]) {
+    payload.userName = possessiveName[1].trim();
+    payload.assigneeName = possessiveName[1].trim();
+  }
+  const timerForName = normalized.match(
+    /\b(?:timer|time tracker|time tracking|time)\s+for\s+([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){0,3})(?=\s+(?:now|on|under|to|and|please|at|$)|[,.?!]|$)/i,
+  ) ?? normalized.match(
+    /\bfor\s+([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){0,3})\s+(?:now|on|under|to|and|please|at|$)/i,
+  );
+  if (!payload.userName && timerForName?.[1]) {
+    payload.userName = timerForName[1].trim();
+    payload.assigneeName = timerForName[1].trim();
+  }
+
+  const quoted = normalized.match(/["']([^"']{3,160})["']/);
+  const afterCard = normalized.match(
+    /\b(?:card|task)\s*(?:called|named|is|titled|named)?\s*["']?([^"',?.]{3,160})/i,
+  );
+  const afterNamed = normalized.match(
+    /\bnamed\s+["']?([^"',?.]{3,160})/i,
+  );
+  const afterOn = normalized.match(
+    /\b(?:on|for)\s+(?:this\s+)?(?:card|task)?\s*["']?([^"',?.]{3,160})/i,
+  );
+  const target = quoted?.[1] ?? afterNamed?.[1] ?? afterCard?.[1] ?? afterOn?.[1] ?? "";
+  const cleaned = cleanSearchText(
+    target
+      .replace(/\b(?:for\s+me|please|now|timer|time|tracking|track|start|begin|his|her|my|their|and|assign|him|to|a|card|task|named)\b/gi, " ")
+      .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, " ")
+      .replace(/\s+/g, " "),
+  );
+
+  if (cleaned && !/^this\s+(card|task)$/i.test(cleaned)) {
+    payload.taskTitle = cleaned;
+    payload.query = cleaned;
+  }
+
+  const timeMatch = normalized.match(/\b(?:at|by)\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/i);
+  if (timeMatch?.[1]) {
+    const scheduledFor = getHarareScheduledIso(
+      Number(timeMatch[1]),
+      Number(timeMatch[2] ?? 0),
+      timeMatch[3],
+      /\btomorrow\b/i.test(normalized),
+    );
+    if (scheduledFor) payload.scheduledFor = scheduledFor;
+  }
+
+  return payload;
+}
+
+function extractBoardCardPayload(message: string): Record<string, unknown> {
+  const normalized = message.replace(/\s+/g, " ").trim();
+  const timerPayload = extractTimerTargetPayload(normalized);
+  const payload: Record<string, unknown> = {
+    ...timerPayload,
+    startTimer:
+      /\b(start|begin|track|tracking)\b.*\b(timer|time tracker|time tracking|time)\b/i.test(normalized) ||
+      /\btrack\s+(my|his|her|their)?\s*time\b/i.test(normalized),
+  };
+
+  const quoted = normalized.match(/["']([^"']{3,180})["']/);
+  const afterNamed = normalized.match(
+    /\b(?:card|task)?\s*(?:named|called|titled)\s+["']?([^"',?.]{3,180})/i,
+  );
+  const afterCreate = normalized.match(
+    /\b(?:create|make|add)\s+(?:a\s+)?(?:new\s+)?(?:card|task)\s+["']?([^"',?.]{3,180})/i,
+  );
+  const rawTitle = quoted?.[1] ?? afterNamed?.[1] ?? afterCreate?.[1] ??
+    String(payload.taskTitle ?? "");
+  const title = cleanSearchText(
+    rawTitle
+      .replace(/\b(?:and|then|start|begin|track|tracking|time|timer|time tracker|assign|assigned|for|to|under|on|in|board|please|now)\b.*$/i, " ")
+      .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, " "),
+  );
+  if (title) {
+    payload.title = title;
+    payload.taskTitle = title;
+    payload.query = title;
+  }
+
+  const boardMatch = normalized.match(
+    /\b(?:under|on|in|inside)\s+(?:the\s+)?(?:board|client|project)\s+["']?([^"',?.]{2,120})/i,
+  ) ?? normalized.match(/\bboard\s*(?:called|named|is|:)?\s*["']?([^"',?.]{2,120})/i);
+  if (boardMatch?.[1]) {
+    payload.boardName = cleanSearchText(
+      boardMatch[1].replace(/\b(?:and|then|start|track|tracking|assign|for|to)\b.*$/i, " "),
+    );
+  }
+
+  if (!payload.assigneeEmail && payload.userEmail) payload.assigneeEmail = payload.userEmail;
+  if (!payload.assigneeName && payload.userName) payload.assigneeName = payload.userName;
+
+  return payload;
+}
+
+function getHarareScheduledIso(
+  hourInput: number,
+  minuteInput: number,
+  meridiem: string | undefined,
+  tomorrow: boolean,
+) {
+  if (!Number.isFinite(hourInput) || !Number.isFinite(minuteInput)) return null;
+  let hour = hourInput;
+  const minute = Math.max(0, Math.min(59, minuteInput));
+  const marker = meridiem?.toLowerCase();
+  if (marker === "pm" && hour < 12) hour += 12;
+  if (marker === "am" && hour === 12) hour = 0;
+  if (hour < 0 || hour > 23) return null;
+
+  const now = new Date();
+  const harareNowMs = now.getTime() + 2 * 60 * 60 * 1000;
+  const harareNow = new Date(harareNowMs);
+  const year = harareNow.getUTCFullYear();
+  const month = harareNow.getUTCMonth();
+  const day = harareNow.getUTCDate() + (tomorrow ? 1 : 0);
+  let scheduledUtc = new Date(Date.UTC(year, month, day, hour - 2, minute, 0, 0));
+  if (!tomorrow && scheduledUtc.getTime() <= now.getTime()) {
+    scheduledUtc = new Date(scheduledUtc.getTime() + 24 * 60 * 60 * 1000);
+  }
+  return scheduledUtc.toISOString();
+}
+
 function extractAssetPayload(message: string): Record<string, unknown> {
   const lower = message.toLowerCase();
   const normalized = message.replace(/\s+/g, " ").trim();
@@ -224,10 +397,17 @@ export function detectAiTool(message: string): {
     };
   }
 
+  if (/leave\s+(days?|balance|remaining|left|available)|days?\s+(left|remaining|available).*\bleave\b/.test(lower)) {
+    return {
+      toolId: "get_leave_balance",
+      payload: extractTimerTargetPayload(message),
+    };
+  }
+
   if (/leave|vacation|time off|absence|pto/.test(lower)) {
     return {
       toolId: "search_leave_requests",
-      payload: /pending/.test(lower) ? { status: "pending", daysBack: 30 } : { daysBack: 30 },
+      payload: /pending/.test(lower) ? { status: "pending", daysBack: 120 } : { daysBack: 120 },
     };
   }
 
@@ -256,6 +436,42 @@ export function detectAiTool(message: string): {
     return {
       toolId: "search_social_posts",
       payload: { status: /scheduled/.test(lower) ? "scheduled" : undefined, limit: 15 },
+    };
+  }
+
+  if (
+    /\b(create|make|add)\b.*\b(card|task)\b/.test(lower) ||
+    /\b(card|task)\b.*\b(named|called|titled)\b/.test(lower)
+  ) {
+    return {
+      toolId: "create_board_card",
+      payload: extractBoardCardPayload(message),
+    };
+  }
+
+  if (
+    /\b(stop|pause|end|finish)\b.*\b(timer|time tracker|time tracking|tracking time)\b/.test(lower) ||
+    /\bstop\s+(my\s+)?time\b/.test(lower)
+  ) {
+    return {
+      toolId: "stop_time_tracker",
+      payload: {
+        ...extractTimerTargetPayload(message),
+        notifyUser: /message|notify|tell|send/i.test(lower),
+        notificationMessage: /start tracking time again|start.*timer.*again/i.test(lower)
+          ? "Please start tracking time again on the correct task."
+          : undefined,
+      },
+    };
+  }
+
+  if (
+    /\b(start|begin|track|trac|tracking)\b.*\b(timer|time tracker|time tracking|tracking time|time)\b/.test(lower) ||
+    /\btrac?k(?:ing)?\s+(my|his|her|their)?\s*time\b/.test(lower)
+  ) {
+    return {
+      toolId: "start_time_tracker",
+      payload: extractTimerTargetPayload(message),
     };
   }
 
@@ -330,6 +546,56 @@ export function formatToolReply(
   }
 
   switch (toolId) {
+    case "start_time_tracker": {
+      if (data.ok === false) {
+        return readableToolValue(data.error || data) || "I could not start the timer.";
+      }
+      if (data.scheduled === true) {
+        return typeof data.message === "string"
+          ? data.message
+          : "Scheduled the time tracker.";
+      }
+      const entry = data.entry && typeof data.entry === "object"
+        ? data.entry as Record<string, unknown>
+        : {};
+      const target = entry.task_id ? " on that card" : "";
+      const link = typeof data.actionUrl === "string" ? data.actionUrl : null;
+      const message = typeof data.message === "string"
+        ? data.message
+        : `Started your time tracker${target}.`;
+      return `${message}${link ? `\n\n[Open card](${link})` : ""}`;
+    }
+    case "create_board_card": {
+      if (data.ok === false) {
+        return readableToolValue(data.error || data) || "I could not create that card.";
+      }
+      const message = typeof data.message === "string"
+        ? data.message
+        : "Created the card.";
+      const actionUrl = typeof data.actionUrl === "string" ? data.actionUrl : null;
+      const timer = data.timer && typeof data.timer === "object"
+        ? data.timer as Record<string, unknown>
+        : null;
+      const timerLine = timer?.ok === false
+        ? `\n\nTimer was not started: ${readableToolValue(timer.error) || "unknown error"}.`
+        : timer?.message
+        ? `\n\n${timer.message}`
+        : "";
+      return `${message}${actionUrl ? `\n\n[Open card](${actionUrl})` : ""}${timerLine}`;
+    }
+    case "stop_time_tracker": {
+      if (data.ok === false) {
+        return readableToolValue(data.error || data) || "I could not stop the timer.";
+      }
+      const message = typeof data.message === "string"
+        ? data.message
+        : "Stopped the time tracker.";
+      return `${message}${
+        data.durationSeconds !== undefined
+          ? ` Total tracked: ${formatHours(data.durationSeconds)}.`
+          : ""
+      }`;
+    }
     case "summarize_my_tasks": {
       const openCount = Number(data.openCount ?? 0);
       const overdueCount = Number(data.overdueCount ?? 0);
@@ -371,7 +637,7 @@ export function formatToolReply(
         const task = row.taskTitle ?? row.task_title ?? row.description ?? "Untitled task";
         const board = row.boardName ?? "No board";
         const link = taskLink(row.boardId, row.taskId);
-        return `- ${name} is tracking "${task}" on ${board} (${formatHours(row.elapsedSeconds)} so far)${link ? `\n  Open task: ${link}` : ""}`;
+        return `- ${name} is tracking "${task}" on ${board} (${formatHours(row.elapsedSeconds)} so far)${link ? `\n  [Open card](${link})` : ""}`;
       });
       if (wantsNotTracking) {
         const missingLines = notTracking.map((entry) => {
@@ -402,7 +668,7 @@ export function formatToolReply(
       }
 
       const lines = grouped.map((group) =>
-        `- ${group.taskTitle} on ${group.boardName}: ${formatHours(group.seconds)} across ${group.count} entr${group.count === 1 ? "y" : "ies"}${group.running ? " (still running)" : ""}${group.link ? `\n  Open task: ${group.link}` : ""}`
+        `- ${group.taskTitle} on ${group.boardName}: ${formatHours(group.seconds)} across ${group.count} entr${group.count === 1 ? "y" : "ies"}${group.running ? " (still running)" : ""}${group.link ? `\n  [Open card](${group.link})` : ""}`
       );
 
       const rangeLabel = range?.from && range?.to
@@ -423,6 +689,18 @@ export function formatToolReply(
         return `- ${row.name ?? "Team member"}: ${row.status ?? "unknown"} on ${row.date ?? "unknown date"}`;
       }).join("\n");
       return `Attendance summary${countLine ? ` (${countLine})` : ""}.\n\n${lines}`;
+    }
+    case "get_leave_balance": {
+      if (data.ok === false) {
+        return readableToolValue(data.error || data) || "I could not find leave days for that user.";
+      }
+      const user = data.user && typeof data.user === "object"
+        ? data.user as Record<string, unknown>
+        : {};
+      const balance = data.balance && typeof data.balance === "object"
+        ? data.balance as Record<string, unknown>
+        : {};
+      return `${user.name ?? "This user"} has ${balance.remainingDays ?? "unknown"} leave day(s) remaining out of ${balance.totalDays ?? "unknown"}. Used: ${balance.usedDays ?? "unknown"}.`;
     }
     case "search_notifications": {
       const notifications = Array.isArray(data.notifications)
@@ -473,11 +751,22 @@ export function formatToolReply(
     case "search_leave_requests": {
       const requests = Array.isArray(data.requests) ? data.requests : [];
       if (requests.length === 0) return "No matching leave requests found.";
+      const officeFilter = data.officeFilter && typeof data.officeFilter === "object"
+        ? data.officeFilter as Record<string, unknown>
+        : null;
       const lines = requests.slice(0, 10).map((item) => {
         const row = item as Record<string, unknown>;
-        return `- ${row.name ?? "Employee"}: ${row.startDate ?? "?"} to ${row.endDate ?? "?"} (${row.status ?? "unknown"})`;
+        const details = [
+          row.office ? `office: ${row.office}` : null,
+          row.leaveType ? `type: ${row.leaveType}` : null,
+          row.requestedDays ? `${row.requestedDays} day(s)` : null,
+          row.rejectionReason ? `reason: ${row.rejectionReason}` : null,
+        ].filter(Boolean).join(", ");
+        return `- ${row.name ?? "Employee"}: ${row.startDate ?? "?"} to ${row.endDate ?? "?"} (${row.status ?? "unknown"}${details ? `, ${details}` : ""})`;
       }).join("\n");
-      return `Found ${requests.length} leave request(s):\n\n${lines}`;
+      return `Found ${requests.length} leave request(s)${
+        officeFilter?.name ? ` for ${officeFilter.name}` : ""
+      }:\n\n${lines}`;
     }
     case "search_meetings": {
       const meetings = Array.isArray(data.meetings) ? data.meetings : [];

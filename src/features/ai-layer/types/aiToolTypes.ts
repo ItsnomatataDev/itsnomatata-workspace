@@ -1,9 +1,14 @@
 export type AiRouterToolId =
   | "summarize_my_tasks"
   | "list_boards"
+  | "create_board_card"
+  | "start_time_tracker"
+  | "stop_time_tracker"
   | "get_active_time_trackers"
   | "get_user_timesheet"
   | "get_attendance_summary"
+  | "get_leave_balance"
+  | "search_leave_requests"
   | "search_notifications"
   | "search_assets";
 

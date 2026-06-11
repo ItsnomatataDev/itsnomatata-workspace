@@ -24,3 +24,6 @@ verify_jwt = false
 
 [functions.content-studio-analyze-image]
 verify_jwt = false
+
+[functions.process-scheduled-actions]
+verify_jwt = false

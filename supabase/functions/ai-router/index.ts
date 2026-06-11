@@ -32,6 +32,25 @@ function jsonResponse(body: unknown, status = 200) {
   });
 }
 
+function readableError(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) return value.map(readableError).filter(Boolean).join("\n");
+  if (!value || typeof value !== "object") return "";
+
+  const record = value as Record<string, unknown>;
+  for (const key of ["message", "error", "details", "hint", "description"]) {
+    const text = readableError(record[key]);
+    if (text) return text;
+  }
+
+  try {
+    return JSON.stringify(record);
+  } catch {
+    return "";
+  }
+}
+
 async function ensureAiWorkspaceEnabled(
   admin: ReturnType<typeof requireAuthenticatedProfile> extends Promise<infer T>
     ? T extends { admin: infer A }
@@ -95,6 +114,8 @@ async function insertMessage(
   admin: any,
   params: {
     conversationId: string;
+    organizationId: string;
+    userId: string;
     role: "user" | "assistant" | "system";
     content: string;
     toolId?: string | null;
@@ -105,6 +126,8 @@ async function insertMessage(
   const { data, error } = await admin
     .from("ai_messages")
     .insert({
+      organization_id: params.organizationId,
+      user_id: params.userId,
       conversation_id: params.conversationId,
       role: params.role,
       content: params.content,
@@ -169,9 +192,56 @@ async function invokeCodexTool(
 
   const result = await response.json();
   if (!response.ok) {
-    throw new Error(result.error || `Codex tool failed: ${toolId}`);
+    throw new Error(readableError(result.error || result) || `Codex tool failed: ${toolId}`);
   }
   return result as Record<string, unknown>;
+}
+
+function enrichPayloadFromRoute(
+  payload: Record<string, unknown>,
+  route: string | null | undefined,
+) {
+  if (!route) return payload;
+  const next = { ...payload };
+  const cardId = route.match(/[?&]cardId=([0-9a-f-]{36})/i)?.[1];
+  const boardId = route.match(/\/boards\/([0-9a-f-]{36})/i)?.[1];
+
+  if (cardId && !next.taskId && !next.task_id) {
+    next.taskId = cardId;
+  }
+  if (boardId && !next.boardId && !next.board_id && !next.clientId && !next.client_id) {
+    next.boardId = boardId;
+  }
+
+  return next;
+}
+
+function enrichTimerPayloadFromMessage(
+  payload: Record<string, unknown>,
+  message: string,
+) {
+  const next = { ...payload };
+  const possessive = message.match(
+    /\b([A-Za-z][A-Za-z.'-]+(?:\s+[A-Za-z][A-Za-z.'-]+){0,2})['’]s\s+(?:timer|time)\b/i,
+  );
+  const targetAfterFor = message.match(
+    /\b(?:timer|time tracker|time tracking|time)\s+for\s+([A-Za-z][A-Za-z.'-]+(?:\s+[A-Za-z][A-Za-z.'-]+){0,3})(?=\s+(?:now|on|under|to|and|please|at|$)|[,.?!]|$)/i,
+  ) ?? message.match(
+    /\bfor\s+([A-Za-z][A-Za-z.'-]+(?:\s+[A-Za-z.'-]+){0,3})\s+(?:now|on|under|to|and|please|at|$)/i,
+  );
+  const email = message.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0];
+
+  if (email && !next.userEmail && !next.user_email && !next.email) {
+    next.userEmail = email;
+  }
+  if (possessive?.[1] && !next.userName && !next.user_name && !next.name) {
+    next.userName = possessive[1].trim();
+  }
+  if (targetAfterFor?.[1] && !next.userName && !next.user_name && !next.name) {
+    next.userName = targetAfterFor[1].trim();
+  }
+
+  return next;
 }
 
 Deno.serve(async (req) => {
@@ -213,6 +283,8 @@ Deno.serve(async (req) => {
 
     await insertMessage(admin, {
       conversationId,
+      organizationId: profile.organization_id,
+      userId,
       role: "user",
       content: message,
     });
@@ -223,14 +295,23 @@ Deno.serve(async (req) => {
     let toolStatus: "success" | "failed" | "fallback" = "success";
     let toolError: string | null = null;
 
-    if (toolId && READ_ONLY_AI_TOOLS.has(toolId)) {
+    if (toolId && (READ_ONLY_AI_TOOLS.has(toolId) || CODEX_DELEGATED_TOOLS.has(toolId))) {
       try {
         const ctx = {
           userId,
           organizationId: profile.organization_id,
           role: profile.primary_role,
         };
-        const payload = toolMatch?.payload ?? {};
+        const basePayload = enrichPayloadFromRoute(
+          {
+            ...(toolMatch?.payload ?? {}),
+            originalMessage: message,
+          },
+          body.context?.currentRoute,
+        );
+        const payload = toolId === "start_time_tracker" || toolId === "stop_time_tracker"
+          ? enrichTimerPayloadFromMessage(basePayload, message)
+          : basePayload;
 
         if (CODEX_DELEGATED_TOOLS.has(toolId)) {
           const { supabaseUrl, anonKey } = {
@@ -257,7 +338,7 @@ Deno.serve(async (req) => {
         }
       } catch (error) {
         toolStatus = "failed";
-        toolError = error instanceof Error ? error.message : String(error);
+        toolError = readableError(error) || "Workspace tool failed.";
         toolData = { error: toolError };
       }
 
@@ -281,6 +362,8 @@ Deno.serve(async (req) => {
 
     const messageId = await insertMessage(admin, {
       conversationId,
+      organizationId: profile.organization_id,
+      userId,
       role: "assistant",
       content: reply,
       toolId,
@@ -296,7 +379,7 @@ Deno.serve(async (req) => {
       data: toolData,
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = readableError(error) || "AI router failed.";
     console.error("ai-router error:", message);
     return jsonResponse({ error: message }, 500);
   }

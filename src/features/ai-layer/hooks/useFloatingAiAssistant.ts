@@ -75,6 +75,19 @@ function stringifyAssistantValue(value: unknown): string {
     : "I got a response, but it did not include readable text.";
 }
 
+function readableToolValue(value: unknown): string {
+  const text = stringifyAssistantValue(value);
+  if (text && text !== "[object Object]") return text;
+  if (value && typeof value === "object") {
+    try {
+      return JSON.stringify(value, null, 2);
+    } catch {
+      return "";
+    }
+  }
+  return "";
+}
+
 function formatHours(seconds: unknown) {
   const value = Number(seconds ?? 0);
   if (!Number.isFinite(value) || value <= 0) return "0h";
@@ -103,10 +116,57 @@ function formatTimeToolReply(toolId: AiRouterToolId, data: Record<string, unknow
       const link = typeof row.taskUrl === "string"
         ? row.taskUrl
         : taskLink(row.boardId, row.taskId);
-      return `- ${task} on ${board}: ${formatHours(row.elapsedSeconds)} so far${link ? `\n  Open task: ${link}` : ""}`;
+      return `- ${task} on ${board}: ${formatHours(row.elapsedSeconds)} so far${link ? `\n  Open card: ${link}` : ""}`;
     });
 
     return `Here is what you are tracking right now:\n\n${lines.join("\n")}`;
+  }
+
+  if (toolId === "start_time_tracker") {
+    if (data.ok === false) {
+      return readableToolValue(data.error || data) || "I could not start your time tracker.";
+    }
+    if (data.scheduled === true) {
+      return typeof data.message === "string"
+        ? data.message
+        : "Scheduled the time tracker.";
+    }
+    const link = typeof data.actionUrl === "string" ? data.actionUrl : null;
+    const message = typeof data.message === "string"
+      ? data.message
+      : "Started your time tracker.";
+    return `${message}${link ? `\n\nOpen card: ${link}` : ""}`;
+  }
+
+  if (toolId === "create_board_card") {
+    if (data.ok === false) {
+      return readableToolValue(data.error || data) || "I could not create that card.";
+    }
+    const link = typeof data.actionUrl === "string" ? data.actionUrl : null;
+    const timer = isRecord(data.timer) ? data.timer : null;
+    const message = typeof data.message === "string"
+      ? data.message
+      : "Created the card.";
+    const timerLine = timer?.ok === false
+      ? `\n\nTimer was not started: ${readableToolValue(timer.error)}.`
+      : timer?.message
+      ? `\n\n${timer.message}`
+      : "";
+    return `${message}${link ? `\n\nOpen card: ${link}` : ""}${timerLine}`;
+  }
+
+  if (toolId === "stop_time_tracker") {
+    if (data.ok === false) {
+      return readableToolValue(data.error || data) || "I could not stop your time tracker.";
+    }
+    const message = typeof data.message === "string"
+      ? data.message
+      : "Stopped the time tracker.";
+    return `${message}${
+      data.durationSeconds !== undefined
+        ? ` Total tracked: ${formatHours(data.durationSeconds)}.`
+        : ""
+    }`;
   }
 
   if (toolId === "get_user_timesheet") {
@@ -202,6 +262,24 @@ function formatWorkspaceToolReply(
   if (timeReply) return timeReply;
   if (toolId === "search_assets") return formatAssetToolReply(data);
 
+  if (toolId === "search_leave_requests") {
+    const requests = Array.isArray(data.requests) ? data.requests : [];
+    if (requests.length === 0) return "No matching leave requests found.";
+
+    const lines = requests.slice(0, 10).map((item) => {
+      const row = item as Record<string, unknown>;
+      const details = [
+        row.office ? `office: ${row.office}` : null,
+        row.leaveType ? `type: ${row.leaveType}` : null,
+        row.requestedDays ? `${row.requestedDays} day(s)` : null,
+        row.rejectionReason ? `reason: ${row.rejectionReason}` : null,
+      ].filter(Boolean).join(", ");
+      return `- ${row.name ?? "Employee"}: ${row.startDate ?? "?"} to ${row.endDate ?? "?"} (${row.status ?? "unknown"}${details ? `, ${details}` : ""})`;
+    });
+
+    return `Found ${requests.length} leave request${requests.length === 1 ? "" : "s"}:\n\n${lines.join("\n")}`;
+  }
+
   if (toolId === "summarize_my_tasks") {
     const openCount = Number(data.openCount ?? 0);
     const overdueCount = Number(data.overdueCount ?? 0);
@@ -269,37 +347,24 @@ function formatWorkspaceToolReply(
     return `Attendance summary${countLine ? ` (${countLine})` : ""}.\n\n${lines.join("\n")}`;
   }
 
+  if (toolId === "get_leave_balance") {
+    if (data.ok === false) {
+      return readableToolValue(data.error || data) || "I could not find leave days for that user.";
+    }
+    const user = isRecord(data.user) ? data.user : {};
+    const balance = isRecord(data.balance) ? data.balance : {};
+    return `${user.name ?? "This user"} has ${balance.remainingDays ?? "unknown"} leave day(s) remaining out of ${balance.totalDays ?? "unknown"}. Used: ${balance.usedDays ?? "unknown"}.`;
+  }
+
   const message = typeof data.message === "string" ? data.message.trim() : "";
   return message || "I found matching workspace data, but there is no readable summary available yet.";
-}
-
-function buildBrainMessageWithToolResult(params: {
-  originalMessage: string;
-  toolId: AiRouterToolId;
-  toolReply: string;
-  toolData?: Record<string, unknown>;
-}) {
-  return [
-    params.originalMessage,
-    "",
-    "[Workspace data already retrieved]",
-    `Tool: ${params.toolId}`,
-    "Use the workspace data below to answer the user's exact request in friendly plain text.",
-    "Do not show JSON. Do not list unrelated records. If the user asked for a filter, only discuss matching records.",
-    "",
-    "[Readable tool summary]",
-    params.toolReply,
-    "",
-    "[Structured tool data for accuracy]",
-    JSON.stringify(params.toolData ?? {}, null, 2),
-  ].join("\n");
 }
 
 export function useFloatingAiAssistant() {
   const auth = useAuth();
   const { isEnabled, loading: featuresLoading } = useOrganizationFeatures();
   const [currentRoute, setCurrentRoute] = useState(
-    () => window.location.pathname,
+    () => `${window.location.pathname}${window.location.search}`,
   );
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -319,7 +384,7 @@ export function useFloatingAiAssistant() {
   );
 
   useEffect(() => {
-    const syncRoute = () => setCurrentRoute(window.location.pathname);
+    const syncRoute = () => setCurrentRoute(`${window.location.pathname}${window.location.search}`);
     window.addEventListener("popstate", syncRoute);
     const intervalId = window.setInterval(syncRoute, 1000);
     return () => {
@@ -364,53 +429,13 @@ export function useFloatingAiAssistant() {
             formatWorkspaceToolReply(response.toolId ?? routerTool, response.data) ||
             stringifyAssistantValue(response.reply);
 
-          let finalReply = toolReply;
-          let finalConversationId = response.conversationId;
-
-          try {
-            const brainResponse = await askAssistant({
-              message: buildBrainMessageWithToolResult({
-                originalMessage: trimmed,
-                toolId: response.toolId ?? routerTool,
-                toolReply,
-                toolData: response.data,
-              }),
-              conversationId,
-              context: {
-                userId: context.userId,
-                organizationId: context.organizationId,
-                fullName: context.fullName,
-                role: context.role,
-                department: context.department,
-                currentRoute: context.currentRoute,
-                currentModule: context.currentModule ?? "floating_ai",
-                channel: "web",
-                timezone: "Africa/Harare",
-              },
-              metadata: {
-                source: "floating_ai_assistant",
-                route: context.currentRoute,
-                workspaceToolId: response.toolId ?? routerTool,
-                workspaceToolUsed: true,
-              },
-            });
-
-            finalReply = stringifyAssistantValue(
-              brainResponse.message || brainResponse.raw,
-            ) || toolReply;
-            finalConversationId = brainResponse.conversationId ??
-              response.conversationId;
-          } catch {
-            finalReply = toolReply;
-          }
-
-          setConversationId(finalConversationId);
+          setConversationId(response.conversationId);
           setMessages((current) => [
             ...current,
             {
               id: response.messageId,
               role: "assistant",
-              content: finalReply,
+              content: toolReply,
               createdAt: new Date().toISOString(),
               toolId: response.toolId ?? null,
               data: response.data,
@@ -558,6 +583,12 @@ function detectFallbackTool(message: string): AiRouterToolId | null {
   const lower = message.toLowerCase();
   if (/notification|inbox|alert/.test(lower)) return "search_notifications";
   if (/asset|equipment|serial|stock/.test(lower)) return "search_assets";
+  if (/\b(create|make|add)\b.*\b(card|task)\b/.test(lower) || /\b(card|task)\b.*\b(named|called|titled)\b/.test(lower)) return "create_board_card";
+  if (/\b(stop|pause|end|finish)\b.*\b(timer|time tracker|time tracking|tracking time)\b/.test(lower) || /\bstop\s+(my\s+)?time\b/.test(lower)) return "stop_time_tracker";
+  if (/\b(show|who|which|list|people|users|team)\b.*\b(tracking|timer|time tracker|time tracking)\b/.test(lower)) return "get_active_time_trackers";
+  if (/\b(start|begin|track|trac|tracking)\b.*\b(timer|time tracker|time tracking|tracking time|time)\b/.test(lower) || /\btrac?k(?:ing)?\s+(my|his|her|their)?\s*time\b/.test(lower)) return "start_time_tracker";
+  if (/leave\s+(days?|balance|remaining|left|available)|days?\s+(left|remaining|available).*\bleave\b/.test(lower)) return "get_leave_balance";
+  if (/leave|vacation|time off|absence|pto/.test(lower)) return "search_leave_requests";
   if (/tracking\s+time|time\s+tracking|timer|tracking now|active time|currently tracking|which tasks?.*(tracking|timer)|what tasks?.*(tracking|timer)/.test(lower)) return "get_active_time_trackers";
   if (/timesheet|time entr|hours|tracked|time tracked|tracked time|worked on/.test(lower)) return "get_user_timesheet";
   if (/board/.test(lower)) return "list_boards";

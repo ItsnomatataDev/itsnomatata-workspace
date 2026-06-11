@@ -10,6 +10,25 @@ function getSupabaseFunctionsBaseUrl() {
   return `${supabaseUrl.replace(/\/$/, "")}/functions/v1`;
 }
 
+function readableError(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) return value.map(readableError).filter(Boolean).join("\n");
+  if (!value || typeof value !== "object") return "";
+
+  const record = value as Record<string, unknown>;
+  for (const key of ["message", "error", "details", "hint", "description"]) {
+    const text = readableError(record[key]);
+    if (text) return text;
+  }
+
+  try {
+    return JSON.stringify(record);
+  } catch {
+    return "";
+  }
+}
+
 export async function sendAiRouterMessage(
   request: AiRouterRequest,
 ): Promise<AiRouterResponse> {
@@ -30,11 +49,11 @@ export async function sendAiRouterMessage(
   });
 
   const payload = (await response.json()) as AiRouterResponse & {
-    error?: string;
+    error?: unknown;
   };
 
   if (!response.ok) {
-    throw new Error(payload.error || "AI router request failed.");
+    throw new Error(readableError(payload.error || payload) || "AI router request failed.");
   }
 
   return payload;

@@ -12,6 +12,7 @@ import {
   getTodayTotalSeconds,
   getZimbabweTodayRangeIso,
 } from "../utils/timeMath";
+import { TIMER_STATE_CHANGED_EVENT } from "../timeTracking/timerEvents";
 
 type DashboardStats = {
   openTasks: number;
@@ -562,6 +563,8 @@ export function useDashboard(params: {
         throw baseErrors[0];
       }
 
+      const activeTimer = (activeTimerRes as ActiveTimer) ?? null;
+
       let buckets: DashboardTaskBuckets = {
         open: [],
         in_progress: [],
@@ -569,17 +572,29 @@ export function useDashboard(params: {
       };
       let doneTasks = 0;
 
-      if (assignedTaskIds.length > 0) {
+      const taskIdsToFetch = Array.from(
+        new Set(
+          [
+            ...assignedTaskIds,
+            activeTimer?.task_id ?? null,
+          ].filter(Boolean) as string[],
+        ),
+      );
+
+      if (taskIdsToFetch.length > 0) {
         const taskRows = await fetchDashboardTasksByIds({
           organizationId,
-          taskIds: assignedTaskIds,
+          taskIds: taskIdsToFetch,
           officeId,
           includeAllOffices,
         });
 
         const allMapped = taskRows
           .map(mapDashboardTaskRow)
-          .filter((task) => isDashboardTaskOwnedByUser(task, userId, assigneeTaskIds));
+          .filter((task) =>
+            task.id === activeTimer?.task_id ||
+            isDashboardTaskOwnedByUser(task, userId, assigneeTaskIds)
+          );
         doneTasks = 0;
 
         const activeMapped = excludeOverdueTasks(
@@ -599,11 +614,20 @@ export function useDashboard(params: {
         completedProjects: completedProjectsRes.count ?? 0,
       });
 
+      const visibleTasks = [...buckets.in_progress, ...buckets.review];
+      const activeTimerTask = activeTimer?.task_id
+        ? [...buckets.open, ...visibleTasks].find((task) => task.id === activeTimer.task_id)
+        : null;
+
       setTaskBuckets(buckets);
-      setTasks([...buckets.in_progress, ...buckets.review]);
+      setTasks(
+        activeTimerTask && !visibleTasks.some((task) => task.id === activeTimerTask.id)
+          ? [activeTimerTask, ...visibleTasks]
+          : visibleTasks,
+      );
       setTodayTimeEntries((timeEntriesRes.data ?? []) as TimeEntryItem[]);
       setAnnouncements((announcementsRes.data ?? []) as Announcement[]);
-      setActiveTimer((activeTimerRes as ActiveTimer) ?? null);
+      setActiveTimer(activeTimer);
 
       await Promise.all([loadWeather(), loadRoleNews()]);
     } catch (err: any) {
@@ -705,6 +729,26 @@ export function useDashboard(params: {
       void supabase.removeChannel(channel);
     };
   }, [organizationId, refreshTimeTrackingState, userId]);
+
+  useEffect(() => {
+    if (!organizationId || !userId) return;
+
+    const handleTimerStateChanged = (event: Event) => {
+      const detail = (event as CustomEvent<{
+        organizationId?: string | null;
+        userId?: string | null;
+      }>).detail;
+
+      if (detail?.organizationId && detail.organizationId !== organizationId) return;
+      if (detail?.userId && detail.userId !== userId) return;
+      void load({ showLoading: false });
+    };
+
+    window.addEventListener(TIMER_STATE_CHANGED_EVENT, handleTimerStateChanged);
+    return () => {
+      window.removeEventListener(TIMER_STATE_CHANGED_EVENT, handleTimerStateChanged);
+    };
+  }, [load, organizationId, userId]);
 
   return {
     loading,

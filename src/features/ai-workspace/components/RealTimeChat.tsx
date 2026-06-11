@@ -178,7 +178,7 @@ function AttachmentIcon({ type }: { type: ChatAttachment["type"] }) {
 }
 
 function isBrowserUrl(url?: string) {
-  return !!url && /^(https?:|blob:|data:)/i.test(url);
+  return !!url && (/^(https?:|blob:|data:)/i.test(url) || url.startsWith("/"));
 }
 
 function MessageContent({ content }: { content: string }) {
@@ -234,9 +234,9 @@ function MessageContent({ content }: { content: string }) {
           <a
             key={index}
             href={part.url}
-            target="_blank"
-            rel="noreferrer"
-            download
+            target={part.url.startsWith("/") ? undefined : "_blank"}
+            rel={part.url.startsWith("/") ? undefined : "noreferrer"}
+            download={part.url.startsWith("/") ? undefined : true}
             className="font-medium text-[#8ab4ff] underline decoration-white/20 underline-offset-4 hover:text-white"
           >
             {part.label}
@@ -399,7 +399,7 @@ function MessageBubble({
         >
           <div className="whitespace-pre-wrap">
             {message.error
-              ? "Something went wrong while getting the response. Please try again."
+              ? message.content || "Something went wrong while getting the response. Please try again."
               : <MessageContent content={message.content || "Attached file"} />}
           </div>
           <MessageAttachments
@@ -1170,11 +1170,14 @@ export default function RealTimeChat({
       await loadConversations();
     } catch (error) {
       console.error("Chat AI service error:", error);
+      const errorMessage = error instanceof Error
+        ? error.message
+        : "Something went wrong while getting the response. Please try again.";
       setMessages((prev) =>
-        prev.map((message) =>
-          message.id === typingMessage.id
-            ? { ...message, pending: false, error: true }
-            : message,
+        prev.map((item) =>
+          item.id === typingMessage.id
+            ? { ...item, content: errorMessage, pending: false, error: true }
+            : item,
         ),
       );
     }
@@ -1276,11 +1279,14 @@ export default function RealTimeChat({
         }
       } catch (error) {
         console.error("Image regeneration failed:", error);
+        const errorMessage = error instanceof Error
+          ? error.message
+          : "Image regeneration failed. Please try again.";
         setMessages((prev) =>
-          prev.map((message) =>
-            message.id === typingMessage.id
-              ? { ...message, pending: false, error: true }
-              : message,
+          prev.map((item) =>
+            item.id === typingMessage.id
+              ? { ...item, content: errorMessage, pending: false, error: true }
+              : item,
           ),
         );
       }

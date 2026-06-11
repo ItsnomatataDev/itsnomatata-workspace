@@ -1,8 +1,9 @@
 import RealTimeChat from "../components/RealTimeChat";
-import { askAssistant } from "../../../lib/api/ai";
+import { askAssistant, generateImage } from "../../../lib/api/ai";
 import type { ChatAttachment } from "../services/chatHistoryService";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import { useNavigate } from "react-router-dom";
+import { sendAiRouterMessage } from "../../ai-layer/services/aiRouterClient";
 
 type AssistantAttachmentType = "image" | "audio" | "document";
 
@@ -110,6 +111,107 @@ function stripRawStorageUrls(content: string, attachments: ChatAttachment[]) {
   return cleaned || "Done. The file is attached below.";
 }
 
+function readableValue(value: unknown): string {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (/^[{\[]/.test(trimmed)) {
+      try {
+        const parsed = JSON.parse(trimmed) as unknown;
+        const parsedText = readableValue(parsed);
+        if (parsedText && parsedText !== trimmed) return parsedText;
+      } catch {
+        // Keep text as-is if it is not valid JSON.
+      }
+    }
+    return trimmed;
+  }
+
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+
+  if (Array.isArray(value)) {
+    return value.map(readableValue).filter(Boolean).join("\n");
+  }
+
+  if (!value || typeof value !== "object") return "";
+
+  const record = value as Record<string, unknown>;
+  for (const key of [
+    "reply",
+    "message",
+    "output",
+    "text",
+    "content",
+    "summary",
+    "answer",
+    "result",
+    "error",
+  ]) {
+    const text = readableValue(record[key]);
+    if (text) return text;
+  }
+
+  if (record.data && typeof record.data === "object") {
+    const dataText = readableValue(record.data);
+    if (dataText) return dataText;
+  }
+
+  const readableEntries = Object.entries(record)
+    .filter(([, nested]) =>
+      typeof nested === "string" ||
+      typeof nested === "number" ||
+      typeof nested === "boolean"
+    )
+    .map(([key, nested]) => `${key}: ${nested}`);
+
+  return readableEntries.join("\n");
+}
+
+function shouldUseWorkspaceRouter(prompt: string) {
+  const lower = prompt.toLowerCase();
+  return (
+    /\b(start|begin|track|trac|tracking|stop|pause|end|finish)\b.*\b(timer|time tracker|time tracking|tracking time|time)\b/.test(lower) ||
+    /\btrac?k(?:ing)?\s+(my|his|her|their)?\s*time\b/.test(lower) ||
+    /\b(show|who|which|list|people|users|team)\b.*\b(tracking|timer|time tracker|time tracking)\b/.test(lower) ||
+    /\b(create|make|add)\b.*\b(card|task)\b/.test(lower) ||
+    /\b(card|task)\b.*\b(named|called|titled)\b/.test(lower) ||
+    /timesheet|time entr|hours|tracked time|active timer|currently tracking/.test(lower) ||
+    /leave|vacation|time off|absence|pto/.test(lower) ||
+    /summarize my tasks|list my boards|show my notifications|attendance|clock/.test(lower)
+  );
+}
+
+function shouldGenerateImage(prompt: string) {
+  const lower = prompt.toLowerCase();
+  return (
+    /\b(generate|create|make|draw|design|render)\b.*\b(image|picture|photo|visual|poster|artwork|graphic|illustration)\b/.test(lower) ||
+    /\bimage\s+(of|for)\b/.test(lower)
+  );
+}
+
+function buildWorkspaceContext(params: {
+  userId: string;
+  organizationId: string;
+  fullName?: string | null;
+  email?: string | null;
+  role?: string | null;
+  department?: string | null;
+}) {
+  return {
+    userId: params.userId,
+    fullName: params.fullName || "Workspace User",
+    email: params.email ?? null,
+    role: params.role || "employee",
+    department: params.department ?? null,
+    organizationId: params.organizationId,
+    currentModule: "ai-workspace",
+    currentRoute: `${window.location.pathname}${window.location.search}`,
+    timezone: "Africa/Harare",
+    channel: "web" as const,
+  };
+}
+
 export default function AIWorkspacePage() {
   const auth = useAuth();
   const navigate = useNavigate();
@@ -132,34 +234,67 @@ export default function AIWorkspacePage() {
           attachments?: ChatAttachment[],
           metadata?: Record<string, unknown>,
         ) => {
+          const hasAttachments = (attachments?.length ?? 0) > 0;
+          const context = buildWorkspaceContext({
+            userId,
+            organizationId,
+            fullName: auth.profile?.full_name,
+            email: auth.profile?.email,
+            role: auth.profile?.primary_role,
+            department:
+              typeof auth.profile?.department === "string"
+                ? auth.profile.department
+                : null,
+          });
+
+          if (shouldUseWorkspaceRouter(prompt) && !hasAttachments) {
+            if (import.meta.env.DEV) {
+              console.info("[AI Workspace] routing prompt through ai-router action backend");
+            }
+            const routerResponse = await sendAiRouterMessage({
+              message: prompt,
+              context,
+            });
+
+            const content = readableValue(routerResponse) || "Done.";
+            return {
+              content,
+              attachments: [],
+            };
+          }
+
+          if (shouldGenerateImage(prompt) && !hasAttachments) {
+            const imageResponse = await generateImage({
+              prompt,
+              context,
+              metadata: {
+                source: "ai_workspace_chat",
+                ...(metadata ?? {}),
+              },
+            });
+            const responseAttachments = toChatAttachments(imageResponse?.attachments);
+            const content =
+              readableValue(imageResponse) ||
+              (responseAttachments.length
+                ? "Generated image attached below."
+                : "I could not return a generated image.");
+
+            return {
+              content: stripRawStorageUrls(content, responseAttachments),
+              attachments: responseAttachments,
+            };
+          }
+
           const response = await askAssistant({
             message: prompt,
             attachments: toAssistantAttachments(attachments || []),
-            context: {
-              userId,
-              fullName: auth.profile?.full_name || "Workspace User",
-              email: auth.profile?.email || null,
-              role: auth.profile?.primary_role || "employee",
-              department:
-                typeof auth.profile?.department === "string"
-                  ? auth.profile.department
-                  : null,
-              organizationId,
-              currentModule: "ai-workspace",
-              timezone: "Africa/Harare",
-              channel: "web",
-            },
+            context,
             metadata: metadata || {},
           });
 
           const responseAttachments = toChatAttachments(response?.attachments);
-          const content = String(
-              response?.message ||
-                response?.output ||
-                response?.reply ||
-                response?.content ||
-                "I could not produce a response.",
-            );
+          const content =
+            readableValue(response) || "I could not produce a response.";
 
           return {
             content: stripRawStorageUrls(content, responseAttachments),
