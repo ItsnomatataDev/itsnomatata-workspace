@@ -123,10 +123,10 @@ export default function FloatingAiChat({
 
   return (
     <div
-      className="fixed z-[9998] flex flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#090909] shadow-2xl shadow-black/60"
+      className="fixed z-9998 flex flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#090909] shadow-2xl shadow-black/60"
       style={getPanelPosition(anchorPosition)}
     >
-      <div className="flex items-center justify-between border-b border-white/10 bg-white/[0.03] px-4 py-3">
+      <div className="flex items-center justify-between border-b border-white/10 bg-white/3 px-4 py-3">
         <div className="flex min-w-0 items-center gap-3">
           <div className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-orange-500/20 bg-orange-500/10 text-orange-300">
             <Sparkles size={16} />

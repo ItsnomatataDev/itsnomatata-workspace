@@ -27,7 +27,7 @@ function stringifyAssistantValue(value: unknown): string {
         const parsedText = stringifyAssistantValue(parsed);
         if (parsedText && parsedText !== trimmed) return parsedText;
       } catch {
-        // Keep plain text if it only looks like JSON.
+
       }
     }
     return trimmed;
@@ -96,22 +96,45 @@ function formatHours(seconds: unknown) {
   return `${hours.toFixed(hours >= 10 ? 1 : 2)}h`;
 }
 
+function formatDateTime(value: unknown) {
+  if (typeof value !== "string" || !value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString("en-ZA", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: "Africa/Harare",
+  });
+}
+
+function formatAttendanceRecord(row: Record<string, unknown>) {
+  const clockIn = row.clockInAt ?? row.actualClockInAt;
+  const clockOut = row.clockOutAt ?? row.actualClockOutAt;
+  return [
+    `- ${row.name ?? "Team member"}`,
+    `  Office: ${row.office ?? row.profileOffice ?? "Unknown"}`,
+    `  Clock in: ${clockIn ? formatDateTime(clockIn) : "Not clocked in"}`,
+    `  Clock out: ${clockOut ? formatDateTime(clockOut) : "Not clocked out"}`,
+    `  Status: ${row.status ?? "unknown"}`,
+  ].join("\n");
+}
+
 function taskLink(boardId: unknown, taskId: unknown) {
   if (typeof boardId === "string" && typeof taskId === "string") {
     return `/boards/${boardId}?cardId=${taskId}`;
   }
-  if (typeof taskId === "string") return `/tasks/${taskId}`;
+
   return null;
 }
 
 function formatTimeToolReply(toolId: AiRouterToolId, data: Record<string, unknown>) {
   if (toolId === "get_active_time_trackers") {
     const trackers = Array.isArray(data.trackers) ? data.trackers : [];
-    if (trackers.length === 0) return "You are not currently tracking time on any task.";
+    if (trackers.length === 0) return "You are not currently tracking time on any card.";
 
     const lines = trackers.map((entry) => {
       const row = entry as Record<string, unknown>;
-      const task = row.taskTitle ?? row.description ?? "Untitled task";
+      const task = row.taskTitle ?? row.description ?? "Untitled card";
       const board = row.boardName ?? "No board";
       const link = typeof row.taskUrl === "string"
         ? row.taskUrl
@@ -208,7 +231,7 @@ function formatTimeToolReply(toolId: AiRouterToolId, data: Record<string, unknow
     const lines = [...groups.values()]
       .sort((a, b) => b.seconds - a.seconds)
       .map((group) =>
-        `- ${group.task} on ${group.board}: ${formatHours(group.seconds)} across ${group.count} entr${group.count === 1 ? "y" : "ies"}${group.running ? " (still running)" : ""}${group.link ? `\n  Open task: ${group.link}` : ""}`
+        `- ${group.task} on ${group.board}: ${formatHours(group.seconds)} across ${group.count} entr${group.count === 1 ? "y" : "ies"}${group.running ? " (still running)" : ""}${group.link ? `\n  open card: ${group.link}` : ""}`
       );
 
     return `${name} tracked ${formatHours(totalSeconds)}.\n\n${lines.join("\n")}`;
@@ -296,10 +319,10 @@ function formatWorkspaceToolReply(
       const priority = row.priority ? `, ${row.priority} priority` : "";
       const board = row.boardName ? ` on ${row.boardName}` : "";
       const link = taskLink(row.boardId, row.id ?? row.taskId);
-      return `- ${title}${board}${status}${priority}${link ? `\n  Open task: ${link}` : ""}`;
+      return `- ${title}${board}${status}${priority}${link ? `\n  Open card: ${link}` : ""}`;
     });
 
-    return `You have ${openCount} open task${openCount === 1 ? "" : "s"}${overdueCount > 0 ? `, with ${overdueCount} overdue` : ""}.\n\n${lines.join("\n")}`;
+    return `You have ${openCount} open card${openCount === 1 ? "" : "s"}${overdueCount > 0 ? `, with ${overdueCount} overdue` : ""}.\n\n${lines.join("\n")}`;
   }
 
   if (toolId === "list_boards") {
@@ -337,24 +360,54 @@ function formatWorkspaceToolReply(
       .map(([status, count]) => `${status}: ${count}`)
       .join(", ");
 
-    if (records.length === 0) return "I could not find attendance records for that period.";
+    if (records.length === 0) return "No attendance records were found for today.";
 
     const lines = records.slice(0, 8).map((item) => {
       const row = item as Record<string, unknown>;
-      return `- ${row.name ?? "Team member"}: ${row.status ?? "unknown"} on ${row.date ?? "unknown date"}`;
+      return formatAttendanceRecord(row);
     });
 
     return `Attendance summary${countLine ? ` (${countLine})` : ""}.\n\n${lines.join("\n")}`;
   }
 
   if (toolId === "get_leave_balance") {
-    if (data.ok === false) {
-      return readableToolValue(data.error || data) || "I could not find leave days for that user.";
-    }
-    const user = isRecord(data.user) ? data.user : {};
-    const balance = isRecord(data.balance) ? data.balance : {};
-    return `${user.name ?? "This user"} has ${balance.remainingDays ?? "unknown"} leave day(s) remaining out of ${balance.totalDays ?? "unknown"}. Used: ${balance.usedDays ?? "unknown"}.`;
+  if (data.ok === false) {
+    return readableToolValue(data.error || data) ||
+      "I could not find leave days for that user.";
   }
+
+  const user = isRecord(data.user) ? data.user : {};
+
+  const balance = isRecord(data.balance)
+    ? data.balance
+    : isRecord(data.data) && isRecord(data.data.balance)
+      ? data.data.balance
+      : {};
+
+  const remainingDays =
+    balance.remainingDays ??
+    balance.remaining_days ??
+    balance.remaining ??
+    null;
+
+  const totalDays =
+    balance.totalDays ??
+    balance.total_days ??
+    balance.total ??
+    null;
+
+  const usedDays =
+    balance.usedDays ??
+    balance.used_days ??
+    balance.used ??
+    null;
+
+  if (remainingDays === null && totalDays === null && usedDays === null) {
+    return "I found the user, but no leave balance was returned.";
+  }
+
+  return `${user.name ?? "This user"} has ${remainingDays ?? 0} leave day(s) remaining out of ${totalDays ?? 0}. Used: ${usedDays ?? 0}.`;
+}
 
   const message = typeof data.message === "string" ? data.message.trim() : "";
   return message || "I found matching workspace data, but there is no readable summary available yet.";

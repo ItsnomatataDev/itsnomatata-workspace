@@ -32,7 +32,8 @@ const POSTGREST_IN_FILTER_CHUNK_SIZE = 75;
 function toMutationError(error: unknown, fallback: string) {
   if (error instanceof Error) return error;
   if (error && typeof error === "object" && "message" in error) {
-    const message = String((error as { message?: unknown }).message ?? "").trim();
+    const message = String((error as { message?: unknown }).message ?? "")
+      .trim();
     if (message) return new Error(message);
   }
   return new Error(fallback);
@@ -118,10 +119,6 @@ async function getCardMetadata(cardId: string): Promise<CardMetadata> {
   return ((data?.metadata ?? {}) as CardMetadata) ?? {};
 }
 
-// ─────────────────────────────────────────────
-//  BOARDS  (boards = clients table)
-// ─────────────────────────────────────────────
-
 export async function getBoards(
   organizationId: string,
   options?: { officeId?: string | null; includeAllOffices?: boolean },
@@ -151,11 +148,6 @@ export async function getBoard(boardId: string): Promise<Board | null> {
   return data as Board | null;
 }
 
-// ─────────────────────────────────────────────
-//  CARDS  (tasks with client_id = boardId)
-//  Flat queries only — no nested PostgREST joins
-// ─────────────────────────────────────────────
-
 export async function getCards(
   organizationId: string,
   boardId: string,
@@ -179,14 +171,24 @@ export async function getCards(
     ...new Set(
       [
         ...assignees.map((a) => a.user_id),
-        ...tasks.map((task) => task.created_by as string | null).filter(Boolean),
-        ...tasks.map((task) => task.assigned_to as string | null).filter(Boolean),
+        ...tasks.map((task) => task.created_by as string | null).filter(
+          Boolean,
+        ),
+        ...tasks.map((task) => task.assigned_to as string | null).filter(
+          Boolean,
+        ),
       ].filter(Boolean) as string[],
     ),
   ];
   const profileMap = new Map<
     string,
-    { id: string; username?: string | null; full_name: string | null; email: string | null; avatar_url?: string | null }
+    {
+      id: string;
+      username?: string | null;
+      full_name: string | null;
+      email: string | null;
+      avatar_url?: string | null;
+    }
   >();
   if (userIds.length > 0) {
     const { data: profiles } = await supabase
@@ -205,7 +207,6 @@ export async function getCards(
     }
   }
 
-  // Comment counts
   const { data: commentRows } = await supabase
     .from("task_comments")
     .select("task_id")
@@ -218,7 +219,6 @@ export async function getCards(
     );
   }
 
-  // Group assignees by task
   const assigneesByTask = new Map<
     string,
     CardAssignee[]
@@ -286,7 +286,13 @@ export async function getCardById(
 
   const profileMap = new Map<
     string,
-    { id: string; username?: string | null; full_name: string | null; email: string | null; avatar_url?: string | null }
+    {
+      id: string;
+      username?: string | null;
+      full_name: string | null;
+      email: string | null;
+      avatar_url?: string | null;
+    }
   >();
 
   if (userIds.length > 0) {
@@ -343,7 +349,9 @@ export async function getCardAssignees(
 
   const assigneeRows = [];
 
-  for (const taskIdChunk of chunkArray(taskIds, POSTGREST_IN_FILTER_CHUNK_SIZE)) {
+  for (
+    const taskIdChunk of chunkArray(taskIds, POSTGREST_IN_FILTER_CHUNK_SIZE)
+  ) {
     const { data, error } = await supabase
       .from("task_assignees")
       .select("id, task_id, user_id, created_at")
@@ -453,10 +461,6 @@ export async function getCardAssignees(
   );
 }
 
-// ─────────────────────────────────────────────
-//  STATS
-// ─────────────────────────────────────────────
-
 export async function getBoardStats(
   organizationId: string,
   boardId: string,
@@ -481,10 +485,6 @@ export async function getBoardStats(
     recentActivities: [],
   };
 }
-
-// ─────────────────────────────────────────────
-// CREATE BOARD  (create new board/client)
-// ─────────────────────────────────────
 
 export async function createBoard(
   organizationId: string,
@@ -526,10 +526,6 @@ export async function createBoard(
   return data as Board;
 }
 
-// ─────────────────────────────────────────────
-//  CREATE CARD  (title-only quick create)
-// ─────────────────────────────────────
-
 export async function createCard(
   organizationId: string,
   boardId: string,
@@ -569,7 +565,12 @@ export async function createCard(
     .eq("organization_id", organizationId)
     .maybeSingle();
 
-  if (boardError) throw toMutationError(boardError, "Failed to load board for card creation.");
+  if (boardError) {
+    throw toMutationError(
+      boardError,
+      "Failed to load board for card creation.",
+    );
+  }
 
   let officeId = board?.office_id ?? null;
   if (!officeId && input.createdBy) {
@@ -616,14 +617,18 @@ export async function createCard(
   if (error) throw toMutationError(error, "Failed to create card.");
 
   if (assigneeIds.length > 0) {
-    const { error: assigneeError } = await supabase.from("task_assignees").upsert(
-      assigneeIds.map((userId) => ({
-        organization_id: organizationId,
-        task_id: card.id,
-        user_id: userId,
-      })),
-      { onConflict: "organization_id,task_id,user_id", ignoreDuplicates: true },
-    );
+    const { error: assigneeError } = await supabase.from("task_assignees")
+      .upsert(
+        assigneeIds.map((userId) => ({
+          organization_id: organizationId,
+          task_id: card.id,
+          user_id: userId,
+        })),
+        {
+          onConflict: "organization_id,task_id,user_id",
+          ignoreDuplicates: true,
+        },
+      );
 
     if (assigneeError) {
       throw toMutationError(
@@ -635,7 +640,9 @@ export async function createCard(
     try {
       await Promise.all(
         assigneeIds
-          .filter((userId) => userId !== input.createdBy && userId !== input.assignedBy)
+          .filter((userId) =>
+            userId !== input.createdBy && userId !== input.assignedBy
+          )
           .map((userId) =>
             notifyTaskAssigned({
               organizationId,
@@ -644,7 +651,7 @@ export async function createCard(
               taskTitle: input.title,
               boardId,
               actorUserId: input.createdBy ?? input.assignedBy ?? null,
-            }),
+            })
           ),
       );
     } catch (notifError) {
@@ -734,10 +741,6 @@ export async function deleteBoard(
   if (error) throw error;
 }
 
-// ─────────────────────────────────────────────
-//  COMMENTS
-// ─────────────────────────────────────────────
-
 export async function getCardComments(taskId: string) {
   const { data, error } = await supabase
     .from("task_comments")
@@ -754,7 +757,11 @@ export async function getCardComments(taskId: string) {
   ] as string[];
   const profileMap = new Map<
     string,
-    { full_name: string | null; email: string | null; avatar_url?: string | null }
+    {
+      full_name: string | null;
+      email: string | null;
+      avatar_url?: string | null;
+    }
   >();
   if (userIds.length > 0) {
     const { data: profiles } = await supabase
@@ -894,7 +901,7 @@ export async function getLists(boardId: string): Promise<List[]> {
       const exactMatch = existing.find(
         (column) =>
           normalizeBoardListName(column.name) ===
-          normalizeBoardListName(fallback.name),
+            normalizeBoardListName(fallback.name),
       );
       if (exactMatch?.id) {
         usedColumnIds.add(exactMatch.id);

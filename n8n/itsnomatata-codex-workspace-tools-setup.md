@@ -120,7 +120,7 @@ Body:
 | `list_boards` | `payload.search` optional |
 | `get_active_time_trackers` | Current running time entries; managers see team, users see self |
 | `get_user_timesheet` | Time entries and totals for `payload.user_id`, `email`, or `name`; defaults to current user and last 7 days |
-| `get_attendance_summary` | Attendance status counts/records for a date range; managers can query team |
+| `get_attendance_summary` | Attendance status counts/records for a date range; managers can query team. For today-style attendance requests, pass today's Africa/Harare `date`, `from`, and `to`; do not use a generic period. |
 | `get_leave_balance` | Leave balance and recent leave requests for `payload.user_id`, `email`, or `name` |
 | `get_board_task_summary` | Board task counts, overdue tasks, and recent cards for `payload.board_id` or `board_name` |
 | `create_board_card` | Creates card or `ai_task_suggestion` if not manager |

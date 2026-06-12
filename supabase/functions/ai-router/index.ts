@@ -1,12 +1,12 @@
 import { requireAuthenticatedProfile } from "../_shared/edgeAuth.ts";
 import { runLocalReadOnlyTool } from "../_shared/aiReadOnlyTools.ts";
 import {
+  type AiRouterToolId,
   canUseAiRouter,
   CODEX_DELEGATED_TOOLS,
   detectAiTool,
   formatToolReply,
   READ_ONLY_AI_TOOLS,
-  type AiRouterToolId,
 } from "../_shared/aiToolRegistry.ts";
 
 type RouterRequestBody = {
@@ -15,6 +15,15 @@ type RouterRequestBody = {
   context?: {
     currentRoute?: string | null;
     currentModule?: string | null;
+
+    boardId?: string | null;
+    cardId?: string | null;
+
+    taskId?: string | null;
+    clientId?: string | null;
+
+    selectedEntityId?: string | null;
+    selectedEntityType?: string | null;
   };
 };
 
@@ -34,8 +43,12 @@ function jsonResponse(body: unknown, status = 200) {
 
 function readableError(value: unknown): string {
   if (typeof value === "string") return value;
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
-  if (Array.isArray(value)) return value.map(readableError).filter(Boolean).join("\n");
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  if (Array.isArray(value)) {
+    return value.map(readableError).filter(Boolean).join("\n");
+  }
   if (!value || typeof value !== "object") return "";
 
   const record = value as Record<string, unknown>;
@@ -53,9 +66,8 @@ function readableError(value: unknown): string {
 
 async function ensureAiWorkspaceEnabled(
   admin: ReturnType<typeof requireAuthenticatedProfile> extends Promise<infer T>
-    ? T extends { admin: infer A }
-      ? A
-      : never
+    ? T extends { admin: infer A } ? A
+    : never
     : never,
   organizationId: string,
 ) {
@@ -176,23 +188,28 @@ async function invokeCodexTool(
   payload: Record<string, unknown>,
   context: Record<string, unknown>,
 ) {
-  const response = await fetch(`${supabaseUrl}/functions/v1/codex-execute-tool`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${userToken}`,
-      apikey: anonKey,
-      "Content-Type": "application/json",
+  const response = await fetch(
+    `${supabaseUrl}/functions/v1/codex-execute-tool`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${userToken}`,
+        apikey: anonKey,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        toolId,
+        payload,
+        context,
+      }),
     },
-    body: JSON.stringify({
-      toolId,
-      payload,
-      context,
-    }),
-  });
+  );
 
   const result = await response.json();
   if (!response.ok) {
-    throw new Error(readableError(result.error || result) || `Codex tool failed: ${toolId}`);
+    throw new Error(
+      readableError(result.error || result) || `Codex tool failed: ${toolId}`,
+    );
   }
   return result as Record<string, unknown>;
 }
@@ -209,7 +226,10 @@ function enrichPayloadFromRoute(
   if (cardId && !next.taskId && !next.task_id) {
     next.taskId = cardId;
   }
-  if (boardId && !next.boardId && !next.board_id && !next.clientId && !next.client_id) {
+  if (
+    boardId && !next.boardId && !next.board_id && !next.clientId &&
+    !next.client_id
+  ) {
     next.boardId = boardId;
   }
 
@@ -266,12 +286,20 @@ Deno.serve(async (req) => {
     }
 
     if (!canUseAiRouter(profile.primary_role)) {
-      return jsonResponse({ error: "AI access is not enabled for this role." }, 403);
+      return jsonResponse(
+        { error: "AI access is not enabled for this role." },
+        403,
+      );
     }
 
-    const aiEnabled = await ensureAiWorkspaceEnabled(admin, profile.organization_id);
+    const aiEnabled = await ensureAiWorkspaceEnabled(
+      admin,
+      profile.organization_id,
+    );
     if (!aiEnabled) {
-      return jsonResponse({ error: "AI workspace is disabled for this organization." }, 403);
+      return jsonResponse({
+        error: "AI workspace is disabled for this organization.",
+      }, 403);
     }
 
     const conversationId = await getOrCreateConversation(admin, {
@@ -295,7 +323,10 @@ Deno.serve(async (req) => {
     let toolStatus: "success" | "failed" | "fallback" = "success";
     let toolError: string | null = null;
 
-    if (toolId && (READ_ONLY_AI_TOOLS.has(toolId) || CODEX_DELEGATED_TOOLS.has(toolId))) {
+    if (
+      toolId &&
+      (READ_ONLY_AI_TOOLS.has(toolId) || CODEX_DELEGATED_TOOLS.has(toolId))
+    ) {
       try {
         const ctx = {
           userId,
@@ -309,16 +340,18 @@ Deno.serve(async (req) => {
           },
           body.context?.currentRoute,
         );
-        const payload = toolId === "start_time_tracker" || toolId === "stop_time_tracker"
-          ? enrichTimerPayloadFromMessage(basePayload, message)
-          : basePayload;
+        const payload =
+          toolId === "start_time_tracker" || toolId === "stop_time_tracker"
+            ? enrichTimerPayloadFromMessage(basePayload, message)
+            : basePayload;
 
         if (CODEX_DELEGATED_TOOLS.has(toolId)) {
           const { supabaseUrl, anonKey } = {
             supabaseUrl: Deno.env.get("SUPABASE_URL") ?? "",
             anonKey: Deno.env.get("SUPABASE_ANON_KEY") ?? "",
           };
-          const token = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
+          const token =
+            req.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
           toolData = await invokeCodexTool(
             supabaseUrl,
             anonKey,
@@ -331,8 +364,41 @@ Deno.serve(async (req) => {
               role: profile.primary_role,
               department: profile.department,
               fullName: profile.full_name,
+
+              currentRoute: body.context?.currentRoute ?? null,
+              currentModule: body.context?.currentModule ?? null,
+
+              boardId: body.context?.boardId ?? null,
+              cardId: body.context?.cardId ?? null,
+
+              taskId: body.context?.taskId ?? null,
+              clientId: body.context?.clientId ?? null,
+
+              selectedEntityId: body.context?.selectedEntityId ?? null,
+              selectedEntityType: body.context?.selectedEntityType ?? null,
             },
           );
+console.log(
+  "[LEAVE DEBUG]",
+  JSON.stringify(
+    {
+      toolId,
+      payload,
+      message: body.message,
+    },
+    null,
+    2,
+  ),
+);
+          if (
+            toolData &&
+            typeof toolData === "object" &&
+            "result" in toolData &&
+            toolData.result &&
+            typeof toolData.result === "object"
+          ) {
+            toolData = toolData.result as Record<string, unknown>;
+          }
         } else {
           toolData = await runLocalReadOnlyTool(admin, ctx, toolId, payload);
         }

@@ -37,6 +37,12 @@ export type AiRouterContext = {
   department: string | null;
   currentRoute?: string | null;
   currentModule?: string | null;
+  boardId?: string | null;
+  cardId?: string | null;
+  taskId?: string | null;
+  clientId?: string | null;
+  selectedEntityId?: string | null;
+  selectedEntityType?: string | null;
 };
 
 export type AiRouterRequest = {

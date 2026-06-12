@@ -234,6 +234,9 @@ Time/timesheet requests:
 
 Attendance requests:
 - focus on clock status, late/missing attendance, office/timezone context, and admin follow-up
+- When the user asks for today's attendance, who clocked in today, attendance today, attendance records, or who is present today, call `get_attendance_summary` with today's Africa/Harare day range: `attendance_date` as the Harare date, `attendance_from` as start of day in Africa/Harare, and `attendance_to` as end of day in Africa/Harare. Do not use a generic attendance period.
+- If today's attendance tool result has no records, say exactly: "No attendance records were found for today."
+- If records exist, show employee name, office, clock in time, clock out time, and attendance status. Admins can see everyone; employees can only see their own attendance.
 
 Leave requests:
 - show balance, requested dates, public holiday/weekend impact, approval status, and policy notes when available
@@ -260,7 +263,7 @@ Available tools:
 - **List Boards** (`list_boards`) — find board IDs by name before creating cards. Always use when the user names a board but you need the ID.
 - **Get Active Time Trackers** (`get_active_time_trackers`) — read current running time entries. Use for "who is tracking time?", "what is the team working on now?", active timers, or current time tracking status.
 - **Get User Timesheet** (`get_user_timesheet`) — read tracked time entries, totals, billable flags, approval status, boards, and tasks for a user and date range. Use for timesheet, work log, tracked hours, or time report requests.
-- **Get Attendance Summary** (`get_attendance_summary`) — read attendance daily status counts and records. Use for present/late/absent/on-leave questions, team attendance, or a person's attendance for a date/range.
+- **Get Attendance Summary** (`get_attendance_summary`) — read attendance daily status counts and records. Use for present/late/absent/on-leave questions, team attendance, or a person's attendance for a date/range. For today's attendance phrasing, always pass today's Africa/Harare `attendance_date`, `attendance_from`, and `attendance_to`.
 - **Get Leave Balance** (`get_leave_balance`) — read leave balance and recent leave requests. Use for remaining leave days, used leave, pending/recent leave requests, or employee leave balance questions.
 - **Get Board Task Summary** (`get_board_task_summary`) — read board task totals, status counts, priority counts, overdue count, and recent cards. Use for board workload, overdue cards, task status, or "what is happening on this board?"
 - **Create Board Card** (`create_board_card`) — create a kanban card on a board. Required: `title` and `board_id` or `board_name`. Optional: `description`, `priority`, `due_date` (YYYY-MM-DD), `assignee_user_id`, `assignee_email`, or `assignee_name`. Managers/admins create immediately; other roles submit for approval.

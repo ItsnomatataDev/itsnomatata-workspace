@@ -1,7 +1,3 @@
--- Trello-ready task backend.
--- Safe to run on an existing Supabase project: it creates missing tables and
--- adds missing columns without dropping current data.
-
 do $$
 begin
   if not exists (select 1 from pg_type where typname = 'task_status') then

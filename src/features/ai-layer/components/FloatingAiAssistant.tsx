@@ -173,7 +173,7 @@ export default function FloatingAiAssistant() {
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerUp}
         className={[
-          "fixed z-[9999] inline-flex h-14 w-14 items-center justify-center rounded-full bg-orange-500 text-black shadow-lg shadow-orange-500/30 transition hover:bg-orange-400",
+          "fixed z-9999 inline-flex h-14 w-14 items-center justify-center rounded-full bg-orange-500 text-black shadow-lg shadow-orange-500/30 transition hover:bg-orange-400",
           dragging ? "cursor-grabbing" : "cursor-grab",
         ].join(" ")}
         style={{

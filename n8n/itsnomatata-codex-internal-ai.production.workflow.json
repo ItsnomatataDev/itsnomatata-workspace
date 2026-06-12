@@ -988,7 +988,7 @@
     },
     {
       "parameters": {
-        "toolDescription": "Read attendance daily status records and counts. Use when the user asks about attendance, present/late/absent/on-leave counts, or a person's attendance. Optional AI fields: attendance_user_id, attendance_user_email, attendance_user_name, attendance_date, attendance_from, attendance_to. Managers/admins can query team attendance; normal users see self.",
+        "toolDescription": "Read attendance daily status records and counts. Use when the user asks about attendance, present/late/absent/on-leave counts, or a person's attendance. For today-style requests (attendance today, who clocked in today, show attendance records, who is present today), set attendance_date to today's Africa/Harare date, attendance_from to start of day Africa/Harare, and attendance_to to end of day Africa/Harare. Do not use a generic attendance period. Optional AI fields: attendance_user_id, attendance_user_email, attendance_user_name, attendance_date, attendance_from, attendance_to. Managers/admins can query team attendance; normal users see self.",
         "method": "POST",
         "url": "={{ ($env.SUPABASE_URL || 'https://zirftywinscopzuuwdlg.supabase.co') + '/functions/v1/codex-execute-tool' }}",
         "sendHeaders": true,

@@ -33,6 +33,8 @@ function normalizeAttachmentType(value: unknown): ChatAttachment["type"] {
   return "document";
 }
 
+
+
 function guessMimeType(type: ChatAttachment["type"], name: string) {
   const lower = name.toLowerCase();
 
@@ -120,7 +122,7 @@ function readableValue(value: unknown): string {
         const parsedText = readableValue(parsed);
         if (parsedText && parsedText !== trimmed) return parsedText;
       } catch {
-        // Keep text as-is if it is not valid JSON.
+  
       }
     }
     return trimmed;
@@ -171,14 +173,25 @@ function readableValue(value: unknown): string {
 function shouldUseWorkspaceRouter(prompt: string) {
   const lower = prompt.toLowerCase();
   return (
-    /\b(start|begin|track|trac|tracking|stop|pause|end|finish)\b.*\b(timer|time tracker|time tracking|tracking time|time)\b/.test(lower) ||
+    /\b(start|begin|track|trac|tracking|stop|pause|end|finish)\b.*\b(timer|time tracker|time tracking|tracking time|time)\b/.test(
+      lower,
+    ) ||
     /\btrac?k(?:ing)?\s+(my|his|her|their)?\s*time\b/.test(lower) ||
-    /\b(show|who|which|list|people|users|team)\b.*\b(tracking|timer|time tracker|time tracking)\b/.test(lower) ||
+    /\b(show|who|which|list|people|users|team)\b.*\b(tracking|timer|time tracker|time tracking)\b/.test(
+      lower,
+    ) ||
     /\b(create|make|add)\b.*\b(card|task)\b/.test(lower) ||
     /\b(card|task)\b.*\b(named|called|titled)\b/.test(lower) ||
-    /timesheet|time entr|hours|tracked time|active timer|currently tracking/.test(lower) ||
+    /timesheet|time entr|hours|tracked time|active timer|currently tracking/.test(
+      lower,
+    ) ||
     /leave|vacation|time off|absence|pto/.test(lower) ||
-    /summarize my tasks|list my boards|show my notifications|attendance|clock/.test(lower)
+    /summarize my tasks|list my boards|show my notifications|attendance|clock/.test(
+      lower,
+    ) ||
+    /viewing|current card|this card|current board|which card|what card/.test(
+      lower,
+    )
   );
 }
 
@@ -190,6 +203,24 @@ function shouldGenerateImage(prompt: string) {
   );
 }
 
+function extractWorkspaceRouteContext(route: string) {
+  const boardMatch = route.match(/\/boards\/([0-9a-f-]{36})/i);
+
+  const params = new URLSearchParams(window.location.search);
+
+  const cardId = params.get("cardId");
+
+  const boardId = boardMatch?.[1] ?? null;
+
+  return {
+    boardId,
+    cardId,
+    selectedEntityId: cardId ?? boardId,
+    selectedEntityType: cardId ? "card" : boardId ? "board" : null,
+    currentModule: boardId ? "boards" : "ai-workspace",
+  };
+}
+
 function buildWorkspaceContext(params: {
   userId: string;
   organizationId: string;
@@ -198,6 +229,10 @@ function buildWorkspaceContext(params: {
   role?: string | null;
   department?: string | null;
 }) {
+  const currentRoute = `${window.location.pathname}${window.location.search}`;
+
+  const routeContext = extractWorkspaceRouteContext(currentRoute);
+
   return {
     userId: params.userId,
     fullName: params.fullName || "Workspace User",
@@ -205,12 +240,24 @@ function buildWorkspaceContext(params: {
     role: params.role || "employee",
     department: params.department ?? null,
     organizationId: params.organizationId,
-    currentModule: "ai-workspace",
-    currentRoute: `${window.location.pathname}${window.location.search}`,
+
+    currentRoute,
+    currentModule: routeContext.currentModule,
+
+    boardId: routeContext.boardId,
+    cardId: routeContext.cardId,
+
+    taskId: routeContext.cardId,
+    clientId: routeContext.boardId,
+
+    selectedEntityId: routeContext.selectedEntityId,
+    selectedEntityType: routeContext.selectedEntityType,
+
     timezone: "Africa/Harare",
     channel: "web" as const,
   };
 }
+
 
 export default function AIWorkspacePage() {
   const auth = useAuth();
