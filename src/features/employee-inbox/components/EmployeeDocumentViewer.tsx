@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Archive, CheckCircle2, Download, FileText, X } from "lucide-react";
+import { Archive, CheckCircle2, Download, FileText, Mail, X } from "lucide-react";
 import {
   acknowledgeDocument,
   archiveDocument,
@@ -7,6 +7,7 @@ import {
   downloadDocument,
   getSignedDocumentUrl,
   markDocumentRead,
+  type EmployeeDocumentEmailStatus,
   type MyEmployeeDocument,
 } from "../services/employeeDocumentService";
 
@@ -25,6 +26,32 @@ function isImageDocument(document: MyEmployeeDocument["document"]) {
   if (document.mime_type?.startsWith("image/")) return true;
   const name = document.file_name?.toLowerCase() ?? "";
   return /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(name);
+}
+
+function emailStatusLabel(status: EmployeeDocumentEmailStatus | undefined) {
+  switch (status) {
+    case "sent":
+      return "Email sent";
+    case "failed":
+      return "Email failed";
+    case "processing":
+      return "Email processing";
+    case "pending":
+      return "Email queued";
+    case "cancelled":
+      return "Email cancelled";
+    default:
+      return "Email not queued";
+  }
+}
+
+function emailStatusClass(status: string | undefined) {
+  if (status === "sent") return "border-emerald-500/20 bg-emerald-500/10 text-emerald-200";
+  if (status === "failed") return "border-red-500/20 bg-red-500/10 text-red-200";
+  if (status === "pending" || status === "processing") {
+    return "border-amber-500/20 bg-amber-500/10 text-amber-200";
+  }
+  return "border-white/10 bg-black/40 text-white/50";
 }
 
 export default function EmployeeDocumentViewer({
@@ -79,6 +106,7 @@ export default function EmployeeDocumentViewer({
   const canPreviewPdf = isPdfDocument(item.document) && Boolean(signedUrl);
   const canPreviewImage = isImageDocument(item.document) && Boolean(signedUrl);
   const acknowledged = item.status === "acknowledged" || Boolean(item.acknowledged_at);
+  const emailDelivery = item.email_delivery ?? null;
 
   async function handleAcknowledge() {
     try {
@@ -244,9 +272,45 @@ export default function EmployeeDocumentViewer({
               </div>
             ) : item.document.requires_acknowledgement ? (
               <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4 text-sm text-emerald-200">
-                This document has been acknowledged.
+                <p className="font-semibold">This document has been acknowledged.</p>
+                {item.acknowledgement_note ? (
+                  <p className="mt-3 whitespace-pre-wrap rounded-xl border border-emerald-400/15 bg-black/20 p-3 text-emerald-50/80">
+                    {item.acknowledgement_note}
+                  </p>
+                ) : null}
               </div>
             ) : null}
+
+            <div
+              className={[
+                "rounded-2xl border p-4 text-sm",
+                emailStatusClass(emailDelivery?.status),
+              ].join(" ")}
+            >
+              <div className="flex items-center gap-2 font-semibold">
+                <Mail size={16} />
+                {emailStatusLabel(emailDelivery?.status)}
+              </div>
+              {emailDelivery?.recipient_email ? (
+                <p className="mt-2 break-all text-xs opacity-80">
+                  {emailDelivery.recipient_email}
+                </p>
+              ) : null}
+              {emailDelivery?.sent_at ? (
+                <p className="mt-2 text-xs opacity-80">
+                  Sent {formatDate(emailDelivery.sent_at)}
+                </p>
+              ) : emailDelivery?.scheduled_for ? (
+                <p className="mt-2 text-xs opacity-80">
+                  Queued {formatDate(emailDelivery.scheduled_for)}
+                </p>
+              ) : null}
+              {emailDelivery?.last_error ? (
+                <p className="mt-2 whitespace-pre-wrap rounded-xl border border-red-400/20 bg-black/20 p-3 text-xs">
+                  {emailDelivery.last_error}
+                </p>
+              ) : null}
+            </div>
 
             {error ? (
               <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-200">

@@ -52,8 +52,29 @@ export type EmployeeDocumentRecipientRow = {
   created_at: string;
 };
 
+export type EmployeeDocumentEmailStatus =
+  | "pending"
+  | "processing"
+  | "sent"
+  | "failed"
+  | "cancelled"
+  | "not_queued";
+
+export type EmployeeDocumentEmailDelivery = {
+  notification_id: string | null;
+  status: EmployeeDocumentEmailStatus;
+  subject: string | null;
+  recipient_email: string | null;
+  attempts: number;
+  last_error: string | null;
+  scheduled_for: string | null;
+  sent_at: string | null;
+  created_at: string | null;
+};
+
 export type MyEmployeeDocument = EmployeeDocumentRecipientRow & {
   document: EmployeeDocumentRow;
+  email_delivery?: EmployeeDocumentEmailDelivery | null;
 };
 
 export type EmployeeOption = {
@@ -76,6 +97,7 @@ export type AdminDocumentDelivery = EmployeeDocumentRecipientRow & {
   document: EmployeeDocumentRow;
   user_name: string | null;
   user_email: string | null;
+  email_delivery?: EmployeeDocumentEmailDelivery | null;
 };
 
 export type PayslipBatch = {
@@ -161,6 +183,25 @@ const MY_DOCUMENT_SELECT = `
   )
 `;
 
+type NotificationLookupRow = {
+  id: string;
+  user_id: string;
+  entity_id: string | null;
+  created_at: string;
+};
+
+type EmailEventLookupRow = {
+  notification_id: string | null;
+  status: EmployeeDocumentEmailStatus;
+  subject: string | null;
+  recipient_email: string | null;
+  attempts: number | null;
+  last_error: string | null;
+  scheduled_for: string | null;
+  sent_at: string | null;
+  created_at: string | null;
+};
+
 export function documentTypeLabel(type: EmployeeDocumentType) {
   return DOCUMENT_TYPE_OPTIONS.find((item) => item.value === type)?.label ?? type;
 }
@@ -184,6 +225,110 @@ export function makePayslipPath(params: {
   const safeName = params.fileName.replace(/[^\w.\-()[\] ]+/g, "_");
   const month = String(params.payrollMonth).padStart(2, "0");
   return `${params.organizationId}/payslips/${params.payrollYear}-${month}/${params.userIdOrMatchKey}/${safeName}`;
+}
+
+function emptyEmailDelivery(): EmployeeDocumentEmailDelivery {
+  return {
+    notification_id: null,
+    status: "not_queued",
+    subject: null,
+    recipient_email: null,
+    attempts: 0,
+    last_error: null,
+    scheduled_for: null,
+    sent_at: null,
+    created_at: null,
+  };
+}
+
+function emailEventToDelivery(
+  event: EmailEventLookupRow | null | undefined,
+  notificationId: string | null,
+): EmployeeDocumentEmailDelivery {
+  if (!event) {
+    return { ...emptyEmailDelivery(), notification_id: notificationId };
+  }
+
+  return {
+    notification_id: notificationId,
+    status: event.status ?? "not_queued",
+    subject: event.subject ?? null,
+    recipient_email: event.recipient_email ?? null,
+    attempts: event.attempts ?? 0,
+    last_error: event.last_error ?? null,
+    scheduled_for: event.scheduled_for ?? null,
+    sent_at: event.sent_at ?? null,
+    created_at: event.created_at ?? null,
+  };
+}
+
+async function attachEmailDeliveryStatus<T extends MyEmployeeDocument>(
+  rows: T[],
+): Promise<T[]> {
+  const documentIds = [...new Set(rows.map((row) => row.document_id).filter(Boolean))];
+  const userIds = [...new Set(rows.map((row) => row.user_id).filter(Boolean))];
+  if (documentIds.length === 0 || userIds.length === 0) return rows;
+
+  const { data: notifications, error: notificationError } = await supabase
+    .from("notifications")
+    .select("id, user_id, entity_id, created_at")
+    .eq("entity_type", "employee_document")
+    .in("entity_id", documentIds)
+    .in("user_id", userIds)
+    .order("created_at", { ascending: false });
+
+  if (notificationError) {
+    console.warn("Failed to load employee document notification status.", notificationError);
+    return rows;
+  }
+
+  const notificationRows = (notifications ?? []) as NotificationLookupRow[];
+  const notificationByRecipient = new Map<string, NotificationLookupRow>();
+  for (const notification of notificationRows) {
+    if (!notification.entity_id) continue;
+    const key = `${notification.entity_id}:${notification.user_id}`;
+    if (!notificationByRecipient.has(key)) notificationByRecipient.set(key, notification);
+  }
+
+  const notificationIds = notificationRows.map((notification) => notification.id);
+  if (notificationIds.length === 0) {
+    return rows.map((row) => ({ ...row, email_delivery: emptyEmailDelivery() }));
+  }
+
+  const { data: emailEvents, error: emailError } = await supabase
+    .from("email_events")
+    .select("notification_id, status, subject, recipient_email, attempts, last_error, scheduled_for, sent_at, created_at")
+    .in("notification_id", notificationIds)
+    .order("created_at", { ascending: false });
+
+  if (emailError) {
+    console.warn("Failed to load employee document email delivery status.", emailError);
+    return rows.map((row) => {
+      const notification = notificationByRecipient.get(`${row.document_id}:${row.user_id}`);
+      return {
+        ...row,
+        email_delivery: notification
+          ? { ...emptyEmailDelivery(), notification_id: notification.id }
+          : emptyEmailDelivery(),
+      };
+    });
+  }
+
+  const emailByNotification = new Map<string, EmailEventLookupRow>();
+  for (const event of (emailEvents ?? []) as EmailEventLookupRow[]) {
+    if (event.notification_id && !emailByNotification.has(event.notification_id)) {
+      emailByNotification.set(event.notification_id, event);
+    }
+  }
+
+  return rows.map((row) => {
+    const notification = notificationByRecipient.get(`${row.document_id}:${row.user_id}`);
+    const event = notification ? emailByNotification.get(notification.id) : null;
+    return {
+      ...row,
+      email_delivery: emailEventToDelivery(event, notification?.id ?? null),
+    };
+  });
 }
 
 export async function uploadEmployeeDocumentFile(params: {
@@ -235,8 +380,9 @@ export async function getMyDocuments(params?: {
   if (error) throw error;
 
   const rows = (data ?? []) as unknown as MyEmployeeDocument[];
-  if (!params?.documentType || params.documentType === "all") return rows;
-  return rows.filter((row) => row.document.document_type === params.documentType);
+  const rowsWithEmail = await attachEmailDeliveryStatus(rows);
+  if (!params?.documentType || params.documentType === "all") return rowsWithEmail;
+  return rowsWithEmail.filter((row) => row.document.document_type === params.documentType);
 }
 
 export async function getDocumentById(recipientId: string) {
@@ -252,7 +398,8 @@ export async function getDocumentById(recipientId: string) {
     .maybeSingle();
 
   if (error) throw error;
-  return data as unknown as MyEmployeeDocument | null;
+  const rows = data ? await attachEmailDeliveryStatus([data as unknown as MyEmployeeDocument]) : [];
+  return rows[0] ?? null;
 }
 
 export async function getSignedDocumentUrl(document: EmployeeDocumentRow) {
@@ -425,7 +572,7 @@ export async function getAdminDocumentDeliveries(organizationId: string) {
     .limit(200);
 
   if (error) throw error;
-  return ((data ?? []) as unknown[]).map((row) => {
+  const deliveryRows = ((data ?? []) as unknown[]).map((row) => {
     const item = row as MyEmployeeDocument & {
       profiles?: { full_name: string | null; email: string | null } | null;
     };
@@ -435,6 +582,7 @@ export async function getAdminDocumentDeliveries(organizationId: string) {
       user_email: item.profiles?.email ?? null,
     };
   }) as AdminDocumentDelivery[];
+  return attachEmailDeliveryStatus(deliveryRows);
 }
 
 export async function createPayslipBatch(params: {

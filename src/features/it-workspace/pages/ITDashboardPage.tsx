@@ -142,10 +142,7 @@ function MetricCard({
   icon: IconType;
 }) {
   return (
-    <a
-      href={route}
-      className="group rounded-lg border border-white/10 bg-zinc-950 p-4 transition hover:border-orange-500/50 hover:bg-zinc-900"
-    >
+    <div className="rounded-lg border border-white/10 bg-zinc-950 p-4">
       <div className="flex items-start justify-between gap-3">
         <Icon size={18} className="text-orange-300" />
         <StatusPill status={status} />
@@ -153,10 +150,7 @@ function MetricCard({
       <p className="mt-5 text-3xl font-semibold text-white">{formatNumber(value)}</p>
       <p className="mt-1 text-sm font-medium text-white/75">{label}</p>
       <p className="mt-2 min-h-10 text-sm text-white/45">{detail}</p>
-      <div className="mt-4 flex items-center text-xs font-semibold text-orange-300">
-        Open <ChevronRight size={14} className="transition group-hover:translate-x-1" />
-      </div>
-    </a>
+    </div>
   );
 }
 
@@ -198,13 +192,6 @@ function CommandHeader({
               <RefreshCw size={16} className={refreshing ? "animate-spin" : ""} />
               Refresh
             </button>
-            <a
-              href="/boards"
-              className="inline-flex items-center gap-2 rounded-lg bg-orange-500 px-4 py-3 text-sm font-bold text-black hover:bg-orange-400"
-            >
-              <ClipboardList size={16} />
-              Boards
-            </a>
           </div>
         </div>
       </div>
@@ -321,9 +308,8 @@ function TeamPulsePanel({ data }: { data: ITControlCentreData }) {
       </div>
       <div className="mt-4 space-y-2">
         {visible.map((member) => (
-          <a
+          <div
             key={member.id}
-            href={member.active_board_id && member.active_timer_started_at ? `/boards/${member.active_board_id}` : "/organization/team"}
             className="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-black/35 px-3 py-2"
           >
             <div className="min-w-0">
@@ -333,7 +319,7 @@ function TeamPulsePanel({ data }: { data: ITControlCentreData }) {
             <span className={cx("rounded-full px-2.5 py-1 text-xs", member.status === "tracking" ? "bg-emerald-500/15 text-emerald-200" : member.status === "online" ? "bg-orange-500/15 text-orange-200" : "bg-white/10 text-white/45")}>
               {member.status}
             </span>
-          </a>
+          </div>
         ))}
       </div>
     </Panel>
@@ -356,7 +342,7 @@ function BoardsHealthPanel({ data }: { data: ITControlCentreData }) {
           <EmptyState text="No board risk detected." />
         ) : (
           data.boardRisks.map((board) => (
-            <a key={board.board_id} href={board.route} className="flex items-center justify-between gap-4 rounded-lg border border-white/10 bg-black/35 p-3 hover:border-orange-500/40">
+            <div key={board.board_id} className="flex items-center justify-between gap-4 rounded-lg border border-white/10 bg-black/35 p-3">
               <div className="min-w-0">
                 <p className="truncate text-sm font-semibold text-white">{board.board_name}</p>
                 <p className="mt-1 text-xs text-white/45">
@@ -364,7 +350,7 @@ function BoardsHealthPanel({ data }: { data: ITControlCentreData }) {
                 </p>
               </div>
               <StatusPill status={board.status} />
-            </a>
+            </div>
           ))
         )}
       </div>
@@ -384,9 +370,6 @@ function AssetsHealthPanel({ data }: { data: ITControlCentreData }) {
         <MiniStat label="Warranty soon" value={m.warrantyExpiringSoon} status={statusFromCount(m.warrantyExpiringSoon, 1, 5)} />
         <MiniStat label="Uninsured" value={m.uninsuredAssets} status={statusFromCount(m.uninsuredAssets, 1, 10)} />
       </div>
-      <a href="/assets" className="mt-4 flex items-center justify-between rounded-lg border border-white/10 bg-black/35 p-3 text-sm text-white/70 hover:border-orange-500/40">
-        Open asset register <ChevronRight size={16} />
-      </a>
     </Panel>
   );
 }
@@ -403,9 +386,6 @@ function FleetHealthPanel({ data }: { data: ITControlCentreData }) {
         <MiniStat label="Fuel month" value={formatMoney(m.fuelSpendThisMonth)} status="green" />
         <MiniStat label="KM month" value={formatNumber(m.kmDrivenThisMonth)} status="green" />
       </div>
-      <a href="/fleet" className="mt-4 flex items-center justify-between rounded-lg border border-white/10 bg-black/35 p-3 text-sm text-white/70 hover:border-orange-500/40">
-        Open fleet dashboard <ChevronRight size={16} />
-      </a>
     </Panel>
   );
 }

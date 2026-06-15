@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { FileUp, RefreshCw, Send, Users } from "lucide-react";
+import { FileUp, Mail, MessageSquareText, RefreshCw, Send, Users } from "lucide-react";
 import Sidebar from "../../../components/dashboard/components/Sidebar";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import {
@@ -21,6 +21,20 @@ import type { CompanyOffice } from "../../../lib/offices";
 function formatDate(value: string | null) {
   if (!value) return "-";
   return new Date(value).toLocaleString();
+}
+
+function emailStatusCopy(delivery: AdminDocumentDelivery) {
+  const status = delivery.email_delivery?.status ?? "not_queued";
+  if (status === "sent") {
+    return { label: "Email sent", className: "bg-emerald-500/15 text-emerald-300" };
+  }
+  if (status === "failed") {
+    return { label: "Email failed", className: "bg-red-500/15 text-red-300" };
+  }
+  if (status === "pending" || status === "processing") {
+    return { label: "Email queued", className: "bg-amber-500/15 text-amber-300" };
+  }
+  return { label: "Inbox only", className: "bg-white/10 text-white/50" };
 }
 
 export default function AdminDocumentCenterPage() {
@@ -451,30 +465,60 @@ export default function AdminDocumentCenterPage() {
                       No deliveries yet.
                     </p>
                   ) : (
-                    deliveries.slice(0, 18).map((delivery) => (
-                      <div
-                        key={delivery.id}
-                        className="rounded-2xl border border-white/10 bg-black/40 p-3"
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <p className="truncate text-sm font-semibold">
-                              {delivery.document.title}
-                            </p>
-                            <p className="mt-0.5 truncate text-xs text-white/40">
-                              {delivery.user_name || delivery.user_email || delivery.user_id}
-                            </p>
+                    deliveries.slice(0, 18).map((delivery) => {
+                      const email = emailStatusCopy(delivery);
+                      return (
+                        <div
+                          key={delivery.id}
+                          className="rounded-2xl border border-white/10 bg-black/40 p-3"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-semibold">
+                                {delivery.document.title}
+                              </p>
+                              <p className="mt-0.5 truncate text-xs text-white/40">
+                                {delivery.user_name || delivery.user_email || delivery.user_id}
+                              </p>
+                            </div>
+                            <span className="rounded-full bg-white/10 px-2 py-1 text-[10px] capitalize text-white/70">
+                              {delivery.status}
+                            </span>
                           </div>
-                          <span className="rounded-full bg-white/10 px-2 py-1 text-[10px] capitalize text-white/70">
-                            {delivery.status}
-                          </span>
+                          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                            <span
+                              className={[
+                                "inline-flex items-center gap-1 rounded-full px-2 py-1 text-[10px] font-semibold",
+                                email.className,
+                              ].join(" ")}
+                            >
+                              <Mail size={10} />
+                              {email.label}
+                            </span>
+                            {delivery.acknowledgement_note ? (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-1 text-[10px] font-semibold text-emerald-300">
+                                <MessageSquareText size={10} />
+                                Note
+                              </span>
+                            ) : null}
+                          </div>
+                          <p className="mt-2 text-[11px] text-white/35">
+                            {documentTypeLabel(delivery.document.document_type)} ·{" "}
+                            {formatDate(delivery.delivered_at)}
+                          </p>
+                          {delivery.acknowledgement_note ? (
+                            <p className="mt-2 line-clamp-3 whitespace-pre-wrap rounded-xl border border-emerald-500/15 bg-emerald-500/10 p-2 text-[11px] text-emerald-100/80">
+                              {delivery.acknowledgement_note}
+                            </p>
+                          ) : null}
+                          {delivery.email_delivery?.last_error ? (
+                            <p className="mt-2 line-clamp-3 whitespace-pre-wrap rounded-xl border border-red-500/20 bg-red-500/10 p-2 text-[11px] text-red-200">
+                              {delivery.email_delivery.last_error}
+                            </p>
+                          ) : null}
                         </div>
-                        <p className="mt-2 text-[11px] text-white/35">
-                          {documentTypeLabel(delivery.document.document_type)} ·{" "}
-                          {formatDate(delivery.delivered_at)}
-                        </p>
-                      </div>
-                    ))
+                      );
+                    })
                   )}
                 </div>
               </div>

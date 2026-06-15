@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Archive, Download, FileText, Inbox, Search } from "lucide-react";
+import { Archive, Download, FileText, Inbox, Mail, Search } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import Sidebar from "../../../components/dashboard/components/Sidebar";
 import { useAuth } from "../../../app/providers/AuthProvider";
@@ -38,6 +38,20 @@ function formatDate(value: string) {
     month: "short",
     day: "numeric",
   });
+}
+
+function emailBadge(item: MyEmployeeDocument) {
+  const status = item.email_delivery?.status ?? "not_queued";
+  if (status === "sent") {
+    return { label: "Email sent", className: "bg-emerald-500/15 text-emerald-300" };
+  }
+  if (status === "failed") {
+    return { label: "Email failed", className: "bg-red-500/15 text-red-300" };
+  }
+  if (status === "pending" || status === "processing") {
+    return { label: "Email queued", className: "bg-amber-500/15 text-amber-300" };
+  }
+  return { label: "Inbox only", className: "bg-white/10 text-white/55" };
 }
 
 export default function EmployeeInboxPage() {
@@ -109,6 +123,8 @@ export default function EmployeeInboxPage() {
       return (
         item.document.title.toLowerCase().includes(term) ||
         (item.document.message ?? "").toLowerCase().includes(term) ||
+        (item.acknowledgement_note ?? "").toLowerCase().includes(term) ||
+        (item.email_delivery?.recipient_email ?? "").toLowerCase().includes(term) ||
         documentTypeLabel(item.document.document_type).toLowerCase().includes(term)
       );
     });
@@ -228,6 +244,8 @@ export default function EmployeeInboxPage() {
                   item.document.requires_acknowledgement &&
                   item.status !== "acknowledged";
 
+                const email = emailBadge(item);
+
                 return (
                   <article
                     key={item.id}
@@ -257,6 +275,20 @@ export default function EmployeeInboxPage() {
                               Action needed
                             </span>
                           ) : null}
+                          {item.acknowledgement_note ? (
+                            <span className="rounded-full bg-emerald-500/15 px-2.5 py-1 text-[11px] font-semibold text-emerald-300">
+                              Note saved
+                            </span>
+                          ) : null}
+                          <span
+                            className={[
+                              "inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold",
+                              email.className,
+                            ].join(" ")}
+                          >
+                            <Mail size={11} />
+                            {email.label}
+                          </span>
                         </div>
                         <button
                           type="button"
@@ -276,6 +308,11 @@ export default function EmployeeInboxPage() {
                         <p className="mt-3 text-xs text-white/35">
                           Delivered {formatDate(item.delivered_at)}
                         </p>
+                        {item.acknowledgement_note ? (
+                          <p className="mt-3 line-clamp-2 rounded-2xl border border-emerald-500/15 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-100/80">
+                            {item.acknowledgement_note}
+                          </p>
+                        ) : null}
                       </div>
                     </div>
 

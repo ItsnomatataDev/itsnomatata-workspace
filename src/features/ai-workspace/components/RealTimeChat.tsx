@@ -146,6 +146,185 @@ function attachmentUrl(attachment: ChatAttachment) {
   return attachment.downloadUrl || attachment.download_url || attachment.url;
 }
 
+function escapePdfText(value: string) {
+  return value
+    .replace(/\\/g, "\\\\")
+    .replace(/\(/g, "\\(")
+    .replace(/\)/g, "\\)")
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[\u201c\u201d]/g, "\"")
+    .replace(/[^\x09\x0A\x0D\x20-\x7E]/g, "");
+}
+
+function wrapPdfText(text: string, maxChars = 88) {
+  const lines: string[] = [];
+
+  for (const paragraph of text.split(/\n/)) {
+    const words = paragraph.trim().split(/\s+/).filter(Boolean);
+    if (words.length === 0) {
+      lines.push("");
+      continue;
+    }
+
+    let line = "";
+    for (const word of words) {
+      if ((line + " " + word).trim().length > maxChars) {
+        lines.push(line);
+        line = word;
+      } else {
+        line = (line + " " + word).trim();
+      }
+    }
+    if (line) lines.push(line);
+  }
+
+  return lines;
+}
+
+function buildTextPdfBlob(title: string, content: string) {
+  const titleLines = wrapPdfText(title, 64).slice(0, 3);
+  const contentLines = wrapPdfText(content || title, 92);
+  const allLines = [...titleLines, "", ...contentLines];
+  const pages: string[] = [];
+  const linesPerPage = 42;
+
+  for (let i = 0; i < allLines.length; i += linesPerPage) {
+    const chunk = allLines.slice(i, i + linesPerPage);
+    const commands = ["BT", "/F1 11 Tf", "50 792 Td", "14 TL"];
+
+    chunk.forEach((line, index) => {
+      if (i === 0 && index < titleLines.length) {
+        commands.push("/F1 16 Tf");
+      } else if (i === 0 && index === titleLines.length) {
+        commands.push("/F1 11 Tf");
+      }
+      commands.push(`(${escapePdfText(line)}) Tj`);
+      commands.push("T*");
+    });
+
+    commands.push("ET");
+    pages.push(commands.join("\n"));
+  }
+
+  const objects: string[] = [];
+  objects.push("<< /Type /Catalog /Pages 2 0 R >>");
+  const pageObjectNumbers = pages.map((_, index) => 4 + index * 2);
+  objects.push(`<< /Type /Pages /Kids [${pageObjectNumbers.map((n) => `${n} 0 R`).join(" ")}] /Count ${pages.length} >>`);
+  objects.push("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
+
+  pages.forEach((stream, index) => {
+    const pageObj = 4 + index * 2;
+    const contentObj = pageObj + 1;
+    objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 842] /Resources << /Font << /F1 3 0 R >> >> /Contents ${contentObj} 0 R >>`);
+    objects.push(`<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`);
+  });
+
+  let pdf = "%PDF-1.4\n";
+  const offsets = [0];
+  objects.forEach((object, index) => {
+    offsets.push(pdf.length);
+    pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
+  });
+
+  const xrefOffset = pdf.length;
+  pdf += `xref\n0 ${objects.length + 1}\n`;
+  pdf += "0000000000 65535 f \n";
+  for (let i = 1; i < offsets.length; i += 1) {
+    pdf += `${String(offsets[i]).padStart(10, "0")} 00000 n \n`;
+  }
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+
+  return new Blob([pdf], { type: "application/pdf" });
+}
+
+function downloadBlob(blob: Blob, fileName: string) {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = fileName;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function extractClaimedPdfFileName(content: string) {
+  const quoted = content.match(/PDF\s+["']([^"']+\.pdf)["']/i)?.[1];
+  if (quoted) return quoted.trim();
+
+  const downloadLine = content.match(/([^\s()"']+\.pdf)\s*\(download\)/i)?.[1];
+  if (downloadLine) return downloadLine.trim();
+
+  return null;
+}
+
+function stripPdfDownloadBoilerplate(content: string, fileName: string) {
+  return content
+    .replace(/i\s+(created|generated|made)\s+the\s+pdf\s+["'][^"']+\.pdf["']\.?/gi, "")
+    .replace(/click\s+the\s+link\s+below\s+to\s+download\s+it:?/gi, "")
+    .replace(new RegExp(`${fileName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*\\(download\\)`, "gi"), "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function hasRealDownloadableAttachment(attachments?: ChatAttachment[]) {
+  return (attachments ?? []).some((attachment) => isBrowserUrl(attachmentUrl(attachment)));
+}
+
+function isPdfPlaceholderResponse(content: string, attachments?: ChatAttachment[]) {
+  if (hasRealDownloadableAttachment(attachments)) return false;
+
+  const fileName = extractClaimedPdfFileName(content);
+  if (!fileName) return false;
+
+  const remaining = stripPdfDownloadBoilerplate(content, fileName);
+  return remaining.length < 160;
+}
+
+async function resolvePdfPlaceholderResponse(params: {
+  prompt: string;
+  response: { content: string; attachments?: ChatAttachment[] };
+  attachments: ChatAttachment[];
+  onAsk: RealTimeChatProps["onAsk"];
+  metadata: Record<string, unknown>;
+}) {
+  if (!isPdfPlaceholderResponse(params.response.content, params.response.attachments)) {
+    return params.response;
+  }
+
+  const fileName = extractClaimedPdfFileName(params.response.content) || "codex-export.pdf";
+  const contentResponse = await params.onAsk(
+    [
+      "The previous response only said a PDF was created, but it did not include a real file or the actual content.",
+      "Write the full content the user requested now.",
+      "Do not say you created a PDF. Do not include a download line. Only provide the actual content that should go inside the PDF.",
+      "",
+      `User request: ${params.prompt}`,
+    ].join("\n"),
+    params.attachments,
+    {
+      ...params.metadata,
+      pdfContentRecovery: true,
+    },
+  );
+
+  if (isPdfPlaceholderResponse(contentResponse.content, contentResponse.attachments)) {
+    return {
+      content: [
+        "I could not generate the PDF content because the AI service returned only a download placeholder again.",
+        "Please retry with the content you want in the PDF, and I will generate a proper download.",
+      ].join("\n\n"),
+      attachments: [],
+    };
+  }
+
+  const recoveredContent = contentResponse.content.trim();
+  return {
+    content: `${recoveredContent}\n\n${fileName} (download)`,
+    attachments: contentResponse.attachments,
+  };
+}
+
 function getLoadingLabel(
   prompt: string,
   attachments: PendingAttachment[] = [],
@@ -438,9 +617,11 @@ async function downloadTimesheetExport(
 function MessageContent({
   content,
   accessToken,
+  attachments,
 }: {
   content: string;
   accessToken?: string | null;
+  attachments?: ChatAttachment[];
 }) {
   const [downloadingKey, setDownloadingKey] = useState<string | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
@@ -459,7 +640,64 @@ function MessageContent({
         downloadable: boolean;
         exportDownload: boolean;
       }
+    | {
+        type: "attachmentDownload";
+        label: string;
+        fileName: string;
+        url: string;
+      }
+    | {
+        type: "generatedPdfDownload";
+        label: string;
+        fileName: string;
+      }
   > = [];
+
+  const attachmentByName = new Map(
+    (attachments ?? [])
+      .map((attachment) => [
+        attachment.name.trim().toLowerCase(),
+        { attachment, url: attachmentUrl(attachment) },
+      ] as const)
+      .filter(([, item]) => isBrowserUrl(item.url)),
+  );
+
+  const pushTextWithAttachmentDownloads = (value: string) => {
+    const downloadPattern = /([^()\n\r]+?\.(?:pdf|docx?|xlsx?|csv|txt|md))\s*\((download)\)/gi;
+    let textCursor = 0;
+    let textMatch: RegExpExecArray | null;
+
+    while ((textMatch = downloadPattern.exec(value)) !== null) {
+      const rawFileName = (textMatch[1] ?? "").trim().replace(/^["']|["']$/g, "");
+      const attachment = attachmentByName.get(rawFileName.toLowerCase());
+
+      if (textMatch.index > textCursor) {
+        parts.push({ type: "text", value: value.slice(textCursor, textMatch.index) });
+      }
+
+      parts.push({ type: "text", value: `${rawFileName} (` });
+      if (attachment) {
+        parts.push({
+          type: "attachmentDownload",
+          label: textMatch[2] ?? "download",
+          fileName: rawFileName,
+          url: attachment.url,
+        });
+      } else {
+        parts.push({
+          type: "generatedPdfDownload",
+          label: textMatch[2] ?? "download",
+          fileName: rawFileName,
+        });
+      }
+      parts.push({ type: "text", value: ")" });
+      textCursor = textMatch.index + textMatch[0].length;
+    }
+
+    if (textCursor < value.length) {
+      parts.push({ type: "text", value: value.slice(textCursor) });
+    }
+  };
 
   const linkPattern = /\[([^\]]+)\]\(([^)]+)\)/g;
   let cursor = 0;
@@ -467,10 +705,7 @@ function MessageContent({
 
   while ((match = linkPattern.exec(cleanContent)) !== null) {
     if (match.index > cursor) {
-      parts.push({
-        type: "text",
-        value: cleanContent.slice(cursor, match.index),
-      });
+      pushTextWithAttachmentDownloads(cleanContent.slice(cursor, match.index));
     }
 
     const url = match[2] ?? "";
@@ -485,7 +720,7 @@ function MessageContent({
   }
 
   if (cursor < cleanContent.length) {
-    parts.push({ type: "text", value: cleanContent.slice(cursor) });
+    pushTextWithAttachmentDownloads(cleanContent.slice(cursor));
   }
 
   if (!parts.length && !exportPayload) return <>{cleanContent}</>;
@@ -529,11 +764,56 @@ function MessageContent({
     }
   };
 
+  const handleGeneratedPdfDownload = (fileName: string) => {
+    const cleanedContent = cleanContent
+      .replace(/click the link below to download it:?/gi, "")
+      .replace(new RegExp(`${fileName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*\\(download\\)`, "gi"), "")
+      .trim();
+    const pdfContent = stripPdfDownloadBoilerplate(cleanedContent, fileName);
+
+    if (!pdfContent || isPdfPlaceholderResponse(cleanContent, attachments)) {
+      setDownloadError(
+        "The AI service did not return the PDF content. Ask it to regenerate the answer, then download again.",
+      );
+      return;
+    }
+
+    downloadBlob(buildTextPdfBlob(fileName, pdfContent), fileName);
+  };
+
   return (
     <>
       {parts.map((part, index) => {
         if (part.type === "text") {
           return <span key={index}>{part.value}</span>;
+        }
+
+        if (part.type === "attachmentDownload") {
+          return (
+            <a
+              key={index}
+              href={part.url}
+              download={part.fileName}
+              target="_blank"
+              rel="noreferrer"
+              className="font-semibold text-orange-200 underline decoration-orange-300/40 underline-offset-4 hover:text-white"
+            >
+              {part.label}
+            </a>
+          );
+        }
+
+        if (part.type === "generatedPdfDownload") {
+          return (
+            <button
+              key={index}
+              type="button"
+              onClick={() => handleGeneratedPdfDownload(part.fileName)}
+              className="font-semibold text-orange-200 underline decoration-orange-300/40 underline-offset-4 hover:text-white"
+            >
+              {part.label}
+            </button>
+          );
         }
 
         if (!part.downloadable) {
@@ -826,6 +1106,7 @@ function MessageBubble({
               <MessageContent
                 content={message.content || "Attached file"}
                 accessToken={accessToken}
+                attachments={message.attachments}
               />
             )}
           </div>
@@ -1588,10 +1869,18 @@ export default function RealTimeChat({
     setMessages((prev) => [...prev, typingMessage]);
 
     try {
-      const response = await onAsk(prompt, attachments, {
+      const responseMetadata = {
         projectId: selectedProjectId,
         projectName: selectedProject?.title ?? "General",
         projectMemoryScope: selectedProjectId ? "project" : "general",
+      };
+      const initialResponse = await onAsk(prompt, attachments, responseMetadata);
+      const response = await resolvePdfPlaceholderResponse({
+        prompt,
+        response: initialResponse,
+        attachments,
+        onAsk,
+        metadata: responseMetadata,
       });
       const assistantMessage: LocalChatMessage = {
         id: makeId("msg"),

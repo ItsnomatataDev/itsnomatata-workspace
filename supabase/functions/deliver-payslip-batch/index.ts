@@ -35,6 +35,102 @@ function normalizeIdentity(value: string | null | undefined) {
     .replace(/\s+/g, " ");
 }
 
+function escapeHtml(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function buildPayslipEmailPayload(params: {
+  title: string;
+  message: string;
+  actionUrl: string;
+  payrollMonth: number;
+  payrollYear: number;
+}) {
+  const appUrl = Deno.env.get("APP_URL") ?? "https://codex.itsnomatata.com";
+  const fullActionUrl = params.actionUrl.startsWith("http")
+    ? params.actionUrl
+    : `${appUrl}${params.actionUrl}`;
+  const safeTitle = escapeHtml(params.title);
+  const safeMessage = escapeHtml(params.message);
+  const emailHtml = `
+    <div style="font-family:Inter,Arial,sans-serif;line-height:1.6;color:#111827">
+      <h2 style="margin:0 0 12px;color:#111827">${safeTitle}</h2>
+      <p style="margin:0 0 18px">${safeMessage}</p>
+      <p style="margin:0 0 18px;color:#4b5563">Your payslip is available in your secure employee inbox.</p>
+      <a href="${fullActionUrl}" style="display:inline-block;background:#f97316;color:#111827;padding:12px 18px;border-radius:12px;text-decoration:none;font-weight:700">Open payslip</a>
+    </div>
+  `.trim();
+
+  return {
+    title: params.title,
+    body: params.message,
+    action_url: params.actionUrl,
+    app_url: appUrl,
+    app_name: "Nomatata",
+    priority: "medium",
+    metadata: {
+      document_type: "payslip",
+      payroll_month: params.payrollMonth,
+      payroll_year: params.payrollYear,
+    },
+    email_html: emailHtml,
+    email_text: `${params.title}\n\n${params.message}\n\nOpen payslip: ${fullActionUrl}`,
+  };
+}
+
+async function queuePayslipEmail(params: {
+  adminClient: any;
+  organizationId: string;
+  userId: string;
+  notificationId: string;
+  documentId: string;
+  recipientEmail: string | null;
+  recipientName: string | null;
+  title: string;
+  message: string;
+  actionUrl: string;
+  payrollMonth: number;
+  payrollYear: number;
+}) {
+  if (!params.recipientEmail) return;
+  const payload = buildPayslipEmailPayload({
+    title: params.title,
+    message: params.message,
+    actionUrl: params.actionUrl,
+    payrollMonth: params.payrollMonth,
+    payrollYear: params.payrollYear,
+  });
+
+  const { error } = await params.adminClient.from("email_events").insert({
+    organization_id: params.organizationId,
+    user_id: params.userId,
+    notification_id: params.notificationId,
+    event_type: "employee_document",
+    recipient_email: params.recipientEmail,
+    recipient_name: params.recipientName,
+    subject: params.title,
+    template_key: "employee_document",
+    payload: {
+      ...payload,
+      metadata: {
+        ...payload.metadata,
+        document_id: params.documentId,
+        notification_id: params.notificationId,
+      },
+    },
+    status: "pending",
+  });
+
+  if (error) {
+    console.warn("Failed to queue payslip email event.", error);
+  }
+}
+
 Deno.serve(async (req) => {
   try {
     if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -207,22 +303,43 @@ Deno.serve(async (req) => {
           },
         ]);
 
-        await adminClient.from("notifications").insert({
+        const actionUrl = `/inbox?documentId=${documentId}`;
+        const notificationTitle = "New payslip available";
+        const notificationMessage = `Your ${batch.title} is available in your inbox.`;
+        const { data: notification, error: notificationError } = await adminClient.from("notifications").insert({
           organization_id: batch.organization_id,
           user_id: item.user_id,
           type: "employee_document",
-          title: "New payslip available",
-          message: `Your ${batch.title} is available in your inbox.`,
+          title: notificationTitle,
+          message: notificationMessage,
           entity_type: "employee_document",
           entity_id: documentId,
-          action_url: `/inbox?documentId=${documentId}`,
+          action_url: actionUrl,
           priority: "medium",
           category: "hr",
           actor_user_id: actorUserId,
+          delivery_state: "processing",
           metadata: {
             document_type: "payslip",
             payslip_batch_id: batch.id,
           },
+        }).select("id").single();
+
+        if (notificationError) throw notificationError;
+
+        await queuePayslipEmail({
+          adminClient,
+          organizationId: batch.organization_id,
+          userId: item.user_id,
+          notificationId: notification.id,
+          documentId,
+          recipientEmail: matchedUser.email,
+          recipientName: matchedUser.full_name,
+          title: notificationTitle,
+          message: notificationMessage,
+          actionUrl,
+          payrollMonth: batch.payroll_month,
+          payrollYear: batch.payroll_year,
         });
 
         await adminClient

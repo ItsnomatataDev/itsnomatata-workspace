@@ -218,6 +218,130 @@ function extractReadableAiText(value: unknown): string {
   return "";
 }
 
+type NormalizedAssistantAttachment = NonNullable<AssistantResponse["attachments"]>[number];
+
+function inferAttachmentType(input: {
+  type?: unknown;
+  mimeType?: unknown;
+  name?: unknown;
+}): string {
+  const explicitType = typeof input.type === "string" ? input.type : "";
+  if (["image", "document", "audio", "video"].includes(explicitType)) {
+    return explicitType;
+  }
+
+  const mimeType = typeof input.mimeType === "string" ? input.mimeType : "";
+  const name = typeof input.name === "string" ? input.name : "";
+
+  if (mimeType.startsWith("image/")) return "image";
+  if (mimeType.startsWith("audio/")) return "audio";
+  if (mimeType.startsWith("video/")) return "video";
+  if (/\.pdf($|\?)/i.test(name) || /pdf/i.test(mimeType)) return "document";
+
+  return "document";
+}
+
+function normalizeAttachment(value: unknown): NormalizedAssistantAttachment | null {
+  if (!isRecord(value)) return null;
+
+  const nameValue =
+    value.name ??
+    value.fileName ??
+    value.file_name ??
+    value.filename ??
+    value.title;
+  const urlValue =
+    value.download_url ??
+    value.downloadUrl ??
+    value.file_url ??
+    value.fileUrl ??
+    value.signedUrl ??
+    value.url;
+  const mimeTypeValue =
+    value.mimeType ??
+    value.mime_type ??
+    value.contentType ??
+    value.content_type;
+
+  const name = typeof nameValue === "string" && nameValue.trim()
+    ? nameValue.trim()
+    : "Download";
+  const url = typeof urlValue === "string" ? urlValue.trim() : "";
+  const mimeType = typeof mimeTypeValue === "string" ? mimeTypeValue : undefined;
+  const size = typeof value.size === "number"
+    ? value.size
+    : typeof value.size_bytes === "number"
+    ? value.size_bytes
+    : undefined;
+
+  if (!url && !name) return null;
+
+  return {
+    id: typeof value.id === "string" ? value.id : crypto.randomUUID(),
+    type: inferAttachmentType({ type: value.type, mimeType, name }),
+    name,
+    url,
+    download_url: url,
+    downloadUrl: url,
+    mimeType,
+    size,
+    metadata: isRecord(value.metadata) ? value.metadata : {},
+  };
+}
+
+function collectAttachments(value: unknown, depth = 0): NormalizedAssistantAttachment[] {
+  if (depth > 3) return [];
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (/^[{\[]/.test(trimmed)) {
+      try {
+        return collectAttachments(JSON.parse(trimmed), depth + 1);
+      } catch {
+        return [];
+      }
+    }
+
+    return [];
+  }
+
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => collectAttachments(item, depth + 1));
+  }
+
+  if (!isRecord(value)) return [];
+
+  const direct = normalizeAttachment(value);
+  const nestedKeys = [
+    "attachments",
+    "files",
+    "downloads",
+    "download",
+    "file",
+    "data",
+    "result",
+    "output",
+    "response",
+  ];
+
+  const nested = nestedKeys.flatMap((key) => collectAttachments(value[key], depth + 1));
+
+  return direct ? [direct, ...nested] : nested;
+}
+
+function dedupeAttachments(
+  attachments: NormalizedAssistantAttachment[],
+): NormalizedAssistantAttachment[] {
+  const seen = new Set<string>();
+
+  return attachments.filter((attachment) => {
+    const key = `${attachment.name}:${attachment.download_url || attachment.url || ""}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return Boolean(attachment.url || attachment.download_url);
+  });
+}
+
 function normalizeAssistantResponse(value: unknown): AssistantResponse {
   if (!isRecord(value)) {
     throw new Error("Invalid AI response: expected an object.");
@@ -262,9 +386,7 @@ function normalizeAssistantResponse(value: unknown): AssistantResponse {
   const sources = Array.isArray(value.sources)
     ? (value.sources as NonNullable<AssistantResponse["sources"]>)
     : [];
-  const attachments = Array.isArray(value.attachments)
-    ? (value.attachments as NonNullable<AssistantResponse["attachments"]>)
-    : [];
+  const attachments = dedupeAttachments(collectAttachments(value));
 
   return {
     success,
