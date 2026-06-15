@@ -1,288 +1,706 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  BriefcaseBusiness,
-  Bug,
-  Sparkles,
   Activity,
-  ArrowRight,
-  CheckSquare,
+  AlertTriangle,
+  Bell,
+  Bot,
+  BrainCircuit,
+  Car,
+  CheckCircle2,
+  ChevronRight,
+  ClipboardList,
   Clock3,
-  Database,
-  Lock,
-  Shield,
-  Siren,
-  KeyRound,
-  UserX,
+  Cpu,
+  DatabaseZap,
+  Gauge,
+  LifeBuoy,
+  PackageCheck,
+  RadioTower,
+  RefreshCw,
+  Send,
+  ShieldAlert,
+  Sparkles,
+  Users,
+  Workflow,
+  XCircle,
 } from "lucide-react";
-import { useAuth } from "../../../app/providers/AuthProvider";
 import Sidebar from "../../../components/dashboard/components/Sidebar";
-import ITStatsCard from "../components/ITStatsCard";
-import InviteMemberModal from "../components/InviteMemberModal";
-import CrossModuleHealthGrid from "../components/CrossModuleHealthGrid";
-import TeamPulseStrip from "../components/TeamPulseStrip";
-import EscalationFeed from "../components/EscalationFeed";
-import AIInsightsPanel from "../components/AIInsightsPanel";
-import AIQuickActions from "../components/AIQuickActions";
-import KPITilesRow from "../components/KPITilesRow";
-import SupportTicketsFeed from "../components/SupportTicketsFeed";
-import { useDashboard } from "../../../lib/hooks/useDashboard";
+import { useAuth } from "../../../app/providers/AuthProvider";
+import { createBulkNotifications } from "../../../lib/supabase/mutations/notifications";
 import {
-  getITDashboardStats,
-  type ITDashboardStats,
-} from "../services/itWorkspaceService";
-import {
-  getCrossModuleHealth,
-  getTeamPulse,
-  getEscalationItems,
-  getKPITiles,
-  type ModuleHealthItem,
-  type TeamPulseMember,
-  type EscalationItem,
-  type KPITile,
-} from "../services/controlCentreService";
-import {
-  getSupportTickets,
-  type SupportTicket,
+  createSupportTicket,
+  type TicketPriority,
 } from "../services/supportTicketService";
 import {
-  createIncident,
-  getAccountAccessRequests,
-  getAuditLogs,
-  getIncidents,
-  getSystemHealth,
-  reviewAccountAccessRequest,
-  type AccountAccessRequest,
-  type AuditLogRow,
-  type IncidentRow,
-  type SystemHealthResponse,
-} from "../services/warRoomService";
+  getITControlCentreData,
+  type ControlStatus,
+  type ITControlCentreData,
+} from "../services/controlCentreService";
 
-function formatDateTime(value: string) {
-  try {
-    return new Date(value).toLocaleString();
-  } catch {
-    return value;
-  }
+type IconType = typeof Activity;
+
+const statusCopy: Record<ControlStatus, { label: string; classes: string; dot: string }> = {
+  green: {
+    label: "Green",
+    classes: "border-emerald-500/20 bg-emerald-500/10 text-emerald-200",
+    dot: "bg-emerald-400",
+  },
+  amber: {
+    label: "Amber",
+    classes: "border-amber-500/25 bg-amber-500/10 text-amber-200",
+    dot: "bg-amber-400",
+  },
+  red: {
+    label: "Red",
+    classes: "border-red-500/25 bg-red-500/10 text-red-200",
+    dot: "bg-red-400",
+  },
+};
+
+function cx(...classes: Array<string | false | null | undefined>) {
+  return classes.filter(Boolean).join(" ");
 }
 
-function EnvStatus({
-  label,
-  configured,
+function formatNumber(value: number | string) {
+  if (typeof value === "string") return value;
+  return new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(value);
+}
+
+function formatMoney(value: number) {
+  return new Intl.NumberFormat(undefined, {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  }).format(value);
+}
+
+function formatDateTime(value: string | null) {
+  if (!value) return "Not checked";
+  return new Date(value).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function statusFromCount(value: number, amberAt = 1, redAt = 4): ControlStatus {
+  if (value >= redAt) return "red";
+  if (value >= amberAt) return "amber";
+  return "green";
+}
+
+function StatusPill({ status }: { status: ControlStatus }) {
+  return (
+    <span className={cx("inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold", statusCopy[status].classes)}>
+      <span className={cx("h-2 w-2 rounded-full", statusCopy[status].dot)} />
+      {statusCopy[status].label}
+    </span>
+  );
+}
+
+function Panel({
+  title,
+  icon: Icon,
+  action,
+  children,
 }: {
-  label: string;
-  configured: boolean;
+  title: string;
+  icon: IconType;
+  action?: React.ReactNode;
+  children: React.ReactNode;
 }) {
   return (
-    <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-black/35 px-4 py-3">
-      <span className="text-sm text-white/70">{label}</span>
-      <span
-        className={[
-          "rounded-full px-3 py-1 text-xs font-semibold",
-          configured
-            ? "bg-emerald-500/10 text-emerald-300"
-            : "bg-amber-500/10 text-amber-300",
-        ].join(" ")}
-      >
-        {configured ? "Configured" : "Setup required"}
-      </span>
+    <section className="rounded-lg border border-white/10 bg-zinc-950/80 p-4 shadow-2xl shadow-black/30 sm:p-5">
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-orange-500/20 bg-orange-500/10 text-orange-300">
+            <Icon size={18} />
+          </div>
+          <h2 className="truncate text-base font-semibold text-white">{title}</h2>
+        </div>
+        {action}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function MetricCard({
+  label,
+  value,
+  detail,
+  status,
+  route,
+  icon: Icon,
+}: {
+  label: string;
+  value: number | string;
+  detail: string;
+  status: ControlStatus;
+  route: string;
+  icon: IconType;
+}) {
+  return (
+    <a
+      href={route}
+      className="group rounded-lg border border-white/10 bg-zinc-950 p-4 transition hover:border-orange-500/50 hover:bg-zinc-900"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <Icon size={18} className="text-orange-300" />
+        <StatusPill status={status} />
+      </div>
+      <p className="mt-5 text-3xl font-semibold text-white">{formatNumber(value)}</p>
+      <p className="mt-1 text-sm font-medium text-white/75">{label}</p>
+      <p className="mt-2 min-h-10 text-sm text-white/45">{detail}</p>
+      <div className="mt-4 flex items-center text-xs font-semibold text-orange-300">
+        Open <ChevronRight size={14} className="transition group-hover:translate-x-1" />
+      </div>
+    </a>
+  );
+}
+
+function CommandHeader({
+  data,
+  firstName,
+  onRefresh,
+  refreshing,
+}: {
+  data: ITControlCentreData;
+  firstName: string;
+  onRefresh: () => void;
+  refreshing: boolean;
+}) {
+  return (
+    <header className="mb-6 overflow-hidden rounded-lg border border-white/10 bg-zinc-950">
+      <div className="border-b border-white/10 bg-[radial-gradient(circle_at_top_right,rgba(249,115,22,0.2),transparent_36%)] p-5 sm:p-6">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.28em] text-orange-300">
+              <RadioTower size={15} />
+              IT Control Centre
+            </div>
+            <h1 className="mt-3 text-3xl font-bold text-white sm:text-4xl">
+              Command view for {firstName}
+            </h1>
+            <p className="mt-3 max-w-3xl text-sm leading-6 text-white/55">
+              Whole-platform health across people, boards, systems, assets, fleet, notifications, workflows, and AI activity.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <StatusPill status={data.healthStatus} />
+            <button
+              type="button"
+              onClick={onRefresh}
+              disabled={refreshing}
+              className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-white hover:bg-white/10 disabled:opacity-60"
+            >
+              <RefreshCw size={16} className={refreshing ? "animate-spin" : ""} />
+              Refresh
+            </button>
+            <a
+              href="/boards"
+              className="inline-flex items-center gap-2 rounded-lg bg-orange-500 px-4 py-3 text-sm font-bold text-black hover:bg-orange-400"
+            >
+              <ClipboardList size={16} />
+              Boards
+            </a>
+          </div>
+        </div>
+      </div>
+    </header>
+  );
+}
+
+function HealthScoreCard({ data }: { data: ITControlCentreData }) {
+  const m = data.metrics;
+  return (
+    <section className="mb-6 grid gap-4 xl:grid-cols-[1.2fr_2fr]">
+      <div className="rounded-lg border border-white/10 bg-zinc-950 p-5">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm text-white/50">Platform health score</p>
+            <p className="mt-3 text-6xl font-black tracking-tight text-white">{data.healthScore}</p>
+          </div>
+          <Gauge size={58} className="text-orange-400" />
+        </div>
+        <div className="mt-5 h-3 overflow-hidden rounded-full bg-white/10">
+          <div
+            className={cx(
+              "h-full rounded-full",
+              data.healthStatus === "green" && "bg-emerald-400",
+              data.healthStatus === "amber" && "bg-amber-400",
+              data.healthStatus === "red" && "bg-red-400",
+            )}
+            style={{ width: `${data.healthScore}%` }}
+          />
+        </div>
+        <p className="mt-4 text-sm text-white/50">
+          {m.criticalAlerts} critical alerts, {m.downMonitors} down monitors, {m.workflowFailures24h} workflow failures in 24h.
+        </p>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {data.topMetrics.map((metric, index) => (
+          <MetricCard
+            key={metric.label}
+            {...metric}
+            icon={[ShieldAlert, AlertTriangle, LifeBuoy, Workflow, Bell, Car][index] ?? Activity}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function CriticalAlertsPanel({ data }: { data: ITControlCentreData }) {
+  const alerts = data.alerts
+    .filter((alert) => alert.status !== "resolved")
+    .sort((a, b) => Number(b.severity === "critical") - Number(a.severity === "critical"))
+    .slice(0, 6);
+
+  return (
+    <Panel title="Critical Alerts" icon={ShieldAlert}>
+      <div className="space-y-3">
+        {alerts.length === 0 ? (
+          <EmptyState text="No open system alerts." />
+        ) : (
+          alerts.map((alert) => (
+            <a key={alert.id} href={alert.route} className="block rounded-lg border border-white/10 bg-black/35 p-3 hover:border-orange-500/40">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-white">{alert.title}</p>
+                  <p className="mt-1 line-clamp-2 text-xs text-white/50">{alert.message ?? alert.module}</p>
+                </div>
+                <span className={cx("shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold", alert.severity === "critical" ? "bg-red-500/15 text-red-200" : "bg-amber-500/15 text-amber-200")}>
+                  {alert.severity}
+                </span>
+              </div>
+            </a>
+          ))
+        )}
+      </div>
+    </Panel>
+  );
+}
+
+function SystemMonitorsGrid({ data }: { data: ITControlCentreData }) {
+  const statusForMonitor = (status: string): ControlStatus =>
+    status === "healthy" ? "green" : status === "degraded" ? "amber" : "red";
+  return (
+    <Panel title="System Monitors" icon={Cpu}>
+      <div className="grid gap-3 sm:grid-cols-2">
+        {data.monitors.length === 0 ? (
+          <EmptyState text="No monitors configured." />
+        ) : (
+          data.monitors.map((monitor) => (
+            <div key={monitor.id} className="rounded-lg border border-white/10 bg-black/35 p-3">
+              <div className="flex items-center justify-between gap-3">
+                <p className="truncate text-sm font-semibold text-white">{monitor.name}</p>
+                <StatusPill status={statusForMonitor(monitor.status)} />
+              </div>
+              <p className="mt-2 text-xs text-white/45">{monitor.monitor_type}</p>
+              <p className="mt-1 text-xs text-white/35">{formatDateTime(monitor.last_checked_at)}</p>
+            </div>
+          ))
+        )}
+      </div>
+    </Panel>
+  );
+}
+
+function TeamPulsePanel({ data }: { data: ITControlCentreData }) {
+  const m = data.metrics;
+  const visible = data.teamPulse.slice(0, 8);
+  return (
+    <Panel title="Team Pulse" icon={Users}>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <MiniStat label="Active users" value={m.activeUsers} status="green" />
+        <MiniStat label="Suspended" value={m.suspendedUsers} status={statusFromCount(m.suspendedUsers)} />
+        <MiniStat label="Tracking now" value={m.activeTimers} status="green" />
+        <MiniStat label="Not tracking" value={m.usersNotTracking} status={statusFromCount(m.usersNotTracking, 3, 8)} />
+      </div>
+      <div className="mt-4 space-y-2">
+        {visible.map((member) => (
+          <a
+            key={member.id}
+            href={member.active_board_id && member.active_timer_started_at ? `/boards/${member.active_board_id}` : "/organization/team"}
+            className="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-black/35 px-3 py-2"
+          >
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium text-white">{member.full_name ?? member.email}</p>
+              <p className="truncate text-xs text-white/40">{member.active_task_title ?? member.status}</p>
+            </div>
+            <span className={cx("rounded-full px-2.5 py-1 text-xs", member.status === "tracking" ? "bg-emerald-500/15 text-emerald-200" : member.status === "online" ? "bg-orange-500/15 text-orange-200" : "bg-white/10 text-white/45")}>
+              {member.status}
+            </span>
+          </a>
+        ))}
+      </div>
+    </Panel>
+  );
+}
+
+function BoardsHealthPanel({ data }: { data: ITControlCentreData }) {
+  const m = data.metrics;
+  return (
+    <Panel title="Boards Health" icon={ClipboardList}>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+        <MiniStat label="Boards" value={m.boardsCount} status="green" />
+        <MiniStat label="Open" value={m.openCards} status="green" />
+        <MiniStat label="Overdue" value={m.overdueCards} status={statusFromCount(m.overdueCards, 1, 6)} />
+        <MiniStat label="Blocked" value={m.blockedCards} status={statusFromCount(m.blockedCards, 1, 3)} />
+        <MiniStat label="Unassigned" value={m.unassignedCards} status={statusFromCount(m.unassignedCards, 3, 10)} />
+      </div>
+      <div className="mt-4 space-y-2">
+        {data.boardRisks.length === 0 ? (
+          <EmptyState text="No board risk detected." />
+        ) : (
+          data.boardRisks.map((board) => (
+            <a key={board.board_id} href={board.route} className="flex items-center justify-between gap-4 rounded-lg border border-white/10 bg-black/35 p-3 hover:border-orange-500/40">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-white">{board.board_name}</p>
+                <p className="mt-1 text-xs text-white/45">
+                  {board.open_cards} open, {board.overdue_cards} overdue, {board.blocked_cards} blocked, {board.high_priority_cards} high priority
+                </p>
+              </div>
+              <StatusPill status={board.status} />
+            </a>
+          ))
+        )}
+      </div>
+    </Panel>
+  );
+}
+
+function AssetsHealthPanel({ data }: { data: ITControlCentreData }) {
+  const m = data.metrics;
+  return (
+    <Panel title="Assets Health" icon={PackageCheck}>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <MiniStat label="Total" value={m.totalAssets} status="green" />
+        <MiniStat label="In stock" value={m.inStockAssets} status="green" />
+        <MiniStat label="Assigned" value={m.assignedAssets} status="green" />
+        <MiniStat label="Repair" value={m.damagedRepairAssets} status={statusFromCount(m.damagedRepairAssets)} />
+        <MiniStat label="Warranty soon" value={m.warrantyExpiringSoon} status={statusFromCount(m.warrantyExpiringSoon, 1, 5)} />
+        <MiniStat label="Uninsured" value={m.uninsuredAssets} status={statusFromCount(m.uninsuredAssets, 1, 10)} />
+      </div>
+      <a href="/assets" className="mt-4 flex items-center justify-between rounded-lg border border-white/10 bg-black/35 p-3 text-sm text-white/70 hover:border-orange-500/40">
+        Open asset register <ChevronRight size={16} />
+      </a>
+    </Panel>
+  );
+}
+
+function FleetHealthPanel({ data }: { data: ITControlCentreData }) {
+  const m = data.metrics;
+  return (
+    <Panel title="Fleet Health" icon={Car}>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <MiniStat label="Active vehicles" value={m.activeVehicles} status="green" />
+        <MiniStat label="Maintenance" value={m.vehiclesInMaintenance} status={statusFromCount(m.vehiclesInMaintenance)} />
+        <MiniStat label="Service overdue" value={m.serviceOverdue} status={statusFromCount(m.serviceOverdue)} />
+        <MiniStat label="Service soon" value={m.serviceSoon} status={statusFromCount(m.serviceSoon, 1, 6)} />
+        <MiniStat label="Fuel month" value={formatMoney(m.fuelSpendThisMonth)} status="green" />
+        <MiniStat label="KM month" value={formatNumber(m.kmDrivenThisMonth)} status="green" />
+      </div>
+      <a href="/fleet" className="mt-4 flex items-center justify-between rounded-lg border border-white/10 bg-black/35 p-3 text-sm text-white/70 hover:border-orange-500/40">
+        Open fleet dashboard <ChevronRight size={16} />
+      </a>
+    </Panel>
+  );
+}
+
+function SupportTicketsPanel({ data }: { data: ITControlCentreData }) {
+  const tickets = data.supportTickets.filter((ticket) => !["resolved", "closed"].includes(ticket.status)).slice(0, 6);
+  return (
+    <Panel title="Support Tickets" icon={LifeBuoy}>
+      <div className="grid grid-cols-3 gap-3">
+        <MiniStat label="Open" value={data.metrics.openSupportTickets} status={statusFromCount(data.metrics.openSupportTickets, 5, 12)} />
+        <MiniStat label="Urgent" value={data.metrics.urgentSupportTickets} status={statusFromCount(data.metrics.urgentSupportTickets)} />
+        <MiniStat label="Unassigned" value={data.metrics.unassignedSupportTickets} status={statusFromCount(data.metrics.unassignedSupportTickets)} />
+      </div>
+      <ListRows rows={tickets.map((ticket) => ({
+        id: ticket.id,
+        title: ticket.title,
+        meta: `${ticket.priority} · ${ticket.status}${ticket.requester_email ? ` · ${ticket.requester_email}` : ""}`,
+        route: "/it/support",
+        status: ticket.priority === "urgent" ? "red" : ticket.priority === "high" ? "amber" : "green",
+      }))} empty="No open support tickets." />
+    </Panel>
+  );
+}
+
+function NotificationDeliveryPanel({ data }: { data: ITControlCentreData }) {
+  return (
+    <Panel title="Notification Delivery" icon={Bell}>
+      <div className="grid grid-cols-2 gap-3">
+        <MiniStat label="Failed 24h" value={data.metrics.failedNotificationDeliveries24h} status={statusFromCount(data.metrics.failedNotificationDeliveries24h, 1, 8)} />
+        <MiniStat label="Queued email" value={data.metrics.queuedEmailDeliveries} status={statusFromCount(data.metrics.queuedEmailDeliveries, 5, 20)} />
+      </div>
+      <a href="/notifications" className="mt-4 flex items-center justify-between rounded-lg border border-white/10 bg-black/35 p-3 text-sm text-white/70 hover:border-orange-500/40">
+        Inspect notifications <ChevronRight size={16} />
+      </a>
+    </Panel>
+  );
+}
+
+function WorkflowHealthPanel({ data }: { data: ITControlCentreData }) {
+  return (
+    <Panel title="Workflow Health" icon={Workflow}>
+      <MiniStat label="Failures in last 24h" value={data.metrics.workflowFailures24h} status={statusFromCount(data.metrics.workflowFailures24h)} />
+      <ListRows rows={data.workflowFailures.slice(0, 5).map((failure) => ({
+        id: failure.id,
+        title: failure.workflow_name ?? failure.execution_id,
+        meta: failure.error_message ?? failure.status,
+        route: "/automation-runs",
+        status: "red" as ControlStatus,
+      }))} empty="No workflow failures in the last 24h." />
+    </Panel>
+  );
+}
+
+function RecentSystemEventsPanel({ data }: { data: ITControlCentreData }) {
+  return (
+    <Panel title="Recent System Events" icon={DatabaseZap}>
+      <ListRows rows={data.recentEvents.slice(0, 8).map((event) => ({
+        id: event.id,
+        title: event.title,
+        meta: `${event.module} · ${formatDateTime(event.created_at)}`,
+        route: "/it/system-monitor",
+        status: event.severity === "critical" ? "red" : event.severity === "warning" ? "amber" : "green",
+      }))} empty="No recent system events." />
+    </Panel>
+  );
+}
+
+function AICommandPanel({
+  data,
+  organizationId,
+  userId,
+}: {
+  data: ITControlCentreData;
+  organizationId: string;
+  userId: string;
+}) {
+  const [output, setOutput] = useState("Select a command to generate an operational brief from the live control-centre snapshot.");
+  const [busy, setBusy] = useState(false);
+
+  const generateBrief = (mode: string) => {
+    const m = data.metrics;
+    const lines = {
+      health: [
+        `Health is ${statusCopy[data.healthStatus].label.toLowerCase()} at ${data.healthScore}/100.`,
+        `${m.criticalAlerts} critical alerts, ${m.downMonitors} down monitors, ${m.workflowFailures24h} workflow failures, and ${m.failedNotificationDeliveries24h} failed notification deliveries need review.`,
+      ],
+      alerts: data.alerts.length
+        ? data.alerts.slice(0, 4).map((alert) => `${alert.severity.toUpperCase()}: ${alert.title} (${alert.module})`)
+        : ["No unresolved critical alert is currently visible."],
+      report: [
+        `Daily IT report: ${m.activeUsers} active users, ${m.activeTimers} active timers, ${m.openCards} open cards, ${m.openSupportTickets} support tickets.`,
+        `Assets: ${m.damagedRepairAssets} repair/damaged, ${m.warrantyExpiringSoon} warranties expiring soon. Fleet: ${m.serviceOverdue} services overdue, ${formatMoney(m.fuelSpendThisMonth)} fuel spend this month.`,
+      ],
+      today: [
+        `${m.criticalAlerts + m.downMonitors + m.workflowFailures24h + m.serviceOverdue} items need attention today.`,
+        `Start with critical alerts, down monitors, failed workflows, overdue service, and blocked board cards.`,
+      ],
+      workflows: data.workflowFailures.length
+        ? data.workflowFailures.slice(0, 4).map((failure) => `Check ${failure.workflow_name ?? failure.execution_id}: ${failure.error_message ?? failure.status}. Review credentials, payload shape, and retry policy.`)
+        : ["No failed workflow is visible in the last 24 hours."],
+      boards: data.boardRisks.length
+        ? data.boardRisks.slice(0, 4).map((board) => `${board.board_name}: ${board.overdue_cards} overdue, ${board.blocked_cards} blocked, ${board.high_priority_cards} high priority.`)
+        : ["Board/card risk is currently low."],
+      assets: [
+        `Asset risk: ${m.damagedRepairAssets} repair/damaged, ${m.warrantyExpiringSoon} warranty expiring soon, ${m.uninsuredAssets} uninsured.`,
+        `Fleet risk: ${m.serviceOverdue} service overdue, ${m.serviceSoon} service soon, ${m.vehiclesInMaintenance} vehicles in maintenance.`,
+      ],
+    } as Record<string, string[]>;
+    setOutput((lines[mode] ?? lines.health).join("\n\n"));
+  };
+
+  const createTicketFromAlert = async () => {
+    const alert = data.alerts.find((item) => item.status !== "resolved");
+    if (!alert) {
+      setOutput("No open alert is available to convert into a support ticket.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const priority: TicketPriority = alert.severity === "critical" ? "urgent" : "high";
+      await createSupportTicket({
+        organizationId,
+        requesterId: userId,
+        ticketType: "other",
+        priority,
+        title: `Alert follow-up: ${alert.title}`,
+        description: alert.message ?? `System alert from ${alert.module}`,
+      });
+      setOutput(`Created a ${priority} support ticket for: ${alert.title}`);
+    } catch (error) {
+      setOutput(error instanceof Error ? error.message : "Failed to create support ticket.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const notifyResponsibleUsers = async () => {
+    const recipients = data.teamPulse
+      .filter((member) => member.status === "tracking" || member.status === "online")
+      .map((member) => member.id)
+      .slice(0, 12);
+    if (recipients.length === 0) recipients.push(userId);
+    setBusy(true);
+    try {
+      await createBulkNotifications({
+        organizationId,
+        userIds: recipients,
+        type: "workspace_admin_notice",
+        title: "IT Control Centre attention required",
+        message: output,
+        actionUrl: "/it/dashboard",
+        priority: data.healthStatus === "red" ? "urgent" : "high",
+        actorUserId: userId,
+        category: "it_control_centre",
+        channels: ["in_app"],
+        sendEmail: false,
+      });
+      setOutput(`Notified ${recipients.length} active command-centre user(s).`);
+    } catch (error) {
+      setOutput(error instanceof Error ? error.message : "Failed to notify users.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const commands = [
+    ["Summarize system health", () => generateBrief("health"), BrainCircuit],
+    ["Explain critical alerts", () => generateBrief("alerts"), ShieldAlert],
+    ["Generate daily IT report", () => generateBrief("report"), ClipboardList],
+    ["Needs attention today", () => generateBrief("today"), AlertTriangle],
+    ["Create ticket from alert", createTicketFromAlert, LifeBuoy],
+    ["Notify responsible users", notifyResponsibleUsers, Send],
+    ["Suggest workflow fixes", () => generateBrief("workflows"), Workflow],
+    ["Summarize board/card risk", () => generateBrief("boards"), ClipboardList],
+    ["Summarize asset/fleet risk", () => generateBrief("assets"), Car],
+  ] as const;
+
+  return (
+    <Panel title="AI Command Panel" icon={Bot}>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {commands.map(([label, action, Icon]) => (
+          <button
+            key={label}
+            type="button"
+            disabled={busy}
+            onClick={() => void action()}
+            className="flex items-center gap-2 rounded-lg border border-white/10 bg-black/35 px-3 py-2 text-left text-sm text-white/75 hover:border-orange-500/40 hover:text-white disabled:opacity-60"
+          >
+            <Icon size={15} className="shrink-0 text-orange-300" />
+            <span className="truncate">{label}</span>
+          </button>
+        ))}
+      </div>
+      <pre className="mt-4 min-h-48 whitespace-pre-wrap rounded-lg border border-orange-500/20 bg-orange-500/10 p-4 text-sm leading-6 text-orange-50">
+        {output}
+      </pre>
+    </Panel>
+  );
+}
+
+function MiniStat({
+  label,
+  value,
+  status,
+}: {
+  label: string;
+  value: number | string;
+  status: ControlStatus;
+}) {
+  return (
+    <div className="rounded-lg border border-white/10 bg-black/35 p-3">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <p className="truncate text-xs text-white/45">{label}</p>
+        <span className={cx("h-2 w-2 shrink-0 rounded-full", statusCopy[status].dot)} />
+      </div>
+      <p className="truncate text-xl font-semibold text-white">{formatNumber(value)}</p>
+    </div>
+  );
+}
+
+function EmptyState({ text }: { text: string }) {
+  return (
+    <div className="rounded-lg border border-white/10 bg-black/35 p-4 text-sm text-white/45">
+      {text}
+    </div>
+  );
+}
+
+function ListRows({
+  rows,
+  empty,
+}: {
+  rows: Array<{ id: string; title: string; meta: string; route: string; status: ControlStatus }>;
+  empty: string;
+}) {
+  return (
+    <div className="mt-4 space-y-2">
+      {rows.length === 0 ? (
+        <EmptyState text={empty} />
+      ) : (
+        rows.map((row) => (
+          <a key={row.id} href={row.route} className="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-black/35 p-3 hover:border-orange-500/40">
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold text-white">{row.title}</p>
+              <p className="mt-1 truncate text-xs text-white/45">{row.meta}</p>
+            </div>
+            <span className={cx("h-2.5 w-2.5 shrink-0 rounded-full", statusCopy[row.status].dot)} />
+          </a>
+        ))
+      )}
     </div>
   );
 }
 
 export default function ITDashboardPage() {
   const auth = useAuth();
-  const [inviteOpen, setInviteOpen] = useState(false);
-
-  const [pageLoading, setPageLoading] = useState(true);
-  const [pageError, setPageError] = useState("");
-  const [stats, setStats] = useState<ITDashboardStats | null>(null);
-  const [modules, setModules] = useState<ModuleHealthItem[]>([]);
-  const [teamPulse, setTeamPulse] = useState<TeamPulseMember[]>([]);
-  const [escalations, setEscalations] = useState<EscalationItem[]>([]);
-  const [kpis, setKpis] = useState<KPITile[]>([]);
-  const [supportTickets, setSupportTickets] = useState<SupportTicket[]>([]);
-  const [systemHealth, setSystemHealth] = useState<SystemHealthResponse | null>(null);
-  const [accountRequests, setAccountRequests] = useState<AccountAccessRequest[]>([]);
-  const [incidents, setIncidents] = useState<IncidentRow[]>([]);
-  const [auditLogs, setAuditLogs] = useState<AuditLogRow[]>([]);
-  const [incidentTitle, setIncidentTitle] = useState("");
-  const [incidentDescription, setIncidentDescription] = useState("");
-  const [incidentSeverity, setIncidentSeverity] =
-    useState<IncidentRow["severity"]>("medium");
-  const [warRoomBusy, setWarRoomBusy] = useState(false);
-
   const user = auth?.user ?? null;
   const profile = auth?.profile ?? null;
-  const loading = auth?.loading ?? true;
+  const authLoading = auth?.loading ?? true;
+  const organizationId = profile?.organization_id ?? null;
+  const userId = user?.id ?? null;
+  const [data, setData] = useState<ITControlCentreData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
   const firstName = useMemo(() => {
-    const fullName =
-      profile?.display_name ||
-      profile?.full_name ||
-      user?.user_metadata?.full_name ||
-      user?.email ||
-      "User";
+    const name = profile?.display_name || profile?.full_name || user?.email || "Operator";
+    return String(name).split(" ")[0];
+  }, [profile?.display_name, profile?.full_name, user?.email]);
 
-    return String(fullName).split(" ")[0];
-  }, [profile?.display_name, profile?.full_name, user?.user_metadata?.full_name, user?.email]);
-
-  const organizationId = profile?.organization_id ?? null;
-  const userId = user?.id ?? undefined;
-  const cityLabel =
-    typeof profile?.department === "string" &&
-    profile.department.trim().length > 0
-      ? profile.department
-      : "Your city";
-  const healthEnvironment = systemHealth?.environment ?? {};
-  const emailProvider =
-    typeof healthEnvironment.emailProvider === "string"
-      ? healthEnvironment.emailProvider
-      : "resend";
-  const resendConfigured =
-    healthEnvironment.resendApiKeyConfigured === true &&
-    healthEnvironment.resendFromEmailConfigured === true;
-
-  const sharedDashboard = useDashboard({
-    userId,
-    organizationId,
-    role: profile?.primary_role ?? null,
-    cityLabel,
-    latitude: null,
-    longitude: null,
-    enabled: !!organizationId && !!userId,
-  });
-
-  const loadDashboard = useCallback(async () => {
-    if (!organizationId || !userId) return;
-
+  const load = useCallback(async () => {
+    if (!organizationId) return;
     try {
-      setPageLoading(true);
-      setPageError("");
-
-      const [
-        statsResult,
-        modulesResult,
-        pulseResult,
-        escalationsResult,
-        kpisResult,
-        ticketsResult,
-        healthResult,
-        accountRequestsResult,
-        incidentsResult,
-        auditLogsResult,
-      ] = await Promise.all([
-        getITDashboardStats(organizationId),
-        getCrossModuleHealth(organizationId),
-        getTeamPulse(organizationId),
-        getEscalationItems(organizationId),
-        getKPITiles(organizationId),
-        getSupportTickets(organizationId, {
-          status: ["open", "in_progress", "waiting_on_user"],
-          limit: 8,
-        }),
-        getSystemHealth().catch(() => null),
-        getAccountAccessRequests(organizationId),
-        getIncidents(organizationId),
-        getAuditLogs(organizationId),
-      ]);
-
-      setStats(statsResult);
-      setModules(modulesResult);
-      setTeamPulse(pulseResult);
-      setEscalations(escalationsResult);
-      setKpis(kpisResult);
-      setSupportTickets(ticketsResult);
-      setSystemHealth(healthResult);
-      setAccountRequests(accountRequestsResult);
-      setIncidents(incidentsResult);
-      setAuditLogs(auditLogsResult);
-    } catch (err: any) {
-      console.error("IT DASHBOARD LOAD ERROR:", err);
-      setPageError(err?.message || "Failed to load IT dashboard.");
-    } finally {
-      setPageLoading(false);
-    }
-  }, [organizationId, userId]);
-
-  const pendingAccountRequests = accountRequests.filter(
-    (request) => request.status === "pending",
-  );
-
-  const reviewRequest = async (
-    request: AccountAccessRequest,
-    status: "approved" | "rejected",
-  ) => {
-    if (!organizationId || !userId) return;
-    const notes = window.prompt(
-      status === "approved"
-        ? "Approval notes (optional)"
-        : "Rejection reason (optional)",
-    );
-    try {
-      setWarRoomBusy(true);
-      await reviewAccountAccessRequest({
-        requestId: request.id,
-        organizationId,
-        reviewerId: userId,
-        status,
-        notes,
-      });
-      await loadDashboard();
+      setLoading(true);
+      setError("");
+      setData(await getITControlCentreData(organizationId));
     } catch (err) {
-      setPageError(err instanceof Error ? err.message : "Failed to review account request.");
+      console.error("IT CONTROL CENTRE LOAD ERROR:", err);
+      setError(err instanceof Error ? err.message : "Failed to load IT Control Centre.");
     } finally {
-      setWarRoomBusy(false);
+      setLoading(false);
     }
-  };
+  }, [organizationId]);
 
-  const submitIncident = async () => {
-    if (!organizationId || !userId || !incidentTitle.trim()) return;
-    try {
-      setWarRoomBusy(true);
-      await createIncident({
-        organizationId,
-        title: incidentTitle,
-        severity: incidentSeverity,
-        description: incidentDescription,
-        createdBy: userId,
-      });
-      setIncidentTitle("");
-      setIncidentDescription("");
-      setIncidentSeverity("medium");
-      await loadDashboard();
-    } catch (err) {
-      setPageError(err instanceof Error ? err.message : "Failed to create incident.");
-    } finally {
-      setWarRoomBusy(false);
-    }
-  };
   useEffect(() => {
     if (!organizationId || !userId) return;
-    void loadDashboard();
-  }, [organizationId, userId, loadDashboard]);
+    void load();
+  }, [organizationId, userId, load]);
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-black px-4 py-6 text-white sm:px-6">
-        Loading IT dashboard...
-      </div>
-    );
+  if (authLoading) {
+    return <div className="min-h-screen bg-black p-6 text-white">Loading IT Control Centre...</div>;
   }
 
-  if (!user || !profile) {
-    return (
-      <div className="min-h-screen bg-black px-4 py-6 text-white sm:px-6">
-        Unable to load your IT workspace.
-      </div>
-    );
-  }
-
-  if (!organizationId || !userId) {
-    return (
-      <div className="min-h-screen bg-black px-4 py-6 text-white sm:px-6">
-        Your IT account is missing organization or user context.
-      </div>
-    );
+  if (!user || !profile || !organizationId || !userId) {
+    return <div className="min-h-screen bg-black p-6 text-white">Your IT account is missing user or organization context.</div>;
   }
 
   return (
@@ -291,595 +709,77 @@ export default function ITDashboardPage() {
         <Sidebar
           role={profile.primary_role}
           counts={{
-            projects: stats?.activeProjects ?? 0,
-            boards: stats?.totalBoards ?? 0,
-            openCards: stats?.openCards ?? 0,
-            pendingInvites: stats?.pendingInvites ?? 0,
-            openIssues: stats?.openIssues ?? 0,
+            projects: 0,
+            boards: data?.metrics.boardsCount ?? 0,
+            openCards: data?.metrics.openCards ?? 0,
+            pendingInvites: data?.metrics.pendingAccountRequests ?? 0,
+            openIssues: data?.metrics.openSupportTickets ?? 0,
           }}
         />
 
         <main className="min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-8">
-          {/* ── Header ──────────────────────────────────── */}
-          <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
-            <div>
-              <div className="flex items-center gap-2">
-                <Shield size={14} className="text-orange-500" />
-                <p className="text-xs uppercase tracking-[0.3em] text-orange-500">
-                  Control Centre
-                </p>
+          {loading && !data ? (
+            <div className="grid gap-4 md:grid-cols-3">
+              {Array.from({ length: 9 }).map((_, index) => (
+                <div key={index} className="h-36 animate-pulse rounded-lg border border-white/10 bg-zinc-950" />
+              ))}
+            </div>
+          ) : error ? (
+            <div className="rounded-lg border border-red-500/25 bg-red-500/10 p-5 text-red-100">
+              <div className="flex items-center gap-2 font-semibold">
+                <XCircle size={18} />
+                Control Centre unavailable
               </div>
-              <h1 className="mt-2 text-3xl font-bold">
-                Welcome back, {firstName}
-              </h1>
-              <p className="mt-2 text-sm text-white/50">
-                AI-powered operational command centre — systems, people, and
-                actions at a glance.
-              </p>
-            </div>
-
-            <div className="flex flex-wrap gap-3">
+              <p className="mt-2 text-sm text-red-100/75">{error}</p>
               <button
-                onClick={() => setInviteOpen(true)}
-                className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium text-white hover:bg-white/10"
+                type="button"
+                onClick={() => void load()}
+                className="mt-4 rounded-lg bg-red-500 px-4 py-2 text-sm font-semibold text-white"
               >
-                Invite Member
+                Retry
               </button>
-              <a
-                href="/boards"
-                className="rounded-2xl bg-orange-500 px-4 py-3 text-sm font-semibold text-black hover:bg-orange-400"
-              >
-                Open Boards
-              </a>
             </div>
-          </div>
-
-          {pageLoading ? (
-            <div className="space-y-4">
-              <CrossModuleHealthGrid modules={[]} loading />
-              <KPITilesRow kpis={[]} loading />
-              <TeamPulseStrip members={[]} loading />
-            </div>
-          ) : pageError ? (
-            <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-6 text-red-300">
-              {pageError}
-            </div>
-          ) : (
+          ) : data ? (
             <>
-              {/* ── 1. Cross-Module Health Grid ─────────── */}
-              <section className="mb-6">
-                <div className="mb-3 flex items-center gap-2">
-                  <h2 className="text-sm font-medium text-white/60">
-                    Critical Alerts
-                  </h2>
-                  <span className="text-[10px] text-white/30">
-                    War Room security and platform signals
-                  </span>
-                </div>
-                <div className="grid gap-4 lg:grid-cols-3">
-                  <div className="rounded-2xl border border-white/10 bg-neutral-950 p-5">
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm text-white/60">System Health</p>
-                      <Database size={18} className="text-orange-400" />
-                    </div>
-                    <p className="mt-4 text-3xl font-bold">
-                      {systemHealth?.ok ? "OK" : "Review"}
-                    </p>
-                    <p className="mt-2 text-sm text-white/45">
-                      {systemHealth?.warnings.length
-                        ? `${systemHealth.warnings.length} warning(s)`
-                        : "No protected health warnings returned"}
-                    </p>
-                  </div>
-                  <div className="rounded-2xl border border-white/10 bg-neutral-950 p-5">
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm text-white/60">Account Requests</p>
-                      <Lock size={18} className="text-orange-400" />
-                    </div>
-                    <p className="mt-4 text-3xl font-bold">
-                      {pendingAccountRequests.length}
-                    </p>
-                    <p className="mt-2 text-sm text-white/45">
-                      Pending owner/admin review
-                    </p>
-                  </div>
-                  <div className="rounded-2xl border border-white/10 bg-neutral-950 p-5">
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm text-white/60">Open Incidents</p>
-                      <Siren size={18} className="text-orange-400" />
-                    </div>
-                    <p className="mt-4 text-3xl font-bold">
-                      {incidents.filter((item) => item.status !== "resolved").length}
-                    </p>
-                    <p className="mt-2 text-sm text-white/45">
-                      Active operational incidents
-                    </p>
-                  </div>
-                </div>
-                {systemHealth?.warnings.length ? (
-                  <div className="mt-4 rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4 text-sm text-amber-100">
-                    {systemHealth.warnings.slice(0, 4).join(" ")}
-                  </div>
-                ) : null}
-              </section>
+              <CommandHeader data={data} firstName={firstName} onRefresh={() => void load()} refreshing={loading} />
+              <HealthScoreCard data={data} />
 
-              <section className="mb-6">
-                <div className="mb-3 flex items-center gap-2">
-                  <h2 className="text-sm font-medium text-white/60">
-                    System Health
-                  </h2>
-                  <span className="text-[10px] text-white/30">
-                    Click any module to drill in
-                  </span>
-                </div>
-                <CrossModuleHealthGrid modules={modules} />
-              </section>
+              <div className="mb-6 grid gap-4 lg:grid-cols-[1fr_1fr] 2xl:grid-cols-[1fr_1fr_1fr]">
+                <CriticalAlertsPanel data={data} />
+                <SystemMonitorsGrid data={data} />
+                <AICommandPanel data={data} organizationId={organizationId} userId={userId} />
+              </div>
 
-              {/* ── 2. KPI Tiles ────────────────────────── */}
-              <section className="mb-6">
-                <KPITilesRow kpis={kpis} />
-              </section>
+              <div className="mb-6 grid gap-4 xl:grid-cols-2">
+                <TeamPulsePanel data={data} />
+                <BoardsHealthPanel data={data} />
+              </div>
 
-              {/* ── 3. Team Pulse ───────────────────────── */}
-              <section className="mb-6">
-                <TeamPulseStrip members={teamPulse} />
-              </section>
+              <div className="mb-6 grid gap-4 xl:grid-cols-2">
+                <AssetsHealthPanel data={data} />
+                <FleetHealthPanel data={data} />
+              </div>
 
-              {/* ── 4. Core Stats Row ──────────────────── */}
-              <section className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-7">
-                <ITStatsCard
-                  title="Boards / Clients"
-                  value={stats?.totalBoards ?? 0}
-                  subtitle="Workspace boards"
-                  icon={BriefcaseBusiness}
-                />
-                <ITStatsCard
-                  title="Open Cards"
-                  value={stats?.openCards ?? 0}
-                  subtitle="Cards under boards"
-                  icon={CheckSquare}
-                />
-                <ITStatsCard
-                  title="Open Issues"
-                  value={stats?.openIssues ?? 0}
-                  subtitle="Open and in-progress"
-                  icon={Bug}
-                />
-                <ITStatsCard
-                  title="Automations"
-                  value={stats?.automationCount ?? 0}
-                  subtitle="Runs (24h)"
-                  icon={Sparkles}
-                />
-                <ITStatsCard
-                  title="Tracking Now"
-                  value={stats?.activeTimers ?? 0}
-                  subtitle="Running task timers"
-                  icon={Clock3}
-                />
-                <ITStatsCard
-                  title="System Health"
-                  value={stats?.systemHealthLabel ?? "Unknown"}
-                  subtitle="Automation failure state"
-                  icon={Activity}
-                />
-                <ITStatsCard
-                  title="My Cards"
-                  value={sharedDashboard.stats?.openTasks ?? 0}
-                  subtitle="Assigned cards"
-                  icon={CheckSquare}
-                />
-                <ITStatsCard
-                  title="Tracked Today"
-                  value={`${(sharedDashboard.stats as any)?.todayMinutes ?? 0}m`}
-                  subtitle="Time tracked"
-                  icon={Clock3}
-                />
-              </section>
+              <div className="mb-6 grid gap-4 xl:grid-cols-3">
+                <SupportTicketsPanel data={data} />
+                <NotificationDeliveryPanel data={data} />
+                <WorkflowHealthPanel data={data} />
+              </div>
 
-              {/* ── 5. Main Grid: Escalations + AI ─────── */}
-              <section className="mb-6 grid gap-6 xl:grid-cols-2">
-                <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-                  <div className="mb-4 flex items-center justify-between">
-                    <div>
-                      <h2 className="text-lg font-semibold">Account Requests</h2>
-                      <p className="text-sm text-white/45">
-                        Public access requests awaiting approval.
-                      </p>
-                    </div>
-                    <span className="rounded-full bg-orange-500/15 px-3 py-1 text-xs text-orange-300">
-                      {pendingAccountRequests.length} pending
-                    </span>
-                  </div>
-                  <div className="space-y-3">
-                    {pendingAccountRequests.length === 0 ? (
-                      <p className="rounded-2xl border border-white/10 bg-black/30 p-4 text-sm text-white/50">
-                        No pending account requests.
-                      </p>
-                    ) : (
-                      pendingAccountRequests.slice(0, 5).map((request) => (
-                        <div key={request.id} className="rounded-2xl border border-white/10 bg-black/30 p-4">
-                          <div className="flex flex-wrap items-start justify-between gap-3">
-                            <div>
-                              <p className="font-semibold">{request.full_name}</p>
-                              <p className="text-sm text-white/50">{request.email}</p>
-                              <p className="mt-1 text-xs text-white/40">
-                                {request.company || "No company"} · {request.requested_role || "No role requested"}
-                              </p>
-                            </div>
-                            <div className="flex gap-2">
-                              <button
-                                disabled={warRoomBusy}
-                                onClick={() => void reviewRequest(request, "approved")}
-                                className="rounded-xl bg-emerald-500/15 px-3 py-2 text-xs font-semibold text-emerald-300 disabled:opacity-60"
-                              >
-                                Approve
-                              </button>
-                              <button
-                                disabled={warRoomBusy}
-                                onClick={() => void reviewRequest(request, "rejected")}
-                                className="rounded-xl bg-red-500/15 px-3 py-2 text-xs font-semibold text-red-300 disabled:opacity-60"
-                              >
-                                Reject
-                              </button>
-                            </div>
-                          </div>
-                          {request.message ? (
-                            <p className="mt-3 text-sm text-white/60">{request.message}</p>
-                          ) : null}
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
+              <RecentSystemEventsPanel data={data} />
 
-                <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-                  <h2 className="text-lg font-semibold">Incident Console</h2>
-                  <p className="mt-1 text-sm text-white/45">
-                    Create and monitor operational incidents.
-                  </p>
-                  <div className="mt-4 grid gap-3">
-                    <input
-                      value={incidentTitle}
-                      onChange={(event) => setIncidentTitle(event.target.value)}
-                      placeholder="Incident title"
-                      className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm outline-none focus:border-orange-500"
-                    />
-                    <select
-                      value={incidentSeverity}
-                      onChange={(event) =>
-                        setIncidentSeverity(event.target.value as IncidentRow["severity"])
-                      }
-                      className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm outline-none focus:border-orange-500"
-                    >
-                      <option value="low">Low</option>
-                      <option value="medium">Medium</option>
-                      <option value="high">High</option>
-                      <option value="critical">Critical</option>
-                    </select>
-                    <textarea
-                      value={incidentDescription}
-                      onChange={(event) => setIncidentDescription(event.target.value)}
-                      placeholder="Description"
-                      rows={3}
-                      className="resize-none rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm outline-none focus:border-orange-500"
-                    />
-                    <button
-                      disabled={warRoomBusy || !incidentTitle.trim()}
-                      onClick={() => void submitIncident()}
-                      className="rounded-2xl bg-orange-500 px-4 py-3 text-sm font-semibold text-black disabled:opacity-60"
-                    >
-                      Create Incident
-                    </button>
-                  </div>
-                  <div className="mt-5 space-y-2">
-                    {incidents.slice(0, 4).map((incident) => (
-                      <div key={incident.id} className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
-                        <div className="flex justify-between gap-3">
-                          <p className="text-sm font-semibold">{incident.title}</p>
-                          <span className="text-xs text-orange-300">{incident.severity}</span>
-                        </div>
-                        <p className="mt-1 text-xs text-white/45">{incident.status}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </section>
-
-              <section className="mb-6 grid gap-6 xl:grid-cols-2">
-                <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-                  <h2 className="text-lg font-semibold">Email / Automations</h2>
-                  <div className="mt-4 space-y-3">
-                    <EnvStatus
-                      label={`Email provider: ${emailProvider}`}
-                      configured={emailProvider === "resend" ? resendConfigured : healthEnvironment.n8nNotificationConfigured === true}
-                    />
-                    <EnvStatus
-                      label="Resend API key and sender"
-                      configured={resendConfigured}
-                    />
-                    <EnvStatus
-                      label="AI Workspace webhook"
-                      configured={Boolean(import.meta.env.VITE_N8N_AI_WORKSPACE_WEBHOOK_URL)}
-                    />
-                    <EnvStatus
-                      label="Optional n8n notification workflow"
-                      configured={healthEnvironment.n8nNotificationConfigured === true}
-                    />
-                  </div>
-                </div>
-
-                <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-                  <h2 className="text-lg font-semibold">Audit Logs</h2>
-                  <div className="mt-4 space-y-2">
-                    {auditLogs.slice(0, 7).map((log) => (
-                      <div key={log.id} className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
-                        <p className="text-sm font-semibold text-white/80">{log.action}</p>
-                        <p className="mt-1 text-xs text-white/40">
-                          {formatDateTime(log.created_at)}
-                          {log.reason ? ` · ${log.reason}` : ""}
-                        </p>
-                      </div>
-                    ))}
-                    {auditLogs.length === 0 ? (
-                      <p className="rounded-2xl border border-white/10 bg-black/30 p-4 text-sm text-white/50">
-                        No audit logs returned.
-                      </p>
-                    ) : null}
-                  </div>
-                </div>
-              </section>
-
-              <section className="mb-6 grid gap-6 xl:grid-cols-3">
-                {/* Left: Escalation Feed */}
-                <div className="space-y-6 xl:col-span-2">
-                  <div>
-                    <div className="mb-3 flex items-center justify-between">
-                      <h2 className="text-sm font-medium text-white/60">
-                        Escalations & Alerts
-                      </h2>
-                      <span className="text-[10px] text-white/30">
-                        {escalations.length} items requiring attention
-                      </span>
-                    </div>
-                    <EscalationFeed items={escalations} />
-                  </div>
-
-                  {/* AI Insights Panel */}
-                  <AIInsightsPanel
-                    organizationId={organizationId}
-                    userId={userId}
-                    role={profile.primary_role ?? "employee"}
-                    userName={profile.display_name ?? profile.full_name ?? null}
-                    modules={modules}
-                    escalations={escalations}
-                    kpis={kpis}
-                  />
-                </div>
-
-                {/* Right: AI Quick Actions + Manual Quick Actions */}
-                <div className="space-y-6">
-                  <AIQuickActions
-                    organizationId={organizationId}
-                    userId={userId}
-                    role={profile.primary_role ?? "employee"}
-                    fullName={profile.display_name ?? profile.full_name ?? null}
-                    email={user.email ?? ""}
-                  />
-
-                  <div className="rounded-2xl border border-white/10 bg-linear-to-br from-orange-500/10 to-white/5 p-5">
-                    <h2 className="text-sm font-semibold text-white">
-                      Quick Actions
-                    </h2>
-                    <div className="mt-3 space-y-2 text-sm text-white/75">
-                      <a
-                        href="/boards"
-                        className="block w-full rounded-xl border border-white/10 bg-black/40 px-4 py-2.5 text-left text-xs hover:border-orange-500/30"
-                      >
-                        Open boards and client workspaces
-                      </a>
-                      <a
-                        href="/timesheets/team"
-                        className="block w-full rounded-xl border border-white/10 bg-black/40 px-4 py-2.5 text-left text-xs hover:border-orange-500/30"
-                      >
-                        Review team timesheet
-                      </a>
-                      <button
-                        onClick={() => setInviteOpen(true)}
-                        className="block w-full rounded-xl border border-white/10 bg-black/40 px-4 py-2.5 text-left text-xs hover:border-orange-500/30"
-                      >
-                        Invite collaborator
-                      </button>
-                      <a
-                        href="/automations"
-                        className="block rounded-xl border border-white/10 bg-black/40 px-4 py-2.5 text-xs hover:border-orange-500/30"
-                      >
-                        Review automation runs
-                      </a>
-                      <a
-                        href="/admin/employees"
-                        className="block rounded-xl border border-white/10 bg-black/40 px-4 py-2.5 text-xs hover:border-orange-500/30"
-                      >
-                        User control and password recovery
-                      </a>
-                    </div>
-                    <a
-                      href="/it/support"
-                      className="mt-4 inline-flex items-center gap-2 text-xs font-medium text-orange-500"
-                    >
-                      Account support tools <ArrowRight size={14} />
-                    </a>
-                  </div>
-                </div>
-              </section>
-
-              {/* ── 5b. Support Tickets (Account Recovery) ── */}
-              <section className="mb-6">
-                <div className="mb-3 flex items-center justify-between">
-                  <h2 className="text-sm font-medium text-white/60">
-                    Support Tickets & Account Recovery
-                  </h2>
-                  <a
-                    href="/it/support"
-                    className="inline-flex items-center gap-1 text-xs font-medium text-orange-500"
-                  >
-                    View all <ArrowRight size={12} />
-                  </a>
-                </div>
-                <SupportTicketsFeed tickets={supportTickets} limit={5} />
-              </section>
-
-              {/* ── 6. Operations Control ─────────────── */}
-              <section className="grid gap-6 xl:grid-cols-3">
-                <div className="space-y-6 xl:col-span-2">
-                  <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-                    <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                      <div>
-                        <h2 className="text-lg font-semibold">
-                          Boards & Card Operations
-                        </h2>
-                        <p className="text-sm text-white/50">
-                          Clients are boards, and tasks are cards inside those boards.
-                        </p>
-                      </div>
-                      <a
-                        href="/boards"
-                        className="inline-flex items-center gap-2 rounded-xl bg-orange-500 px-3 py-2 text-xs font-semibold text-black"
-                      >
-                        Open boards <ArrowRight size={14} />
-                      </a>
-                    </div>
-                    <div className="grid gap-3 sm:grid-cols-3">
-                      <a
-                        href="/boards"
-                        className="rounded-2xl border border-white/10 bg-black/40 p-4 hover:border-orange-500/30"
-                      >
-                        <BriefcaseBusiness size={18} className="text-orange-400" />
-                        <p className="mt-3 text-2xl font-bold">
-                          {stats?.totalBoards ?? 0}
-                        </p>
-                        <p className="mt-1 text-xs text-white/45">
-                          total boards / clients
-                        </p>
-                      </a>
-                      <a
-                        href={modules.find((item) => item.module === "Cards")?.route ?? "/boards"}
-                        className="rounded-2xl border border-white/10 bg-black/40 p-4 hover:border-orange-500/30"
-                      >
-                        <CheckSquare size={18} className="text-orange-400" />
-                        <p className="mt-3 text-2xl font-bold">
-                          {stats?.openCards ?? 0}
-                        </p>
-                        <p className="mt-1 text-xs text-white/45">
-                          open cards under boards
-                        </p>
-                      </a>
-                      <a
-                        href="/timesheets/team"
-                        className="rounded-2xl border border-white/10 bg-black/40 p-4 hover:border-orange-500/30"
-                      >
-                        <Clock3 size={18} className="text-orange-400" />
-                        <p className="mt-3 text-2xl font-bold">
-                          {stats?.activeTimers ?? 0}
-                        </p>
-                        <p className="mt-1 text-xs text-white/45">
-                          people tracking now
-                        </p>
-                      </a>
-                    </div>
-                  </div>
-
-                  <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-                    <h2 className="text-lg font-semibold">Identity Control</h2>
-                    <p className="mt-1 text-sm text-white/45">
-                      Protected user lifecycle and account recovery actions live behind
-                      admin/IT controls and audit logs.
-                    </p>
-                    <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                      <a
-                        href="/it/support"
-                        className="rounded-2xl border border-white/10 bg-black/40 p-4 hover:border-orange-500/30"
-                      >
-                        <KeyRound size={18} className="text-orange-400" />
-                        <p className="mt-3 text-sm font-semibold">
-                          Password recovery
-                        </p>
-                        <p className="mt-1 text-xs text-white/45">
-                          reset support and account tickets
-                        </p>
-                      </a>
-                      <a
-                        href="/admin/employees"
-                        className="rounded-2xl border border-white/10 bg-black/40 p-4 hover:border-orange-500/30"
-                      >
-                        <UserX size={18} className="text-orange-400" />
-                        <p className="mt-3 text-sm font-semibold">
-                          Ban / suspend users
-                        </p>
-                        <p className="mt-1 text-xs text-white/45">
-                          service-role protected actions
-                        </p>
-                      </a>
-                      <a
-                        href="/admin/notification-deliveries"
-                        className="rounded-2xl border border-white/10 bg-black/40 p-4 hover:border-orange-500/30"
-                      >
-                        <Activity size={18} className="text-orange-400" />
-                        <p className="mt-3 text-sm font-semibold">
-                          Delivery failures
-                        </p>
-                        <p className="mt-1 text-xs text-white/45">
-                          notification, push, and email logs
-                        </p>
-                      </a>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-6">
-                  <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-                    <h2 className="text-sm font-semibold">Recent Audit Activity</h2>
-                    <div className="mt-3 space-y-2">
-                      {auditLogs.length === 0 ? (
-                        <div className="rounded-xl border border-white/10 bg-black/40 px-4 py-4 text-sm text-white/60">
-                          No audit activity yet.
-                        </div>
-                      ) : (
-                        auditLogs.slice(0, 8).map((item) => (
-                          <div
-                            key={item.id}
-                            className="rounded-xl border border-white/10 bg-black/40 px-3 py-2.5 text-sm text-white/70"
-                          >
-                            <p className="text-xs font-medium text-white">
-                              {item.action}
-                            </p>
-                            <p className="mt-0.5 text-[10px] text-white/45">
-                              {formatDateTime(item.created_at)}
-                              {item.reason ? ` • ${item.reason}` : ""}
-                            </p>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </section>
+              <div className="mt-6 flex flex-wrap items-center gap-3 text-xs text-white/35">
+                <CheckCircle2 size={14} className="text-emerald-300" />
+                <span>Generated {formatDateTime(data.generatedAt)}</span>
+                <Clock3 size={14} className="text-orange-300" />
+                <span>All panels are scoped to this organization.</span>
+                <Sparkles size={14} className="text-orange-300" />
+                <span>{data.metrics.aiActions24h} AI actions in the last 24h.</span>
+              </div>
             </>
-          )}
+          ) : null}
         </main>
       </div>
-
-      <InviteMemberModal
-        open={inviteOpen}
-        onClose={() => setInviteOpen(false)}
-        organizationId={organizationId}
-        userId={userId}
-        onInvited={async () => {
-          await loadDashboard();
-          await sharedDashboard.reload();
-        }}
-      />
-
     </div>
   );
 }

@@ -23,7 +23,7 @@ export type NotificationEmailResult = {
 };
 
 const APP_URL = "https://codex.itsnomatata.com";
-const APP_NAME = "Nomatata";
+const APP_NAME = "IT's Nomatata";
 
 function escapeHtml(value: string) {
   return value

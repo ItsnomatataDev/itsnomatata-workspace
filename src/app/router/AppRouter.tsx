@@ -1105,6 +1105,17 @@ const AppRouter = () => {
 
         {/* IT routes */}
         <Route
+          path="/it"
+          element={
+            <ProtectedRoute>
+              <RoleRoute roles={["admin", "it", "superadmin", "it-superadmin"]}>
+                <ITDashboardPage />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
           path="/it/dashboard"
           element={
             <ProtectedRoute>
