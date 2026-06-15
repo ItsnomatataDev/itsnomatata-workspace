@@ -180,6 +180,10 @@ function shouldUseWorkspaceRouter(prompt: string) {
     /\b(show|who|which|list|people|users|team)\b.*\b(tracking|timer|time tracker|time tracking)\b/.test(
       lower,
     ) ||
+    /\b(what|show|tell|which)\b.*\b(i am|i'm|im|me|my)\b.*\b(working on|doing|busy with)\b/.test(
+      lower,
+    ) ||
+    /\bwhat\s+am\s+i\s+(working on|doing)\b/.test(lower) ||
     /\b(create|make|add)\b.*\b(card|task)\b/.test(lower) ||
     /\b(card|task)\b.*\b(named|called|titled)\b/.test(lower) ||
     /timesheet|time entr|hours|tracked time|active timer|currently tracking/.test(
@@ -187,6 +191,12 @@ function shouldUseWorkspaceRouter(prompt: string) {
     ) ||
     /leave|vacation|time off|absence|pto/.test(lower) ||
     /summarize my tasks|list my boards|show my notifications|attendance|clock/.test(
+      lower,
+    ) ||
+    /\b(who|show|list|which|people|staff|employees|team)\b.*\b(late|absent|present)\b/.test(
+      lower,
+    ) ||
+    /fleet|vehicle|vehicles|service record|maintenance|odometer|kilometers|kilometres|\bkm\b|fuel|diesel|petrol|mileage/.test(
       lower,
     ) ||
     /viewing|current card|this card|current board|which card|what card/.test(

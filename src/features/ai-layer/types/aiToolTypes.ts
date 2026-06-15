@@ -9,8 +9,10 @@ export type AiRouterToolId =
   | "get_attendance_summary"
   | "get_leave_balance"
   | "search_leave_requests"
+  | "search_meetings"
   | "search_notifications"
-  | "search_assets";
+  | "search_assets"
+  | "search_fleet_service_needs";
 
 export type AiToolResult = {
   toolId: AiRouterToolId | null;

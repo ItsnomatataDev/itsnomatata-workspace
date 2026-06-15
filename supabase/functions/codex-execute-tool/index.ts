@@ -364,6 +364,33 @@ function normalizeOfficeMention(value: string) {
   return null;
 }
 
+function normalizeAttendanceMode(payload: Record<string, unknown>) {
+  const mode = String(
+    payload.mode ?? payload.attendanceMode ?? payload.attendance_mode ?? "",
+  ).toLowerCase();
+  const status = String(payload.status ?? "").toLowerCase();
+  const message = String(payload.originalMessage ?? payload.query ?? "")
+    .toLowerCase();
+  const source = `${mode} ${status} ${message}`;
+
+  if (
+    /\b(absent|absence|did not clock|didn'?t clock|not clocked|no clock[- ]?in|not in|missing clock|never clocked)\b/
+      .test(source)
+  ) {
+    return "absent";
+  }
+  if (/\b(late|clocked in late|arrived late)\b/.test(source)) return "late";
+  if (/\b(on leave|leave today|approved leave)\b/.test(source)) return "on_leave";
+  if (/\b(pending)\b/.test(source)) return "pending";
+  if (
+    /\b(clock(?:ed)? in|clockins?|present|who is in|who came in|attendance today)\b/
+      .test(source)
+  ) {
+    return "clocked_in";
+  }
+  return "summary";
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Database helpers
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1223,6 +1250,16 @@ async function toolGetAttendanceSummary(
   const to = explicitTo ?? defaultRange.to;
   const fromDateKey = harareDateKey(from);
   const toDateKey = harareDateKey(to);
+  const attendanceMode = normalizeAttendanceMode(payload);
+  const requestedOffice = await resolveOfficeForPayload(
+    adminClient,
+    ctx.organizationId,
+    payload,
+  );
+  const officeId =
+    normalizeUuid(payload.office_id ?? payload.officeId) ??
+    (requestedOffice?.id as string | undefined) ??
+    null;
 
   const hasTargetUser = Boolean(
     normalizeUuid(
@@ -1245,6 +1282,53 @@ async function toolGetAttendanceSummary(
     ? null
     : await resolveTargetProfile(adminClient, ctx, payload);
 
+  let profilesQuery = adminClient
+    .from("profiles")
+    .select(
+      "id, email, full_name, username, avatar_url, primary_role, department, office_id, account_status, is_active, is_suspended",
+    )
+    .eq("organization_id", ctx.organizationId)
+    .eq("account_status", "active")
+    .neq("is_suspended", true)
+    .limit(500);
+
+  if (teamView) {
+    if (officeId) profilesQuery = profilesQuery.eq("office_id", officeId);
+  } else {
+    profilesQuery = profilesQuery.eq("id", targetProfile?.id ?? ctx.userId);
+  }
+
+  const { data: profileRows, error: profilesError } = await profilesQuery;
+  if (profilesError) throw profilesError;
+  const activeProfiles = (profileRows ?? []) as DbRow[];
+  const activeUserIds = activeProfiles
+    .map((profile) => profile.id as string)
+    .filter(Boolean);
+  const profilesById = new Map<string, DbRow>(
+    activeProfiles.map((profile) => [profile.id as string, profile]),
+  );
+
+  if (teamView && activeUserIds.length === 0) {
+    return {
+      ok: true,
+      range: { from, to, date: dateKey, timezone: "Africa/Harare" },
+      mode: attendanceMode,
+      teamView,
+      office: requestedOffice
+        ? {
+          id: requestedOffice.id,
+          name: requestedOffice.name,
+          slug: requestedOffice.slug,
+        }
+        : null,
+      counts: {},
+      resultCount: 0,
+      totalPeople: 0,
+      records: [],
+      message: "No active users were found for this attendance query.",
+    };
+  }
+
   let query = adminClient
     .from("attendance_daily_status")
     .select(
@@ -1258,16 +1342,14 @@ async function toolGetAttendanceSummary(
 
   if (!teamView)
     query = query.eq("user_id", targetProfile?.id ?? ctx.userId);
+  else if (activeUserIds.length > 0)
+    query = query.in("user_id", activeUserIds);
+  if (officeId) query = query.eq("office_id", officeId);
 
   const { data, error } = await query;
   if (error) throw error;
 
   const rows = (data ?? []) as DbRow[];
-  const profilesById = await fetchProfilesByIds(
-    adminClient,
-    ctx.organizationId,
-    rows.map((row) => row.user_id as string),
-  );
   const profileOfficeIds = [
     ...new Set(
       [...profilesById.values()]
@@ -1317,7 +1399,81 @@ async function toolGetAttendanceSummary(
     }
   }
 
-  const counts = rows.reduce<Record<string, number>>((acc, row) => {
+  const rowsByUser = new Map<string, DbRow>();
+  for (const row of rows) {
+    const existing = rowsByUser.get(row.user_id as string);
+    if (
+      !existing ||
+      String(row.attendance_date ?? "") > String(existing.attendance_date ?? "")
+    ) {
+      rowsByUser.set(row.user_id as string, row);
+    }
+  }
+
+  const baseRecords = teamView || activeProfiles.length > 0
+    ? activeProfiles.map((profile) => {
+        const row = rowsByUser.get(profile.id as string);
+        const session = sessionsByUser.get(profile.id as string);
+        return {
+          id: row?.id ?? null,
+          userId: profile.id,
+          date: row?.attendance_date ?? dateKey,
+          status: row?.status ??
+            (session?.clock_in_at ? "present" : "absent"),
+          expectedClockInAt: row?.expected_clock_in_at ?? null,
+          actualClockInAt: row?.actual_clock_in_at ?? session?.clock_in_at ?? null,
+          notes: row?.notes ?? null,
+        };
+      })
+    : rows.map((row) => ({
+        id: row.id,
+        userId: row.user_id,
+        date: row.attendance_date,
+        status: row.status,
+        expectedClockInAt: row.expected_clock_in_at,
+        actualClockInAt: row.actual_clock_in_at,
+        notes: row.notes,
+      }));
+
+  const records = baseRecords.map((row) => {
+    const profile = profilesById.get(row.userId as string);
+    const profileOffice = profile?.office_id
+      ? officesById.get(profile.office_id as string)
+      : null;
+    const session = sessionsByUser.get(row.userId as string);
+    const status = String(row.status ?? "unknown");
+    return {
+      id: row.id,
+      userId: row.userId,
+      name: profileDisplayName(profile),
+      email: profile?.email ?? null,
+      office: profileOffice?.name ?? null,
+      profileOffice: profileOffice?.name ?? null,
+      profileOfficeSlug: profileOffice?.slug ?? null,
+      avatarUrl: profile?.avatar_url ?? null,
+      date: row.date,
+      status,
+      expectedClockInAt: row.expectedClockInAt,
+      actualClockInAt: row.actualClockInAt ?? session?.clock_in_at ?? null,
+      clockInAt: row.actualClockInAt ?? session?.clock_in_at ?? null,
+      actualClockOutAt: session?.clock_out_at ?? null,
+      clockOutAt: session?.clock_out_at ?? null,
+      notes: row.notes,
+    };
+  });
+
+  const filteredRecords = records.filter((record) => {
+    const status = String(record.status ?? "").toLowerCase();
+    const hasClockIn = Boolean(record.actualClockInAt);
+    if (attendanceMode === "late") return status === "late";
+    if (attendanceMode === "absent") return status === "absent" || !hasClockIn;
+    if (attendanceMode === "on_leave") return status === "on_leave";
+    if (attendanceMode === "pending") return status === "pending";
+    if (attendanceMode === "clocked_in") return teamView ? hasClockIn : true;
+    return true;
+  });
+
+  const counts = records.reduce<Record<string, number>>((acc, row) => {
     const status = String(row.status ?? "unknown");
     acc[status] = (acc[status] ?? 0) + 1;
     return acc;
@@ -1326,36 +1482,23 @@ async function toolGetAttendanceSummary(
   return {
     ok: true,
     range: { from, to, date: dateKey, timezone: "Africa/Harare" },
+    mode: attendanceMode,
+    teamView,
+    office: requestedOffice
+      ? {
+        id: requestedOffice.id,
+        name: requestedOffice.name,
+        slug: requestedOffice.slug,
+      }
+      : null,
     counts,
-    records: rows.map((row) => {
-      const profile = profilesById.get(row.user_id as string);
-      const profileOffice = profile?.office_id
-        ? officesById.get(profile.office_id as string)
-        : null;
-      const session = sessionsByUser.get(row.user_id as string);
-      return {
-        id: row.id,
-        userId: row.user_id,
-        name: profileDisplayName(profile),
-        office: profileOffice?.name ?? null,
-        profileOffice: profileOffice?.name ?? null,
-        profileOfficeSlug: profileOffice?.slug ?? null,
-        avatarUrl: profile?.avatar_url ?? null,
-        date: row.attendance_date,
-        status: row.status,
-        expectedClockInAt: row.expected_clock_in_at,
-        actualClockInAt:
-          row.actual_clock_in_at ?? session?.clock_in_at ?? null,
-        clockInAt: row.actual_clock_in_at ?? session?.clock_in_at ?? null,
-        actualClockOutAt: session?.clock_out_at ?? null,
-        clockOutAt: session?.clock_out_at ?? null,
-        notes: row.notes,
-      };
-    }),
+    resultCount: filteredRecords.length,
+    totalPeople: records.length,
+    records: filteredRecords,
     message:
-      rows.length === 0
-        ? "No attendance records were found for today."
-        : `${rows.length} attendance record(s) found.`,
+      filteredRecords.length === 0
+        ? "No matching attendance records were found for this period."
+        : `${filteredRecords.length} attendance record(s) found.`,
   };
 }
 
@@ -1690,9 +1833,12 @@ async function toolCreateBoardCard(
   return {
     ok: true,
     taskId: card.id,
+    cardId: card.id,
     boardId: board.id,
     boardName: board.name,
     actionUrl,
+    taskUrl: actionUrl,
+    cardUrl: actionUrl,
     timer: timerResult,
     preview,
     message:
@@ -1844,20 +1990,37 @@ async function toolSearchAssets(
   ctx: Required<ToolContext>,
   payload: Record<string, unknown>,
 ) {
-  const listAll = payload.listAll === true || payload.list_all === true;
-
   const rawQuery =
     readString(payload, "query") ?? readString(payload, "search") ?? "";
 
-  const queryText = listAll
-    ? ""
-    : rawQuery
-        .replace(
-          /\b(show|list|find|search|get|view|any|all|every|everything|the|me|my|mine|assets?|asset|equipment|stock|registered|system|on|in|please|for|of|company|office)\b/gi,
-          " ",
-        )
-        .replace(/\s+/g, " ")
-        .trim();
+  const rawQueryLower = rawQuery.toLowerCase();
+  const genericAssetList =
+    /\b(show|list|get|view|see|display)\b.*\b(assets?|equipment|stock)\b.*\b(system|workspace|database|registry|here|available|registered)\b/.test(
+      rawQueryLower,
+    ) ||
+    /\b(what|which)\b.*\b(assets?|equipment|stock)\b.*\b(system|workspace|database|registry|here|available|registered)\b/.test(
+      rawQueryLower,
+    ) ||
+    /\b(any|other)\s+(assets?|equipment|stock)\b/.test(rawQueryLower) ||
+    /\bassets?\s+(?:that\s+are\s+)?(?:in|on|inside|within)\s+(?:this|the|our)\s+(system|workspace|database|registry|company)\b/.test(
+      rawQueryLower,
+    );
+
+  const cleanedQuery = rawQuery
+    .replace(
+      /\b(show|list|find|search|get|view|see|display|any|all|every|everything|other|the|this|that|these|those|are|is|was|were|here|there|available|me|my|mine|assets?|asset|equipment|stock|registered|system|workspace|database|registry|on|in|inside|within|please|for|of|company|office)\b/gi,
+      " ",
+    )
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const listAll =
+    payload.listAll === true ||
+    payload.list_all === true ||
+    genericAssetList ||
+    (Boolean(rawQuery) && !cleanedQuery);
+
+  const queryText = listAll ? "" : cleanedQuery;
 
   const assetTag =
     readString(payload, "assetTag") ?? readString(payload, "asset_tag");
@@ -3648,6 +3811,276 @@ async function toolSearchFleetServiceNeeds(
     typeof payload.limit === "number" ? payload.limit : 50,
     150,
   );
+  const mode = String(payload.mode ?? "overview").toLowerCase();
+  const rawQuery = String(payload.query ?? payload.originalMessage ?? "");
+  const lowerQuery = rawQuery.toLowerCase();
+  const datePreset = String(payload.datePreset ?? payload.date_preset ?? "")
+    .toLowerCase();
+  const reportDate = datePreset === "yesterday"
+    ? (() => {
+        const date = new Date();
+        date.setUTCDate(date.getUTCDate() - 1);
+        return harareDateKey(date);
+      })()
+    : datePreset === "today" || /\btoday\b/.test(lowerQuery)
+      ? harareDateKey()
+      : /\byesterday\b/.test(lowerQuery)
+        ? (() => {
+            const date = new Date();
+            date.setUTCDate(date.getUTCDate() - 1);
+            return harareDateKey(date);
+          })()
+        : null;
+
+  const vehicleSearch = rawQuery
+    .replace(
+      /\b(can|i|have|the|please|for|of|show|list|give|get|check|what|which|we|have|that|are|is|fleet|vehicles?|cars?|trucks?|vans?|service|records?|maintenance|history|fuel|usage|diesel|petrol|kilometers|kilometres|kms?|km|covered|yesterday|today|odometer|mileage|and)\b/gi,
+      " ",
+    )
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const vehicleSelect =
+    "id, vehicle_name, registration_number, make, model, current_odometer_km, status, service_status, last_service_date, next_service_date, next_service_odometer_km";
+
+  async function fetchVehicles(search: string | null, max = limit) {
+    let vehicleQuery = adminClient
+      .from("fleet_vehicles")
+      .select(vehicleSelect)
+      .eq("organization_id", ctx.organizationId)
+      .order("vehicle_name", { ascending: true })
+      .limit(max);
+
+    if (search) {
+      const safe = search.replace(/[%_,]/g, " ").trim();
+      if (safe) {
+        vehicleQuery = vehicleQuery.or(
+          [
+            `vehicle_name.ilike.%${safe}%`,
+            `registration_number.ilike.%${safe}%`,
+            `make.ilike.%${safe}%`,
+            `model.ilike.%${safe}%`,
+          ].join(","),
+        );
+      }
+    }
+
+    const { data: vehicles, error: vehicleError } = await vehicleQuery;
+    if (vehicleError) throw vehicleError;
+    return (vehicles ?? []) as DbRow[];
+  }
+
+  const searchForVehicle =
+    vehicleSearch &&
+    !["all", "service", "records", "maintenance", "vehicle", "vehicles"].includes(
+      vehicleSearch.toLowerCase(),
+    )
+      ? vehicleSearch
+      : null;
+
+  const matchedVehicles = await fetchVehicles(searchForVehicle, 150);
+  const matchedVehicleIds = matchedVehicles
+    .map((vehicle) => vehicle.id as string)
+    .filter(Boolean);
+  const vehiclesById = new Map<string, DbRow>(
+    matchedVehicles.map((vehicle) => [vehicle.id as string, vehicle]),
+  );
+
+  if (mode === "list_vehicles") {
+    return {
+      ok: true,
+      mode,
+      vehicles: matchedVehicles.map((vehicle) => ({
+        id: vehicle.id,
+        name: vehicle.vehicle_name,
+        registrationNumber: vehicle.registration_number,
+        make: vehicle.make,
+        model: vehicle.model,
+        status: vehicle.status,
+        serviceStatus: vehicle.service_status,
+        currentOdometerKm: vehicle.current_odometer_km,
+        nextServiceDate: vehicle.next_service_date,
+        nextServiceOdometerKm: vehicle.next_service_odometer_km,
+      })),
+      count: matchedVehicles.length,
+      message: `${matchedVehicles.length} vehicle(s) found.`,
+    };
+  }
+
+  if (mode === "service_records") {
+    let recordsQuery = adminClient
+      .from("fleet_maintenance_records")
+      .select(
+        "id, vehicle_id, service_date, odometer_km, service_type, description, provider, cost, currency, invoice_url, next_service_date, next_service_odometer_km, created_at",
+      )
+      .eq("organization_id", ctx.organizationId)
+      .order("service_date", { ascending: false })
+      .limit(limit);
+
+    if (matchedVehicleIds.length > 0) {
+      recordsQuery = recordsQuery.in("vehicle_id", matchedVehicleIds);
+    } else if (searchForVehicle) {
+      return {
+        ok: true,
+        mode,
+        serviceRecords: [],
+        count: 0,
+        vehicles: [],
+        message: `No vehicle matched "${searchForVehicle}".`,
+      };
+    }
+
+    const { data: records, error: recordsError } = await recordsQuery;
+    if (recordsError) throw recordsError;
+    const rows = (records ?? []) as DbRow[];
+    const missingVehicleIds = rows
+      .map((row) => row.vehicle_id as string)
+      .filter((id) => id && !vehiclesById.has(id));
+    if (missingVehicleIds.length > 0) {
+      for (const vehicle of await fetchVehicles(null, 150)) {
+        if (missingVehicleIds.includes(vehicle.id as string)) {
+          vehiclesById.set(vehicle.id as string, vehicle);
+        }
+      }
+    }
+
+    return {
+      ok: true,
+      mode,
+      serviceRecords: rows.map((record) => {
+        const vehicle = vehiclesById.get(record.vehicle_id as string);
+        return {
+          id: record.id,
+          vehicleId: record.vehicle_id,
+          vehicleName: vehicle?.vehicle_name ?? null,
+          registrationNumber: vehicle?.registration_number ?? null,
+          serviceDate: record.service_date,
+          odometerKm: record.odometer_km,
+          serviceType: record.service_type,
+          description: record.description,
+          provider: record.provider,
+          cost: record.cost,
+          currency: record.currency,
+          nextServiceDate: record.next_service_date,
+          nextServiceOdometerKm: record.next_service_odometer_km,
+        };
+      }),
+      count: rows.length,
+      message: `${rows.length} fleet service record(s) found.`,
+    };
+  }
+
+  if (mode === "fuel" || mode === "usage" || mode === "daily_usage") {
+    const dateKey = reportDate ?? harareDateKey();
+    const dayRange = harareDayRange(dateKey);
+    if (searchForVehicle && matchedVehicleIds.length === 0) {
+      return {
+        ok: true,
+        mode,
+        reportDate: dateKey,
+        dailySummaries: [],
+        fuelPurchases: [],
+        count: 0,
+        message: `No vehicle matched "${searchForVehicle}".`,
+      };
+    }
+
+    let summaryQuery = adminClient
+      .from("fleet_daily_summaries")
+      .select(
+        "id, vehicle_id, summary_date, route_length_km, fuel_consumption_litres, average_fuel_consumption_per_100km, fuel_cost, currency, odometer_km, driver_name, source",
+      )
+      .eq("organization_id", ctx.organizationId)
+      .eq("summary_date", dateKey)
+      .order("summary_date", { ascending: false })
+      .limit(limit);
+
+    let fuelQuery = adminClient
+      .from("fleet_fuel_purchases")
+      .select(
+        "id, vehicle_id, purchase_date, litres, unit_price, total_cost, currency, odometer_km, station_name, payment_method, receipt_number",
+      )
+      .eq("organization_id", ctx.organizationId)
+      .gte("purchase_date", dayRange.from)
+      .lte("purchase_date", dayRange.to)
+      .order("purchase_date", { ascending: false })
+      .limit(limit);
+
+    if (matchedVehicleIds.length > 0) {
+      summaryQuery = summaryQuery.in("vehicle_id", matchedVehicleIds);
+      fuelQuery = fuelQuery.in("vehicle_id", matchedVehicleIds);
+    }
+
+    const [
+      { data: summaries, error: summariesError },
+      { data: fuelPurchases, error: fuelError },
+    ] = await Promise.all([summaryQuery, fuelQuery]);
+    if (summariesError) throw summariesError;
+    if (fuelError) throw fuelError;
+
+    const rows = (summaries ?? []) as DbRow[];
+    const fuelRows = (fuelPurchases ?? []) as DbRow[];
+    const ids = [
+      ...new Set(
+        [...rows, ...fuelRows]
+          .map((row) => row.vehicle_id as string)
+          .filter((id) => id && !vehiclesById.has(id)),
+      ),
+    ];
+    if (ids.length > 0) {
+      for (const vehicle of await fetchVehicles(null, 150)) {
+        if (ids.includes(vehicle.id as string)) {
+          vehiclesById.set(vehicle.id as string, vehicle);
+        }
+      }
+    }
+
+    return {
+      ok: true,
+      mode,
+      reportDate: dateKey,
+      dailySummaries: rows.map((summary) => {
+        const vehicle = vehiclesById.get(summary.vehicle_id as string);
+        return {
+          id: summary.id,
+          vehicleId: summary.vehicle_id,
+          vehicleName: vehicle?.vehicle_name ?? null,
+          registrationNumber: vehicle?.registration_number ?? null,
+          date: summary.summary_date,
+          routeLengthKm: summary.route_length_km,
+          fuelConsumptionLitres: summary.fuel_consumption_litres,
+          averageFuelConsumptionPer100Km:
+            summary.average_fuel_consumption_per_100km,
+          fuelCost: summary.fuel_cost,
+          currency: summary.currency,
+          odometerKm: summary.odometer_km,
+          driverName: summary.driver_name,
+          source: summary.source,
+        };
+      }),
+      fuelPurchases: fuelRows.map((fuel) => {
+        const vehicle = vehiclesById.get(fuel.vehicle_id as string);
+        return {
+          id: fuel.id,
+          vehicleId: fuel.vehicle_id,
+          vehicleName: vehicle?.vehicle_name ?? null,
+          registrationNumber: vehicle?.registration_number ?? null,
+          purchaseDate: fuel.purchase_date,
+          litres: fuel.litres,
+          unitPrice: fuel.unit_price,
+          totalCost: fuel.total_cost,
+          currency: fuel.currency,
+          odometerKm: fuel.odometer_km,
+          stationName: fuel.station_name,
+          paymentMethod: fuel.payment_method,
+          receiptNumber: fuel.receipt_number,
+        };
+      }),
+      count: rows.length + fuelRows.length,
+      message:
+        `${rows.length} daily fleet summary row(s) and ${fuelRows.length} fuel purchase(s) found for ${dateKey}.`,
+    };
+  }
 
   let query = adminClient
     .from("fleet_service_schedules")
@@ -3672,7 +4105,7 @@ async function toolSearchFleetServiceNeeds(
         .filter(Boolean) as string[],
     ),
   ];
-  const vehiclesById = new Map<string, DbRow>();
+  const scheduleVehiclesById = new Map<string, DbRow>();
   if (vehicleIds.length > 0) {
     const { data: vehicles, error: vehicleError } = await adminClient
       .from("fleet_vehicles")
@@ -3683,7 +4116,7 @@ async function toolSearchFleetServiceNeeds(
       .in("id", vehicleIds);
     if (vehicleError) throw vehicleError;
     for (const vehicle of vehicles ?? []) {
-      vehiclesById.set(vehicle.id as string, vehicle);
+      scheduleVehiclesById.set(vehicle.id as string, vehicle);
     }
   }
 
@@ -3693,7 +4126,7 @@ async function toolSearchFleetServiceNeeds(
     horizonDays,
     untilDate,
     serviceNeeds: schedules.map((schedule) => {
-      const vehicle = vehiclesById.get(schedule.vehicle_id as string);
+      const vehicle = scheduleVehiclesById.get(schedule.vehicle_id as string);
       const dueByDate =
         typeof schedule.next_service_date === "string" &&
         schedule.next_service_date <= today;

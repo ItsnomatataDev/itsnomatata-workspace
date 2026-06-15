@@ -14,9 +14,13 @@ This removes public read on `codex-chat-files` and tightens `content-review-asse
 
 | Secret | Purpose |
 |--------|---------|
-| `INTERNAL_API_KEY` | Long random value; required for `create-notification` (n8n), `check-time-tracking` cron, optional hardening |
-| `N8N_NOTIFICATION_WEBHOOK_URL` | n8n email webhook (server only — do not use `VITE_*`) |
-| `N8N_NOTIFICATION_WEBHOOK_SECRET` | n8n webhook auth header |
+| `INTERNAL_API_KEY` | Long random value; required for internal notifications, `check-time-tracking` cron, optional hardening |
+| `EMAIL_PROVIDER` | Set to `resend` for normal email delivery |
+| `RESEND_API_KEY` | Resend API key (server only — do not use `VITE_*`) |
+| `RESEND_FROM_EMAIL` | Verified sender, for example `Codex <notifications@itsnomatata.com>` |
+| `RESEND_REPLY_TO_EMAIL` | Reply-to support inbox |
+| `N8N_NOTIFICATION_WEBHOOK_URL` | Optional n8n email workflow, only when `EMAIL_PROVIDER=n8n` |
+| `N8N_NOTIFICATION_WEBHOOK_SECRET` | Optional n8n webhook auth header |
 | `N8N_CLIENT_INVITE_WEBHOOK_URL` | Client invite automation webhook |
 | `N8N_CLIENT_INVITE_WEBHOOK_SECRET` | Client invite webhook auth header |
 | `OPENAI_API_KEY` | Content Studio image analysis edge function |
@@ -32,6 +36,7 @@ supabase functions deploy content-studio-analyze-image --project-ref YOUR_REF
 supabase functions deploy check-time-tracking --project-ref YOUR_REF
 supabase functions deploy create-notification --project-ref YOUR_REF
 supabase functions deploy dispatch-notification-email --project-ref YOUR_REF
+supabase functions deploy system-health --project-ref YOUR_REF
 supabase functions deploy livekit-guest-token --project-ref YOUR_REF
 supabase functions deploy livekit-token --project-ref YOUR_REF
 supabase functions deploy ai-chat --project-ref YOUR_REF

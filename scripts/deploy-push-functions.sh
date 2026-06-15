@@ -30,5 +30,7 @@ done
 echo ""
 echo "Done. Set Edge secrets if you have not already:"
 echo "  VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT"
-echo "  INTERNAL_API_KEY, N8N_NOTIFICATION_WEBHOOK_URL, N8N_NOTIFICATION_WEBHOOK_SECRET"
+echo "  EMAIL_PROVIDER=resend, RESEND_API_KEY, RESEND_FROM_EMAIL, RESEND_REPLY_TO_EMAIL"
+echo "  INTERNAL_API_KEY"
+echo "  Optional n8n email workflow only: EMAIL_PROVIDER=n8n, N8N_NOTIFICATION_WEBHOOK_URL, N8N_NOTIFICATION_WEBHOOK_SECRET"
 echo "  https://supabase.com/dashboard/project/${PROJECT_REF}/settings/functions"

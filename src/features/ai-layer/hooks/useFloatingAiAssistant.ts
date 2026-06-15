@@ -96,6 +96,15 @@ function formatHours(seconds: unknown) {
   return `${hours.toFixed(hours >= 10 ? 1 : 2)}h`;
 }
 
+function formatNumber(value: unknown, digits = 0) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "-";
+  return number.toLocaleString("en-ZA", {
+    maximumFractionDigits: digits,
+    minimumFractionDigits: digits,
+  });
+}
+
 function formatDateTime(value: unknown) {
   if (typeof value !== "string" || !value) return "";
   const date = new Date(value);
@@ -110,13 +119,90 @@ function formatDateTime(value: unknown) {
 function formatAttendanceRecord(row: Record<string, unknown>) {
   const clockIn = row.clockInAt ?? row.actualClockInAt;
   const clockOut = row.clockOutAt ?? row.actualClockOutAt;
-  return [
-    `- ${row.name ?? "Team member"}`,
-    `  Office: ${row.office ?? row.profileOffice ?? "Unknown"}`,
-    `  Clock in: ${clockIn ? formatDateTime(clockIn) : "Not clocked in"}`,
-    `  Clock out: ${clockOut ? formatDateTime(clockOut) : "Not clocked out"}`,
-    `  Status: ${row.status ?? "unknown"}`,
-  ].join("\n");
+  const status = String(row.status ?? "unknown").toLowerCase();
+  const office = row.office ?? row.profileOffice ?? "Unknown office";
+  const clockInText = clockIn ? formatTimeOnly(clockIn) : "Not clocked in";
+  const clockOutText = clockOut ? `, out ${formatTimeOnly(clockOut)}` : "";
+
+  if (status === "absent" || !clockIn) {
+    return `- ${row.name ?? "Team member"} - ${office}`;
+  }
+
+  return `- ${row.name ?? "Team member"} - ${clockInText}${clockOutText} - ${office}`;
+}
+
+function formatTimeOnly(value: unknown) {
+  if (typeof value !== "string" || !value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleTimeString("en-ZA", {
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "Africa/Harare",
+  });
+}
+
+function attendanceStatusLabel(status: unknown) {
+  const normalized = String(status ?? "unknown").toLowerCase();
+  if (normalized === "present") return "Present";
+  if (normalized === "late") return "Late";
+  if (normalized === "absent") return "Absent";
+  if (normalized === "on_leave") return "On leave";
+  if (normalized === "pending") return "Pending";
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+}
+
+function formatAttendanceCountLine(counts: Record<string, unknown>) {
+  const order = ["present", "late", "absent", "on_leave", "pending"];
+  const parts = order
+    .filter((key) => Number(counts[key] ?? 0) > 0)
+    .map((key) => `${attendanceStatusLabel(key)}: ${counts[key]}`);
+  const extra = Object.entries(counts)
+    .filter(([key, value]) => !order.includes(key) && Number(value ?? 0) > 0)
+    .map(([key, value]) => `${attendanceStatusLabel(key)}: ${value}`);
+  return [...parts, ...extra].join(" | ");
+}
+
+function formatAttendanceGroups(records: Record<string, unknown>[], perGroup = 6) {
+  const order = ["late", "absent", "present", "on_leave", "pending"];
+  const groups = new Map<string, Record<string, unknown>[]>();
+
+  for (const record of records) {
+    const status = String(record.status ?? "unknown").toLowerCase() || "unknown";
+    groups.set(status, [...(groups.get(status) ?? []), record]);
+  }
+
+  const orderedKeys = [
+    ...order.filter((key) => groups.has(key)),
+    ...[...groups.keys()].filter((key) => !order.includes(key)),
+  ];
+
+  return orderedKeys
+    .map((key) => {
+      const items = groups.get(key) ?? [];
+      const visible = items.slice(0, perGroup).map(formatAttendanceRecord);
+      const hidden = items.length - visible.length;
+      return [
+        `${attendanceStatusLabel(key)} (${items.length})`,
+        ...visible,
+        hidden > 0 ? `- +${hidden} more` : "",
+      ].filter(Boolean).join("\n");
+    })
+    .join("\n\n");
+}
+
+function formatSingleAttendanceAnswer(row: Record<string, unknown>) {
+  const name = row.name ?? "This person";
+  const clockIn = row.clockInAt ?? row.actualClockInAt;
+  const clockOut = row.clockOutAt ?? row.actualClockOutAt;
+  const office = row.office ?? row.profileOffice ?? "Unknown office";
+  const status = attendanceStatusLabel(row.status);
+
+  if (!clockIn) {
+    return `${name} has not clocked in for this period.\nStatus: ${status}\nOffice: ${office}`;
+  }
+
+  return `${name} clocked in at ${formatTimeOnly(clockIn)}.\nStatus: ${status}\nOffice: ${office}${clockOut ? `\nClock out: ${formatTimeOnly(clockOut)}` : ""}`;
 }
 
 function taskLink(boardId: unknown, taskId: unknown) {
@@ -130,19 +216,26 @@ function taskLink(boardId: unknown, taskId: unknown) {
 function formatTimeToolReply(toolId: AiRouterToolId, data: Record<string, unknown>) {
   if (toolId === "get_active_time_trackers") {
     const trackers = Array.isArray(data.trackers) ? data.trackers : [];
-    if (trackers.length === 0) return "You are not currently tracking time on any card.";
+    const scope = String(data.scope ?? "");
+    if (trackers.length === 0) {
+      return scope === "me"
+        ? "You are not currently tracking time on any card."
+        : "No one is currently tracking time.";
+    }
 
     const lines = trackers.map((entry) => {
       const row = entry as Record<string, unknown>;
+      const owner = row.name ?? row.user_name ?? row.email ?? "Team member";
       const task = row.taskTitle ?? row.description ?? "Untitled card";
       const board = row.boardName ?? "No board";
       const link = typeof row.taskUrl === "string"
         ? row.taskUrl
         : taskLink(row.boardId, row.taskId);
-      return `- ${task} on ${board}: ${formatHours(row.elapsedSeconds)} so far${link ? `\n  Open card: ${link}` : ""}`;
+      const prefix = scope === "me" ? "" : `${owner} - `;
+      return `- ${prefix}${task} on ${board}: ${formatHours(row.elapsedSeconds)} so far${link ? `\n  Open card: ${link}` : ""}`;
     });
 
-    return `Here is what you are tracking right now:\n\n${lines.join("\n")}`;
+    return `${scope === "me" ? "Here is what you are tracking right now" : "Here is who is tracking time right now"}:\n\n${lines.join("\n")}`;
   }
 
   if (toolId === "start_time_tracker") {
@@ -165,7 +258,14 @@ function formatTimeToolReply(toolId: AiRouterToolId, data: Record<string, unknow
     if (data.ok === false) {
       return readableToolValue(data.error || data) || "I could not create that card.";
     }
-    const link = typeof data.actionUrl === "string" ? data.actionUrl : null;
+    const link =
+      typeof data.cardUrl === "string"
+        ? data.cardUrl
+        : typeof data.taskUrl === "string"
+          ? data.taskUrl
+          : typeof data.actionUrl === "string"
+            ? data.actionUrl
+            : taskLink(data.boardId, data.cardId ?? data.taskId);
     const timer = isRecord(data.timer) ? data.timer : null;
     const message = typeof data.message === "string"
       ? data.message
@@ -356,18 +456,115 @@ function formatWorkspaceToolReply(
   if (toolId === "get_attendance_summary") {
     const records = Array.isArray(data.records) ? data.records : [];
     const counts = isRecord(data.counts) ? data.counts : {};
-    const countLine = Object.entries(counts)
-      .map(([status, count]) => `${status}: ${count}`)
-      .join(", ");
+    const mode = String(data.mode ?? "summary");
+    const heading =
+      mode === "late"
+        ? "Late arrivals"
+        : mode === "absent"
+          ? "Not clocked in"
+          : mode === "clocked_in"
+            ? "Clocked in"
+            : mode === "on_leave"
+              ? "On leave"
+              : "Attendance summary";
+    const countLine = formatAttendanceCountLine(counts);
 
-    if (records.length === 0) return "No attendance records were found for today.";
+    if (records.length === 0) return `No ${heading.toLowerCase()} records were found for this period.`;
 
-    const lines = records.slice(0, 8).map((item) => {
+    if (data.teamView === false && records.length === 1) {
+      return formatSingleAttendanceAnswer(records[0] as Record<string, unknown>);
+    }
+
+    const lines = formatAttendanceGroups(
+      records.map((item) => item as Record<string, unknown>),
+    );
+
+    return `${heading}${countLine ? `\n${countLine}` : ""}\n\n${lines}`;
+  }
+
+  if (toolId === "search_fleet_service_needs") {
+    const mode = String(data.mode ?? "overview");
+    const vehicles = Array.isArray(data.vehicles) ? data.vehicles : [];
+    const serviceRecords = Array.isArray(data.serviceRecords)
+      ? data.serviceRecords
+      : [];
+    const dailySummaries = Array.isArray(data.dailySummaries)
+      ? data.dailySummaries
+      : [];
+    const fuelPurchases = Array.isArray(data.fuelPurchases)
+      ? data.fuelPurchases
+      : [];
+    const serviceNeeds = Array.isArray(data.serviceNeeds)
+      ? data.serviceNeeds
+      : [];
+
+    if (mode === "list_vehicles") {
+      if (vehicles.length === 0) return "No fleet vehicles were found.";
+      const lines = vehicles.slice(0, 30).map((item) => {
+        const row = item as Record<string, unknown>;
+        const registration = row.registrationNumber
+          ? ` (${row.registrationNumber})`
+          : "";
+        const model = [row.make, row.model].filter(Boolean).join(" ");
+        const odo = row.currentOdometerKm
+          ? `${formatNumber(row.currentOdometerKm)} km`
+          : "no odometer";
+        return `- ${row.name ?? row.vehicleName ?? "Vehicle"}${registration}${model ? ` - ${model}` : ""} - ${odo}`;
+      });
+      return `Fleet vehicles (${vehicles.length})\n\n${lines.join("\n")}`;
+    }
+
+    if (mode === "service_records") {
+      if (serviceRecords.length === 0) return readableToolValue(data.message) || "No fleet service records were found.";
+      const lines = serviceRecords.slice(0, 20).map((item) => {
+        const row = item as Record<string, unknown>;
+        const vehicle = row.vehicleName ?? row.registrationNumber ?? "Vehicle";
+        const cost = row.cost
+          ? ` - ${row.currency ?? "USD"} ${formatNumber(row.cost, 2)}`
+          : "";
+        return `- ${vehicle} - ${row.serviceDate ?? "unknown date"} - ${row.serviceType ?? "service"}${row.odometerKm ? ` at ${formatNumber(row.odometerKm)} km` : ""}${row.provider ? ` - ${row.provider}` : ""}${cost}`;
+      });
+      return `Fleet service records (${serviceRecords.length})\n\n${lines.join("\n")}`;
+    }
+
+    if (mode === "fuel" || mode === "usage" || mode === "daily_usage") {
+      if (dailySummaries.length === 0 && fuelPurchases.length === 0) {
+        return readableToolValue(data.message) ||
+          `No fleet usage or fuel records were found for ${data.reportDate ?? "that date"}.`;
+      }
+      const summaryLines = dailySummaries.slice(0, 20).map((item) => {
+        const row = item as Record<string, unknown>;
+        const vehicle = row.vehicleName ?? row.registrationNumber ?? "Vehicle";
+        const fuel = row.fuelConsumptionLitres
+          ? `${formatNumber(row.fuelConsumptionLitres, 2)} L`
+          : "no fuel";
+        const odo = row.odometerKm
+          ? `, odometer ${formatNumber(row.odometerKm)} km`
+          : "";
+        return `- ${vehicle}: ${formatNumber(row.routeLengthKm, 2)} km, ${fuel}${odo}`;
+      });
+      const purchaseLines = fuelPurchases.slice(0, 10).map((item) => {
+        const row = item as Record<string, unknown>;
+        const vehicle = row.vehicleName ?? row.registrationNumber ?? "Vehicle";
+        const cost = row.totalCost
+          ? `${row.currency ?? "USD"} ${formatNumber(row.totalCost, 2)}`
+          : "cost not set";
+        return `- ${vehicle}: ${formatNumber(row.litres, 2)} L - ${cost}${row.stationName ? ` - ${row.stationName}` : ""}`;
+      });
+      return [
+        `Fleet usage for ${data.reportDate ?? "selected date"}`,
+        summaryLines.length ? `Daily summaries\n${summaryLines.join("\n")}` : "",
+        purchaseLines.length ? `Fuel purchases\n${purchaseLines.join("\n")}` : "",
+      ].filter(Boolean).join("\n\n");
+    }
+
+    if (serviceNeeds.length === 0) return readableToolValue(data.message) || "No fleet service needs were found.";
+    const lines = serviceNeeds.slice(0, 20).map((item) => {
       const row = item as Record<string, unknown>;
-      return formatAttendanceRecord(row);
+      const vehicle = row.vehicleName ?? row.registrationNumber ?? "Vehicle";
+      return `- ${vehicle} - ${row.serviceType ?? row.scheduleName ?? "service"} due ${row.nextServiceDate ?? "by odometer"}${row.nextServiceOdometerKm ? ` or ${formatNumber(row.nextServiceOdometerKm)} km` : ""}`;
     });
-
-    return `Attendance summary${countLine ? ` (${countLine})` : ""}.\n\n${lines.join("\n")}`;
+    return `Fleet service needs (${serviceNeeds.length})\n\n${lines.join("\n")}`;
   }
 
   if (toolId === "get_leave_balance") {
@@ -639,13 +836,15 @@ function detectFallbackTool(message: string): AiRouterToolId | null {
   if (/\b(create|make|add)\b.*\b(card|task)\b/.test(lower) || /\b(card|task)\b.*\b(named|called|titled)\b/.test(lower)) return "create_board_card";
   if (/\b(stop|pause|end|finish)\b.*\b(timer|time tracker|time tracking|tracking time)\b/.test(lower) || /\bstop\s+(my\s+)?time\b/.test(lower)) return "stop_time_tracker";
   if (/\b(show|who|which|list|people|users|team)\b.*\b(tracking|timer|time tracker|time tracking)\b/.test(lower)) return "get_active_time_trackers";
+  if (/\b(what|show|tell|which)\b.*\b(i am|i'm|im|me|my)\b.*\b(working on|doing|busy with)\b/.test(lower) || /\bwhat\s+am\s+i\s+(working on|doing)\b/.test(lower)) return "get_active_time_trackers";
   if (/\b(start|begin|track|trac|tracking)\b.*\b(timer|time tracker|time tracking|tracking time|time)\b/.test(lower) || /\btrac?k(?:ing)?\s+(my|his|her|their)?\s*time\b/.test(lower)) return "start_time_tracker";
   if (/leave\s+(days?|balance|remaining|left|available)|days?\s+(left|remaining|available).*\bleave\b/.test(lower)) return "get_leave_balance";
   if (/leave|vacation|time off|absence|pto/.test(lower)) return "search_leave_requests";
+  if (/fleet|vehicle|vehicles|service record|maintenance|odometer|kilometers|kilometres|\bkm\b|fuel|diesel|petrol|mileage/.test(lower)) return "search_fleet_service_needs";
   if (/tracking\s+time|time\s+tracking|timer|tracking now|active time|currently tracking|which tasks?.*(tracking|timer)|what tasks?.*(tracking|timer)/.test(lower)) return "get_active_time_trackers";
   if (/timesheet|time entr|hours|tracked|time tracked|tracked time|worked on/.test(lower)) return "get_user_timesheet";
   if (/board/.test(lower)) return "list_boards";
-  if (/attendance|clock/.test(lower)) return "get_attendance_summary";
+  if (/attendance|clock/.test(lower) || /\b(who|show|list|which|people|staff|employees|team)\b.*\b(late|absent|present)\b/.test(lower)) return "get_attendance_summary";
   if (/task|todo|card/.test(lower)) return "summarize_my_tasks";
   return null;
 }

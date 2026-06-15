@@ -54,7 +54,7 @@ export type SystemHealthResponse = {
   counts: Record<string, number>;
   tableChecks: Array<{ table: string; ok: boolean; error: string | null }>;
   warnings: string[];
-  environment: Record<string, boolean>;
+  environment: Record<string, boolean | string>;
 };
 
 export async function runAdminUserAction(params: {

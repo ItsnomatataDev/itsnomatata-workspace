@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
-import { Send, Sparkles, Trash2, X } from "lucide-react";
+import { Mic, MicOff, Send, Sparkles, Trash2, X } from "lucide-react";
 import type { AiRouterMessage } from "../types/aiToolTypes";
 
 type FloatingAnchorPosition = {
@@ -32,6 +32,35 @@ const PANEL_GAP = 16;
 const VIEWPORT_MARGIN = 20;
 const MAX_PANEL_WIDTH = 420;
 const MAX_PANEL_HEIGHT = 640;
+
+type SpeechRecognitionLike = {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
+  onerror: ((event: { error?: string }) => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+};
+
+type SpeechRecognitionEventLike = {
+  resultIndex: number;
+  results: ArrayLike<{
+    isFinal: boolean;
+    [index: number]: { transcript: string };
+  }>;
+};
+
+type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
+
+function getSpeechRecognitionConstructor(): SpeechRecognitionConstructor | null {
+  const win = window as Window & {
+    SpeechRecognition?: SpeechRecognitionConstructor;
+    webkitSpeechRecognition?: SpeechRecognitionConstructor;
+  };
+  return win.SpeechRecognition ?? win.webkitSpeechRecognition ?? null;
+}
 
 function getPanelPosition(anchorPosition: FloatingAnchorPosition) {
   const panelWidth = Math.min(window.innerWidth * 0.92, MAX_PANEL_WIDTH);
@@ -77,6 +106,40 @@ function stringifyMessageContent(content: unknown): string {
   return "";
 }
 
+function renderMessageContent(content: unknown) {
+  const text = stringifyMessageContent(content);
+  const urlPattern = /(https?:\/\/[^\s)]+|\/boards\/[0-9a-f-]{36}\?cardId=[0-9a-f-]{36}|\/boards\/[0-9a-f-]{36}|\/tasks\/[0-9a-f-]{36})/gi;
+  const parts: React.ReactNode[] = [];
+  let lastIndex = 0;
+
+  for (const match of text.matchAll(urlPattern)) {
+    const url = match[0];
+    const index = match.index ?? 0;
+    if (index > lastIndex) {
+      parts.push(text.slice(lastIndex, index));
+    }
+    const href = url.startsWith("/") ? url : url;
+    parts.push(
+      <a
+        key={`${url}-${index}`}
+        href={href}
+        target={url.startsWith("/") ? undefined : "_blank"}
+        rel={url.startsWith("/") ? undefined : "noreferrer"}
+        className="font-medium text-[#8ab4ff] underline decoration-white/20 underline-offset-4 hover:text-white"
+      >
+        {url}
+      </a>,
+    );
+    lastIndex = index + url.length;
+  }
+
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+
+  return parts.length > 0 ? parts : text;
+}
+
 export default function FloatingAiChat({
   open,
   anchorPosition,
@@ -88,8 +151,14 @@ export default function FloatingAiChat({
   onReset,
 }: FloatingAiChatProps) {
   const [input, setInput] = useState("");
+  const [listening, setListening] = useState(false);
+  const [voiceError, setVoiceError] = useState("");
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const textAreaRef = useRef<HTMLTextAreaElement | null>(null);
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const speechSupported = Boolean(
+    typeof window !== "undefined" && getSpeechRecognitionConstructor(),
+  );
 
   useEffect(() => {
     if (open) {
@@ -105,20 +174,106 @@ export default function FloatingAiChat({
     textArea.style.height = `${Math.min(textArea.scrollHeight, 132)}px`;
   }, [input]);
 
+  useEffect(() => {
+    if (open) return;
+    recognitionRef.current?.stop();
+    recognitionRef.current = null;
+    setListening(false);
+  }, [open]);
+
+  useEffect(() => {
+    return () => {
+      recognitionRef.current?.stop();
+    };
+  }, []);
+
   if (!open) return null;
+
+  const submitMessage = async (value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed || busy) return;
+    setInput("");
+    await onSend(trimmed);
+  };
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
-    const value = input.trim();
-    if (!value || busy) return;
-    setInput("");
-    await onSend(value);
+    await submitMessage(input);
   };
 
   const handleComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key !== "Enter" || event.shiftKey) return;
     event.preventDefault();
     void handleSubmit(event);
+  };
+
+  const stopListening = () => {
+    recognitionRef.current?.stop();
+    recognitionRef.current = null;
+    setListening(false);
+  };
+
+  const handleVoiceClick = () => {
+    if (busy) return;
+    setVoiceError("");
+
+    if (listening) {
+      stopListening();
+      return;
+    }
+
+    const Recognition = getSpeechRecognitionConstructor();
+    if (!Recognition) {
+      setVoiceError("Voice input is not supported in this browser.");
+      return;
+    }
+
+    const recognition = new Recognition();
+    recognition.continuous = false;
+    recognition.interimResults = true;
+    recognition.lang = "en-ZA";
+    recognitionRef.current = recognition;
+
+    let finalTranscript = "";
+
+    recognition.onresult = (event) => {
+      let interimTranscript = "";
+
+      for (let index = event.resultIndex; index < event.results.length; index += 1) {
+        const result = event.results[index];
+        const transcript = result[0]?.transcript ?? "";
+        if (result.isFinal) {
+          finalTranscript += transcript;
+        } else {
+          interimTranscript += transcript;
+        }
+      }
+
+      const next = `${finalTranscript} ${interimTranscript}`.trim();
+      if (next) setInput(next);
+    };
+
+    recognition.onerror = (event) => {
+      setVoiceError(event.error ? `Voice input failed: ${event.error}` : "Voice input failed.");
+      setListening(false);
+      recognitionRef.current = null;
+    };
+
+    recognition.onend = () => {
+      const command = finalTranscript.trim();
+      setListening(false);
+      recognitionRef.current = null;
+      if (command) void submitMessage(command);
+    };
+
+    try {
+      recognition.start();
+      setListening(true);
+    } catch {
+      setVoiceError("Voice input could not start.");
+      setListening(false);
+      recognitionRef.current = null;
+    }
   };
 
   return (
@@ -187,7 +342,7 @@ export default function FloatingAiChat({
                     : "rounded-bl-md border border-white/10 bg-white/[0.045] text-white/85",
               ].join(" ")}
             >
-              {stringifyMessageContent(message.content)}
+              {renderMessageContent(message.content)}
             </div>
           </div>
         ))}
@@ -208,6 +363,12 @@ export default function FloatingAiChat({
         {error ? (
           <p className="rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-100">
             {error}
+          </p>
+        ) : null}
+
+        {voiceError ? (
+          <p className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+            {voiceError}
           </p>
         ) : null}
 
@@ -254,14 +415,36 @@ export default function FloatingAiChat({
               <Trash2 size={14} />
               Clear
             </button>
-            <button
-              type="submit"
-              disabled={busy || !input.trim()}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-orange-500 text-black transition hover:bg-orange-400 disabled:cursor-not-allowed disabled:opacity-45"
-              title="Send"
-            >
-              <Send size={16} />
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleVoiceClick}
+                disabled={busy || !speechSupported}
+                className={[
+                  "inline-flex h-9 w-9 items-center justify-center rounded-xl transition disabled:cursor-not-allowed disabled:opacity-45",
+                  listening
+                    ? "bg-red-500 text-white hover:bg-red-400"
+                    : "border border-white/10 bg-white/[0.06] text-white/75 hover:bg-white/[0.1] hover:text-white",
+                ].join(" ")}
+                title={
+                  speechSupported
+                    ? listening
+                      ? "Stop voice input"
+                      : "Speak to assistant"
+                    : "Voice input is not supported in this browser"
+                }
+              >
+                {listening ? <MicOff size={16} /> : <Mic size={16} />}
+              </button>
+              <button
+                type="submit"
+                disabled={busy || !input.trim()}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-orange-500 text-black transition hover:bg-orange-400 disabled:cursor-not-allowed disabled:opacity-45"
+                title="Send"
+              >
+                <Send size={16} />
+              </button>
+            </div>
           </div>
         </form>
       </div>

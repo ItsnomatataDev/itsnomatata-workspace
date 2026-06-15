@@ -133,6 +133,14 @@ export default function ITDashboardPage() {
     profile.department.trim().length > 0
       ? profile.department
       : "Your city";
+  const healthEnvironment = systemHealth?.environment ?? {};
+  const emailProvider =
+    typeof healthEnvironment.emailProvider === "string"
+      ? healthEnvironment.emailProvider
+      : "resend";
+  const resendConfigured =
+    healthEnvironment.resendApiKeyConfigured === true &&
+    healthEnvironment.resendFromEmailConfigured === true;
 
   const sharedDashboard = useDashboard({
     userId,
@@ -580,19 +588,23 @@ export default function ITDashboardPage() {
 
               <section className="mb-6 grid gap-6 xl:grid-cols-2">
                 <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-                  <h2 className="text-lg font-semibold">Automations / n8n</h2>
+                  <h2 className="text-lg font-semibold">Email / Automations</h2>
                   <div className="mt-4 space-y-3">
+                    <EnvStatus
+                      label={`Email provider: ${emailProvider}`}
+                      configured={emailProvider === "resend" ? resendConfigured : healthEnvironment.n8nNotificationConfigured === true}
+                    />
+                    <EnvStatus
+                      label="Resend API key and sender"
+                      configured={resendConfigured}
+                    />
                     <EnvStatus
                       label="AI Workspace webhook"
                       configured={Boolean(import.meta.env.VITE_N8N_AI_WORKSPACE_WEBHOOK_URL)}
                     />
                     <EnvStatus
-                      label="Notification webhook"
-                      configured={Boolean(import.meta.env.VITE_N8N_NOTIFICATION_WEBHOOK_URL)}
-                    />
-                    <EnvStatus
-                      label="System health webhook"
-                      configured={Boolean(import.meta.env.VITE_N8N_SYSTEM_HEALTH_WEBHOOK_URL)}
+                      label="Optional n8n notification workflow"
+                      configured={healthEnvironment.n8nNotificationConfigured === true}
                     />
                   </div>
                 </div>

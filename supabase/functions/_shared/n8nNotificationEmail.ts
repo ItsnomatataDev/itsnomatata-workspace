@@ -141,8 +141,7 @@ export function getN8nNotificationWebhookConfig() {
 export function getNotificationEmailProviderName(): "resend" | "n8n" {
   const configured = Deno.env.get("EMAIL_PROVIDER")?.trim().toLowerCase();
   if (configured === "n8n") return "n8n";
-  if (configured === "resend") return "resend";
-  return Deno.env.get("RESEND_API_KEY")?.trim() ? "resend" : "n8n";
+  return "resend";
 }
 
 function getResendConfig() {

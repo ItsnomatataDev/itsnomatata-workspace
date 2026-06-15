@@ -232,7 +232,7 @@ export type ContentStudioImageAnalysis = {
 
 const BUCKET = "content-review-assets";
 const ASSET_RETENTION_DAYS = 60;
-const SCHEDULE_RETENTION_DAYS = 60;
+const SCHEDULE_RETENTION_DAYS = 30;
 /** Internal schedule preview links (staff only — clients use the portal). */
 export const CONTENT_REVIEW_LINK_VALID_DAYS = 90;
 

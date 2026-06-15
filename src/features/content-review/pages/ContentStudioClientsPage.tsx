@@ -7,6 +7,7 @@ import {
   Loader2,
   Plus,
   Send,
+  Trash2,
   X,
 } from "lucide-react";
 import {
@@ -27,9 +28,11 @@ import {
   buildClientPortalUrl,
   buildContentReviewDetailsIndex,
   contentReviewLinkExpiresAt,
+  createContentReviewDraft,
   createContentClient,
   ensureClientMonthlySchedule,
   deleteContentClient,
+  deleteContentReviewDraft,
   getContentClient,
   listContentClients,
   listContentReviewAssetsForDrafts,
@@ -158,6 +161,11 @@ function contentStudioClientPath(clientId: string, basePath: string) {
   return `${basePath}/${clientId}`;
 }
 
+function nextScheduleMonthKey() {
+  const now = new Date();
+  return scheduleMonthKey(new Date(now.getFullYear(), now.getMonth() + 1, 1));
+}
+
 export default function ContentStudioClientsPage() {
   const { clientId } = useParams();
   const isClientRoute = Boolean(clientId);
@@ -197,6 +205,9 @@ export default function ContentStudioClientsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [monthFilter, setMonthFilter] = useState("all");
+  const [bulkScheduleMonth, setBulkScheduleMonth] = useState(
+    nextScheduleMonthKey(),
+  );
   const [activeClientTab, setActiveClientTab] = useState<
     "overview" | "schedule" | "media" | "review-link" | "settings"
   >(clientId ? "schedule" : "overview");
@@ -215,6 +226,9 @@ export default function ContentStudioClientsPage() {
   >({});
   const [selectedScheduleId, setSelectedScheduleId] = useState<string | null>(
     null,
+  );
+  const [newScheduleMonth, setNewScheduleMonth] = useState(
+    nextScheduleMonthKey(),
   );
   const [clientDetailsForm, setClientDetailsForm] = useState({
     companyName: "",
@@ -768,6 +782,103 @@ export default function ContentStudioClientsPage() {
     }
   }
 
+  async function createScheduleForClient(targetClientId: string, monthKey: string) {
+    if (!organizationId || !officeId || !userId) {
+      throw new Error("Content Studio is still loading. Try again in a moment.");
+    }
+    const created = await createContentReviewDraft({
+      organizationId,
+      officeId,
+      clientId: targetClientId,
+      createdBy: userId,
+      title: defaultScheduleTitle(monthKey),
+    });
+    return updateContentReviewDraft(created, {
+      scheduled_at: scheduleMonthStartIso(monthKey),
+      status: "ready_for_review",
+      review_status: "ready_for_review",
+    });
+  }
+
+  async function handleCreateSchedule() {
+    if (!client) return;
+    const monthKey = newScheduleMonth || nextScheduleMonthKey();
+    try {
+      setSaving(true);
+      setError("");
+      const schedule = await createScheduleForClient(client.id, monthKey);
+      setSelectedScheduleId(schedule.id);
+      setMessage(`${schedule.title} created.`);
+      await load();
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to create schedule.",
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleCreateSchedulesForAllClients() {
+    if (!organizationId || !officeId || !userId) return;
+    const monthKey = bulkScheduleMonth || nextScheduleMonthKey();
+    const monthLabel = formatScheduleMonthLabel(monthKey);
+    const confirmed = window.confirm(
+      `Create ${monthLabel} schedules for all clients that do not already have one?`,
+    );
+    if (!confirmed) return;
+
+    try {
+      setSaving(true);
+      setError("");
+      let createdCount = 0;
+      let skippedCount = 0;
+
+      for (const entry of clients) {
+        const clientDrafts = allClientDrafts[entry.id] ?? [];
+        const alreadyHasMonth = schedulesForMonth(clientDrafts, monthKey).length > 0;
+        if (alreadyHasMonth) {
+          skippedCount += 1;
+          continue;
+        }
+        await createScheduleForClient(entry.id, monthKey);
+        createdCount += 1;
+      }
+
+      setMessage(
+        `${monthLabel} schedules created for ${createdCount} client${createdCount === 1 ? "" : "s"}. ${skippedCount} already had one.`,
+      );
+      await load();
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to create schedules.",
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDeleteSchedule(draft: ContentReviewDraft) {
+    const confirmed = window.confirm(
+      `Delete "${draft.title || "this schedule"}" and all media attached to it? This cannot be undone.`,
+    );
+    if (!confirmed) return;
+    try {
+      setSaving(true);
+      setError("");
+      await deleteContentReviewDraft(draft.id);
+      setSelectedScheduleId(null);
+      setMessage("Schedule and attached media deleted.");
+      await load();
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to delete schedule.",
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function handleDeleteClient() {
     if (!client) return;
     const confirmed = window.confirm(
@@ -1028,6 +1139,24 @@ export default function ContentStudioClientsPage() {
                   }
                   title="Filter by month"
                 />
+                <input
+                  className={`${inputClassName()} w-40`}
+                  type="month"
+                  value={bulkScheduleMonth}
+                  onChange={(event) =>
+                    setBulkScheduleMonth(event.target.value || nextScheduleMonthKey())
+                  }
+                  title="Bulk schedule month"
+                />
+                <button
+                  type="button"
+                  disabled={saving || clients.length === 0 || !userId}
+                  onClick={() => void handleCreateSchedulesForAllClients()}
+                  className="inline-flex items-center gap-2 rounded-xl border border-orange-500/30 bg-orange-500/10 px-4 py-3 text-sm font-bold text-orange-100 hover:bg-orange-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <CalendarDays size={16} />
+                  Create schedules
+                </button>
                 <button
                   type="button"
                   onClick={() =>
@@ -1651,18 +1780,22 @@ export default function ContentStudioClientsPage() {
 
               {activeClientTab === "schedule" ? (
                 <section className="rounded-2xl border border-white/10 bg-white/5 p-5">
-                  {clientScheduleDrafts.length > 1 ? (
-                    <label className="mb-4 block max-w-xl space-y-1.5">
+                  <div className="mb-4 flex flex-col gap-3 rounded-2xl border border-white/10 bg-black/30 p-4 lg:flex-row lg:items-end">
+                    <label className="block min-w-[260px] flex-1 space-y-1.5">
                       <span className="text-[11px] font-semibold uppercase tracking-wide text-white/40">
                         Schedules for this client
                       </span>
                       <select
                         className={inputClassName()}
                         value={selectedScheduleId ?? activeScheduleDraft?.id ?? ""}
+                        disabled={clientScheduleDrafts.length === 0}
                         onChange={(event) =>
                           setSelectedScheduleId(event.target.value)
                         }
                       >
+                        {clientScheduleDrafts.length === 0 ? (
+                          <option value="">No schedules yet</option>
+                        ) : null}
                         {clientScheduleDrafts.map((draft) => (
                           <option key={draft.id} value={draft.id}>
                             {draft.title?.trim() ||
@@ -1674,14 +1807,50 @@ export default function ContentStudioClientsPage() {
                         ))}
                       </select>
                       <p className="text-[11px] text-white/45">
-                        {schedulesInActiveMonth.length === 0
-                          ? `No schedule dated ${formatScheduleMonthLabel(activeScheduleMonth)} — showing another month. Change the month filter above or pick a schedule.`
+                        {schedulesInActiveMonth.length === 0 && clientScheduleDrafts.length > 0
+                          ? `No schedule dated ${formatScheduleMonthLabel(activeScheduleMonth)} - showing another month. Change the month filter above or pick a schedule.`
                           : schedulesInActiveMonth.length > 1
                             ? `${schedulesInActiveMonth.length} schedules in ${formatScheduleMonthLabel(activeScheduleMonth)}.`
-                            : null}
+                            : "Create another schedule when this client needs a separate month or campaign."}
                       </p>
                     </label>
-                  ) : null}
+                    <label className="block w-full space-y-1.5 sm:w-48">
+                      <span className="text-[11px] font-semibold uppercase tracking-wide text-white/40">
+                        New schedule month
+                      </span>
+                      <input
+                        type="month"
+                        className={inputClassName()}
+                        value={newScheduleMonth}
+                        disabled={saving}
+                        onChange={(event) =>
+                          setNewScheduleMonth(event.target.value || nextScheduleMonthKey())
+                        }
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      disabled={saving || !client || !userId}
+                      onClick={() => void handleCreateSchedule()}
+                      className="inline-flex items-center justify-center gap-2 rounded-xl bg-orange-500 px-4 py-3 text-sm font-bold text-black hover:bg-orange-400 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <Plus size={16} />
+                      New schedule
+                    </button>
+                    <button
+                      type="button"
+                      disabled={saving || !activeScheduleDraft}
+                      onClick={() =>
+                        activeScheduleDraft
+                          ? void handleDeleteSchedule(activeScheduleDraft)
+                          : undefined
+                      }
+                      className="inline-flex items-center justify-center gap-2 rounded-xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm font-bold text-red-200 hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <Trash2 size={16} />
+                      Delete schedule
+                    </button>
+                  </div>
                   {activeScheduleDraft && clientBatch ? (
                     <>
                       <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -2121,4 +2290,3 @@ function MiniStat({ label, value }: { label: string; value: string }) {
     </div>
   );
 }
-

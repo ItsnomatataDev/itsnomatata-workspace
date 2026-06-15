@@ -135,11 +135,20 @@ Deno.serve(async (req) => {
       openIncidents: incidents.count ?? 0,
     };
 
+    const emailProvider = Deno.env.get("EMAIL_PROVIDER")?.trim().toLowerCase() || "resend";
+    const resendApiKeyConfigured = Boolean(Deno.env.get("RESEND_API_KEY")?.trim());
+    const resendFromEmailConfigured = Boolean(Deno.env.get("RESEND_FROM_EMAIL")?.trim());
+    const resendReplyToEmailConfigured = Boolean(Deno.env.get("RESEND_REPLY_TO_EMAIL")?.trim());
+    const resendReady = resendApiKeyConfigured && resendFromEmailConfigured;
+
     const warnings = [
       ...tableChecks.filter((item) => !item.ok).map((item) => `Table check failed: ${item.table}`),
       ...(counts.failedNotificationDeliveries24h > 0 ? ["Notification delivery failures detected in the last 24 hours."] : []),
       ...(counts.pendingAccountRequests > 0 ? ["Pending account access requests require review."] : []),
       ...(counts.suspendedUsers > 0 ? ["There are suspended users in this organization."] : []),
+      ...(emailProvider === "resend" && !resendReady
+        ? ["Resend email provider is selected but required secrets are missing."]
+        : []),
     ];
 
     return jsonResponse({
@@ -150,6 +159,10 @@ Deno.serve(async (req) => {
       tableChecks,
       warnings,
       environment: {
+        emailProvider,
+        resendApiKeyConfigured,
+        resendFromEmailConfigured,
+        resendReplyToEmailConfigured,
         n8nAiWorkspaceConfigured: Boolean(Deno.env.get("N8N_AI_WORKSPACE_WEBHOOK_URL")),
         n8nNotificationConfigured: Boolean(Deno.env.get("N8N_NOTIFICATION_WEBHOOK_URL")),
         n8nSystemHealthConfigured: Boolean(Deno.env.get("N8N_SYSTEM_HEALTH_WEBHOOK_URL")),

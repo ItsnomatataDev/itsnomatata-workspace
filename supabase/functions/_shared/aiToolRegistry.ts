@@ -94,6 +94,15 @@ function formatHours(seconds: unknown): string {
   return `${hours.toFixed(hours >= 10 ? 1 : 2)}h`;
 }
 
+function formatNumber(value: unknown, digits = 0): string {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "-";
+  return number.toLocaleString("en-ZA", {
+    maximumFractionDigits: digits,
+    minimumFractionDigits: digits,
+  });
+}
+
 function formatDateTime(value: unknown): string {
   if (typeof value !== "string" || !value) return "unknown time";
   const date = new Date(value);
@@ -134,14 +143,95 @@ function todayInHarareRange(): Record<string, unknown> {
 function formatAttendanceRecord(row: Record<string, unknown>): string {
   const clockIn = row.clockInAt ?? row.actualClockInAt;
   const clockOut = row.clockOutAt ?? row.actualClockOutAt;
+  const status = String(row.status ?? "unknown").toLowerCase();
+  const office = row.office ?? row.profileOffice ?? "Unknown office";
+  const clockInText = clockIn ? formatTimeOnly(clockIn) : "Not clocked in";
+  const clockOutText = clockOut ? `, out ${formatTimeOnly(clockOut)}` : "";
 
-  return [
-    `- ${row.name ?? "Team member"}`,
-    `  Office: ${row.office ?? row.profileOffice ?? "Unknown"}`,
-    `  Clock in: ${clockIn ? formatDateTime(clockIn) : "Not clocked in"}`,
-    `  Clock out: ${clockOut ? formatDateTime(clockOut) : "Not clocked out"}`,
-    `  Status: ${row.status ?? "unknown"}`,
-  ].join("\n");
+  if (status === "absent" || !clockIn) {
+    return `- ${row.name ?? "Team member"} - ${office}`;
+  }
+
+  return `- ${row.name ?? "Team member"} - ${clockInText}${clockOutText} - ${office}`;
+}
+
+function formatTimeOnly(value: unknown): string {
+  if (typeof value !== "string" || !value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleTimeString("en-ZA", {
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "Africa/Harare",
+  });
+}
+
+function attendanceStatusLabel(status: unknown): string {
+  const normalized = String(status ?? "unknown").toLowerCase();
+  if (normalized === "present") return "Present";
+  if (normalized === "late") return "Late";
+  if (normalized === "absent") return "Absent";
+  if (normalized === "on_leave") return "On leave";
+  if (normalized === "pending") return "Pending";
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+}
+
+function formatAttendanceCountLine(counts?: Record<string, unknown>): string {
+  if (!counts) return "";
+  const order = ["present", "late", "absent", "on_leave", "pending"];
+  const parts = order
+    .filter((key) => Number(counts[key] ?? 0) > 0)
+    .map((key) => `${attendanceStatusLabel(key)}: ${counts[key]}`);
+  const extra = Object.entries(counts)
+    .filter(([key, value]) => !order.includes(key) && Number(value ?? 0) > 0)
+    .map(([key, value]) => `${attendanceStatusLabel(key)}: ${value}`);
+  return [...parts, ...extra].join(" | ");
+}
+
+function formatAttendanceGroups(
+  records: Record<string, unknown>[],
+  perGroup = 6,
+): string {
+  const order = ["late", "absent", "present", "on_leave", "pending"];
+  const groups = new Map<string, Record<string, unknown>[]>();
+
+  for (const record of records) {
+    const status = String(record.status ?? "unknown").toLowerCase() ||
+      "unknown";
+    groups.set(status, [...(groups.get(status) ?? []), record]);
+  }
+
+  const orderedKeys = [
+    ...order.filter((key) => groups.has(key)),
+    ...[...groups.keys()].filter((key) => !order.includes(key)),
+  ];
+
+  return orderedKeys
+    .map((key) => {
+      const items = groups.get(key) ?? [];
+      const visible = items.slice(0, perGroup).map(formatAttendanceRecord);
+      const hidden = items.length - visible.length;
+      return [
+        `${attendanceStatusLabel(key)} (${items.length})`,
+        ...visible,
+        hidden > 0 ? `- +${hidden} more` : "",
+      ].filter(Boolean).join("\n");
+    })
+    .join("\n\n");
+}
+
+function formatSingleAttendanceAnswer(row: Record<string, unknown>): string {
+  const name = row.name ?? "This person";
+  const clockIn = row.clockInAt ?? row.actualClockInAt;
+  const clockOut = row.clockOutAt ?? row.actualClockOutAt;
+  const office = row.office ?? row.profileOffice ?? "Unknown office";
+  const status = attendanceStatusLabel(row.status);
+
+  if (!clockIn) {
+    return `${name} has not clocked in for this period.\nStatus: ${status}\nOffice: ${office}`;
+  }
+
+  return `${name} clocked in at ${formatTimeOnly(clockIn)}.\nStatus: ${status}\nOffice: ${office}${clockOut ? `\nClock out: ${formatTimeOnly(clockOut)}` : ""}`;
 }
 
 function taskLink(boardId: unknown, taskId: unknown): string | null {
@@ -338,6 +428,38 @@ function extractTimerTargetPayload(message: string): Record<string, unknown> {
   };
 }
 
+function extractAttendanceTargetPayload(message: string): Record<string, unknown> {
+  const email = message.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0];
+  const direct =
+    message.match(
+      /\b(?:did|has|is|was|check|show|tell|find)\s+([A-Za-z0-9._%+-]+(?:\s+[A-Za-z][A-Za-z.'-]+){0,2})\s+(?:clock|clocked|present|late|absent|come|came|arrive|arrived)\b/i,
+    )?.[1] ??
+    message.match(
+      /\b(?:attendance|clock[- ]?in|clocked\s+in|late|absent|present)\s+(?:for|of)\s+([A-Za-z0-9._%+-]+(?:\s+[A-Za-z][A-Za-z.'-]+){0,2})\b/i,
+    )?.[1];
+
+  const cleanedName = direct
+    ?.replace(
+      /\b(today|yesterday|this|morning|afternoon|evening|please|the|a|an)\b/gi,
+      " ",
+    )
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return {
+    originalMessage: message,
+    ...(email ? { userEmail: email, email, assigneeEmail: email } : {}),
+    ...(cleanedName
+      ? {
+        userName: cleanedName,
+        name: cleanedName,
+        employeeName: cleanedName,
+        assigneeName: cleanedName,
+      }
+      : {}),
+  };
+}
+
 function extractBoardCardPayload(message: string): Record<string, unknown> {
   const normalized = message.replace(/\s+/g, " ").trim();
   const timerPayload = extractTimerTargetPayload(normalized);
@@ -406,10 +528,23 @@ function extractBoardCardPayload(message: string): Record<string, unknown> {
 function extractAssetPayload(message: string): Record<string, unknown> {
   const lower = message.toLowerCase();
 
+  const genericAssetList =
+    /\b(show|list|get|view|see|display)\b.*\b(assets?|equipment|stock)\b.*\b(system|workspace|database|registry|here|available|registered)\b/.test(
+      lower,
+    ) ||
+    /\b(what|which)\b.*\b(assets?|equipment|stock)\b.*\b(system|workspace|database|registry|here|available|registered)\b/.test(
+      lower,
+    ) ||
+    /\b(any|other)\s+(assets?|equipment|stock)\b/.test(lower) ||
+    /\bassets?\s+(?:that\s+are\s+)?(?:in|on|inside|within)\s+(?:this|the|our)\s+(system|workspace|database|registry|company)\b/.test(
+      lower,
+    );
+
   const listAll =
     /\b(list|show|get|view)\b.*\b(all|every|everything)\b.*\b(assets?|equipment|stock)\b/
       .test(lower) ||
-    /\ball\s+(assets?|equipment|stock)\b/.test(lower);
+    /\ball\s+(assets?|equipment|stock)\b/.test(lower) ||
+    genericAssetList;
 
   const serial =
     message.match(/\b(?:serial|sn|s\/n)\s*[:#-]?\s*([A-Z0-9-]{3,})\b/i)?.[1] ??
@@ -421,7 +556,7 @@ function extractAssetPayload(message: string): Record<string, unknown> {
 
   const cleaned = listAll ? "" : message
     .replace(
-      /\b(show|list|find|search|get|view|any|all|every|everything|the|me|my|mine|assets?|asset|equipment|stock|registered|system|on|in|please|for|of|company|office)\b/gi,
+      /\b(show|list|find|search|get|view|see|display|any|all|every|everything|other|the|this|that|these|those|are|is|was|were|here|there|available|me|my|mine|assets?|asset|equipment|stock|registered|system|workspace|database|registry|on|in|inside|within|please|for|of|company|office)\b/gi,
       " ",
     )
     .replace(/\bserial\s*[:#-]?\s*[A-Z0-9-]{3,}\b/gi, " ")
@@ -734,12 +869,36 @@ export function detectAiTool(message: string): {
     };
   }
 
-  if (/attendance|clock/.test(lower)) {
+  if (
+    /attendance|clock/.test(lower) ||
+    /\b(who|show|list|which|people|staff|employees|team)\b.*\b(late|absent|present)\b/.test(
+      lower,
+    ) ||
+    /\b(late|absent)\s+(today|this morning|this day)\b/.test(lower)
+  ) {
+    const attendanceMode =
+      /\b(absent|absence|did not clock|didn'?t clock|not clocked|no clock[- ]?in|not in|missing clock|never clocked)\b/
+        .test(lower)
+        ? "absent"
+        : /\b(late|clocked in late|arrived late)\b/.test(lower)
+          ? "late"
+          : /\b(on leave|leave today|approved leave)\b/.test(lower)
+            ? "on_leave"
+            : /\b(clock(?:ed)? in|clockins?|present|who is in|who came in)\b/.test(lower)
+              ? "clocked_in"
+              : "summary";
+
     return {
       toolId: "get_attendance_summary",
       payload: {
         ...todayInHarareRange(),
         ...extractTimerTargetPayload(message),
+        ...extractAttendanceTargetPayload(message),
+        mode: attendanceMode,
+        status:
+          attendanceMode === "summary" || attendanceMode === "clocked_in"
+            ? undefined
+            : attendanceMode,
         originalMessage: message,
       },
     };
@@ -761,18 +920,39 @@ export function detectAiTool(message: string): {
       lower,
     )
   ) {
+    const fleetMode =
+      /\b(list|show|which|what)\b.*\b(vehicles?|cars?|trucks?|vans?|fleet)\b/.test(
+        lower,
+      )
+        ? "list_vehicles"
+        : /service record|maintenance history|service history|maintenance record/.test(
+            lower,
+          )
+          ? "service_records"
+          : /fuel|diesel|petrol|purchase/.test(lower) &&
+              /kilometers|kilometres|\bkm\b|mileage|odometer|covered|distance/.test(
+                lower,
+              )
+            ? "daily_usage"
+            : /fuel|diesel|petrol|purchase/.test(lower)
+              ? "fuel"
+              : /kilometers|kilometres|\bkm\b|mileage|odometer|covered|distance/.test(
+                    lower,
+                  )
+                ? "usage"
+                : "overview";
+
     return {
       toolId: "search_fleet_service_needs",
       payload: {
         originalMessage: message,
         query: message,
-        mode: /fuel|diesel|petrol|purchase/.test(lower)
-          ? "fuel"
-          : /kilometers|kilometres|\bkm\b|mileage|odometer/.test(lower)
-            ? "usage"
-            : /service record|maintenance history|service history/.test(lower)
-              ? "service_records"
-              : "overview",
+        mode: fleetMode,
+        datePreset: /yesterday/.test(lower)
+          ? "yesterday"
+          : /today/.test(lower)
+            ? "today"
+            : null,
         horizon_days: /month|30/.test(lower) ? 30 : 14,
         limit: /\ball\b/.test(lower) ? 100 : 30,
       },
@@ -898,6 +1078,22 @@ export function formatToolReply(
   }
 
   switch (toolId) {
+    case "create_board_card": {
+      const message = typeof data.message === "string"
+        ? data.message
+        : "Created the card.";
+      const link =
+        typeof data.cardUrl === "string"
+          ? data.cardUrl
+          : typeof data.taskUrl === "string"
+            ? data.taskUrl
+            : typeof data.actionUrl === "string"
+              ? data.actionUrl
+              : taskLink(data.boardId, data.cardId ?? data.taskId);
+
+      return `${message}${link ? `\n\n[Open card](${link})` : ""}`;
+    }
+
     case "get_active_time_trackers": {
       const trackers = Array.isArray(data.trackers) ? data.trackers : [];
       const notTracking = Array.isArray(data.notTracking)
@@ -1092,25 +1288,35 @@ export function formatToolReply(
     case "get_attendance_summary": {
       const records = Array.isArray(data.records) ? data.records : [];
       const counts = data.counts as Record<string, unknown> | undefined;
+      const mode = String(data.mode ?? "summary");
+      const heading =
+        mode === "late"
+          ? "Late arrivals"
+          : mode === "absent"
+            ? "Not clocked in"
+            : mode === "clocked_in"
+              ? "Clocked in"
+              : mode === "on_leave"
+                ? "On leave"
+                : "Attendance summary";
 
       if (records.length === 0) {
-        return "No attendance records were found for this period.";
+        return `No ${heading.toLowerCase()} records were found for this period.`;
       }
 
-      const countLine = counts
-        ? Object.entries(counts)
-          .map(([status, count]) => `${status}: ${count}`)
-          .join(", ")
-        : "";
+      if (data.teamView === false && records.length === 1) {
+        return formatSingleAttendanceAnswer(
+          records[0] as Record<string, unknown>,
+        );
+      }
 
-      const lines = records
-        .slice(0, 25)
-        .map((item) => formatAttendanceRecord(item as Record<string, unknown>))
-        .join("\n");
+      const countLine = formatAttendanceCountLine(counts);
 
-      return `Attendance summary${
-        countLine ? ` (${countLine})` : ""
-      }.\n\n${lines}`;
+      const lines = formatAttendanceGroups(
+        records.map((item) => item as Record<string, unknown>),
+      );
+
+      return `${heading}${countLine ? `\n${countLine}` : ""}\n\n${lines}`;
     }
 
     case "search_assets": {
@@ -1146,6 +1352,111 @@ export function formatToolReply(
       return `I found ${assets.length} asset${
         assets.length === 1 ? "" : "s"
       }:\n\n${lines.join("\n")}`;
+    }
+
+    case "search_fleet_service_needs": {
+      const mode = String(data.mode ?? "overview");
+      const vehicles = Array.isArray(data.vehicles) ? data.vehicles : [];
+      const serviceRecords = Array.isArray(data.serviceRecords)
+        ? data.serviceRecords
+        : [];
+      const dailySummaries = Array.isArray(data.dailySummaries)
+        ? data.dailySummaries
+        : [];
+      const fuelPurchases = Array.isArray(data.fuelPurchases)
+        ? data.fuelPurchases
+        : [];
+      const serviceNeeds = Array.isArray(data.serviceNeeds)
+        ? data.serviceNeeds
+        : [];
+
+      if (mode === "list_vehicles") {
+        if (vehicles.length === 0) return "No fleet vehicles were found.";
+        const lines = vehicles.slice(0, 30).map((item) => {
+          const row = item as Record<string, unknown>;
+          const name = row.name ?? row.vehicleName ?? "Vehicle";
+          const registration = row.registrationNumber
+            ? ` (${row.registrationNumber})`
+            : "";
+          const model = [row.make, row.model].filter(Boolean).join(" ");
+          const odo = row.currentOdometerKm
+            ? `${formatNumber(row.currentOdometerKm)} km`
+            : "no odometer";
+          return `- ${name}${registration}${model ? ` - ${model}` : ""} - ${odo}`;
+        });
+        return `Fleet vehicles (${vehicles.length})\n\n${lines.join("\n")}`;
+      }
+
+      if (mode === "service_records") {
+        if (serviceRecords.length === 0) {
+          return typeof data.message === "string" && data.message.trim()
+            ? data.message.trim()
+            : "No fleet service records were found.";
+        }
+        const lines = serviceRecords.slice(0, 20).map((item) => {
+          const row = item as Record<string, unknown>;
+          const vehicle = row.vehicleName ?? row.registrationNumber ??
+            "Vehicle";
+          const cost = row.cost
+            ? ` - ${row.currency ?? "USD"} ${formatNumber(row.cost, 2)}`
+            : "";
+          return `- ${vehicle} - ${row.serviceDate ?? "unknown date"} - ${row.serviceType ?? "service"}${row.odometerKm ? ` at ${formatNumber(row.odometerKm)} km` : ""}${row.provider ? ` - ${row.provider}` : ""}${cost}`;
+        });
+        return `Fleet service records (${serviceRecords.length})\n\n${lines.join("\n")}`;
+      }
+
+      if (mode === "fuel" || mode === "usage" || mode === "daily_usage") {
+        if (dailySummaries.length === 0 && fuelPurchases.length === 0) {
+          return typeof data.message === "string" && data.message.trim()
+            ? data.message.trim()
+            : `No fleet usage or fuel records were found for ${data.reportDate ?? "that date"}.`;
+        }
+
+        const summaryLines = dailySummaries.slice(0, 20).map((item) => {
+          const row = item as Record<string, unknown>;
+          const vehicle = row.vehicleName ?? row.registrationNumber ??
+            "Vehicle";
+          const fuel = row.fuelConsumptionLitres
+            ? `${formatNumber(row.fuelConsumptionLitres, 2)} L`
+            : "no fuel";
+          const distance = `${formatNumber(row.routeLengthKm, 2)} km`;
+          const odo = row.odometerKm
+            ? `, odometer ${formatNumber(row.odometerKm)} km`
+            : "";
+          return `- ${vehicle}: ${distance}, ${fuel}${odo}`;
+        });
+
+        const purchaseLines = fuelPurchases.slice(0, 10).map((item) => {
+          const row = item as Record<string, unknown>;
+          const vehicle = row.vehicleName ?? row.registrationNumber ??
+            "Vehicle";
+          const cost = row.totalCost
+            ? `${row.currency ?? "USD"} ${formatNumber(row.totalCost, 2)}`
+            : "cost not set";
+          return `- ${vehicle}: ${formatNumber(row.litres, 2)} L - ${cost}${row.stationName ? ` - ${row.stationName}` : ""}`;
+        });
+
+        return [
+          `Fleet usage for ${data.reportDate ?? "selected date"}`,
+          summaryLines.length ? `Daily summaries\n${summaryLines.join("\n")}` : "",
+          purchaseLines.length ? `Fuel purchases\n${purchaseLines.join("\n")}` : "",
+        ].filter(Boolean).join("\n\n");
+      }
+
+      if (serviceNeeds.length === 0) {
+        return typeof data.message === "string" && data.message.trim()
+          ? data.message.trim()
+          : "No fleet service needs were found.";
+      }
+
+      const lines = serviceNeeds.slice(0, 20).map((item) => {
+        const row = item as Record<string, unknown>;
+        const vehicle = row.vehicleName ?? row.registrationNumber ??
+          "Vehicle";
+        return `- ${vehicle} - ${row.serviceType ?? row.scheduleName ?? "service"} due ${row.nextServiceDate ?? "by odometer"}${row.nextServiceOdometerKm ? ` or ${formatNumber(row.nextServiceOdometerKm)} km` : ""}`;
+      });
+
+      return `Fleet service needs (${serviceNeeds.length})\n\n${lines.join("\n")}`;
     }
 
     case "get_leave_balance": {
