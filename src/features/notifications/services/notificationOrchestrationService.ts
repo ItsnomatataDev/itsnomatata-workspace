@@ -438,8 +438,8 @@ export async function notifyTaskAssigned(params: {
       actorUserId: params.actorUserId ?? null,
       actorName: params.actorName ?? null,
     },
-    channels: ["in_app", "push"],
-    sendEmail: params.sendEmail ?? false,
+    channels: ["in_app", "email", "push"],
+    sendEmail: params.sendEmail ?? true,
   });
 }
 

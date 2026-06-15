@@ -925,6 +925,17 @@ function metricStatus(value: number, amberAt: number, redAt: number): ControlSta
     return "green";
 }
 
+function rowsOrEmpty<T>(
+    result: { data: T[] | null; error: unknown },
+    label: string,
+): T[] {
+    if (result.error) {
+        console.warn(`IT Control Centre module skipped: ${label}`, result.error);
+    }
+
+    return result.data ?? [];
+}
+
 function alertRoute(alert: {
     related_entity_type?: string | null;
     related_entity_id?: string | null;
@@ -1077,33 +1088,29 @@ export async function getITControlCentreData(
             .limit(20),
     ]);
 
-    const firstError = [
-        profilesRes.error,
-        accessRequestsRes.error,
-        timersRes.error,
-        attendanceSessionsRes.error,
-        attendanceDailyRes.error,
-        tasksRes.error,
-        boardsRes.error,
-        alertsRes.error,
-        eventsRes.error,
-        monitorsRes.error,
-        ticketsRes.error,
-        assetsRes.error,
-        vehiclesRes.error,
-        serviceSchedulesRes.error,
-        fuelPurchasesRes.error,
-        fuelLogsRes.error,
-        mileageLogsRes.error,
-        dailySummariesRes.error,
-        orgNotificationsRes.error,
-        workflowInstancesRes.error,
-        aiLogsRes.error,
-    ].find(Boolean);
-    if (firstError) throw firstError;
+    const profilesData = rowsOrEmpty(profilesRes, "profiles");
+    const accessRequestsData = rowsOrEmpty(accessRequestsRes, "account_access_requests");
+    const timersData = rowsOrEmpty(timersRes, "time_entries");
+    const attendanceSessionsData = rowsOrEmpty(attendanceSessionsRes, "attendance_sessions");
+    const attendanceDailyData = rowsOrEmpty(attendanceDailyRes, "attendance_daily_status");
+    const tasksData = rowsOrEmpty(tasksRes, "tasks");
+    const boardsData = rowsOrEmpty(boardsRes, "clients");
+    const alertsData = rowsOrEmpty(alertsRes, "system_alerts");
+    const eventsData = rowsOrEmpty(eventsRes, "system_events");
+    const monitorsData = rowsOrEmpty(monitorsRes, "system_monitors");
+    const ticketsData = rowsOrEmpty(ticketsRes, "it_support_tickets");
+    const assetsData = rowsOrEmpty(assetsRes, "assets");
+    const vehiclesData = rowsOrEmpty(vehiclesRes, "fleet_vehicles");
+    const serviceSchedulesData = rowsOrEmpty(serviceSchedulesRes, "fleet_service_schedules");
+    const fuelPurchasesData = rowsOrEmpty(fuelPurchasesRes, "fleet_fuel_purchases");
+    const fuelLogsData = rowsOrEmpty(fuelLogsRes, "fleet_fuel_logs");
+    const mileageLogsData = rowsOrEmpty(mileageLogsRes, "fleet_mileage_logs");
+    const dailySummariesData = rowsOrEmpty(dailySummariesRes, "fleet_daily_summaries");
+    const orgNotificationsData = rowsOrEmpty(orgNotificationsRes, "notifications");
+    const workflowInstances = rowsOrEmpty(workflowInstancesRes, "workflow_instances");
+    const aiLogsData = rowsOrEmpty(aiLogsRes, "ai_workspace_logs");
 
-    const notificationIds = (orgNotificationsRes.data ?? []).map((item) => item.id);
-    const workflowInstances = workflowInstancesRes.data ?? [];
+    const notificationIds = orgNotificationsData.map((item) => item.id);
     const workflowInstanceIds = workflowInstances.map((item) => item.id);
 
     const [deliveryRes, workflowLogsRes] = await Promise.all([
@@ -1123,10 +1130,10 @@ export async function getITControlCentreData(
                 .limit(30)
             : Promise.resolve({ data: [], error: null }),
     ]);
-    if (deliveryRes.error) throw deliveryRes.error;
-    if (workflowLogsRes.error) throw workflowLogsRes.error;
+    const deliveryData = rowsOrEmpty(deliveryRes, "notification_deliveries");
+    const workflowLogsData = rowsOrEmpty(workflowLogsRes, "workflow_execution_logs");
 
-    const profiles = profilesRes.data ?? [];
+    const profiles = profilesData;
     const activeUsers = profiles.filter(
         (profile) =>
             profile.is_active &&
@@ -1140,19 +1147,19 @@ export async function getITControlCentreData(
         (profile) =>
             profile.account_status === "pending" ||
             profile.account_status === "pending_approval",
-    ).length + (accessRequestsRes.data ?? []).filter((request) => request.status === "pending").length;
+    ).length + accessRequestsData.filter((request) => request.status === "pending").length;
 
-    const timers = timersRes.data ?? [];
+    const timers = timersData;
     const activeTimerUsers = new Set(timers.map((timer) => timer.user_id).filter(Boolean));
     const usersNotTracking = Math.max(activeUsers - activeTimerUsers.size, 0);
 
-    const dailyAttendance = attendanceDailyRes.data ?? [];
+    const dailyAttendance = attendanceDailyData;
     const attendancePresentToday = dailyAttendance.filter((row) => row.status === "present").length;
     const attendanceLateToday = dailyAttendance.filter((row) => row.status === "late").length;
     const attendanceAbsentToday = dailyAttendance.filter((row) => row.status === "absent").length;
 
-    const boards = boardsRes.data ?? [];
-    const tasks = tasksRes.data ?? [];
+    const boards = boardsData;
+    const tasks = tasksData;
     const openTasks = tasks.filter((task) => OPEN_CARD_STATUSES.includes(task.status));
     const overdueTasks = openTasks.filter((task) => isPast(task.due_date));
     const blockedTasks = openTasks.filter((task) => task.status === "blocked" || Boolean(task.blocked_reason));
@@ -1191,7 +1198,7 @@ export async function getITControlCentreData(
         })
         .slice(0, 8);
 
-    const alerts = (alertsRes.data ?? []).map((alert) => ({
+    const alerts = alertsData.map((alert) => ({
         id: alert.id,
         title: alert.title,
         message: alert.message,
@@ -1202,17 +1209,17 @@ export async function getITControlCentreData(
         created_at: alert.created_at,
     }));
 
-    const monitors = (monitorsRes.data ?? []).map((monitor) => ({
+    const monitors = monitorsData.map((monitor) => ({
         ...monitor,
         details: (monitor.details ?? {}) as Record<string, unknown>,
     }));
-    const tickets = ticketsRes.data ?? [];
-    const assets = assetsRes.data ?? [];
-    const vehicles = vehiclesRes.data ?? [];
-    const serviceSchedules = serviceSchedulesRes.data ?? [];
-    const deliveries = deliveryRes.data ?? [];
+    const tickets = ticketsData;
+    const assets = assetsData;
+    const vehicles = vehiclesData;
+    const serviceSchedules = serviceSchedulesData;
+    const deliveries = deliveryData;
     const workflowNameById = new Map(workflowInstances.map((item) => [item.id, item.name]));
-    const workflowFailures = (workflowLogsRes.data ?? [])
+    const workflowFailures = workflowLogsData
         .filter((log) => log.status !== "success" && log.status !== "completed")
         .map((log) => ({
             ...log,
@@ -1220,12 +1227,12 @@ export async function getITControlCentreData(
         }));
 
     const fuelSpendThisMonth = [
-        ...(fuelPurchasesRes.data ?? []).map((row) => numeric(row.total_cost)),
-        ...(fuelLogsRes.data ?? []).map((row) => numeric(row.total_cost)),
+        ...fuelPurchasesData.map((row) => numeric(row.total_cost)),
+        ...fuelLogsData.map((row) => numeric(row.total_cost)),
     ].reduce((sum, value) => sum + value, 0);
     const kmDrivenThisMonth = [
-        ...(mileageLogsRes.data ?? []).map((row) => numeric(row.distance_km)),
-        ...(dailySummariesRes.data ?? []).map((row) => numeric(row.route_length_km)),
+        ...mileageLogsData.map((row) => numeric(row.distance_km)),
+        ...dailySummariesData.map((row) => numeric(row.route_length_km)),
     ].reduce((sum, value) => sum + value, 0);
 
     const openAlerts = alerts.filter((alert) => alert.status === "open");
@@ -1235,7 +1242,7 @@ export async function getITControlCentreData(
         pendingAccountRequests,
         activeTimers: timers.length,
         usersNotTracking,
-        attendanceActiveSessions: (attendanceSessionsRes.data ?? []).length,
+        attendanceActiveSessions: attendanceSessionsData.length,
         attendancePresentToday,
         attendanceLateToday,
         attendanceAbsentToday,
@@ -1276,7 +1283,7 @@ export async function getITControlCentreData(
         failedNotificationDeliveries24h: deliveries.filter((delivery) => delivery.status === "failed").length,
         queuedEmailDeliveries: deliveries.filter((delivery) => delivery.channel === "email" && ["queued", "pending"].includes(delivery.status)).length,
         workflowFailures24h: workflowFailures.length,
-        aiActions24h: (aiLogsRes.data ?? []).length,
+        aiActions24h: aiLogsData.length,
     };
 
     let healthScore = 100;
@@ -1347,7 +1354,10 @@ export async function getITControlCentreData(
         topMetrics,
         alerts,
         monitors,
-        teamPulse: await getTeamPulse(organizationId),
+        teamPulse: await getTeamPulse(organizationId).catch((error) => {
+            console.warn("IT Control Centre module skipped: team_pulse", error);
+            return [];
+        }),
         boardRisks,
         supportTickets: tickets.map((ticket) => ({
             id: ticket.id,
@@ -1358,7 +1368,7 @@ export async function getITControlCentreData(
             requester_email: ticket.requester_email,
             created_at: ticket.created_at,
         })),
-        recentEvents: (eventsRes.data ?? []).map((event) => ({
+        recentEvents: eventsData.map((event) => ({
             id: event.id,
             title: event.title,
             description: event.description,
@@ -1367,6 +1377,6 @@ export async function getITControlCentreData(
             created_at: event.created_at,
         })),
         workflowFailures,
-        aiLogs: aiLogsRes.data ?? [],
+        aiLogs: aiLogsData,
     };
 }

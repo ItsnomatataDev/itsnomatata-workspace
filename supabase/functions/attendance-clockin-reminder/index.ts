@@ -62,8 +62,8 @@ async function createNotification(params: {
       actionUrl: "/time-tracking",
       priority: "medium",
       category: "time_tracking",
-      channels: ["in_app", "push"],
-      sendEmail: false,
+      channels: ["in_app", "email", "push"],
+      sendEmail: true,
       dedupeKey: `workday-start-reminder:${params.userId}:${params.dateKey}`,
       metadata: {
         attendance_date: params.dateKey,

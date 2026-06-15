@@ -90,8 +90,8 @@ async function notifyUser(params: {
       actorUserId: params.actorUserId,
       category: "admin",
       metadata: params.metadata ?? {},
-      channels: ["in_app", "push"],
-      sendEmail: false,
+      channels: ["in_app", "email", "push"],
+      sendEmail: true,
       dedupeKey: `${params.type}:${params.userId}:${Date.now()}`,
     }),
   }).catch((error) => {

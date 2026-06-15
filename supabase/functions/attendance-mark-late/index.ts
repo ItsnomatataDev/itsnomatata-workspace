@@ -62,8 +62,8 @@ async function createNotification(params: {
       actionUrl: "/attendance",
       priority: "high",
       category: "attendance",
-      channels: ["in_app", "push"],
-      sendEmail: false,
+      channels: ["in_app", "email", "push"],
+      sendEmail: true,
       dedupeKey: `late-clock-in:${params.userId}:${params.dateKey}`,
       metadata: {
         attendance_date: params.dateKey,

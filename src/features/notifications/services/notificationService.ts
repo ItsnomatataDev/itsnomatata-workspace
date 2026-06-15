@@ -40,6 +40,27 @@ type SendBulkNotificationParams = Omit<SendNotificationParams, "userId"> & {
   excludeActor?: boolean;
 };
 
+const FULL_DELIVERY_CHANNELS: NotificationChannel[] = ["in_app", "email", "push"];
+
+function resolveDeliveryChannels(params: {
+  channels?: NotificationChannel[];
+  sendEmail?: boolean;
+}) {
+  const channels = params.channels?.length
+    ? [...new Set(params.channels)]
+    : FULL_DELIVERY_CHANNELS;
+
+  if (params.sendEmail !== false && !channels.includes("email")) {
+    channels.push("email");
+  }
+
+  if (!channels.includes("in_app")) {
+    channels.unshift("in_app");
+  }
+
+  return channels;
+}
+
 async function createNotificationViaEdge(
   params: SendNotificationParams | SendBulkNotificationParams,
   userIds: string[],
@@ -75,7 +96,7 @@ async function createNotificationViaEdge(
         actorUserId: params.actorUserId ?? null,
         category: params.category ?? null,
         dedupeKey: params.dedupeKey ?? null,
-        channels: params.channels ?? undefined,
+        channels: resolveDeliveryChannels(params),
         sendEmail: params.sendEmail ?? true,
       },
     },

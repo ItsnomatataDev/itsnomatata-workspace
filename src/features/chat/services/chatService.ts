@@ -173,8 +173,8 @@ async function dispatchChatNotificationsWithFallback(params: {
   referenceType: "chat_conversation";
   actorUserId: string;
   dedupeKey: string;
-  channels?: ReadonlyArray<"in_app" | "push">;
-  sendEmail?: false;
+  channels?: ReadonlyArray<"in_app" | "email" | "push">;
+  sendEmail?: boolean;
 }) {
   async function createViaEdge() {
     const { data, error } = await supabase.functions.invoke(
@@ -199,8 +199,8 @@ async function dispatchChatNotificationsWithFallback(params: {
           actorUserId: params.actorUserId,
           category: "chat",
           dedupeKey: params.dedupeKey,
-          channels: params.channels ?? ["in_app", "push"],
-          sendEmail: params.sendEmail ?? false,
+          channels: params.channels ?? ["in_app", "email", "push"],
+          sendEmail: params.sendEmail ?? true,
         },
       },
     );
@@ -212,8 +212,8 @@ async function dispatchChatNotificationsWithFallback(params: {
   try {
     const result = await sendBulkNotifications({
       ...params,
-      channels: ["in_app", "push"],
-      sendEmail: false as const,
+      channels: ["in_app", "email", "push"],
+      sendEmail: true,
     }) as BulkNotificationSummary;
 
     if (result.ok === false || (result.failed ?? 0) > 0) {
@@ -404,8 +404,8 @@ async function notifyConversationMembers(params: {
       actorUserId: params.senderId,
       category: "chat",
       dedupeKey: `chat-message:${params.messageId}`,
-      channels: ["in_app", "push"] as const,
-      sendEmail: false as const,
+      channels: ["in_app", "email", "push"] as const,
+      sendEmail: true,
     };
 
     await dispatchChatNotificationsWithFallback(payload);

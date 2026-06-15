@@ -560,8 +560,8 @@ function AICommandPanel({
         priority: data.healthStatus === "red" ? "urgent" : "high",
         actorUserId: userId,
         category: "it_control_centre",
-        channels: ["in_app"],
-        sendEmail: false,
+        channels: ["in_app", "email", "push"],
+        sendEmail: true,
       });
       setOutput(`Notified ${recipients.length} active command-centre user(s).`);
     } catch (error) {
