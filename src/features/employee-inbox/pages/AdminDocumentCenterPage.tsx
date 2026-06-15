@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { FileUp, Mail, MessageSquareText, RefreshCw, Send, Users } from "lucide-react";
+import {
+  FileUp,
+  Mail,
+  MessageSquareText,
+  RefreshCw,
+  Send,
+  Undo2,
+  Users,
+} from "lucide-react";
 import Sidebar from "../../../components/dashboard/components/Sidebar";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import {
@@ -10,6 +18,7 @@ import {
   getEmployeeOptions,
   makeEmployeeDocumentPath,
   sendDocumentToRecipients,
+  unsendDocumentDelivery,
   uploadEmployeeDocumentFile,
   type AdminDocumentDelivery,
   type EmployeeDocumentType,
@@ -60,6 +69,7 @@ export default function AdminDocumentCenterPage() {
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const [unsendingId, setUnsendingId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
@@ -193,6 +203,29 @@ export default function AdminDocumentCenterPage() {
       setError(err instanceof Error ? err.message : "Failed to send document.");
     } finally {
       setSending(false);
+    }
+  }
+
+  async function handleUnsend(delivery: AdminDocumentDelivery) {
+    const recipientName = delivery.user_name || delivery.user_email || "this employee";
+    const confirmed = window.confirm(
+      `Unsend "${delivery.document.title}" from ${recipientName}? This removes it from their inbox and cancels pending email delivery where possible.`,
+    );
+    if (!confirmed) return;
+
+    try {
+      setUnsendingId(delivery.id);
+      setError("");
+      setSuccess("");
+      const result = await unsendDocumentDelivery(delivery.id);
+      setSuccess(
+        `Delivery unsent. Removed ${result.notificationsRemoved} notification(s) and cancelled ${result.pendingEmailsCancelled} pending email(s).`,
+      );
+      await loadPage();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to unsend document.");
+    } finally {
+      setUnsendingId(null);
     }
   }
 
@@ -516,6 +549,15 @@ export default function AdminDocumentCenterPage() {
                               {delivery.email_delivery.last_error}
                             </p>
                           ) : null}
+                          <button
+                            type="button"
+                            disabled={unsendingId === delivery.id}
+                            onClick={() => void handleUnsend(delivery)}
+                            className="mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-200 hover:bg-red-500/15 disabled:opacity-60"
+                          >
+                            <Undo2 size={13} />
+                            {unsendingId === delivery.id ? "Unsending..." : "Unsend"}
+                          </button>
                         </div>
                       );
                     })

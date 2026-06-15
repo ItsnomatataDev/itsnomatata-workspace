@@ -563,6 +563,23 @@ export async function sendDocumentToRecipients(params: {
   return data as { ok: boolean; documentId: string; delivered: number };
 }
 
+export async function unsendDocumentDelivery(recipientId: string) {
+  const { data, error } = await supabase.functions.invoke(
+    "unsend-employee-document",
+    {
+      body: { recipientId },
+    },
+  );
+
+  if (error) throw error;
+  return data as {
+    ok: boolean;
+    recipientId: string;
+    notificationsRemoved: number;
+    pendingEmailsCancelled: number;
+  };
+}
+
 export async function getAdminDocumentDeliveries(organizationId: string) {
   const { data, error } = await supabase
     .from("employee_document_recipients")
