@@ -117,7 +117,9 @@ function todayInHarareRange(): Record<string, unknown> {
   const month = Number(parts.find((p) => p.type === "month")?.value);
   const day = Number(parts.find((p) => p.type === "day")?.value);
 
-  const date = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  const date = `${year}-${String(month).padStart(2, "0")}-${
+    String(day).padStart(2, "0")
+  }`;
   const start = new Date(Date.UTC(year, month - 1, day, -2, 0, 0, 0));
   const end = new Date(Date.UTC(year, month - 1, day + 1, -2, 0, 0, -1));
 
@@ -158,13 +160,19 @@ function cleanSearchText(value: string): string {
 
 function readableToolValue(value: unknown): string {
   if (typeof value === "string") return value;
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
-  if (Array.isArray(value)) return value.map(readableToolValue).filter(Boolean).join("\n");
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  if (Array.isArray(value)) {
+    return value.map(readableToolValue).filter(Boolean).join("\n");
+  }
   if (!value || typeof value !== "object") return "";
 
   const record = value as Record<string, unknown>;
 
-  for (const key of ["message", "error", "reply", "content", "text", "summary"]) {
+  for (
+    const key of ["message", "error", "reply", "content", "text", "summary"]
+  ) {
     const text = readableToolValue(record[key]);
     if (text) return text;
   }
@@ -173,7 +181,9 @@ function readableToolValue(value: unknown): string {
   if (matches.length > 0) {
     const lines = matches.map((item) => {
       const row = item as Record<string, unknown>;
-      return `- ${row.title ?? row.name ?? "Match"}${row.taskId ? ` (${row.taskId})` : ""}`;
+      return `- ${row.title ?? row.name ?? "Match"}${
+        row.taskId ? ` (${row.taskId})` : ""
+      }`;
     });
     return `More than one match was found:\n${lines.join("\n")}`;
   }
@@ -185,22 +195,52 @@ function extractPersonNameForLeave(message: string): string | null {
   const lower = message.toLowerCase();
 
   if (/\b(my|me|mine|myself)\b/.test(lower)) {
-    const hasThirdPartyName = /\b(?:for|check|show)\s+([a-z][a-z.'-]+(?:\s+[a-z][a-z.'-]+){0,2})\b/i.test(message) ||
+    const hasThirdPartyName =
+      /\b(?:for|check|show)\s+([a-z][a-z.'-]+(?:\s+[a-z][a-z.'-]+){0,2})\b/i
+        .test(message) ||
       /\b[a-z][a-z.'-]+['']s\s+(?:leave|days?|balance)/i.test(lower);
     if (!hasThirdPartyName) return null;
   }
 
   // SKIP words that are never a person's name in this context
   const SKIP_WORDS = new Set([
-    "show", "check", "what", "how", "leave", "balance", "days", "day",
-    "remaining", "left", "available", "calculate", "get", "find",
-    "tell", "does", "have", "for", "with", "me", "my", "mine",
-    "myself", "his", "her", "their", "the", "a", "an", "is", "are",
+    "show",
+    "check",
+    "what",
+    "how",
+    "leave",
+    "balance",
+    "days",
+    "day",
+    "remaining",
+    "left",
+    "available",
+    "calculate",
+    "get",
+    "find",
+    "tell",
+    "does",
+    "have",
+    "for",
+    "with",
+    "me",
+    "my",
+    "mine",
+    "myself",
+    "his",
+    "her",
+    "their",
+    "the",
+    "a",
+    "an",
+    "is",
+    "are",
   ]);
 
   function isValidName(raw: string): boolean {
     const parts = raw.toLowerCase().split(/\s+/);
-    return parts.length >= 1 && parts.every((p) => p.length >= 2 && !SKIP_WORDS.has(p));
+    return parts.length >= 1 &&
+      parts.every((p) => p.length >= 2 && !SKIP_WORDS.has(p));
   }
 
   // 1. Possessive: "lizwe's leave" or "Lizwe Masuku's balance"
@@ -257,7 +297,9 @@ function getHarareScheduledIso(
   const month = harareNow.getUTCMonth();
   const day = harareNow.getUTCDate() + (tomorrow ? 1 : 0);
 
-  let scheduledUtc = new Date(Date.UTC(year, month, day, hour - 2, minute, 0, 0));
+  let scheduledUtc = new Date(
+    Date.UTC(year, month, day, hour - 2, minute, 0, 0),
+  );
 
   if (!tomorrow && scheduledUtc.getTime() <= now.getTime()) {
     scheduledUtc = new Date(scheduledUtc.getTime() + 24 * 60 * 60 * 1000);
@@ -267,96 +309,34 @@ function getHarareScheduledIso(
 }
 
 function extractTimerTargetPayload(message: string): Record<string, unknown> {
-  const normalized = message.replace(/\s+/g, " ").trim();
-  const payload: Record<string, unknown> = {};
+  const email = message.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0];
 
-  const email = normalized.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0];
-  if (email) {
-    payload.userEmail = email;
-    payload.assigneeEmail = email;
-  }
+  const possessiveName = message.match(
+    /\b([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){0,3})['’]s\s+(?:timer|time|task|tracking|work)/,
+  )?.[1];
 
-  // ── Name patterns (in priority order) ─────────────────────────────────────
+  const directName = possessiveName ??
+    message.match(
+      /\b(?:is|for|show|stop|start|check|what is|what task is)\s+([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,3})\b/,
+    )?.[1];
 
-  // "name before email": "user John Smith john@..." or "for John Smith john@..."
-  const nameBeforeEmail = normalized.match(
-    /\b(?:user|employee|for)\s+([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){0,3})\s+[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i,
-  );
+  const cleanedName = directName
+    ?.replace(/\b(timer|time|tracking|working|task|on)\b/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
 
-  // "is/for X working/tracking": "is John Smith working"
-  const workingName = normalized.match(
-    /\b(?:is|for)\s+([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){0,3})\s+(?:working|tracking)/i,
-  );
-
-  // "John's timer" / "John's time"
-  const possessiveName = normalized.match(
-    /\b([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){0,2})['']s\s+(?:timer|time)\b/i,
-  );
-
-  // "timer for John Smith" / "for John Smith now"
-  const timerForName =
-    normalized.match(
-      /\b(?:timer|time tracker|time tracking|time)\s+for\s+([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){0,3})(?=\s+(?:now|on|under|to|and|please|at|$)|[,.?!]|$)/i,
-    ) ??
-    normalized.match(
-      /\bfor\s+([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){0,3})\s+(?:now|on|under|to|and|please|at|$)/i,
-    );
-
-  const resolvedName =
-    nameBeforeEmail?.[1]?.trim() ??
-    workingName?.[1]?.trim() ??
-    possessiveName?.[1]?.trim() ??
-    timerForName?.[1]?.trim() ??
-    null;
-
-  if (resolvedName) {
-    payload.userName = resolvedName;
-    payload.assigneeName = resolvedName;
-  }
-
-  const quoted = normalized.match(/["']([^"']{3,160})["']/);
-  const afterCard = normalized.match(
-    /\b(?:card|task)\s*(?:called|named|is|titled|named)?\s*["']?([^"',?.]{3,160})/i,
-  );
-  const afterNamed = normalized.match(/\bnamed\s+["']?([^"',?.]{3,160})/i);
-  const afterOn = normalized.match(
-    /\b(?:on|for)\s+(?:this\s+)?(?:card|task)?\s*["']?([^"',?.]{3,160})/i,
-  );
-
-  const rawTarget = quoted?.[1] ?? afterNamed?.[1] ?? afterCard?.[1] ?? afterOn?.[1] ?? "";
-
-  const cleaned = cleanSearchText(
-    rawTarget
-      .replace(
-        /\b(?:for\s+me|please|now|timer|time|tracking|track|start|begin|his|her|my|their|and|assign|him|to|a|card|task|named)\b/gi,
-        " ",
-      )
-      .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, " ")
-      .replace(/\s+/g, " "),
-  );
-
-  if (cleaned && !/^this\s+(card|task)$/i.test(cleaned)) {
-    payload.taskTitle = cleaned;
-    payload.query = cleaned;
-  }
-
-  const timeMatch = normalized.match(
-    /\b(?:at|by)\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/i,
-  );
-
-  if (timeMatch?.[1]) {
-    const scheduledFor = getHarareScheduledIso(
-      Number(timeMatch[1]),
-      Number(timeMatch[2] ?? 0),
-      timeMatch[3],
-      /\btomorrow\b/i.test(normalized),
-    );
-    if (scheduledFor) payload.scheduledFor = scheduledFor;
-  }
-
-  return payload;
+  return {
+    originalMessage: message,
+    ...(email ? { userEmail: email, email, assigneeEmail: email } : {}),
+    ...(cleanedName
+      ? {
+        userName: cleanedName,
+        name: cleanedName,
+        assigneeName: cleanedName,
+      }
+      : {}),
+  };
 }
-
 
 function extractBoardCardPayload(message: string): Record<string, unknown> {
   const normalized = message.replace(/\s+/g, " ").trim();
@@ -365,7 +345,8 @@ function extractBoardCardPayload(message: string): Record<string, unknown> {
   const payload: Record<string, unknown> = {
     ...timerPayload,
     startTimer:
-      /\b(start|begin|track|tracking)\b.*\b(timer|time tracker|time tracking|time)\b/i.test(normalized) ||
+      /\b(start|begin|track|tracking)\b.*\b(timer|time tracker|time tracking|time)\b/i
+        .test(normalized) ||
       /\btrack\s+(my|his|her|their)?\s*time\b/i.test(normalized),
   };
 
@@ -377,8 +358,8 @@ function extractBoardCardPayload(message: string): Record<string, unknown> {
     /\b(?:create|make|add)\s+(?:a\s+)?(?:new\s+)?(?:card|task)\s+["']?([^"',?.]{3,180})/i,
   );
 
-  const rawTitle =
-    quoted?.[1] ?? afterNamed?.[1] ?? afterCreate?.[1] ?? String(payload.taskTitle ?? "");
+  const rawTitle = quoted?.[1] ?? afterNamed?.[1] ?? afterCreate?.[1] ??
+    String(payload.taskTitle ?? "");
 
   const title = cleanSearchText(
     rawTitle
@@ -395,11 +376,12 @@ function extractBoardCardPayload(message: string): Record<string, unknown> {
     payload.query = title;
   }
 
-  const boardMatch =
+  const boardMatch = normalized.match(
+    /\b(?:under|on|in|inside)\s+(?:the\s+)?(?:board|client|project)\s+["']?([^"',?.]{2,120})/i,
+  ) ??
     normalized.match(
-      /\b(?:under|on|in|inside)\s+(?:the\s+)?(?:board|client|project)\s+["']?([^"',?.]{2,120})/i,
-    ) ??
-    normalized.match(/\bboard\s*(?:called|named|is|:)?\s*["']?([^"',?.]{2,120})/i);
+      /\bboard\s*(?:called|named|is|:)?\s*["']?([^"',?.]{2,120})/i,
+    );
 
   if (boardMatch?.[1]) {
     payload.boardName = cleanSearchText(
@@ -423,54 +405,55 @@ function extractBoardCardPayload(message: string): Record<string, unknown> {
 
 function extractAssetPayload(message: string): Record<string, unknown> {
   const lower = message.toLowerCase();
-  const normalized = message.replace(/\s+/g, " ").trim();
-  const payload: Record<string, unknown> = { limit: 10 };
 
-  const namedMatch = normalized.match(
-    /\b(?:named|called|name is|asset name is)\s+["']?([^"',?.]+)["']?/i,
-  );
-  const tagMatch = normalized.match(
-    /\b(?:tag|asset tag)\s*(?:is|=|:)?\s*["']?([a-z0-9._-]+)["']?/i,
-  );
-  const serialMatch = normalized.match(
-    /\b(?:serial|serial number)\s*(?:is|=|:)?\s*["']?([a-z0-9._-]+)["']?/i,
-  );
-  const brandMatch = normalized.match(
-    /\bbrand\s*(?:is|=|:)?\s*["']?([^"',?.]+)["']?/i,
-  );
-  const modelMatch = normalized.match(
-    /\bmodel\s*(?:is|=|:)?\s*["']?([^"',?.]+)["']?/i,
-  );
+  const listAll =
+    /\b(list|show|get|view)\b.*\b(all|every|everything)\b.*\b(assets?|equipment|stock)\b/
+      .test(lower) ||
+    /\ball\s+(assets?|equipment|stock)\b/.test(lower);
 
-  if (namedMatch?.[1]) payload.query = cleanSearchText(namedMatch[1]);
-  if (tagMatch?.[1]) payload.assetTag = cleanSearchText(tagMatch[1]);
-  if (serialMatch?.[1]) payload.serialNumber = cleanSearchText(serialMatch[1]);
-  if (brandMatch?.[1]) payload.brand = cleanSearchText(brandMatch[1]);
-  if (modelMatch?.[1]) payload.model = cleanSearchText(modelMatch[1]);
+  const serial =
+    message.match(/\b(?:serial|sn|s\/n)\s*[:#-]?\s*([A-Z0-9-]{3,})\b/i)?.[1] ??
+      null;
 
-  if (/\b(in stock|available|active)\b/.test(lower)) payload.status = "available";
-  if (/\b(assigned|allocated)\b/.test(lower)) payload.status = "assigned";
-  if (/\b(repair|maintenance|broken)\b/.test(lower)) payload.status = "maintenance";
+  const assetTag =
+    message.match(/\b(?:asset\s*tag|tag)\s*[:#-]?\s*([A-Z0-9-]{2,})\b/i)?.[1] ??
+      null;
 
-  if (!payload.query && !payload.assetTag && !payload.serialNumber) {
-    const stripped = normalized
-      .replace(
-        /\b(show|list|find|search|any|all|the|assets?|equipment|stock|named|called|with|that|are|is|please)\b/gi,
-        " ",
-      )
-      .replace(
-        /\b(in stock|available|active|assigned|allocated|repair|maintenance|broken)\b/gi,
-        " ",
-      )
-      .replace(/\s+/g, " ")
-      .trim();
+  const cleaned = listAll ? "" : message
+    .replace(
+      /\b(show|list|find|search|get|view|any|all|every|everything|the|me|my|mine|assets?|asset|equipment|stock|registered|system|on|in|please|for|of|company|office)\b/gi,
+      " ",
+    )
+    .replace(/\bserial\s*[:#-]?\s*[A-Z0-9-]{3,}\b/gi, " ")
+    .replace(/\b(?:asset\s*tag|tag)\s*[:#-]?\s*[A-Z0-9-]{2,}\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 
-    if (stripped) payload.query = cleanSearchText(stripped);
+  const payload: Record<string, unknown> = {
+    originalMessage: message,
+    listAll,
+    limit: listAll || /\b(all|list|show|everything)\b/i.test(message)
+      ? 200
+      : 50,
+  };
+
+  if (cleaned) {
+    payload.query = cleaned;
+    payload.search = cleaned;
+  }
+
+  if (serial) {
+    payload.serialNumber = serial;
+    payload.serial_number = serial;
+  }
+
+  if (assetTag) {
+    payload.assetTag = assetTag;
+    payload.asset_tag = assetTag;
   }
 
   return payload;
 }
-
 export function detectAiTool(message: string): {
   toolId: AiRouterToolId;
   payload: Record<string, unknown>;
@@ -482,14 +465,46 @@ export function detectAiTool(message: string): {
     /\b(my|me|mine|myself)\b/.test(lower) ||
     /\b(i am|am i|what am i|what i'm|i'm)\b/.test(lower);
 
+  const isTeamTimerQuery =
+    /\b(team|everyone|everybody|employees|employee|people|users|members|staff|who|trackers)\b/.test(
+      lower,
+    );
+
   const isPersonalTimerQuery =
     isSelf &&
+    !isTeamTimerQuery &&
     (
       /\b(timer|timers|time tracker|time tracking|tracking time|tracking)\b/.test(lower) ||
       /\bactive timer|current timer\b/.test(lower) ||
       /\bworking on\b/.test(lower) ||
       /\bdoing\b/.test(lower)
     );
+
+  const exportRequested =
+    /\b(export|download|save|file|generate)\b/.test(lower) ||
+    /\b(pdf|csv|excel|xlsx|json)\b/.test(lower);
+
+  const requestedFormat = /\bpdf\b/.test(lower)
+    ? "pdf"
+    : /\bcsv\b/.test(lower)
+      ? "csv"
+      : /\b(excel|xlsx)\b/.test(lower)
+        ? "xlsx"
+        : /\bjson\b/.test(lower)
+          ? "json"
+          : null;
+
+  const daysBackMatch =
+    lower.match(/\b(?:last|past|previous)\s+(\d+)\s+days?\b/) ??
+    lower.match(/\b(\d+)\s+days?\b/);
+
+  const daysBackFromMessage = daysBackMatch
+    ? Number(daysBackMatch[1])
+    : /\b(two|2)\s+weeks?\b/.test(lower)
+      ? 14
+      : /\bweek(ly)?\b/.test(lower)
+        ? 7
+        : null;
 
   const timesheetPayload = /today|this day|current day/.test(lower)
     ? { from: today, to: today }
@@ -500,7 +515,9 @@ export function detectAiTool(message: string): {
           const value = date.toISOString().slice(0, 10);
           return { from: value, to: value };
         })()
-      : { daysBack: 7 };
+      : daysBackFromMessage
+        ? { daysBack: daysBackFromMessage }
+        : { daysBack: 7 };
 
   if (
     /current card|what card|which card|this card|currently viewing|card am i viewing/.test(
@@ -509,7 +526,7 @@ export function detectAiTool(message: string): {
   ) {
     return {
       toolId: "search_tasks",
-      payload: { useCurrentCard: true },
+      payload: { useCurrentCard: true, originalMessage: message },
     };
   }
 
@@ -523,6 +540,7 @@ export function detectAiTool(message: string): {
     return {
       toolId: "get_leave_balance",
       payload: {
+        originalMessage: message,
         ...(personName ? { userName: personName, assigneeName: personName } : {}),
       },
     };
@@ -532,90 +550,31 @@ export function detectAiTool(message: string): {
     return {
       toolId: "search_leave_requests",
       payload: /pending/.test(lower)
-        ? { status: "pending", daysBack: 120 }
-        : { daysBack: 120 },
-    };
-  }
-
-  /**
-   * IMPORTANT:
-   * Personal active timer queries must be caught before generic team timer logic,
-   * timesheets, tasks, and fallback routing.
-   */
-  if (isPersonalTimerQuery) {
-    return {
-      toolId: "get_active_time_trackers",
-      payload: {
-        scope: "me",
-        currentUserOnly: true,
-      },
+        ? { status: "pending", daysBack: 120, originalMessage: message }
+        : { daysBack: 120, originalMessage: message },
     };
   }
 
   if (
-    /\bnot\s+tracking|isn'?t\s+tracking|aren'?t\s+tracking|not\s+on\s+(a\s+)?timer|who\s+is\s+not\s+tracking|who\s+isn'?t\s+tracking/.test(
+    /\bnot\s+tracking\b|\bisn'?t\s+tracking\b|\baren'?t\s+tracking\b|\bnot\s+on\s+(a\s+)?timer\b|\bwho\s+is\s+not\s+tracking\b|\bwho\s+isn'?t\s+tracking\b|\bnot\s+using\s+(a\s+)?timer\b/.test(
       lower,
     )
   ) {
     return {
       toolId: "get_active_time_trackers",
       payload: {
-        ...extractTimerTargetPayload(message),
-        scope: isSelf ? "me" : "team",
-        currentUserOnly: isSelf,
+        scope: isSelf && !isTeamTimerQuery ? "me" : "team",
+        currentUserOnly: isSelf && !isTeamTimerQuery,
         includeNotTracking: true,
+        include_not_tracking: true,
         mode: "not_tracking",
+        originalMessage: message,
       },
     };
   }
 
   if (
-    /\b(list|show|send|give|check)\b.*\b(people|users|team|everyone|who)\b.*\b(tracking|timers?|time tracker)\b/.test(
-      lower,
-    ) ||
-    /\bwho\b.*\b(tracking|timers?|time tracker)\b/.test(lower)
-  ) {
-    return {
-      toolId: "get_active_time_trackers",
-      payload: {
-        ...extractTimerTargetPayload(message),
-        scope: "team",
-      },
-    };
-  }
-
-  if (
-    /\b(is|are)\b.*\b(timer|time tracker|tracking)\b.*\b(running|active|on)\b/.test(
-      lower,
-    ) ||
-    /\b(timer|time tracker)\b.*\b(status|running|active)\b/.test(lower)
-  ) {
-    return {
-      toolId: "get_active_time_trackers",
-      payload: {
-        ...extractTimerTargetPayload(message),
-        scope: "team",
-      },
-    };
-  }
-
-  if (
-    /working on|currently working|which task|which card|active timer|current timer|what is .* tracking|what .* tracking|on which task|timer on what/.test(
-      lower,
-    )
-  ) {
-    return {
-      toolId: "get_active_time_trackers",
-      payload: {
-        ...extractTimerTargetPayload(message),
-        scope: isSelf ? "me" : "team",
-        currentUserOnly: isSelf,
-      },
-    };
-  }
-
-  if (
-    /\b(stop|pause|end|finish)\b.*\b(timer|time tracker|time tracking|tracking time)\b/.test(
+    /\b(stop|pause|end|finish)\b.*\b(timer|time tracker|time tracking|tracking time|time)\b/.test(
       lower,
     ) ||
     /\bstop\s+(my\s+)?time\b/.test(lower)
@@ -624,19 +583,20 @@ export function detectAiTool(message: string): {
       toolId: "stop_time_tracker",
       payload: {
         ...extractTimerTargetPayload(message),
-        scope: isSelf ? "me" : "team",
-        currentUserOnly: isSelf,
+        scope: isSelf && !isTeamTimerQuery ? "me" : "team",
+        currentUserOnly: isSelf && !isTeamTimerQuery,
         notifyUser: /message|notify|tell|send/i.test(lower),
         notificationMessage:
           /start tracking time again|start.*timer.*again/i.test(lower)
             ? "Please start tracking time again on the correct card."
             : undefined,
+        originalMessage: message,
       },
     };
   }
 
   if (
-    /\b(start|begin)\b.*\b(timer|time tracker|time tracking)\b/.test(lower) ||
+    /\b(start|begin)\b.*\b(timer|time tracker|time tracking|time)\b/.test(lower) ||
     /\bstart\s+(my\s+)?time\b/.test(lower) ||
     /\btrack\s+(my\s+)?time\b/.test(lower)
   ) {
@@ -644,8 +604,71 @@ export function detectAiTool(message: string): {
       toolId: "start_time_tracker",
       payload: {
         ...extractTimerTargetPayload(message),
-        scope: isSelf ? "me" : "team",
-        currentUserOnly: isSelf,
+        scope: isSelf && !isTeamTimerQuery ? "me" : "team",
+        currentUserOnly: isSelf && !isTeamTimerQuery,
+        originalMessage: message,
+      },
+    };
+  }
+
+  if (
+    /\b(list|show|send|give|check)\b.*\b(people|users|team|everyone|everybody|employees|members|staff|trackers)\b.*\b(tracking|timers?|time tracker|time trackers)\b/.test(
+      lower,
+    ) ||
+    /\bwho\b.*\b(tracking|timers?|time tracker|time trackers)\b/.test(lower) ||
+    /\blist active time trackers\b/.test(lower) ||
+    /\bshow active timers\b/.test(lower)
+  ) {
+    return {
+      toolId: "get_active_time_trackers",
+      payload: {
+        scope: "team",
+        originalMessage: message,
+      },
+    };
+  }
+
+  if (isPersonalTimerQuery) {
+    return {
+      toolId: "get_active_time_trackers",
+      payload: {
+        scope: "me",
+        currentUserOnly: true,
+        originalMessage: message,
+      },
+    };
+  }
+
+  if (
+    /working on|currently working|which task|which card|active timer|current timer|what is .* tracking|what .* tracking|on which task|timer on what|what task is .* tracking/.test(
+      lower,
+    )
+  ) {
+    return {
+      toolId: "get_active_time_trackers",
+      payload: {
+        ...extractTimerTargetPayload(message),
+        scope: isSelf && !isTeamTimerQuery ? "me" : "team",
+        currentUserOnly: isSelf && !isTeamTimerQuery,
+        originalMessage: message,
+      },
+    };
+  }
+
+  if (
+    /\b(is|am|are)\b.*\b(timer|time tracker|tracking)\b.*\b(running|active|on)\b/.test(
+      lower,
+    ) ||
+    /\b(timer|time tracker)\b.*\b(status|running|active)\b/.test(lower) ||
+    /\b(my|me|mine)\b.*\b(timer|time tracker)\b/.test(lower)
+  ) {
+    return {
+      toolId: "get_active_time_trackers",
+      payload: {
+        ...extractTimerTargetPayload(message),
+        scope: isSelf && !isTeamTimerQuery ? "me" : "team",
+        currentUserOnly: isSelf && !isTeamTimerQuery,
+        originalMessage: message,
       },
     };
   }
@@ -659,14 +682,16 @@ export function detectAiTool(message: string): {
       toolId: "get_active_time_trackers",
       payload: {
         ...extractTimerTargetPayload(message),
-        scope: isSelf ? "me" : "team",
-        currentUserOnly: isSelf,
+        scope: isSelf && !isTeamTimerQuery ? "me" : "team",
+        currentUserOnly: isSelf && !isTeamTimerQuery,
+        originalMessage: message,
       },
     };
   }
 
   if (
-    /timesheet|time entr|hours|tracked|time tracked|tracked time|worked on/.test(
+    exportRequested &&
+    /\b(it|this|that|last|previous)\b.*\b(pdf|csv|excel|xlsx|json|file|download|export)\b/.test(
       lower,
     )
   ) {
@@ -675,6 +700,36 @@ export function detectAiTool(message: string): {
       payload: {
         ...timesheetPayload,
         ...extractTimerTargetPayload(message),
+        scope: "me",
+        currentUserOnly: true,
+        exportRequested: true,
+        requestedFormat,
+        originalMessage: message,
+      },
+    };
+  }
+
+  if (
+    /timesheet|time\s*sheet|time entr|hours|tracked|time tracked|tracked time|worked on/.test(
+      lower,
+    ) ||
+    (
+      exportRequested &&
+      /\b(timesheet|time\s*sheet|hours|tracked time|time report|work report)\b/.test(
+        lower,
+      )
+    )
+  ) {
+    return {
+      toolId: "get_user_timesheet",
+      payload: {
+        ...timesheetPayload,
+        ...extractTimerTargetPayload(message),
+        scope: isSelf ? "me" : "team",
+        currentUserOnly: isSelf,
+        exportRequested,
+        requestedFormat,
+        originalMessage: message,
       },
     };
   }
@@ -685,21 +740,53 @@ export function detectAiTool(message: string): {
       payload: {
         ...todayInHarareRange(),
         ...extractTimerTargetPayload(message),
+        originalMessage: message,
       },
     };
   }
 
-  if (/asset|equipment|serial|stock/.test(lower)) {
+  if (
+    /asset|equipment|serial|stock|macbook|mac book|laptop|desktop|phone|printer|monitor|keyboard|mouse|device_type|device type/.test(
+      lower,
+    )
+  ) {
     return {
       toolId: "search_assets",
       payload: extractAssetPayload(message),
     };
   }
 
+  if (
+    /fleet|vehicle|service|maintenance|odometer|kilometers|kilometres|\bkm\b|fuel|diesel|petrol|mileage|service record|fuel purchase|fuel purchases/.test(
+      lower,
+    )
+  ) {
+    return {
+      toolId: "search_fleet_service_needs",
+      payload: {
+        originalMessage: message,
+        query: message,
+        mode: /fuel|diesel|petrol|purchase/.test(lower)
+          ? "fuel"
+          : /kilometers|kilometres|\bkm\b|mileage|odometer/.test(lower)
+            ? "usage"
+            : /service record|maintenance history|service history/.test(lower)
+              ? "service_records"
+              : "overview",
+        horizon_days: /month|30/.test(lower) ? 30 : 14,
+        limit: /\ball\b/.test(lower) ? 100 : 30,
+      },
+    };
+  }
+
   if (/notification|inbox|alert/.test(lower)) {
     return {
       toolId: "search_notifications",
-      payload: { unreadOnly: /unread/.test(lower), limit: 15 },
+      payload: {
+        unreadOnly: /unread/.test(lower),
+        limit: 15,
+        originalMessage: message,
+      },
     };
   }
 
@@ -707,8 +794,8 @@ export function detectAiTool(message: string): {
     return {
       toolId: "search_meetings",
       payload: /today/.test(lower)
-        ? { from: today, to: today, limit: 15 }
-        : { daysBack: 7, limit: 20 },
+        ? { from: today, to: today, limit: 15, originalMessage: message }
+        : { daysBack: 7, limit: 20, originalMessage: message },
     };
   }
 
@@ -719,7 +806,7 @@ export function detectAiTool(message: string): {
   ) {
     return {
       toolId: "list_available_documents",
-      payload: { limit: 50 },
+      payload: { limit: 50, originalMessage: message },
     };
   }
 
@@ -730,7 +817,7 @@ export function detectAiTool(message: string): {
   ) {
     return {
       toolId: "search_documents",
-      payload: { query: message, limit: 8 },
+      payload: { query: message, limit: 8, originalMessage: message },
     };
   }
 
@@ -744,21 +831,19 @@ export function detectAiTool(message: string): {
       payload: {
         status: /scheduled/.test(lower) ? "scheduled" : undefined,
         limit: 15,
+        originalMessage: message,
       },
-    };
-  }
-
-  if (/fleet|vehicle|service|maintenance|odometer/.test(lower)) {
-    return {
-      toolId: "search_fleet_service_needs",
-      payload: { horizon_days: /month|30/.test(lower) ? 30 : 14, limit: 20 },
     };
   }
 
   if (/report|operational report|weekly report|monthly report/.test(lower)) {
     return {
       toolId: "search_reports",
-      payload: { daysBack: /month|monthly/.test(lower) ? 30 : 90, limit: 15 },
+      payload: {
+        daysBack: /month|monthly/.test(lower) ? 30 : 90,
+        limit: 15,
+        originalMessage: message,
+      },
     };
   }
 
@@ -768,21 +853,26 @@ export function detectAiTool(message: string): {
   ) {
     return {
       toolId: "create_board_card",
-      payload: extractBoardCardPayload(message),
+      payload: {
+        ...extractBoardCardPayload(message),
+        originalMessage: message,
+      },
     };
   }
 
   if (/board/.test(lower)) {
-    return { toolId: "list_boards", payload: {} };
+    return { toolId: "list_boards", payload: { originalMessage: message } };
   }
 
   if (/task|todo|card/.test(lower)) {
-    return { toolId: "summarize_my_tasks", payload: {} };
+    return {
+      toolId: "summarize_my_tasks",
+      payload: { originalMessage: message },
+    };
   }
 
   return null;
 }
-
 export function formatToolReply(
   toolId: AiRouterToolId | null,
   data: Record<string, unknown>,
@@ -801,90 +891,247 @@ export function formatToolReply(
   }
 
   if (data.ok === false) {
-    return readableToolValue(data.error || data) || "I could not complete that request.";
+    return (
+      readableToolValue(data.error || data) ||
+      "I could not complete that request."
+    );
   }
 
   switch (toolId) {
-    case "get_leave_balance": {
-      const user =
-        data.user && typeof data.user === "object"
-          ? (data.user as Record<string, unknown>)
-          : {};
-      const balance =
-        data.balance && typeof data.balance === "object"
-          ? (data.balance as Record<string, unknown>)
-          : {};
-
-      const name = user.name ?? "This user";
-      const remaining = balance.remainingDays ?? balance.remaining_days;
-      const total = balance.totalDays ?? balance.total_days;
-      const used = balance.usedDays ?? balance.used_days;
-      const remainingNum = Number(remaining ?? 0);
-      const totalNum = Number(total ?? 0);
-      const usedNum = Number(used ?? 0);
-
-      if (remainingNum <= 0) {
-        return `${name} has no leave days remaining (used all ${totalNum} day${totalNum === 1 ? "" : "s"}).`;
-      }
-
-      return `${name} has ${remainingNum} leave day${remainingNum === 1 ? "" : "s"} remaining out of ${totalNum}. Used: ${usedNum}.`;
-    }
-
     case "get_active_time_trackers": {
       const trackers = Array.isArray(data.trackers) ? data.trackers : [];
-      const notTracking = Array.isArray(data.notTracking) ? data.notTracking : [];
+      const notTracking = Array.isArray(data.notTracking)
+        ? data.notTracking
+        : [];
 
-      if (trackers.length === 0 && notTracking.length === 0) {
-        return "No active time trackers right now.";
-      }
-
-      const lines = trackers.map((entry) => {
+      const trackerLines = trackers.map((entry) => {
         const row = entry as Record<string, unknown>;
-        const name = row.name ?? row.user_name ?? "Someone";
-        const task = row.taskTitle ?? row.task_title ?? row.description ?? "Untitled card";
-        const board = row.boardName ?? row.board_name ?? "No board";
-        const link = row.taskUrl ?? taskLink(row.boardId, row.taskId);
-        const elapsed = formatHours(row.elapsedSeconds);
 
-        return `- ${name} is tracking "${task}" on ${board} (${elapsed} so far)${
-          link ? `\n  Open card: ${link}` : ""
-        }`;
+        const name = row.name ?? row.user_name ?? "Someone";
+        const task = row.taskTitle ??
+          row.task_title ??
+          row.description ??
+          "Untitled card";
+
+        const board = row.boardName ?? row.board_name ?? "No board";
+
+        const boardId = row.boardId ?? row.board_id ?? row.clientId ??
+          row.client_id;
+        const taskId = row.taskId ?? row.task_id ?? row.cardId ?? row.card_id;
+
+        const link = row.taskUrl ??
+          row.task_url ??
+          row.cardUrl ??
+          row.card_url ??
+          taskLink(boardId, taskId);
+
+        const elapsed = formatHours(row.elapsedSeconds);
+        const taskLabel = link ? `[${task}](${link})` : `"${task}"`;
+
+        return `- ${name} is tracking ${taskLabel} on ${board} (${elapsed} so far)`;
       });
 
-      return `Here is what is being tracked right now:\n\n${lines.join("\n")}`;
+      const notTrackingLines = notTracking.map((entry) => {
+        const row = entry as Record<string, unknown>;
+        const name = row.name ?? row.full_name ?? row.email ?? "Team member";
+        const role = row.role ?? row.primary_role;
+        const department = row.department;
+        const details = [role, department].filter(Boolean).join(", ");
+
+        return `- ${name}${details ? ` (${details})` : ""}`;
+      });
+
+      if (notTracking.length > 0 && trackers.length === 0) {
+        return `Here is who is not tracking time:\n\n${
+          notTrackingLines.join("\n")
+        }`;
+      }
+
+      if (notTracking.length > 0 && trackers.length > 0) {
+        return [
+          `Here is what is being tracked right now:\n\n${
+            trackerLines.join("\n")
+          }`,
+          `Here is who is not tracking time:\n\n${notTrackingLines.join("\n")}`,
+        ].join("\n\n");
+      }
+
+      if (trackers.length === 0) {
+        return typeof data.message === "string" && data.message.trim()
+          ? data.message.trim()
+          : "No active time trackers right now.";
+      }
+
+      return `Here is what is being tracked right now:\n\n${
+        trackerLines.join("\n")
+      }`;
+    }
+    case "get_user_timesheet": {
+      const entries = Array.isArray(data.entries) ? data.entries : [];
+
+      const user = data.user && typeof data.user === "object"
+        ? (data.user as Record<string, unknown>)
+        : {};
+
+      const range = data.range && typeof data.range === "object"
+        ? (data.range as Record<string, unknown>)
+        : {};
+
+      const name = user.name ?? "This user";
+      const userId = String(user.id ?? "");
+      const totalHours = Number(data.totalHours ?? 0).toFixed(2);
+      const from = String(range.from ?? "").slice(0, 10);
+      const to = String(range.to ?? "").slice(0, 10);
+
+      if (entries.length === 0) {
+        return `${name} has no time entries from ${from} to ${to}.`;
+      }
+
+      const grouped = new Map<
+        string,
+        {
+          task: string;
+          board: string;
+          link: string | null;
+          totalSeconds: number;
+          rows: Record<string, unknown>[];
+        }
+      >();
+
+      for (const entry of entries) {
+        const row = entry as Record<string, unknown>;
+
+        const task = String(
+          row.taskTitle ??
+            row.task_title ??
+            row.description ??
+            "Untitled work",
+        ).trim() || "Untitled work";
+
+        const board =
+          String(row.boardName ?? row.board_name ?? "No board").trim() ||
+          "No board";
+
+        const link = typeof row.taskUrl === "string"
+          ? row.taskUrl
+          : taskLink(row.boardId, row.taskId);
+
+        const seconds = Number(row.durationSeconds ?? 0);
+        const key = `${row.taskId ?? task}-${row.boardId ?? board}`;
+        const existing = grouped.get(key);
+
+        if (existing) {
+          existing.totalSeconds += seconds;
+          existing.rows.push(row);
+        } else {
+          grouped.set(key, {
+            task,
+            board,
+            link: link || null,
+            totalSeconds: seconds,
+            rows: [row],
+          });
+        }
+      }
+
+      const groupedRows = [...grouped.values()].sort(
+        (a, b) => b.totalSeconds - a.totalSeconds,
+      );
+
+      const taskSections = groupedRows.map((group) => {
+        const taskLabel = group.link
+          ? `[${group.task}](${group.link})`
+          : group.task;
+
+        const groupHours = (group.totalSeconds / 3600).toFixed(2);
+
+        const entryLines = group.rows
+          .sort((a, b) =>
+            String(b.startedAt ?? "").localeCompare(String(a.startedAt ?? ""))
+          )
+          .slice(0, 8)
+          .map((row) => {
+            const date = String(row.startedAt ?? row.started_at ?? "").slice(
+              0,
+              10,
+            );
+            const hours = (Number(row.durationSeconds ?? 0) / 3600).toFixed(2);
+            const running = row.isRunning ? " — running" : "";
+
+            return `  - ${date}: ${hours}h${running}`;
+          });
+
+        return [
+          `- ${taskLabel}`,
+          `  Board: ${group.board}`,
+          `  Time tracked: ${groupHours}h`,
+          ...entryLines,
+        ].join("\n");
+      });
+
+      const exportPayload = {
+        type: "timesheet_export",
+        userId,
+        from,
+        to,
+        formats: ["pdf", "csv", "xlsx", "json"],
+      };
+
+      return [
+        `${name}'s timesheet`,
+        `Period: ${from} to ${to}`,
+        `Total tracked: ${totalHours}h`,
+        `Tasks worked on: ${groupedRows.length}`,
+        "",
+        ...taskSections,
+        "",
+        `Say "export this timesheet as PDF, CSV, Excel, or JSON" when you want a download.`,
+      ].join("\n");
     }
 
     case "get_attendance_summary": {
       const records = Array.isArray(data.records) ? data.records : [];
       const counts = data.counts as Record<string, unknown> | undefined;
 
-      if (records.length === 0) return "No attendance records were found for today.";
+      if (records.length === 0) {
+        return "No attendance records were found for this period.";
+      }
 
       const countLine = counts
         ? Object.entries(counts)
-            .map(([status, count]) => `${status}: ${count}`)
-            .join(", ")
+          .map(([status, count]) => `${status}: ${count}`)
+          .join(", ")
         : "";
 
       const lines = records
-        .slice(0, 10)
+        .slice(0, 25)
         .map((item) => formatAttendanceRecord(item as Record<string, unknown>))
         .join("\n");
 
-      return `Attendance summary${countLine ? ` (${countLine})` : ""}.\n\n${lines}`;
+      return `Attendance summary${
+        countLine ? ` (${countLine})` : ""
+      }.\n\n${lines}`;
     }
 
     case "search_assets": {
       const assets = Array.isArray(data.assets) ? data.assets : [];
-      if (assets.length === 0) return "I could not find any assets.";
+
+      if (assets.length === 0) {
+        return typeof data.message === "string" && data.message.trim()
+          ? data.message.trim()
+          : "I could not find any assets.";
+      }
 
       const lines = assets.map((item) => {
         const row = item as Record<string, unknown>;
         const name = row.assetName ?? row.asset_name ?? row.name ?? "Asset";
+
         const details = [
           row.assetTag ? `tag ${row.assetTag}` : null,
           row.serialNumber ? `serial ${row.serialNumber}` : null,
-          row.brand || row.model ? `${row.brand ?? ""} ${row.model ?? ""}`.trim() : null,
+          row.brand || row.model
+            ? `${row.brand ?? ""} ${row.model ?? ""}`.trim()
+            : null,
           row.status ? `status ${row.status}` : null,
           row.condition ? `condition ${row.condition}` : null,
         ]
@@ -896,52 +1143,50 @@ export function formatToolReply(
         }`;
       });
 
-      return `I found ${assets.length} asset${assets.length === 1 ? "" : "s"}:\n\n${lines.join("\n")}`;
+      return `I found ${assets.length} asset${
+        assets.length === 1 ? "" : "s"
+      }:\n\n${lines.join("\n")}`;
     }
 
-    case "search_tasks": {
-      const tasks = Array.isArray(data.tasks)
-        ? data.tasks
-        : Array.isArray(data.cards)
-        ? data.cards
-        : [];
+    case "get_leave_balance": {
+      const user = data.user && typeof data.user === "object"
+        ? (data.user as Record<string, unknown>)
+        : {};
+      const balance = data.balance && typeof data.balance === "object"
+        ? (data.balance as Record<string, unknown>)
+        : {};
 
-      const currentCard =
-        data.card && typeof data.card === "object"
-          ? (data.card as Record<string, unknown>)
-          : (tasks[0] as Record<string, unknown> | undefined);
+      const name = user.name ?? "This user";
+      const remaining = Number(
+        balance.remainingDays ?? balance.remaining_days ?? 0,
+      );
+      const total = Number(balance.totalDays ?? balance.total_days ?? 0);
+      const used = Number(balance.usedDays ?? balance.used_days ?? 0);
 
-      if (!currentCard) return "I could not find the current card.";
-
-      const title = currentCard.title ?? currentCard.name ?? "Untitled card";
-      const status = currentCard.status ?? "unknown";
-      const description = currentCard.description ?? "No description.";
-      const boardName = currentCard.boardName ?? currentCard.board_name ?? "this board";
-      const boardId = currentCard.boardId ?? currentCard.board_id ?? currentCard.client_id;
-      const cardId = currentCard.cardId ?? currentCard.taskId ?? currentCard.id;
-      const link = taskLink(boardId, cardId);
-
-      return [
-        `You are viewing card: ${title}`,
-        `Board: ${boardName}`,
-        `Status: ${status}`,
-        `Description: ${description}`,
-        link ? `Open card: ${link}` : "",
-      ]
-        .filter(Boolean)
-        .join("\n");
+      return `${name} has ${remaining} leave day${
+        remaining === 1 ? "" : "s"
+      } remaining out of ${total}. Used: ${used}.`;
     }
 
     case "list_boards": {
       const boards = Array.isArray(data.boards) ? data.boards : [];
-      if (boards.length === 0) return "No boards found for your organization.";
 
-      return `I found ${boards.length} board${boards.length === 1 ? "" : "s"}:\n\n${boards
-        .map((board) => {
-          const row = board as Record<string, unknown>;
-          return `- ${row.name ?? "Board"}${row.id ? `\n  Open board: /boards/${row.id}` : ""}`;
-        })
-        .join("\n")}`;
+      if (boards.length === 0) {
+        return "No boards found for your organization.";
+      }
+
+      return `I found ${boards.length} board${
+        boards.length === 1 ? "" : "s"
+      }:\n\n${
+        boards
+          .map((board) => {
+            const row = board as Record<string, unknown>;
+            return `- ${row.name ?? "Board"}${
+              row.id ? `\n  Open board: /boards/${row.id}` : ""
+            }`;
+          })
+          .join("\n")
+      }`;
     }
 
     default:

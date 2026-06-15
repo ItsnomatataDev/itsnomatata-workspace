@@ -1039,10 +1039,37 @@ async function toolGetUserTimesheet(
   ctx: Required<ToolContext>,
   payload: Record<string, unknown>,
 ) {
-  const profile = await resolveTargetProfile(adminClient, ctx, payload);
+  const originalMessage = String(payload.originalMessage ?? "");
+
+  const scope = String(payload.scope ?? "").toLowerCase();
+
+  const currentUserOnly =
+    scope === "me" ||
+    scope === "current_user" ||
+    payload.currentUserOnly === true ||
+    /\b(my|me|mine|myself|i)\b/i.test(originalMessage);
+
+  const profile = currentUserOnly
+    ? await resolveTargetProfile(adminClient, ctx, {
+        userId: ctx.userId,
+        user_id: ctx.userId,
+      })
+    : await resolveTargetProfile(adminClient, ctx, payload);
+
   if (!profile?.id) return { ok: false, error: "User not found." };
 
-  const { from, to } = readDateRange(payload, 7);
+  const daysBack =
+    typeof payload.daysBack === "number"
+      ? payload.daysBack
+      : typeof payload.days_back === "number"
+        ? payload.days_back
+        : /\b(two|2)\s+weeks?\b/i.test(originalMessage)
+          ? 14
+          : /\bweek(ly)?\b/i.test(originalMessage)
+            ? 7
+            : 7;
+
+  const { from, to } = readDateRange(payload, daysBack);
 
   const { data, error } = await adminClient
     .from("time_entries")
@@ -1054,11 +1081,12 @@ async function toolGetUserTimesheet(
     .gte("started_at", from)
     .lte("started_at", to)
     .order("started_at", { ascending: false })
-    .limit(200);
+    .limit(500);
 
   if (error) throw error;
 
   const entries = (data ?? []) as DbRow[];
+
   const taskIds = [
     ...new Set(
       entries
@@ -1066,6 +1094,7 @@ async function toolGetUserTimesheet(
         .filter(Boolean) as string[],
     ),
   ];
+
   const boardIds = [
     ...new Set(
       entries
@@ -1073,54 +1102,74 @@ async function toolGetUserTimesheet(
         .filter(Boolean) as string[],
     ),
   ];
+
   const tasksById = new Map<string, DbRow>();
   const boardsById = new Map<string, DbRow>();
 
   if (taskIds.length > 0) {
     const { data: tasks, error: taskError } = await adminClient
       .from("tasks")
-      .select("id, title")
+      .select("id, title, client_id")
       .eq("organization_id", ctx.organizationId)
       .in("id", taskIds);
+
     if (taskError) throw taskError;
-    for (const task of tasks ?? []) tasksById.set(task.id as string, task);
+
+    for (const task of tasks ?? []) {
+      tasksById.set(task.id as string, task);
+      if (task.client_id) boardIds.push(task.client_id as string);
+    }
   }
 
-  if (boardIds.length > 0) {
+  const uniqueBoardIds = [...new Set(boardIds.filter(Boolean))];
+
+  if (uniqueBoardIds.length > 0) {
     const { data: boards, error: boardError } = await adminClient
       .from("clients")
       .select("id, name")
       .eq("organization_id", ctx.organizationId)
-      .in("id", boardIds);
+      .in("id", uniqueBoardIds);
+
     if (boardError) throw boardError;
-    for (const board of boards ?? [])
+
+    for (const board of boards ?? []) {
       boardsById.set(board.id as string, board);
+    }
   }
 
   const normalizedEntries = entries.map((entry) => {
+    const task = entry.task_id
+      ? tasksById.get(entry.task_id as string)
+      : null;
+
+    const resolvedBoardId =
+      entry.client_id ?? task?.client_id ?? null;
+
     const seconds =
       entry.is_running && entry.started_at
         ? secondsBetween(entry.started_at as string)
         : Number(entry.duration_seconds ?? 0);
+
     return {
       id: entry.id,
       taskId: entry.task_id,
       taskTitle: entry.task_id
         ? tasksById.get(entry.task_id as string)?.title ?? null
         : null,
-      boardId: entry.client_id,
-      boardName: entry.client_id
-        ? boardsById.get(entry.client_id as string)?.name ?? null
+      boardId: resolvedBoardId,
+      boardName: resolvedBoardId
+        ? boardsById.get(resolvedBoardId as string)?.name ?? null
         : null,
-      taskUrl: buildTaskLink(entry.client_id, entry.task_id),
+      taskUrl: buildTaskLink(resolvedBoardId, entry.task_id),
       boardUrl:
-        typeof entry.client_id === "string"
-          ? `/boards/${entry.client_id}`
+        typeof resolvedBoardId === "string"
+          ? `/boards/${resolvedBoardId}`
           : null,
       description: entry.description,
       startedAt: entry.started_at,
       endedAt: entry.ended_at,
       durationSeconds: seconds,
+      durationHours: Number((seconds / 3600).toFixed(2)),
       isRunning: entry.is_running,
       isBillable: entry.is_billable,
       approvalStatus: entry.approval_status,
@@ -1143,14 +1192,17 @@ async function toolGetUserTimesheet(
       role: profile.primary_role ?? null,
       department: profile.department ?? null,
     },
-    range: { from, to },
+    range: { from, to, daysBack },
     totalSeconds,
     totalHours: Number((totalSeconds / 3600).toFixed(2)),
     entryCount: normalizedEntries.length,
     entries: normalizedEntries,
-    message: `${profileDisplayName(profile)} tracked ${(
-      totalSeconds / 3600
-    ).toFixed(2)} hour(s) in this period.`,
+    message:
+      normalizedEntries.length === 0
+        ? `${profileDisplayName(profile)} has no time entries in this period.`
+        : `${profileDisplayName(profile)} tracked ${(
+            totalSeconds / 3600
+          ).toFixed(2)} hour(s) in this period.`,
   };
 }
 
@@ -1787,23 +1839,41 @@ async function toolSearchNotifications(
     unreadOnly,
   };
 }
-
 async function toolSearchAssets(
   adminClient: any,
   ctx: Required<ToolContext>,
   payload: Record<string, unknown>,
 ) {
-  const queryText =
+  const listAll = payload.listAll === true || payload.list_all === true;
+
+  const rawQuery =
     readString(payload, "query") ?? readString(payload, "search") ?? "";
+
+  const queryText = listAll
+    ? ""
+    : rawQuery
+        .replace(
+          /\b(show|list|find|search|get|view|any|all|every|everything|the|me|my|mine|assets?|asset|equipment|stock|registered|system|on|in|please|for|of|company|office)\b/gi,
+          " ",
+        )
+        .replace(/\s+/g, " ")
+        .trim();
+
   const assetTag =
     readString(payload, "assetTag") ?? readString(payload, "asset_tag");
+
   const serialNumber =
     readString(payload, "serialNumber") ??
     readString(payload, "serial_number");
+
   const brand = readString(payload, "brand");
   const model = readString(payload, "model");
   const status = readString(payload, "status");
-  const limit = typeof payload.limit === "number" ? payload.limit : 15;
+
+  const limit = Math.min(
+    typeof payload.limit === "number" ? payload.limit : listAll ? 200 : 50,
+    500,
+  );
 
   let query = adminClient
     .from("assets")
@@ -1815,13 +1885,42 @@ async function toolSearchAssets(
     .limit(limit);
 
   if (queryText) {
-    query = query.or(
-      `asset_name.ilike.%${queryText}%,asset_tag.ilike.%${queryText}%,serial_number.ilike.%${queryText}%,brand.ilike.%${queryText}%,model.ilike.%${queryText}%`,
-    );
+    const normalized = queryText.toLowerCase();
+    const terms = new Set<string>();
+
+    terms.add(queryText);
+
+    if (/macbook|mac book|apple laptop|apple|mac/.test(normalized)) {
+      terms.add("macbook");
+      terms.add("mac book");
+      terms.add("mac");
+      terms.add("apple");
+      terms.add("laptop");
+    }
+
+    if (/laptop|notebook/.test(normalized)) {
+      terms.add("laptop");
+      terms.add("notebook");
+      terms.add("computer");
+    }
+
+    const orFilter = [...terms]
+      .map((term) => term.replace(/[%_,]/g, " ").trim())
+      .filter(Boolean)
+      .flatMap((term) => [
+        `asset_name.ilike.%${term}%`,
+        `asset_tag.ilike.%${term}%`,
+        `serial_number.ilike.%${term}%`,
+        `brand.ilike.%${term}%`,
+        `model.ilike.%${term}%`,
+      ])
+      .join(",");
+
+    if (orFilter) query = query.or(orFilter);
   }
+
   if (assetTag) query = query.ilike("asset_tag", `%${assetTag}%`);
-  if (serialNumber)
-    query = query.ilike("serial_number", `%${serialNumber}%`);
+  if (serialNumber) query = query.ilike("serial_number", `%${serialNumber}%`);
   if (brand) query = query.ilike("brand", `%${brand}%`);
   if (model) query = query.ilike("model", `%${model}%`);
   if (status) query = query.ilike("status", `%${status}%`);
@@ -1829,30 +1928,44 @@ async function toolSearchAssets(
   const { data, error } = await query;
   if (error) throw error;
 
+  const assets = ((data ?? []) as DbRow[]).map((asset) => ({
+    id: asset.id,
+    name: asset.asset_name,
+    assetName: asset.asset_name,
+    assetTag: asset.asset_tag,
+    serialNumber: asset.serial_number,
+    status: asset.status,
+    brand: asset.brand,
+    model: asset.model,
+    condition: asset.condition,
+    assignedTo: asset.assigned_to,
+    updatedAt: asset.updated_at,
+    assetUrl: typeof asset.id === "string" ? `/assets/${asset.id}` : null,
+  }));
+
   return {
     ok: true,
-    assets: ((data ?? []) as DbRow[]).map((asset) => ({
-      id: asset.id,
-      name: asset.asset_name,
-      assetName: asset.asset_name,
-      assetTag: asset.asset_tag,
-      serialNumber: asset.serial_number,
-      status: asset.status,
-      brand: asset.brand,
-      model: asset.model,
-      condition: asset.condition,
-      assetUrl:
-        typeof asset.id === "string" ? `/assets/${asset.id}` : null,
-    })),
-    count: data?.length ?? 0,
+    assets,
+    count: assets.length,
     filters: {
+      listAll,
       query: queryText || null,
+      rawQuery: rawQuery || null,
       assetTag: assetTag || null,
       serialNumber: serialNumber || null,
       brand: brand || null,
       model: model || null,
       status: status || null,
+      limit,
     },
+    message:
+      assets.length === 0
+        ? listAll
+          ? "No assets are registered in the asset registry."
+          : queryText
+            ? `No assets matched "${queryText}".`
+            : "No assets were found."
+        : `Found ${assets.length} asset${assets.length === 1 ? "" : "s"}.`,
   };
 }
 

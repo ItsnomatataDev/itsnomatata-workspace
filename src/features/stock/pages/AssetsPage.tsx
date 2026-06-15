@@ -180,6 +180,20 @@ function assetNeedsAttention(asset: AssetRecord) {
   );
 }
 
+function hasAssetImage(asset: AssetRecord) {
+  return Boolean(asset.asset_image_url?.trim());
+}
+
+function sanitizeFilenamePart(value: string) {
+  return (
+    value
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/gi, "-")
+      .replace(/^-+|-+$/g, "") || "assets"
+  );
+}
+
 function buildTimeSavingIdeas(params: {
   stats: {
     total: number;
@@ -544,6 +558,121 @@ function ReturnAssetModal({
   );
 }
 
+function ExportAssetsModal({
+  open,
+  locations,
+  assets,
+  selectedLocationId,
+  onLocationChange,
+  onClose,
+  onExport,
+}: {
+  open: boolean;
+  locations: LookupOption[];
+  assets: AssetRecord[];
+  selectedLocationId: string;
+  onLocationChange: (locationId: string) => void;
+  onClose: () => void;
+  onExport: () => void;
+}) {
+  if (!open) return null;
+
+  const selectedLocation = locations.find(
+    (location) => location.id === selectedLocationId,
+  );
+  const selectedAssets =
+    selectedLocationId === "all"
+      ? assets
+      : selectedLocationId === "unassigned"
+        ? assets.filter(
+            (asset) => !asset.current_location_id && !asset.location?.id,
+          )
+        : assets.filter(
+            (asset) =>
+              asset.current_location_id === selectedLocationId ||
+              asset.location?.id === selectedLocationId,
+          );
+  const exportLabel =
+    selectedLocationId === "all"
+      ? "all locations"
+      : selectedLocationId === "unassigned"
+        ? "assets with no location"
+        : selectedLocation?.name ?? "selected location";
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/80 px-4 py-8 backdrop-blur-sm">
+      <div className="w-full max-w-lg rounded-3xl border border-white/10 bg-neutral-950 p-6 shadow-2xl shadow-black/50">
+        <div className="mb-5">
+          <h2 className="text-xl font-semibold text-white">Export Assets</h2>
+          <p className="mt-2 text-sm leading-6 text-white/50">
+            Choose a location/site for stock take, or export the full asset
+            register.
+          </p>
+        </div>
+
+        <label className="block space-y-2">
+          <span className="text-sm text-white/70">Location / Site</span>
+          <select
+            value={selectedLocationId}
+            onChange={(event) => onLocationChange(event.target.value)}
+            className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 text-sm text-white outline-none transition focus:border-orange-500"
+          >
+            <option value="all">All locations ({assets.length})</option>
+            <option value="unassigned">
+              No location (
+              {
+                assets.filter(
+                  (asset) => !asset.current_location_id && !asset.location?.id,
+                ).length
+              }
+              )
+            </option>
+            {locations.map((location) => {
+              const count = assets.filter(
+                (asset) =>
+                  asset.current_location_id === location.id ||
+                  asset.location?.id === location.id,
+              ).length;
+
+              return (
+                <option key={location.id} value={location.id}>
+                  {location.name}
+                  {location.code ? ` (${location.code})` : ""} ({count})
+                </option>
+              );
+            })}
+          </select>
+        </label>
+
+        <div className="mt-4 rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-sm text-white/60">
+          Exporting <span className="font-medium text-white">{selectedAssets.length}</span>{" "}
+          asset(s) for {exportLabel}.
+        </div>
+
+        <div className="mt-6 flex flex-wrap gap-3">
+          <button
+            type="button"
+            disabled={selectedAssets.length === 0}
+            onClick={onExport}
+            className="inline-flex items-center gap-2 rounded-2xl border border-orange-500 bg-orange-500 px-5 py-3 text-sm font-semibold text-black transition hover:bg-orange-400 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <Download size={16} />
+            Export
+          </button>
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-sm text-white/75 transition hover:border-white/20 hover:text-white"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function AssetsPage() {
   const navigate = useNavigate();
   const auth = useAuth();
@@ -588,6 +717,8 @@ export default function AssetsPage() {
 
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [importingAssets, setImportingAssets] = useState(false);
+  const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [exportLocationId, setExportLocationId] = useState("all");
 
   const [assignModalOpen, setAssignModalOpen] = useState(false);
   const [assigningAsset, setAssigningAsset] = useState<AssetRecord | null>(
@@ -605,7 +736,14 @@ export default function AssetsPage() {
   const [assetAIError, setAssetAIError] = useState("");
   const [assetAIloading, setAssetAILoading] = useState(false);
   const [viewFilter, setViewFilter] = useState<
-    "all" | "available" | "assigned" | "repair" | "attention" | "duplicate_serial"
+    | "all"
+    | "available"
+    | "assigned"
+    | "repair"
+    | "attention"
+    | "duplicate_serial"
+    | "with_images"
+    | "no_images"
   >("all");
   const [locationFilter, setLocationFilter] = useState("all");
 
@@ -709,6 +847,16 @@ export default function AssetsPage() {
     [duplicateSerialAssets],
   );
 
+  const assetsWithImagesCount = useMemo(
+    () => assetRows.filter(hasAssetImage).length,
+    [assetRows],
+  );
+
+  const assetsWithoutImagesCount = useMemo(
+    () => assetRows.length - assetsWithImagesCount,
+    [assetRows.length, assetsWithImagesCount],
+  );
+
   const displayedAssets = useMemo(() => {
     let next: AssetRecord[];
     switch (viewFilter) {
@@ -726,6 +874,12 @@ export default function AssetsPage() {
         break;
       case "duplicate_serial":
         next = duplicateSerialAssets;
+        break;
+      case "with_images":
+        next = assetRows.filter(hasAssetImage);
+        break;
+      case "no_images":
+        next = assetRows.filter((asset) => !hasAssetImage(asset));
         break;
       default:
         next = assetRows;
@@ -980,6 +1134,42 @@ export default function AssetsPage() {
     await search(searchTerm);
   }
 
+  function getAssetsForExportLocation(locationId: string) {
+    if (locationId === "all") return assetRows;
+
+    if (locationId === "unassigned") {
+      return assetRows.filter(
+        (asset) => !asset.current_location_id && !asset.location?.id,
+      );
+    }
+
+    return assetRows.filter(
+      (asset) =>
+        asset.current_location_id === locationId ||
+        asset.location?.id === locationId,
+    );
+  }
+
+  function handleExportAssetsByLocation() {
+    const exportRows = getAssetsForExportLocation(exportLocationId);
+    const location = locations.find((item) => item.id === exportLocationId);
+    const locationName =
+      exportLocationId === "all"
+        ? "all-locations"
+        : exportLocationId === "unassigned"
+          ? "no-location"
+          : sanitizeFilenamePart(location?.name ?? "selected-location");
+
+    exportAssetsToExcel(exportRows, {
+      filename: `assets-${locationName}-${new Date().toISOString().slice(0, 10)}.xlsx`,
+      sheetName:
+        exportLocationId === "all"
+          ? "Assets"
+          : (location?.code || location?.name || "Location").slice(0, 31),
+    });
+    setExportModalOpen(false);
+  }
+
   function handleAddClick() {
     if (!canManageAssets) return;
     setSelectedAsset(null);
@@ -1109,10 +1299,11 @@ export default function AssetsPage() {
 
                 <button
                   type="button"
-                  onClick={() => exportAssetsToExcel(assetRows)}
-                  className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/75 transition hover:border-white/20 hover:bg-white/10 hover:text-white"
+                  onClick={() => setExportModalOpen(true)}
+                  className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/75 transition hover:border-white/20 hover:bg-white/10 hover:text-white"
                 >
-                  Export All Assets
+                  <Download size={16} />
+                  Export Assets
                 </button>
 
                 {canManageAssets ? (
@@ -1357,6 +1548,14 @@ export default function AssetsPage() {
                   id: "duplicate_serial",
                   label: `Duplicate Serial (${duplicateSerialCount})`,
                 },
+                {
+                  id: "with_images",
+                  label: `With Images (${assetsWithImagesCount})`,
+                },
+                {
+                  id: "no_images",
+                  label: `No Images (${assetsWithoutImagesCount})`,
+                },
               ].map((filter) => {
                 const active = viewFilter === filter.id;
 
@@ -1372,7 +1571,9 @@ export default function AssetsPage() {
                           | "assigned"
                           | "repair"
                           | "attention"
-                          | "duplicate_serial",
+                          | "duplicate_serial"
+                          | "with_images"
+                          | "no_images",
                       )
                     }
                     className={`rounded-xl px-3 py-2 text-sm transition ${
@@ -1453,6 +1654,16 @@ export default function AssetsPage() {
           onCreatePurchaseBatch={createPurchaseBatch}
         />
       ) : null}
+
+      <ExportAssetsModal
+        open={exportModalOpen}
+        locations={locations}
+        assets={assetRows}
+        selectedLocationId={exportLocationId}
+        onLocationChange={setExportLocationId}
+        onClose={() => setExportModalOpen(false)}
+        onExport={handleExportAssetsByLocation}
+      />
 
       <AssignAssetModal
         open={assignModalOpen}

@@ -17,6 +17,8 @@ import {
   Sparkles,
   Trash2,
   Video,
+  Volume2,
+  Square,
   X,
 } from "lucide-react";
 import { useAuth } from "../../../app/providers/AuthProvider";
@@ -144,7 +146,10 @@ function attachmentUrl(attachment: ChatAttachment) {
   return attachment.downloadUrl || attachment.download_url || attachment.url;
 }
 
-function getLoadingLabel(prompt: string, attachments: PendingAttachment[] = []) {
+function getLoadingLabel(
+  prompt: string,
+  attachments: PendingAttachment[] = [],
+) {
   const text = prompt.toLowerCase();
 
   if (/\b(image|picture|poster|logo|visual|creative|draw|photo)\b/.test(text)) {
@@ -181,18 +186,291 @@ function isBrowserUrl(url?: string) {
   return !!url && (/^(https?:|blob:|data:)/i.test(url) || url.startsWith("/"));
 }
 
-function MessageContent({ content }: { content: string }) {
+type TimesheetExportPayload = {
+  type: "timesheet_export";
+  userId: string;
+  from: string;
+  to: string;
+  formats: string[];
+};
+
+function readAuthAccessToken(auth: unknown): string | null {
+  if (!auth || typeof auth !== "object") return null;
+
+  const record = auth as Record<string, unknown>;
+  const directToken = record.accessToken ?? record.access_token;
+  if (typeof directToken === "string" && directToken.trim()) {
+    return directToken.trim();
+  }
+
+  for (const key of ["session", "currentSession", "authSession"]) {
+    const session = record[key];
+    if (!session || typeof session !== "object") continue;
+    const token = (session as Record<string, unknown>).access_token;
+    if (typeof token === "string" && token.trim()) return token.trim();
+  }
+
+  try {
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const key = localStorage.key(index);
+      if (!key || !key.startsWith("sb-") || !key.endsWith("-auth-token")) {
+        continue;
+      }
+
+      const value = localStorage.getItem(key);
+      if (!value) continue;
+
+      const parsed = JSON.parse(value) as Record<string, unknown>;
+      const token =
+        typeof parsed.access_token === "string"
+          ? parsed.access_token
+          : typeof (
+                parsed.currentSession as Record<string, unknown> | undefined
+              )?.access_token === "string"
+            ? ((parsed.currentSession as Record<string, unknown>)
+                .access_token as string)
+            : typeof (parsed.session as Record<string, unknown> | undefined)
+                  ?.access_token === "string"
+              ? ((parsed.session as Record<string, unknown>)
+                  .access_token as string)
+              : null;
+
+      if (token?.trim()) return token.trim();
+    }
+  } catch {
+    // Ignore localStorage parsing failures.
+  }
+
+  return null;
+}
+
+function getSupabaseFunctionsUrl() {
+  const explicitUrl = (
+    (import.meta as unknown as { env?: Record<string, string | undefined> }).env
+      ?.VITE_SUPABASE_URL ?? ""
+  ).replace(/\/$/, "");
+
+  if (explicitUrl) return `${explicitUrl}/functions/v1`;
+
+  return "/functions/v1";
+}
+
+function parseTimesheetExportMarker(content: string): {
+  cleanContent: string;
+  exportPayload: TimesheetExportPayload | null;
+} {
+  const markerPattern = /\[\[EXPORT_TIMESHEET:([\s\S]*?)\]\]/;
+  const match = content.match(markerPattern);
+
+  if (!match?.[1]) {
+    return { cleanContent: content, exportPayload: null };
+  }
+
+  try {
+    const parsed = JSON.parse(match[1]) as TimesheetExportPayload;
+    const formats = Array.isArray(parsed.formats)
+      ? parsed.formats
+          .map((format) => String(format).toLowerCase().trim())
+          .filter(Boolean)
+      : [];
+
+    return {
+      cleanContent: content.replace(markerPattern, "").trim(),
+      exportPayload: {
+        type: "timesheet_export",
+        userId: String(parsed.userId ?? ""),
+        from: String(parsed.from ?? ""),
+        to: String(parsed.to ?? ""),
+        formats: formats.length > 0 ? formats : ["pdf", "csv", "xlsx", "json"],
+      },
+    };
+  } catch {
+    return {
+      cleanContent: content.replace(markerPattern, "").trim(),
+      exportPayload: null,
+    };
+  }
+}
+
+function isTimesheetExportUrl(url: string) {
+  return (
+    /\/functions\/v1\/export-timesheet\?/i.test(url) ||
+    /^\/api\/timesheets\/export\?/i.test(url)
+  );
+}
+
+function extensionFromTimesheetFormat(format: string) {
+  const normalized = format.toLowerCase();
+  if (normalized === "xlsx") return "xls";
+  if (normalized === "excel") return "xls";
+  if (normalized === "csv") return "csv";
+  if (normalized === "json") return "json";
+  if (normalized === "pdf") return "html";
+  if (normalized === "html") return "html";
+  return normalized.replace(/[^a-z0-9]/g, "") || "file";
+}
+
+function formatExportLabel(format: string) {
+  const normalized = format.toLowerCase();
+  if (normalized === "xlsx") return "Excel";
+  if (normalized === "csv") return "CSV";
+  if (normalized === "json") return "JSON";
+  if (normalized === "pdf") return "PDF";
+  return normalized.toUpperCase();
+}
+
+function extensionFromTimesheetUrl(url: string) {
+  try {
+    const parsed = new URL(url, window.location.origin);
+    return extensionFromTimesheetFormat(
+      parsed.searchParams.get("format")?.toLowerCase() || "file",
+    );
+  } catch {
+    return "file";
+  }
+}
+
+function timesheetFilename(url: string) {
+  try {
+    const parsed = new URL(url, window.location.origin);
+    const from = parsed.searchParams.get("from") || "from";
+    const to = parsed.searchParams.get("to") || "to";
+    return `timesheet-${from}-to-${to}.${extensionFromTimesheetUrl(url)}`;
+  } catch {
+    return `timesheet.${extensionFromTimesheetUrl(url)}`;
+  }
+}
+
+function filenameFromContentDisposition(header: string | null) {
+  if (!header) return null;
+
+  const utf8Match = header.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match?.[1]) {
+    try {
+      return decodeURIComponent(utf8Match[1].replace(/"/g, ""));
+    } catch {
+      return utf8Match[1].replace(/"/g, "");
+    }
+  }
+
+  const normalMatch = header.match(/filename="?([^";]+)"?/i);
+  return normalMatch?.[1] ?? null;
+}
+
+async function downloadBlobResponse(
+  response: Response,
+  fallbackFilename: string,
+) {
+  const contentType = response.headers.get("content-type") ?? "";
+
+  if (contentType.includes("text/html") && fallbackFilename.endsWith(".json")) {
+    throw new Error(
+      "Export returned HTML instead of JSON. Please check the export endpoint.",
+    );
+  }
+
+  const blob = await response.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+
+  link.href = objectUrl;
+  link.download =
+    filenameFromContentDisposition(
+      response.headers.get("content-disposition"),
+    ) ?? fallbackFilename;
+
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1200);
+}
+
+async function downloadBrowserFile(url: string, filename?: string) {
+  const response = await fetch(url, {
+    credentials: "include",
+  });
+
+  if (!response.ok) {
+    throw new Error(`Download failed with status ${response.status}`);
+  }
+
+  await downloadBlobResponse(response, filename || "download");
+}
+
+async function downloadTimesheetExport(
+  exportPayload: TimesheetExportPayload,
+  format: string,
+  accessToken: string | null,
+) {
+  if (!accessToken) {
+    throw new Error("You must be logged in to download this timesheet.");
+  }
+
+  const url = `${getSupabaseFunctionsUrl()}/export-timesheet?userId=${encodeURIComponent(
+    exportPayload.userId,
+  )}&from=${encodeURIComponent(exportPayload.from)}&to=${encodeURIComponent(
+    exportPayload.to,
+  )}&format=${encodeURIComponent(format)}`;
+
+  const response = await fetch(url, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => "");
+    throw new Error(
+      errorText || `Download failed with status ${response.status}`,
+    );
+  }
+
+  await downloadBlobResponse(
+    response,
+    `timesheet-${exportPayload.from}-to-${exportPayload.to}.${extensionFromTimesheetFormat(
+      format,
+    )}`,
+  );
+}
+
+function MessageContent({
+  content,
+  accessToken,
+}: {
+  content: string;
+  accessToken?: string | null;
+}) {
+  const [downloadingKey, setDownloadingKey] = useState<string | null>(null);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+
+  const { cleanContent, exportPayload } = useMemo(
+    () => parseTimesheetExportMarker(content),
+    [content],
+  );
+
   const parts: Array<
     | { type: "text"; value: string }
-    | { type: "link"; label: string; url: string; downloadable: boolean }
+    | {
+        type: "link";
+        label: string;
+        url: string;
+        downloadable: boolean;
+        exportDownload: boolean;
+      }
   > = [];
+
   const linkPattern = /\[([^\]]+)\]\(([^)]+)\)/g;
   let cursor = 0;
   let match: RegExpExecArray | null;
 
-  while ((match = linkPattern.exec(content)) !== null) {
+  while ((match = linkPattern.exec(cleanContent)) !== null) {
     if (match.index > cursor) {
-      parts.push({ type: "text", value: content.slice(cursor, match.index) });
+      parts.push({
+        type: "text",
+        value: cleanContent.slice(cursor, match.index),
+      });
     }
 
     const url = match[2] ?? "";
@@ -201,15 +479,55 @@ function MessageContent({ content }: { content: string }) {
       label: match[1] ?? url,
       url,
       downloadable: isBrowserUrl(url),
+      exportDownload: isTimesheetExportUrl(url),
     });
     cursor = match.index + match[0].length;
   }
 
-  if (cursor < content.length) {
-    parts.push({ type: "text", value: content.slice(cursor) });
+  if (cursor < cleanContent.length) {
+    parts.push({ type: "text", value: cleanContent.slice(cursor) });
   }
 
-  if (!parts.length) return <>{content}</>;
+  if (!parts.length && !exportPayload) return <>{cleanContent}</>;
+
+  const handleLegacyDownload = async (url: string) => {
+    setDownloadError(null);
+    setDownloadingKey(url);
+
+    try {
+      await downloadBrowserFile(url, timesheetFilename(url));
+    } catch (error) {
+      console.error("Timesheet download failed:", error);
+      setDownloadError(
+        error instanceof Error
+          ? error.message
+          : "I could not download that file. Please try again.",
+      );
+    } finally {
+      setDownloadingKey(null);
+    }
+  };
+
+  const handleTimesheetExport = async (format: string) => {
+    if (!exportPayload) return;
+
+    const key = `${exportPayload.userId}:${exportPayload.from}:${exportPayload.to}:${format}`;
+    setDownloadError(null);
+    setDownloadingKey(key);
+
+    try {
+      await downloadTimesheetExport(exportPayload, format, accessToken ?? null);
+    } catch (error) {
+      console.error("Timesheet export failed:", error);
+      setDownloadError(
+        error instanceof Error
+          ? error.message
+          : "I could not export that timesheet. Please try again.",
+      );
+    } finally {
+      setDownloadingKey(null);
+    }
+  };
 
   return (
     <>
@@ -230,19 +548,83 @@ function MessageContent({ content }: { content: string }) {
           );
         }
 
+        if (part.exportDownload) {
+          const isDownloading = downloadingKey === part.url;
+
+          return (
+            <button
+              key={index}
+              type="button"
+              onClick={() => void handleLegacyDownload(part.url)}
+              disabled={isDownloading}
+              className="mx-1 inline-flex items-center gap-1.5 rounded-full border border-orange-400/25 bg-orange-500/15 px-3 py-1 text-xs font-semibold text-orange-100 shadow-[0_10px_30px_rgba(249,115,22,0.12)] transition hover:border-orange-300/45 hover:bg-orange-500/25 disabled:cursor-wait disabled:opacity-60"
+            >
+              {isDownloading ? (
+                <Loader2 size={13} className="animate-spin" />
+              ) : (
+                <Download size={13} />
+              )}
+              {part.label}
+            </button>
+          );
+        }
+
         return (
           <a
             key={index}
             href={part.url}
-            target={part.url.startsWith("/") ? undefined : "_blank"}
-            rel={part.url.startsWith("/") ? undefined : "noreferrer"}
-            download={part.url.startsWith("/") ? undefined : true}
+            target="_blank"
+            rel="noreferrer"
             className="font-medium text-[#8ab4ff] underline decoration-white/20 underline-offset-4 hover:text-white"
           >
             {part.label}
           </a>
         );
       })}
+
+      {exportPayload && (
+        <div className="mt-4 rounded-2xl border border-orange-400/15 bg-orange-500/[0.08] p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-orange-200/80">
+                Export timesheet
+              </p>
+              <p className="mt-1 text-xs text-white/45">
+                Choose a format. The file downloads here without leaving chat.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {exportPayload.formats.map((format) => {
+                const key = `${exportPayload.userId}:${exportPayload.from}:${exportPayload.to}:${format}`;
+                const isDownloading = downloadingKey === key;
+
+                return (
+                  <button
+                    key={format}
+                    type="button"
+                    onClick={() => void handleTimesheetExport(format)}
+                    disabled={isDownloading}
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-orange-500 px-3 py-2 text-xs font-bold text-black shadow-[0_12px_30px_rgba(249,115,22,0.22)] transition hover:bg-orange-400 disabled:cursor-wait disabled:bg-orange-500/40"
+                  >
+                    {isDownloading ? (
+                      <Loader2 size={13} className="animate-spin" />
+                    ) : (
+                      <Download size={13} />
+                    )}
+                    {formatExportLabel(format)}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {downloadError && (
+        <span className="mt-2 block rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-200">
+          {downloadError}
+        </span>
+      )}
     </>
   );
 }
@@ -356,14 +738,17 @@ function MessageAttachments({
 
 function MessageBubble({
   message,
+  accessToken,
   onDelete,
   onRegenerateImage,
 }: {
   message: LocalChatMessage;
+  accessToken?: string | null;
   onDelete?: (messageId: string) => void;
   onRegenerateImage?: (messageId: string) => void;
 }) {
   const [copied, setCopied] = useState(false);
+  const [speaking, setSpeaking] = useState(false);
   const isUser = message.role === "user";
 
   const handleCopy = async () => {
@@ -372,12 +757,46 @@ function MessageBubble({
     window.setTimeout(() => setCopied(false), 1400);
   };
 
+  const handleReadAloud = () => {
+    if (!("speechSynthesis" in window)) return;
+
+    if (speaking) {
+      window.speechSynthesis.cancel();
+      setSpeaking(false);
+      return;
+    }
+
+    const cleanText = (message.content || "")
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+      .replace(/https?:\/\/\S+/g, "")
+      .replace(/\/api\/\S+/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    if (!cleanText) return;
+
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(cleanText);
+    utterance.rate = 0.95;
+    utterance.pitch = 1;
+    utterance.onend = () => setSpeaking(false);
+    utterance.onerror = () => setSpeaking(false);
+    setSpeaking(true);
+    window.speechSynthesis.speak(utterance);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (speaking) window.speechSynthesis.cancel();
+    };
+  }, [speaking]);
+
   if (message.pending) {
     return (
       <div className="flex justify-start">
         <div className="rounded-2xl px-1 py-3">
           <div className="flex items-center gap-2 text-sm text-white/60">
-            <Loader2 size={14} className="animate-spin text-white/50" />
+            <Loader2 size={14} className="animate-spin text-orange-300" />
             {message.content || "Thinking..."}
           </div>
         </div>
@@ -387,25 +806,34 @@ function MessageBubble({
 
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
-      <div className={`group max-w-[min(760px,86%)] ${isUser ? "order-1" : ""}`}>
+      <div
+        className={`group max-w-[min(780px,90%)] ${isUser ? "order-1" : ""}`}
+      >
         <div
-          className={`px-4 py-3 text-[15px] leading-7 ${
+          className={`px-4 py-3 text-[15px] leading-7 shadow-[0_16px_55px_rgba(0,0,0,0.16)] ${
             isUser
               ? "rounded-3xl bg-[#303030] text-white"
               : message.error
                 ? "rounded-2xl border border-red-500/20 bg-red-500/10 text-red-200"
-                : "text-white/88"
+                : "rounded-3xl border border-white/8 bg-[#1f1f1f]/70 text-white/88"
           }`}
         >
           <div className="whitespace-pre-wrap">
-            {message.error
-              ? message.content || "Something went wrong while getting the response. Please try again."
-              : <MessageContent content={message.content || "Attached file"} />}
+            {message.error ? (
+              message.content ||
+              "Something went wrong while getting the response. Please try again."
+            ) : (
+              <MessageContent
+                content={message.content || "Attached file"}
+                accessToken={accessToken}
+              />
+            )}
           </div>
           <MessageAttachments
             attachments={message.attachments}
             onRegenerateImage={
-              !isUser && message.attachments?.some((item) => item.type === "image")
+              !isUser &&
+              message.attachments?.some((item) => item.type === "image")
                 ? () => onRegenerateImage?.(message.id)
                 : undefined
             }
@@ -413,11 +841,24 @@ function MessageBubble({
         </div>
 
         <div
-          className={`mt-1 flex items-center gap-2 px-2 text-[11px] text-white/28 ${
+          className={`mt-1 flex items-center gap-2 px-2 text-[11px] text-white/32 ${
             isUser ? "justify-end" : "justify-start"
           }`}
         >
           <span>{formatTime(message.createdAt)}</span>
+
+          {!message.error && !isUser && (
+            <button
+              type="button"
+              onClick={handleReadAloud}
+              className="inline-flex items-center gap-1 opacity-70 transition hover:text-white/75 group-hover:opacity-100"
+              title={speaking ? "Stop reading" : "Read response aloud"}
+            >
+              {speaking ? <Square size={10} /> : <Volume2 size={11} />}
+              {speaking ? "Stop" : "Read aloud"}
+            </button>
+          )}
+
           {!message.error && (
             <button
               type="button"
@@ -473,7 +914,7 @@ function ChatSidebar({
     .filter((conversation) => {
       const conversationProjectId =
         typeof conversation.metadata?.projectId === "string" &&
-          conversation.metadata.projectId.trim().length > 0
+        conversation.metadata.projectId.trim().length > 0
           ? conversation.metadata.projectId
           : null;
 
@@ -507,7 +948,7 @@ function ChatSidebar({
         <button
           type="button"
           onClick={onNewConversation}
-          className="flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-transparent px-3 py-2.5 text-sm font-medium text-white transition hover:bg-white/8"
+          className="flex w-full items-center justify-center gap-2 rounded-2xl bg-orange-500 px-3 py-2.5 text-sm font-semibold text-black shadow-[0_14px_40px_rgba(249,115,22,0.22)] transition hover:bg-orange-400"
         >
           <Plus size={16} />
           New chat
@@ -546,7 +987,7 @@ function ChatSidebar({
           <button
             type="button"
             onClick={onCreateProject}
-            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-white/45 transition hover:bg-white/8 hover:text-white/75"
+            className="flex w-full items-center gap-2 rounded-lg border border-white/8 px-3 py-2 text-left text-sm text-white/55 transition hover:border-orange-400/30 hover:bg-orange-500/10 hover:text-orange-100"
           >
             <Plus size={15} />
             New project
@@ -662,6 +1103,7 @@ export default function RealTimeChat({
   >([]);
 
   const auth = useAuth();
+  const authAccessToken = useMemo(() => readAuthAccessToken(auth), [auth]);
   const userId = auth?.user?.id;
   const organizationId =
     auth?.currentOrganization?.organization_id ??
@@ -674,7 +1116,9 @@ export default function RealTimeChat({
 
   const activeConversation = useMemo(
     () =>
-      conversations.find((conversation) => conversation.id === activeConversationId),
+      conversations.find(
+        (conversation) => conversation.id === activeConversationId,
+      ),
     [activeConversationId, conversations],
   );
 
@@ -725,7 +1169,7 @@ export default function RealTimeChat({
 
         const sessionProjectId =
           typeof session.conversation.metadata?.projectId === "string" &&
-            session.conversation.metadata.projectId.trim().length > 0
+          session.conversation.metadata.projectId.trim().length > 0
             ? session.conversation.metadata.projectId
             : null;
 
@@ -771,7 +1215,9 @@ export default function RealTimeChat({
   const createNewConversation = async () => {
     if (!userId) return;
     if (!organizationId) {
-      setError("Your organization is still loading. Please try again in a moment.");
+      setError(
+        "Your organization is still loading. Please try again in a moment.",
+      );
       return;
     }
 
@@ -802,7 +1248,9 @@ export default function RealTimeChat({
   const createProject = async () => {
     if (!userId) return;
     if (!organizationId) {
-      setError("Your organization is still loading. Please try again in a moment.");
+      setError(
+        "Your organization is still loading. Please try again in a moment.",
+      );
       return;
     }
 
@@ -828,7 +1276,9 @@ export default function RealTimeChat({
       setNewProjectDescription("");
     } catch (error) {
       console.error("Error creating AI project:", error);
-      setError("Failed to create the project. Make sure the latest migration is applied.");
+      setError(
+        "Failed to create the project. Make sure the latest migration is applied.",
+      );
     } finally {
       setCreatingProject(false);
     }
@@ -1006,7 +1456,11 @@ export default function RealTimeChat({
           console.warn("Document training upload failed:", error);
         }
 
-        if (attachments.some((item) => item.messageId === messageId && item.type === "document")) {
+        if (
+          attachments.some(
+            (item) => item.messageId === messageId && item.type === "document",
+          )
+        ) {
           continue;
         }
       }
@@ -1022,9 +1476,14 @@ export default function RealTimeChat({
         size: pending.file.size,
         mimeType: pending.file.type || "application/octet-stream",
         uploadedAt: nowIso(),
-        metadata: pending.type === "document"
-          ? { trained: false, uploadError: "Document upload failed. Try a smaller PDF/CSV or paste a report URL." }
-          : undefined,
+        metadata:
+          pending.type === "document"
+            ? {
+                trained: false,
+                uploadError:
+                  "Document upload failed. Try a smaller PDF/CSV or paste a report URL.",
+              }
+            : undefined,
       });
     }
 
@@ -1036,7 +1495,9 @@ export default function RealTimeChat({
       return;
     }
     if (!organizationId) {
-      setError("Your organization is still loading. Please try again in a moment.");
+      setError(
+        "Your organization is still loading. Please try again in a moment.",
+      );
       return;
     }
 
@@ -1050,7 +1511,8 @@ export default function RealTimeChat({
         const conversation = await ChatHistoryService.createConversation({
           userId,
           organizationId,
-          title: prompt.slice(0, 58) || outgoingFiles[0]?.file.name || "New Chat",
+          title:
+            prompt.slice(0, 58) || outgoingFiles[0]?.file.name || "New Chat",
           role: role || undefined,
           projectId: selectedProjectId,
           projectName: selectedProject?.title ?? null,
@@ -1066,7 +1528,10 @@ export default function RealTimeChat({
     }
 
     const userMessageId = makeId("msg");
-    const attachments = await buildChatAttachments(outgoingFiles, userMessageId);
+    const attachments = await buildChatAttachments(
+      outgoingFiles,
+      userMessageId,
+    );
     const userMessage: LocalChatMessage = {
       id: userMessageId,
       conversationId,
@@ -1096,7 +1561,10 @@ export default function RealTimeChat({
             name: attachment.name,
             url: attachment.url,
             download_url: attachment.download_url || attachment.url,
-            downloadUrl: attachment.downloadUrl || attachment.download_url || attachment.url,
+            downloadUrl:
+              attachment.downloadUrl ||
+              attachment.download_url ||
+              attachment.url,
             size: attachment.size,
             mimeType: attachment.mimeType,
             metadata: attachment.metadata,
@@ -1151,16 +1619,20 @@ export default function RealTimeChat({
           data: {
             model: "workspace-ai",
             tokens: response.content.length,
-            attachments: response.attachments?.map((attachment) => ({
-              type: attachment.type,
-              name: attachment.name,
-              url: attachment.url,
-              download_url: attachment.download_url || attachment.url,
-              downloadUrl: attachment.downloadUrl || attachment.download_url || attachment.url,
-              size: attachment.size,
-              mimeType: attachment.mimeType,
-              metadata: attachment.metadata,
-            })) ?? [],
+            attachments:
+              response.attachments?.map((attachment) => ({
+                type: attachment.type,
+                name: attachment.name,
+                url: attachment.url,
+                download_url: attachment.download_url || attachment.url,
+                downloadUrl:
+                  attachment.downloadUrl ||
+                  attachment.download_url ||
+                  attachment.url,
+                size: attachment.size,
+                mimeType: attachment.mimeType,
+                metadata: attachment.metadata,
+              })) ?? [],
           },
         });
       } catch (error) {
@@ -1170,9 +1642,10 @@ export default function RealTimeChat({
       await loadConversations();
     } catch (error) {
       console.error("Chat AI service error:", error);
-      const errorMessage = error instanceof Error
-        ? error.message
-        : "Something went wrong while getting the response. Please try again.";
+      const errorMessage =
+        error instanceof Error
+          ? error.message
+          : "Something went wrong while getting the response. Please try again.";
       setMessages((prev) =>
         prev.map((item) =>
           item.id === typingMessage.id
@@ -1213,7 +1686,8 @@ export default function RealTimeChat({
       const prompt = originalPrompt
         ? `Regenerate this image with the same request: ${originalPrompt}`
         : "Regenerate the last image with a similar prompt.";
-      const conversationId = targetMessage.conversationId || activeConversationId;
+      const conversationId =
+        targetMessage.conversationId || activeConversationId;
       if (!conversationId) return;
 
       const typingMessage: LocalChatMessage = {
@@ -1262,16 +1736,20 @@ export default function RealTimeChat({
             data: {
               model: "workspace-ai",
               regeneratedFrom: assistantMessageId,
-              attachments: response.attachments?.map((attachment) => ({
-                type: attachment.type,
-                name: attachment.name,
-                url: attachment.url,
-                download_url: attachment.download_url || attachment.url,
-                downloadUrl: attachment.downloadUrl || attachment.download_url || attachment.url,
-                size: attachment.size,
-                mimeType: attachment.mimeType,
-                metadata: attachment.metadata,
-              })) ?? [],
+              attachments:
+                response.attachments?.map((attachment) => ({
+                  type: attachment.type,
+                  name: attachment.name,
+                  url: attachment.url,
+                  download_url: attachment.download_url || attachment.url,
+                  downloadUrl:
+                    attachment.downloadUrl ||
+                    attachment.download_url ||
+                    attachment.url,
+                  size: attachment.size,
+                  mimeType: attachment.mimeType,
+                  metadata: attachment.metadata,
+                })) ?? [],
             },
           });
         } catch (error) {
@@ -1279,9 +1757,10 @@ export default function RealTimeChat({
         }
       } catch (error) {
         console.error("Image regeneration failed:", error);
-        const errorMessage = error instanceof Error
-          ? error.message
-          : "Image regeneration failed. Please try again.";
+        const errorMessage =
+          error instanceof Error
+            ? error.message
+            : "Image regeneration failed. Please try again.";
         setMessages((prev) =>
           prev.map((item) =>
             item.id === typingMessage.id
@@ -1394,14 +1873,6 @@ export default function RealTimeChat({
                 Back
               </button>
             )}
-            <button
-              type="button"
-              onClick={createNewConversation}
-              className="hidden items-center gap-2 rounded-xl bg-white/10 px-3 py-2 text-sm font-medium text-white transition hover:bg-white/15 sm:inline-flex"
-            >
-              <Plus size={15} />
-              New
-            </button>
           </div>
         </header>
 
@@ -1430,7 +1901,8 @@ export default function RealTimeChat({
                     What can I help with?
                   </h3>
                   <p className="mt-2 text-sm text-white/48">
-                    Ask a question, attach a file, or continue from your saved chats.
+                    Ask a question, attach a file, or continue from your saved
+                    chats.
                   </p>
                 </div>
 
@@ -1461,7 +1933,10 @@ export default function RealTimeChat({
                   <MessageBubble
                     key={message.id}
                     message={message}
-                    onDelete={message.role === "user" ? deleteMessage : undefined}
+                    accessToken={authAccessToken}
+                    onDelete={
+                      message.role === "user" ? deleteMessage : undefined
+                    }
                     onRegenerateImage={regenerateImage}
                   />
                 ))}
@@ -1574,7 +2049,8 @@ export default function RealTimeChat({
                   New project
                 </h3>
                 <p className="mt-1 text-sm leading-5 text-white/45">
-                  Create a focused AI space with its own chats, files, and memory.
+                  Create a focused AI space with its own chats, files, and
+                  memory.
                 </p>
               </div>
               <button
